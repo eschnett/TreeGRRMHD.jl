@@ -40,11 +40,13 @@ Rules that follow from `CODE.md` and govern every change here:
 
 ## Current state
 
-**Design only.** `CODE.md` records the reviewed design (2026-09-23);
-`src/TreeGRRMHD.jl` is still the Pkg template. The next step is the
-implementation plan, `PLAN.md`, drafted together with Erik: steps on
-`claude/step-N-slug` branches, each naming the upstream item it waits for.
-No physics code is written before `PLAN.md` is agreed.
+**Design and plan only.** `CODE.md` records the reviewed design
+(2026-09-23); `PLAN.md` is the implementation plan (drafted 2026-09-23):
+steps 0–15 on `claude/step-N-slug` branches, run one agent per step, and
+the exact upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each
+naming the step it blocks. `src/TreeGRRMHD.jl` is still the Pkg template.
+**Step 0 is next.** Steps 4a–4c build the IMEX package in its own
+repository (`~/src/jl/IMEXRungeKutta`, name proposed).
 
 ## Commands
 

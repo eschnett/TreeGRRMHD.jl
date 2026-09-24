@@ -14,8 +14,8 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: design only. No code exists yet; the implementation plan
-(`PLAN.md`) is the next thing to be written, and every number below is
+*Status: design only. No code exists yet; the implementation plan is
+`PLAN.md` (drafted), step 0 is next, and every number below is
 unmeasured.*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
@@ -74,84 +74,111 @@ step N)", "(measured in step N)" — rather than diverging silently.
 
 ## Upstream prerequisites
 
-What this package needs from its siblings, each with its consumer and its
-reason, so that each item can be read on its own. "(req)" blocks the
-milestone named; "(wanted)" has a workaround here; "(later)" is not needed
-for the TOV milestones.
+What this package needs from its siblings, and why. *(Amended with
+PLAN.md.)* The exact requirements — API, semantics, the tests the sibling
+should carry, and the check this package adds when an item lands — are in
+`PLAN.md`, "Upstream requirements", under the IDs used here. The summary
+below keeps only the reasons. "(req)" blocks the step named; "(wanted)" has
+a workaround listed in `PLAN.md`; "(later)" is not needed before rung 7.
 
 ### TreeAMR
 
-1. **(req, rung 1) A state vector spanning several field sets** —
-   `statevector(sets)`, `scatter!(sets, u)`, `statearray(du, sets, i)`, as
-   TreeAMR's `CODE.md` already specifies ("implemented with the first
-   application that needs it"). Consumer: every evolution here. The
-   evolved state is a cell-centered matter set, three edge-centered sets
-   for `A`, a vertex-centered set for the gauge scalar, and — when coupled
-   — TreeGH's vertex-centered set; one integrator advances all of them.
-2. **(strongly wanted, rung 4) A limited conservative prolongation** for
-   cell-centered data. "Limited" in the reconstruction sense: a nonlinear
-   prolongation — slope-limited (minmod/MC) or positivity-scaled toward
-   the coarse average — that is still exactly conservative (the subcell
-   averages reproduce the coarse cell's average), second-order where the
-   data are smooth, and never creates new extrema (fine values stay within
-   the range of the neighbouring coarse averages). Reason: at a neutron
-   star's surface ρ drops by about ten orders of magnitude, and the linear
-   width-3 operator overshoots there into cells below the atmosphere;
-   TreeHydro measured 4096 floored cells at width 3 against none at
-   width 1 on a shock crossing a coarse-fine face, at 0.47% in L1. Being
-   nonlinear, it is not a fixed-weight tensor product, so it needs a new
-   operator family or a hook covering both ghost filling and the regrid
-   transfer. Workaround: width 1 near surfaces.
-3. **(wanted) A device-capable boundary hook that reads the interior**,
-   for outflow conditions. Workaround: Dirichlet from the initial or
-   analytic exterior, which is what the TOV milestones need anyway.
-4. **(wanted) `workgroupsize` on `map_blocks!`** (also on TreeGH's list).
-5. **(later)** MPI (M7), I/O and checkpointing (M9), point interpolation.
+- **AMR-1 (req, step 5) A state vector spanning several field sets** —
+  `statevector(sets)`, `scatter!(sets, u)`, `statearray(du, sets, i)`, as
+  TreeAMR's `CODE.md` already specifies ("implemented with the first
+  application that needs it"), plus segment views. The evolved state is a
+  cell-centered matter set, three edge-centered sets for `A`, a
+  vertex-centered set for the gauge scalar, and — when coupled — TreeGH's
+  vertex-centered set; one integrator advances all of them.
+- **AMR-2 (wanted, step 6) Per-set boundary hooks in `regrid!`.** It takes
+  one hook for every set, and an `AllVariables` hook is length-checked
+  against each set's `nvars`, so one hook cannot serve this package's sets.
+- **AMR-3 (wanted, step 8) `adapt_to_initial_data!` over several sets**;
+  today it adapts one.
+- **AMR-4 (strongly wanted, step 10) A limited conservative prolongation**
+  for cell-centered data. "Limited" in the reconstruction sense: a nonlinear
+  prolongation — slope-limited (minmod/MC) and scaled toward the coarse
+  average — that is still exactly conservative (the subcell averages
+  reproduce the coarse cell's average), second-order where the data are
+  smooth, and never creates new extrema (fine values stay within the range
+  of the neighbouring coarse averages). Reason: at a neutron star's surface
+  ρ drops by about ten orders of magnitude, and the linear width-3 operator
+  overshoots there into cells below the atmosphere; TreeHydro measured 4096
+  floored cells at width 3 against none at width 1 on a shock crossing a
+  coarse-fine face, at 0.47% in L1. Being nonlinear, it is not a
+  fixed-weight tensor product, so it needs a new operator family or a hook
+  covering both ghost filling and the regrid transfer. Workaround: width 1
+  near surfaces.
+- **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
+  TreeGH's list).
+- **AMR-6 (later) A device-capable boundary hook that reads the interior**,
+  for outflow conditions. Workaround: Dirichlet from the initial or
+  analytic exterior, which is what the TOV milestones need anyway.
+- *(later)* MPI (M7), I/O and checkpointing (M9), point interpolation.
 
 ### TreeGeneralizedHarmonic
 
-1. **(req, rung 5) A stress-energy input.** A vertex-centered `Tsrc` field
-   set (10 components, `G = 0`) read at the owned point in
-   `gh_rhs_kernel!`, following the `Hsrc`/`gauge_at` pattern, switched by a
-   `Val` in `GHProblem`, entering as
-   `∂ₜΠ_ab += 16π α√γ (T_ab − ½ g_ab T)`. (That factor is derived from
-   `notes/formulation.md` §1–2 and must be checked there.) The ADM monitor
-   gains the matter terms, `ℋ → ℋ − 16πρ_ADM` and `ℳ_i → ℳ_i − 8π S_i`,
-   signs to be checked likewise.
-2. **(req, rung 5) A right-hand side callable inside an external
-   integrator**: `gh_rhs!` on its sub-state of a multi-set state vector,
-   with the problem constructible without `evolve!`, and the regrid,
-   indicator and diagnostics reachable as functions. The coupled driver
-   lives here and calls them.
-3. **(req, rung 5) The CFL factor re-validated under an SSP3 explicit
-   tableau.** `cfl = 1/4` was measured with RK4, whose stability region on
-   the imaginary axis is wider than SSPRK3's.
-4. **(wanted) Julia 1.10.** TreeGH pins `julia = "1.11"` and
-   `LinearAlgebra = "1.11"`; a grep of its `src/` found no 1.11-only
-   feature (`public`, `Memory`, `ScopedValue`), so the pin looks
-   incidental. If it stays, the coupling here becomes a package extension
-   (see [Julia version](#julia-version)).
-5. **(wanted) A ghost width of `q/2 + 2`** as an option, so that the
-   4th-order vertex→cell metric interpolation reaches every stored cell of
-   a `G = 3` matter set (see [Metric at cells, faces and
-   edges](#metric-at-cells-faces-and-edges)).
-6. **(later)** A damped-harmonic gauge driver, radiative or
-   constraint-preserving outer boundaries, excision or a generalized
-   interior for collapse, Ψ₄ extraction.
+- **GH-0 (req, step 10) Step 8 on `main`.** The unmerged step-8 branches
+  widen `GHProblem`, `gh_rhs_kernel!` and `evolve!`; the items below target
+  `main` only.
+- **GH-1 (req, step 10) Public access to the vertex metric**: the packing
+  helpers under public names, the layout of `U.work` as a documented
+  contract, and one exported pointwise function returning `h`, `Π` and `∂h`
+  at a vertex. The Cowling runs read the metric from a vertex set in
+  TreeGH's layout.
+- **GH-2 (req, step 10) Registration, and compat satisfiable from the
+  registry.** A dependency's `[sources]` is ignored downstream, so every
+  TreeAMR feature TreeGH uses must be in a released TreeAMR. The Julia
+  floor is discussed under [Julia version](#julia-version).
+- **GH-3 (req, step 11) A stress-energy input.** A vertex-centered `Tsrc`
+  field set (10 components, `G = 0`) read at the owned point in
+  `gh_rhs_kernel!`, following the `Hsrc`/`gauge_at` pattern, switched by a
+  `Val` in `GHProblem`, entering as `∂ₜΠ_ab += 16π α√γ (T_ab − ½ g_ab T)`
+  (derived from `notes/formulation.md` §1–2: `R^H_ab = 8π(T_ab − ½g_abT)`
+  turns `S0` into `S0 − 16πT̄_ab`, and the source enters as `−α√γ S0`). The
+  ADM monitor gains the matter terms, `ℋ − 16πρ_ADM` and `ℳ_i − 8π S_i`.
+- **GH-4 (req, step 11) A right-hand side callable inside an external
+  integrator**: a kernel-only entry point for a caller that has already
+  scattered and ghost-filled, integrator-free limiters, all accepting
+  segment views of a multi-set state vector, and `evolve!` as a composition
+  of exported functions. The coupled driver lives here and calls them.
+- **GH-5 (wanted, step 10) A ghost width of at least `q/2 + 1`**, so that
+  the 4th-order vertex→cell metric interpolation reaches every stored cell
+  of a `G = 3` matter set (see [Metric at cells, faces and
+  edges](#metric-at-cells-faces-and-edges)).
+- **GH-6 (later)** A damped-harmonic gauge driver, radiative or
+  constraint-preserving outer boundaries, excision or a generalized
+  interior for collapse, Ψ₄ extraction.
+
+The CFL factor of TreeGH under an SSP3 explicit tableau (`cfl = 1/4` was
+measured with RK4, whose stability region on the imaginary axis is wider)
+is *not* an upstream item: this package owns the integrator and measures it
+in step 11. *(Amended with PLAN.md.)*
 
 ### EntropyEOS
 
-1. **(req, rung 4) Analytic EOSes behind the same interface** (decided): a
-   Γ-law, a polytrope and a hybrid (piecewise polytrope plus thermal Γ),
-   written as potentials `U(ρ, s)` so that `evaluate`, `con2prim_safe`,
-   the atmosphere policy and the device view all work unchanged. A
-   polytrope is the isentrope of a Γ-law, `U = K(s) ρ^{Γ−1}/(Γ−1)`; the
-   hybrid's thermal part has the same form on top of `U_cold(ρ)`.
-2. **(wanted) A public fixed-`s` inversion** — the "at fixed `s`, solve
-   for `w`" step that `con2prim` already contains — for the entropy
-   fallback, and a public `s(ρ, ε, Yₑ)` for initial data.
-3. **(later)** A cold β-equilibrium slice `Yₑ,β(ρ)` and `s_cold(ρ)` for
-   tabulated-EOS stars.
+- **EOS-0 (req, step 0; workaround) Registration** in General. Until then
+  CI adds it by URL.
+- **EOS-1 (req, step 5) An abstract EOS interface** (decided): an
+  `AbstractEOS` supertype, the solver and policy retyped to it, and the
+  four bounds read through accessors instead of fields, so that `evaluate`,
+  `con2prim_safe`, the atmosphere policy and the device view work unchanged
+  for any EOS that implements `evaluate`, `srange`, `srange_extended`, the
+  bounds and `κ`.
+- **EOS-2 (req, step 5) Analytic EOSes behind that interface**: a Γ-law
+  and a hybrid (piecewise polytrope plus thermal Γ), as potentials
+  `U(ρ, s)`. **A polytrope is the Γ-law at fixed entropy**,
+  `U = K(s) ρ^{Γ−1}/(Γ−1)` with `K(s) = K_ref exp((Γ−1)(s − s_ref))`; a
+  purely barotropic EOS (`U_s ≡ 0`) cannot be offered, because EntropyEOS's
+  `(s, w)` Newton is singular there. *(Amended with PLAN.md, which also
+  moved this item from rung 4 to step 5: the synthetic table cannot host
+  the flat-space tests — see [Thermodynamics](#thermodynamics).)*
+- **EOS-3 (wanted, step 12) A public fixed-entropy inversion** — the "at
+  fixed `s`, solve for `w`" step that `con2prim` already contains — for the
+  entropy fallback, and a public entropy-from-energy solve for initial
+  data.
+- **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
+  `s_cold(ρ)` for tabulated-EOS stars.
 
 ## The equations
 
@@ -280,9 +307,16 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **Warm starts** (`u_guess`, the previous `log₁₀ T`) are carried per cell
   in the primitive set and passed to every EOS call, including those at
   reconstructed face states.
-- **Analytic EOSes come from EntropyEOS** (decided; upstream item 1). Until
-  they exist, nothing past rung 3 can run, and rungs 1–3 use its synthetic
-  ideal-gas table.
+- **Analytic EOSes come from EntropyEOS** (decided; EOS-1, EOS-2). They are
+  needed from the first evolution (step 5) on, not only from rung 4: the
+  synthetic ideal-gas table is `Γ = 5/3` only, in cgs, with `T ≤ 50 MeV`,
+  so it cannot host the flat-space tests (Balsara 1 is `Γ = 2`, and
+  Balsara 3 has `ε = 1500`). Until they exist, the synthetic table serves
+  only the pointwise unit tests of steps 1–3. *(Amended with PLAN.md.)*
+- **A polytrope is a Γ-law at fixed entropy**, not a barotropic EOS:
+  EntropyEOS's `(s, w)` Newton needs `U_s ≠ 0`. The TOV star's
+  `p = Kρ^Γ` is the Γ-law evaluated at the `s` with `K(s) = K`.
+  *(Amended with PLAN.md.)*
 
 ## Primitive recovery
 
@@ -301,7 +335,7 @@ The only coupling back to the fields is the implicit Ohm step, which is
 **Entropy fallback** (proposed): where `τ_fluid = τ − D − ½(E² + B²)` is a
 small difference of large numbers (electromagnetically dominated cells, the
 magnetosphere) or the energy inversion fails, invert at the advected `s`
-instead (upstream EntropyEOS item 2). The switch is a threshold on
+instead (EOS-3). The switch is a threshold on
 `½(E² + B²) / τ` (open).
 
 ## The scheme
@@ -417,12 +451,16 @@ One IMEX Runge–Kutta integrator over the multi-set state vector
 TreeGH, the matter and `𝔈` fluxes and sources, the EMF update of `A`, the
 gauge. The **implicit** part is the σ current in Ampère's law, which is
 local to a cell. The default tableau is Pareschi–Russo SSP3(4,3,3), whose
-implicit part is L-stable and stiffly accurate, so that `σ Δt → ∞`
-recovers ideal MHD at the tableau's order; SSP2(2,2,2) is kept for
-debugging (proposed). `Δt` is fixed per chunk from the light-speed CFL on
-the finest level; TreeGH's CFL factor is re-measured under SSP3 (upstream
-TreeGH item 3). The driver is chunked, with a regrid between chunks and a
-fresh integrator after each, as in TreeHydro and TreeGH.
+implicit part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD;
+SSP2(2,2,2) is kept for debugging (proposed). Neither is stiffly accurate
+(their weights `b` differ from the last row of the implicit `A`), so the
+order *in* the stiff limit may drop; step 4c of `PLAN.md` measures it, and
+the ARS schemes, which are stiffly accurate, are the alternative if it
+matters. *(Amended with PLAN.md: an earlier version called SSP3(4,3,3)
+stiffly accurate.)* `Δt` is fixed per chunk from the light-speed CFL on
+the finest level; TreeGH's CFL factor under SSP3 is measured here, in step
+11. The driver is chunked, with a regrid between chunks and a fresh
+integrator after each, as in TreeHydro and TreeGH.
 
 ### The implicit stage solve
 
@@ -510,8 +548,8 @@ interpolation to a cell center reaches one vertex beyond the cell on either
 side, so reaching the outermost ghost cell of a `G = 3` cell set needs
 `G = 4` on the vertex set, and TreeGH fixes `G = q/2 + 1 = 3`. The
 primitives in that outermost ghost cell are read by the widest
-reconstructions. The options are a larger GH ghost width (upstream TreeGH
-item 5), a 2nd-order interpolation in that one layer, or exchanging the
+reconstructions. The options are a larger GH ghost width (GH-5),
+a 2nd-order interpolation in that one layer, or exchanging the
 cell metric as a ghost-filled set.
 
 ### Stress-energy to the vertices
@@ -521,7 +559,7 @@ then averaged to each owned vertex from its `2^D` neighbouring cells into
 `Tsrc` — second order, and positivity-preserving for the energy density at
 a stellar surface where a higher-order interpolation would ring
 (proposed; a 4th-order option is kept, and which one wins is (open)).
-TreeGH reads `Tsrc` at the owned point (upstream TreeGH item 1).
+TreeGH reads `Tsrc` at the owned point (GH-3).
 
 ### Gauge for the TOV milestones
 
@@ -532,7 +570,7 @@ inside kernels. `H_a = −Γ_a[g_TOV]` is sampled and frozen, as TreeGH
 already does for static backgrounds, and the outer boundary is Dirichlet
 from the static exterior. A fixed gauge source is a legitimate gauge for a
 perturbed or oscillating star; it is not for a collapse, which needs the
-gauge driver (upstream, later).
+gauge driver (GH-6).
 
 ## The right-hand side
 
@@ -577,7 +615,7 @@ Dirichlet from the initial or analytic state, through
 magnetized TOV star (proposed): shock tubes until a wave arrives, the
 Kerr-Schild tests from the analytic solution, the stars from the static
 exterior (atmosphere, the initial `A` and `Φ̃ = 0`, `E` of the static
-dipole). Outflow conditions wait for upstream TreeAMR item 3.
+dipole). Outflow conditions wait for AMR-6.
 
 ## Refinement
 
@@ -591,10 +629,17 @@ every set over the forest: the evolved ones with their schedules, the rest
 
 `julia = "1.10"` wherever possible (decided). TreeAMR, EntropyEOS,
 SpacetimeMetrics and TreeHydro all allow 1.10; only TreeGH pins 1.11
-(upstream TreeGH item 4). If that pin stays, TreeGH becomes a weak
-dependency and the coupling a package extension,
-`TreeGRRMHDTreeGHExt`, so that everything on flat and analytic
-backgrounds — rungs 1–4 below — stays on 1.10 (proposed).
+(GH-2). *(Amended with PLAN.md.)* The pin has three causes, not one: its
+`LinearAlgebra = "1.11"` compat entry, its `[sources]` entries (a 1.11
+feature), and its dependencies ApparentHorizonFinder and KorzynskiSpin,
+whose checkouts both declare 1.11; no 1.11-only language feature was found
+in its `src/`. `[sources]` is not used here for the same reason, so
+unregistered dependencies are added by URL until they are registered
+(EOS-0, GH-2), and a dependency's own `[sources]` is ignored when this
+package resolves it. If TreeGH's pin stays, TreeGH becomes a weak
+dependency and the coupling a package extension, `TreeGRRMHDTreeGHExt`, so
+that everything on flat and analytic backgrounds — rungs 1–3, and the TOV
+star through the `Analytic` metric provider — stays on 1.10 (proposed).
 
 ## Validation ladder
 
@@ -617,15 +662,15 @@ named as claims.
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
 4. **TOV in the Cowling approximation**: a Γ = 2, K = 100 polytrope
-   (needs upstream EntropyEOS item 1); stationarity and mode frequencies.
+   at fixed entropy (needs EOS-1, EOS-2); stationarity and mode frequencies.
 5. **TOV in a dynamical spacetime**: the F, H1, H2 radial modes against
    the literature (Font et al. 2002); convergence of the GH and ADM
-   constraints with matter (needs the TreeGH items).
+   constraints with matter (needs GH-3, GH-4).
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
    2013).
-7. **TOV with a tabulated EOS and `Yₑ`** (needs upstream EntropyEOS
-   item 3 for the initial data).
+7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
+   data).
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
