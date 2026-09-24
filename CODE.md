@@ -34,7 +34,7 @@ step N)", "(measured in step N)" — rather than diverging silently.
   the electrovacuum Maxwell equations. A neutron star's dipole magnetosphere
   is then not an atmosphere artefact but a solution of the equations.
 - **Couple to a dynamical spacetime** from TreeGH, on the same forest, in
-  one time integrator, with no subcycling (TreeAMR's permanent decision).
+  one time integrator, with no subcycling.
 - **A magnetized TOV star is the first science target** (decided), after
   the standard flat-space and fixed-background tests: a Γ = 2 polytrope in
   the Cowling approximation, then in a dynamical spacetime, then
