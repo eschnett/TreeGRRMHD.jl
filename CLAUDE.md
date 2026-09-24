@@ -46,7 +46,8 @@ steps 0–15 on `claude/step-N-slug` branches, run one agent per step, and
 the exact upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each
 naming the step it blocks. `src/TreeGRRMHD.jl` is still the Pkg template.
 **Step 0 is next.** Steps 4a–4c build the IMEX package in its own
-repository (`~/src/jl/IMEXRungeKutta`, name proposed).
+repository, `~/src/jl/IMEXRungeKutta`, whose `CODE.md` is the IMEX
+design.
 
 ## Commands
 
@@ -97,5 +98,6 @@ packages are read together:
   test patterns this package inherits), `~/src/jl/TreeGeneralizedHarmonic`
   (the spacetime; its `CODE.md` and `notes/` for the formulation),
   `~/src/jl/EntropyEOS` (EOS and con2prim), `~/src/jl/SpacetimeMetrics`
-  (analytic backgrounds). `~/src/jl/Con2Prim` is an abandoned prototype;
+  (analytic backgrounds), `~/src/jl/IMEXRungeKutta` (the time integrator;
+  edited only in steps 4a–4c). `~/src/jl/Con2Prim` is an abandoned prototype;
   do not depend on it.

@@ -454,8 +454,8 @@ local to a cell. The default tableau is Pareschi–Russo SSP3(4,3,3), whose
 implicit part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD;
 SSP2(2,2,2) is kept for debugging (proposed). Neither is stiffly accurate
 (their weights `b` differ from the last row of the implicit `A`), so the
-order *in* the stiff limit may drop; step 4c of `PLAN.md` measures it, and
-the ARS schemes, which are stiffly accurate, are the alternative if it
+order *in* the stiff limit may drop; IMEXRungeKutta's validation
+measures it, and the ARS schemes, which are stiffly accurate, are the alternative if it
 matters. *(Amended with PLAN.md: an earlier version called SSP3(4,3,3)
 stiffly accurate.)* `Δt` is fixed per chunk from the light-speed CFL on
 the finest level; TreeGH's CFL factor under SSP3 is measured here, in step
@@ -491,66 +491,25 @@ second con2prim. The last resort is the lagged `v` of Palenzuela et al.
 
 ### The IMEX package
 
-OrdinaryDiffEqSDIRK has had the tableaus since mid-2026 — `IMEXSSP222`,
-`IMEXSSP2322`, `IMEXSSP3332`, `IMEXSSP3433`, `ARS222`, `ARS232`, `ARS443`
-(SciML/OrdinaryDiffEq.jl#3704, #3705) — so the tableaus are not the gap.
-What surrounds the stage is, measured against OrdinaryDiffEqSDIRK 2.9.6:
+The integrator is **IMEXRungeKutta.jl** (decided; `~/src/jl/IMEXRungeKutta`),
+a stand-alone package. Its `CODE.md` is authoritative for the method, the
+tableaus, the stage semantics, and why OrdinaryDiffEq and ClimaTimeSteppers
+do not fit (in short, neither lets the user solve the implicit stage). This
+package relies on it for:
 
-- **The stage solve is OrdinaryDiffEq's, not the user's.** It is handed
-  the implicit tendency `g(u)` and solves each stage on the whole vector by
-  Newton (with a dense Jacobian by default) or by fixed-point iteration,
-  which diverges once `σΔt` is large. Ours is a per-cell solve coupled to
-  con2prim, with its own fallbacks and flags, and never evaluates `g` on
-  its own. The one hook for a custom stage problem (`ODENLStepData` with
-  `NonlinearSolveAlg`) is ModelingToolkit's, and still runs inside the
-  Newton loop and builds its Jacobian machinery.
-- **No stage limiter.** Its IMEX methods reject `stage_limiter`; only the
-  per-step `step_limiter` exists, and the atmosphere reset is per stage.
-- **Unneeded right-hand sides.** It evaluates the explicit part at stage 1
-  even where column 1 of `Ã` and `b̃₁` vanish, and once more at the end of
-  every step for the interpolant: five explicit evaluations per
-  SSP3(4,3,3) step where three are needed, and each is TreeGH plus the
-  MHD right-hand side.
-- **A bug.** The last explicit stage is evaluated at `t + Δt` rather than
-  `t + c̃_s Δt`, which drops SSP3(3,3,2) and SSP3(4,3,3) to first order
-  whenever the explicit part depends on `t` (`c̃_s = 1/2` for both). A
-  fix is one line, and the report is Erik's to file.
+- one `solve_imp!(U, u★, γΔt, p, t)` call per implicit stage, which here
+  is the Ohm solve of [The implicit stage solve](#the-implicit-stage-solve).
+  The integrator recovers the tendency as `(U − u★)/(γΔt)` and never
+  evaluates the σ current on its own;
+- the tendency taken before the stage limiter, which here is the
+  atmosphere reset;
+- explicit evaluations only where the tableau uses them: three right-hand
+  sides (TreeGH plus MHD) per SSP3(4,3,3) step;
+- fixed `Δt`, generic arrays and Julia 1.10.
 
-Contributing the missing pieces instead — a user stage-solver algorithm,
-a stage limiter for the IMEX methods, skipping unused evaluations — was
-considered and not pursued: it would put step 5 behind SciML's review, on
-a code path that has been changing quickly, and would rest the stage
-semantics this package depends on (the tendency is taken before the
-limiter; one solve per stage) on behaviour upstream does not promise. So
-the integrator is a **new small stand-alone package** (decided; name
-open, e.g. `IMEXRungeKutta`), not ClimaTimeSteppers either (whose
-implicit stages always go through its own Newton loop).
-OrdinaryDiffEqSDIRK's methods serve as its test oracle. If a user
-stage-solver hook lands upstream, revisit. *(Amended 2026-09-24: an
-earlier version said OrdinaryDiffEq had no IMEX-SSP scheme.)* Its
-specification (proposed):
-
-- Tableaus: SSP2(2,2,2), SSP2(3,3,2), SSP3(3,3,2), SSP3(4,3,3)
-  (Pareschi & Russo 2005); ARS(2,2,2), ARS(4,4,3) (Ascher, Ruuth &
-  Spiteri 1997). Only SSP2(3,3,2) and ARS(4,4,3) are rational; the
-  others involve `√2`, and SSP3(4,3,3)'s `α, β, η` are printed to 14
-  digits only, so they are computed in extended precision from the
-  conditions that define them.
-- An explicit evaluation only where column `k` of `Ã` or `b̃_k` is
-  nonzero, at `tⁿ + c̃_k Δt`.
-- `f_exp!(du, u, p, t)`, and a user stage solver
-  `solve_imp!(u, u★, γΔt, p, t)` that returns `u` with
-  `u = u★ + γΔt g(u)` by any means. The implicit tendency is recovered as
-  `g = (u − u★)/(γΔt)`, so no separate evaluation of `g` exists or is
-  needed.
-- A `stage_limiter!` hook; fixed `Δt`; generic arrays (device arrays
-  through broadcasting); no SciML dependency beyond, at most, SciMLBase's
-  problem types.
-- Tests: convergence order on smooth non-stiff and stiff relaxation
-  problems, one with an explicit part that depends on `t`; the
-  asymptotic-preserving limit; the SSP property on a Burgers equation
-  with relaxation; agreement with OrdinaryDiffEqSDIRK's methods (a test
-  dependency only).
+When its validation measures SSP3(4,3,3)'s L-stability and stiff-limit
+order, amend [The partition](#the-partition). *(Amended 2026-09-24: the
+specification moved to IMEXRungeKutta's `CODE.md`.)*
 
 ## Spacetime coupling
 
@@ -733,7 +692,6 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 - Whether `D s` earns its keep; the threshold that switches to it.
-- The IMEX package's name.
 
 ## Known risks
 

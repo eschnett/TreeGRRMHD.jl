@@ -32,7 +32,7 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
     the commit body.
   - **Do not merge into `main` and do not push.** Report the branch and its commits.
 - **Never edit a sibling checkout** (TreeAMR, TreeGeneralizedHarmonic, EntropyEOS,
-  SpacetimeMetrics, TreeHydro).
+  SpacetimeMetrics, TreeHydro; IMEXRungeKutta outside steps 4a–4c).
   - If a listed upstream item has not landed, do everything that does not depend on it, and
     report the step as blocked on that item's ID.
   - If the step needs something upstream that is not listed, or a listed item turns out to be
@@ -665,86 +665,17 @@ Accept:
 
 ## Steps 4a–4c — The IMEX package (in its own repository)
 
-The repository is `~/src/jl/IMEXRungeKutta` (name proposed; Erik may rename it before 4a). Its
-`CODE.md` expands TreeGRRMHD's "The IMEX package". It has no dependency beyond, at most,
-StaticArrays, and a Julia 1.10 floor; OrdinaryDiffEqSDIRK and SciMLBase are test-only
-dependencies (`[extras]`), for the oracle in 4c. These steps are independent of steps 1–3 and
-may run before them.
+These steps are done in `~/src/jl/IMEXRungeKutta`, following its `CODE.md`, its own plan, and
+its `CLAUDE.md` for the mechanics. They are independent of steps 1–3 and may run before them.
+Here, 4a (tableaus), 4b (the integrator) and 4c (validation) name that package's milestones.
+*(Amended 2026-09-24: the steps' contents moved to that repository.)*
 
-**4a — Scaffolding and tableaus.**
-- **`IMEXTableau{S}`:** `(Ã, b̃, c̃, A, b, c)` in 256-bit `BigFloat`, converted to `T` once in
-  `init`, with one constructor per scheme and its citation. The schemes are SSP2(2,2,2),
-  SSP2(3,3,2), SSP3(3,3,2) and SSP3(4,3,3) (Pareschi & Russo 2005), and ARS(2,2,2) and
-  ARS(4,4,3) (Ascher, Ruuth & Spiteri 1997).
-  - Only SSP2(3,3,2) and ARS(4,4,3) are rational; they also have an exact `Rational{BigInt}`
-    form.
-  - SSP2(2,2,2), SSP3(3,3,2) and ARS(2,2,2) involve `√2`; write them in closed form.
-  - SSP3(4,3,3)'s `α, β, η` are printed to 14 digits only (and `β = α/4` to those digits).
-    Compute them in `BigFloat` from the conditions in Pareschi & Russo (2005) that fix them. If
-    the paper does not fix them, the printed digits are the definition; record which.
-  *(Amended 2026-09-24: an earlier version asked for exact `Rational{BigInt}` throughout.)*
-- **Property functions:** order conditions, including the IMEX coupling conditions, up to order
-  3; `is_stiffly_accurate`; L-stability of the implicit part; and the explicit part's SSP
-  coefficient.
-
-Accept:
-- Each tableau meets its stated order, and fails at the next order: exactly for the
-  `Rational` forms, and to a residual ≤ 1e−60 in `BigFloat` for the others.
-- SSP3(4,3,3)'s computed `α, β, η` agree with the printed digits to 1e−14.
-- The triangularity is as stated.
-- Stiff accuracy, L-stability and the SSP coefficient are recorded per tableau. SSP3(4,3,3) is
-  expected to be L-stable and not stiffly accurate; amend TreeGRRMHD's `CODE.md` either way.
-
-**4b — The integrator.**
-```julia
-prob  = IMEXProblem(f_exp!, solve_imp!, u0, (t0, t1), p; stage_limiter! = nothing,
-                    step_limiter! = nothing)
-integ = init(prob, tableau; dt)       # dt adjusted to hit t1 in an integer number of steps
-step!(integ); solve!(integ)           # integ.u, integ.t
-```
-**Stage `k`:**
-1. `u★ = uⁿ + Δt Σ_{j<k}(ã_kj k̃_j + a_kj k_j)`.
-2. If `a_kk ≠ 0`: `solve_imp!(U_k, u★, a_kk Δt, p, tⁿ + c_k Δt)`, then
-   `k_k = (U_k − u★)/(a_kk Δt)`. Otherwise `U_k = u★`.
-3. `stage_limiter!(U_k, p, t)`.
-4. `f_exp!(k̃_k, U_k, p, tⁿ + c̃_k Δt)`. It is skipped when column `k` of `Ã` and `b̃_k` are all
-   zero.
-
-**Then:** `uⁿ⁺¹ = uⁿ + Δt Σ_j (b̃_j k̃_j + b_j k_j)`, followed by `step_limiter!`.
-
-Storage is `similar(u0)` arrays and broadcasting only, so device arrays work.
-
-Accept:
-- `step!` is allocation-free after warm-up.
-- `solve_imp!` is called exactly once per implicit stage, with the documented arguments (mock).
-- `f_exp!` is called once per nonzero column of `Ã` or `b̃`, at `tⁿ + c̃_k Δt` (mock): three times
-  per SSP3(4,3,3) step, not five as in OrdinaryDiffEqSDIRK 2.9.6.
-- With `g ≡ 0`, the result equals the explicit Runge–Kutta method.
-- A Float32 run works.
-- A device smoke run passes, gated by an environment variable.
-
-**4c — Validation.**
-
-Accept:
-- **Order:** on the split linear ODE `u′ = iu − u`, the observed order equals the tableau's order
-  ±0.1.
-- **Order with an explicit part that depends on `t`:** on `u′ = −u + cos t` (implicit `−u`,
-  explicit `cos t`), likewise. This guards a mistimed explicit stage, which is invisible when the
-  explicit part does not depend on `t`. OrdinaryDiffEqSDIRK 2.9.6 has this bug: its SSP3(3,3,2)
-  and SSP3(4,3,3) fall to order 1 on this problem.
-- **Oracle:** each tableau that OrdinaryDiffEqSDIRK has (`IMEXSSP222`, `IMEXSSP2322`,
-  `IMEXSSP3332`, `IMEXSSP3433`, `ARS222`, `ARS443`) matches the corresponding one here to 1e−12
-  over ten steps of `u′ = iu − u`, with a direct `solve_imp!`. Write it as a real 2-vector
-  (explicit rotation, implicit `−u`), because OrdinaryDiffEqSDIRK's default AD Jacobian rejects
-  a complex state. The explicit part must not depend on `t`, because of the bug above. (Checked
-  2026-09-24: upstream matches a direct reference step to 1e−16 with default settings.)
-- **Stiff limit:** on the Kaps problem with `ε ∈ {1, 1e−3, 1e−6, 1e−9}`, the order per `ε` is
-  recorded, including any order reduction in the stiff limit.
-- **Asymptotic preservation:** at `ε = 1e−12`, one step lands on the equilibrium manifold to
-  `O(ε)`.
-- **SSP:** upwind advection with stiff relaxation keeps the total variation non-increasing for
-  `Δt ≤ C Δt_FE`; the measured `C` is recorded.
-- Tag v0.1.0. Registration is Erik's call; until then the package is added by URL.
+What TreeGRRMHD needs from it:
+- **4b**, which step 5 waits for: the integrator with the contract of `CODE.md`'s "The IMEX
+  package", over TreeAMR's flat state vector.
+- **4c:** SSP3(4,3,3) and SSP2(2,2,2), validated, with SSP3(4,3,3)'s L-stability and
+  stiff-limit order recorded. Amend `CODE.md`'s "The partition" with them.
+- A tag (v0.1.0). Registration is Erik's call; until then the package is added by URL.
 
 ## Step 5 — The staggered scheme in 1D: smooth problems (rung 1a)
 
