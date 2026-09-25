@@ -433,9 +433,26 @@ implicit term** is Ampère's `−α√γ σ W [E + v × B − (v·E) v]`.
 ### Floors, the atmosphere and the magnetosphere
 
 EntropyEOS's policy defines the atmosphere (`ρ_atm`, triggers, ceilings)
-and `con2prim_safe` applies it; a stage limiter resets `v = 0` in
-atmosphere cells and writes back only those cells, as TreeHydro's does
-(proposed). The conductivity model takes σ → 0 in the atmosphere, so the
+and `con2prim_safe` applies it; a limiter resets `v = 0` in atmosphere
+cells and writes back only those cells, as TreeHydro's does (proposed).
+
+**The reset is both the stage limiter and the step limiter** (proposed;
+amended 2026-09-25). In IMEXRungeKutta a stage limiter's change reaches
+`uⁿ⁺¹` only through the explicit right-hand side. This differs from
+TreeHydro's `SSPRK33`, where each stage's reset persists with weight 1/6,
+2/3 or 1. Each role does one job:
+- as the stage limiter, it keeps every right-hand side from reading an
+  unphysical state;
+- as the step limiter, it is what makes the reset hold in the state.
+
+With the stage limiter alone, the state would never be reset. The
+injection that the reset accounts is then an equality, as under
+TreeHydro's `reset = :step`: only the step limiter's changes reach the
+state, and the fluxes stay conservative whatever state they were computed
+from. See IMEXRungeKutta's `CODE.md`, "One step" and "Limiters in other
+codes".
+
+The conductivity model takes σ → 0 in the atmosphere, so the
 exterior is electrovacuum: the atmosphere carries no current (`v = 0`
 and `σ = 0` there), and the fields outside a star are those of the
 initial vector potential evolved by the vacuum Maxwell equations. The
@@ -461,6 +478,18 @@ stiffly accurate.)* `Δt` is fixed per chunk from the light-speed CFL on
 the finest level; TreeGH's CFL factor under SSP3 is measured here, in step
 11. The driver is chunked, with a regrid between chunks and a fresh
 integrator after each, as in TreeHydro and TreeGH.
+
+IMEXRungeKutta's validation (step 3) measured SSP3(4,3,3): its
+implicit part is L-stable (R(∞) = 0 from the closed-form α = (9 −
+√57)/6; A-stable by its E-polynomial, computed in step 1). In the
+stiff limit its order drops from 3 to 2 in the stiff component (Kaps:
+1.989 at ε = 1e−6, 1.988 at 1e−9), while the non-stiff component keeps
+3.01. Each step ends Δt(1 − bᵀA⁻¹c̃)f = −0.2844 Δt f off the
+equilibrium, where f is the explicit tendency of the relaxing
+variable. This does not accumulate over steps, but where the
+equilibrium has a jump it is an O(1) overshoot of 0.2844 C on each
+side (total variation +1.14 on 2 at C = 1). ARS(4,4,3) keeps order 3
+and lands on the equilibrium to O(ε).
 
 ### The implicit stage solve
 
@@ -489,6 +518,28 @@ ideal call is a seed — and the exact answer for `IdealConductor` — not a
 second con2prim. The last resort is the lagged `v` of Palenzuela et al.
 (2009). Every outcome is flagged, counted, and reduced per chunk.
 
+**The solve writes only `E` into `U`** (proposed; amended 2026-09-25).
+No limiter has seen `u★`, so its fluid part may be inadmissible.
+`con2prim_safe` repairs the solve's own view of it, and that repair stays
+local to the solve. Written into `U`, it would become part of the implicit
+increment `U − u★`. The integrator would then re-weight it by `b_k/a_kk`,
+which is 2.758 at SSP3(4,3,3)'s last stage (IMEXRungeKutta's `CODE.md`,
+"The callback contracts" and "One step"). PLUTO's resistive solve does the
+same: it repairs its predictor and writes back only `E`.
+
+**Clamps inside a Newton residual** (open). The Newton iteration on `v`
+calls `con2prim_safe` in every residual, and `con2prim_safe` clamps
+(atmosphere, ceilings, the rapidity cap). Where a clamp is active, the
+residual is flat, and a Jacobian through it is singular.
+- grim hit this, and moved its clamp out of the residual (reported by
+  IMEXRungeKutta's survey, grim commit `df67cbb`).
+- KHARMA instead backtracks the Newton step to keep `ρ` and `u` positive,
+  and fills failed cells from their neighbours afterwards.
+
+Where `con2prim_safe` reports a repair inside the iteration, the likely
+answer here is to leave Newton for the fixed point or the ideal seed, and
+to flag it. Rung 1's σ × magnetization sweep decides.
+
 ### The IMEX package
 
 The integrator is **IMEXRungeKutta.jl** (decided; `~/src/jl/IMEXRungeKutta`),
@@ -502,7 +553,12 @@ package relies on it for:
   The integrator recovers the tendency as `(U − u★)/(γΔt)` and never
   evaluates the σ current on its own;
 - the tendency taken before the stage limiter, which here is the
-  atmosphere reset;
+  atmosphere reset. The stage limiter's change reaches `uⁿ⁺¹` only
+  through the explicit right-hand side, so the reset is also the step
+  limiter ([Floors, the atmosphere and the
+  magnetosphere](#floors-the-atmosphere-and-the-magnetosphere); amended
+  2026-09-25). Folding the reset into the tendency instead would
+  re-weight it by `b_k/a_kk`, 2.758 at SSP3(4,3,3)'s last stage;
 - explicit evaluations only where the tableau uses them: three right-hand
   sides (TreeGH plus MHD) per SSP3(4,3,3) step;
 - fixed `Δt`, generic arrays and Julia 1.10.
@@ -588,7 +644,8 @@ In the order the explicit part of each stage evaluates it (proposed):
    `du` for `Φ̃`.
 
 The implicit stage solve then runs on owned cells between explicit
-evaluations, and the atmosphere stage limiter after it. The right-hand side
+evaluations, and the atmosphere stage limiter after it. The same reset runs
+once more on each step's result, as the step limiter. The right-hand side
 never mutates `u`.
 
 ## Conservation at coarse-fine faces
@@ -692,6 +749,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 - Whether `D s` earns its keep; the threshold that switches to it.
+- Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
+  TOV star, a star in a vacuum, twice: with the reset as both limiters,
+  and as the step limiter alone. TreeHydro named this case as the one
+  where a per-stage reset could matter, and no code in IMEXRungeKutta's
+  survey measured it (amended 2026-09-25).
 
 ## Known risks
 

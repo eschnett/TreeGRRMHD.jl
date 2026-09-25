@@ -131,7 +131,11 @@ This is TreeGH's pattern.
 - **`regrid!` takes one boundary hook for all sets** (until AMR-2). Also, `adapt_to_initial_data!`
   adapts one set (until AMR-3). The workarounds are in those items.
 - **The IMEX implicit tendency is `(U − u★)/(γΔt)`.** The stage solver must return the `U` it
-  solved for, before any limiter. The atmosphere limiter runs after the tendency is taken.
+  solved for, before any limiter, and write only `E` into it: its repair of an inadmissible
+  `u★` stays local. The atmosphere limiter runs after the tendency is taken.
+- **The atmosphere reset is both limiters.** In IMEXRungeKutta a stage limiter's change reaches
+  `uⁿ⁺¹` only through the explicit right-hand side, so pass the reset as `stage_limiter` and as
+  `step_limiter`. As a stage limiter alone, it never resets the state.
 - **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
