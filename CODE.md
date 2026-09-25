@@ -680,19 +680,19 @@ every set over the forest: the evolved ones with their schedules, the rest
 
 ## Julia version
 
-`julia = "1.10"` wherever possible (decided). TreeAMR, EntropyEOS,
-SpacetimeMetrics and TreeHydro all allow 1.10; only TreeGH pins 1.11
-(GH-2). *(Amended with PLAN.md.)* The pin has three causes, not one: its
-`LinearAlgebra = "1.11"` compat entry, its `[sources]` entries (a 1.11
-feature), and its dependencies ApparentHorizonFinder and KorzynskiSpin,
-whose checkouts both declare 1.11; no 1.11-only language feature was found
-in its `src/`. `[sources]` is not used here for the same reason, so
-unregistered dependencies are added by URL until they are registered
-(EOS-0, GH-2), and a dependency's own `[sources]` is ignored when this
-package resolves it. If TreeGH's pin stays, TreeGH becomes a weak
-dependency and the coupling a package extension, `TreeGRRMHDTreeGHExt`, so
-that everything on flat and analytic backgrounds — rungs 1–3, and the TOV
-star through the `Analytic` metric provider — stays on 1.10 (proposed).
+`julia = "1.11"` (decided 2026-09-25). *(Amended: this section used to
+say `julia = "1.10"` wherever possible.)* All the Tree* packages — TreeAMR,
+TreeWave, TreeHydro, TreeGeneralizedHarmonic and this one — share the 1.11
+floor, so that an unregistered dependency can be located with a
+`[sources]` entry, a 1.11 key, rather than added by URL. That also removes
+the reason for the weak-dependency split proposed earlier: TreeGH's pin to
+1.11 (its `LinearAlgebra = "1.11"` compat entry, its `[sources]` entries,
+and ApparentHorizonFinder and KorzynskiSpin, whose checkouts both declare
+1.11) is now this package's floor too, so TreeGH can be an ordinary
+dependency and `TreeGRRMHDTreeGHExt` is not needed for the version's sake.
+A dependency's own `[sources]` is still ignored when this package resolves
+it, so what it needs from an unregistered package must be named in this
+package's own `[sources]`.
 
 ## Validation ladder
 

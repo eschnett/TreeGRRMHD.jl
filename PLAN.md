@@ -45,8 +45,9 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
   - Unregistered ones are added by URL in CI and in the clean-checkout check (`Pkg.add(url=…)`).
     That covers EntropyEOS until EOS-0, TreeGH and KorzynskiSpin until GH-2, and the IMEX
     package.
-  - `[sources]` is not used, because it needs Julia 1.11.
-- **Julia 1.10 floor.** Be generic in `T` and in the backend from the first line:
+  - `[sources]` needs Julia 1.11, which is the floor since 2026-09-25, so it may replace the
+    URL adds (CODE.md "Julia version").
+- **Julia 1.11 floor.** Be generic in `T` and in the backend from the first line:
   - `T` is a leading positional argument (default `Float64`); `backend` is a keyword (default
     `CPU()`).
   - No float literals where `T` is in play; every callback is `isbits`; per-block metadata goes
@@ -456,13 +457,9 @@ quantities at vertices must match SpacetimeMetrics:
 - Every `[compat]` entry must be satisfiable from registered releases alone. `[sources]` of a
   dependency is ignored when TreeGRRMHD resolves it, so the TreeAMR features TreeGH uses must be
   in a released TreeAMR. Today TreeGH pins TreeAMR `main` again (05e99f4).
-- **Julia 1.10, if feasible.** That needs:
-  - a `LinearAlgebra` compat entry that admits 1.10 (today `"1.11"`);
-  - no `[sources]`;
-  - ApparentHorizonFinder and KorzynskiSpin releases that admit 1.10 (both local checkouts
-    declare 1.11).
-- If the floor stays at 1.11, TreeGRRMHD makes TreeGH a weak dependency, with the coupling in
-  `TreeGRRMHDTreeGHExt` (CODE.md "Julia version"). Step 10 implements whichever applies.
+- **Julia 1.11.** Settled on 2026-09-25: every Tree* package's floor is 1.11, so TreeGH's pin
+  to 1.11 no longer constrains TreeGRRMHD, and TreeGH is an ordinary dependency rather than a
+  weak one behind `TreeGRRMHDTreeGHExt` (CODE.md "Julia version").
 - **Workaround until registered:** CI adds TreeGH and KorzynskiSpin by URL.
 
 ### GH-3 — Stress-energy input (req, step 11)
@@ -565,7 +562,7 @@ Changes:
 - **`Project.toml`:**
   - deps: KernelAbstractions, StaticArrays, Adapt, TreeAMR (`"0.1.2"`), SpacetimeMetrics
     (`"1.6"`), EntropyEOS (by URL until EOS-0);
-  - `julia = "1.10"`.
+  - `julia = "1.11"`.
 - **`src/`:**
   - `src/TreeGRRMHD.jl`, the module shell, replacing `hello`/`domath`;
   - `src/precision.jl` and `src/device.jl`, ported from TreeHydro (`to_backend`, `hostcopy`,
@@ -574,12 +571,12 @@ Changes:
   - `test/Project.toml`, and `test/runtests.jl` with TreeHydro's duplicate-`const` guard;
   - `test/prerequisite_tests.jl`: every name this package calls exists; a SpacetimeMetrics metric
     runs as a kernel argument; one skipped-until-landed testset per upstream ID.
-- **CI:** `.github/workflows/CI.yml` after TreeHydro's, with cells for 1.10 on macOS, 1 on Linux,
+- **CI:** `.github/workflows/CI.yml` after TreeHydro's, with cells for 1.11 on macOS, 1 on Linux,
   1 on macOS, and 1 on Linux at 4 threads. It adds the unregistered dependencies by URL.
 - **Docs:** `README.md`; `CLAUDE.md`'s "Current state" and "Commands".
 
 Accept:
-- `Pkg.test()` is green on 1.10 and on the current release.
+- `Pkg.test()` is green on 1.11 and on the current release.
 - A clean `git archive` instantiates (with the URL adds) and passes.
 - The prerequisite testsets report each upstream ID as landed or waiting.
 

@@ -79,8 +79,9 @@ packages are read together:
 - Docstrings are prose-first and point at `CODE.md`.
 - **Testset names are claims**, each opening with a comment naming the
   failure mode it guards.
-- **Julia 1.10 wherever possible** (`julia = "1.10"` in `[compat]`). Only
-  TreeGeneralizedHarmonic pins 1.11 today; see `CODE.md`, "Julia version".
+- **Julia 1.11 is the floor** (`julia = "1.11"` in `[compat]`), shared by
+  all the Tree* packages since 2026-09-25 so that unregistered dependencies
+  can be located with `[sources]`; see `CODE.md`, "Julia version".
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.
