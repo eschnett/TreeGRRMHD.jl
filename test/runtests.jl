@@ -34,4 +34,7 @@ using TreeGRRMHD
     # landed: before any physics, so that a release that lost a name is
     # found here rather than by a `MethodError` in the middle of a step.
     include("prerequisite_tests.jl")
+    # Step 1: the units, the variables and the 3+1 primitive recovery.
+    include("units_tests.jl")
+    include("recovery_tests.jl")
 end

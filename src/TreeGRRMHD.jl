@@ -23,11 +23,13 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: step 0 of `PLAN.md` — the module shell, the `Base` bridges for
-software floating-point types, the host-copy helpers, and the tests that say
-the resolved releases of TreeAMR, EntropyEOS, SpacetimeMetrics and
-IMEXRungeKutta provide what the scheme is written against, and which
-upstream items have landed. No physics yet.*
+*Status: step 1 of `PLAN.md` — the pointwise layer the scheme will stand
+on: geometric units and the EOS adapter ([`GeometricEOS`](@ref)), the point
+metric ([`Metric3`](@ref)), the layouts of the ten evolved cell variables
+and of the primitive set, [`prim2con`](@ref) with the electromagnetic parts,
+and the 3+1 primitive recovery around EntropyEOS's one `con2prim_safe`
+([`con2prim_hydro`](@ref), and [`con2prim_ideal`](@ref) as the stage
+solve's seed). No mesh code yet.*
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.
@@ -51,8 +53,21 @@ import SpacetimeMetrics
 
 # Devices
 export hostcopy
+# Units and the EOS adapter
+export EOSUnits, GeometricEOS, MSUN_DENSITY_CGS
+# The point metric
+export Metric3, flat_metric, ideal_E
+# The variables
+export NU, NP, NPRIM
+# The conversions
+export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_guesses
 
 include("precision.jl")
 include("device.jl")
+include("units.jl")
+include("metric3.jl")
+include("variables.jl")
+include("prim2con.jl")
+include("con2prim.jl")
 
 end # module TreeGRRMHD

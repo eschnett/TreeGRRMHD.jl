@@ -90,9 +90,10 @@ end
     # Guards an upstream rename of the one primitive recovery ("Primitive
     # recovery" in `CODE.md`: `con2prim_safe` in hydrodynamic mode for every
     # σ, `con2prim` only as the ideal seed), of the policy that wraps it, and
-    # of the synthetic table step 1 uses until the analytic EOSes are in
-    # play. The `AbstractEOS` interface and the analytic EOSes are EOS-1 and
-    # EOS-2, checked below as upstream items.
+    # of the synthetic table step 1 checks the units adapter on. The
+    # `AbstractEOS` interface and the analytic EOSes are EOS-1 and EOS-2,
+    # checked below as upstream items. (Amended in step 1: the synthetic
+    # table was to stand in for the analytic EOSes until EOS-2.)
     for name in (:EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
                  :narrow, :prim2con, :Prim2ConOut, :con2prim, :Con2PrimIn,
                  :Con2PrimOptions, :Con2PrimOut, :con2prim_safe, :Con2PrimSafeOut,
