@@ -40,4 +40,6 @@ using TreeGRRMHD
     # Step 2: the pointwise physics. Uses `recovery_tests.jl`'s state
     # generators, so it comes after it.
     include("pointwise_tests.jl")
+    # Step 3: the implicit stage solve. Uses `recovery_tests.jl`'s generators.
+    include("stage_solve_tests.jl")
 end

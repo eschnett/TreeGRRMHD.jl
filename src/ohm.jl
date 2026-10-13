@@ -84,6 +84,22 @@ end
 @inline conductivity(::IdealConductor, prim::NTuple{N,T}) where {N,T} = T(Inf)
 
 """
+    conductivity_slope(model, prim) -> ∂σ/∂ρ
+
+The derivative of [`conductivity`](@ref) with respect to the rest-mass
+density at the primitive state `prim`, for the implicit stage solve's Newton
+Jacobian (step 3). Zero for the models that do not depend on the state. A
+model that reads `s` or `Yₑ` as well would need their derivatives too, and
+the stage solve a column for each (proposed in step 3).
+"""
+@inline conductivity_slope(::Conductivity, prim::NTuple{N,T}) where {N,T} = zero(T)
+@inline function conductivity_slope(c::DensityProfile, prim::NTuple{N,T}) where {N,T}
+    ρ = prim_ρ(prim)
+    kρ = convert(T, c.cutoff) * convert(T, c.ρ_atm)
+    return ρ > kρ ? convert(T, c.σ₀) * kρ / (ρ * ρ) : zero(T)
+end
+
+"""
     conduction_drift(m::Metric3, prim, E, B) -> SVector{3}
 
 The bracket of Ohm's law, `W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]`: the

@@ -74,6 +74,10 @@ export light_cone, physical_flux, riemann_flux, gauge_flux
 export faraday_emf, uct_hll_emf, gauge_potential
 export geometric_source, explicit_source, ampere_explicit_source, ampere_stiff_source,
        ampere_source, gauge_damping
+# The implicit stage solve
+export solve_ohm_stage, OhmStageOptions, OhmStageResult, ohm_E
+export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM_IDEAL_SEED,
+       OHM_BACKTRACKED, OHM_SWITCHED, OHM_REPAIRED
 
 include("precision.jl")
 include("device.jl")
@@ -89,5 +93,6 @@ include("flux.jl")
 include("riemann.jl")
 include("emf.jl")
 include("sources.jl")
+include("stage_solve.jl")
 
 end # module TreeGRRMHD

@@ -65,14 +65,42 @@ repaired conserved state. See "Primitive recovery" in `CODE.md`.
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
+    prim, flags, _ = hydro_recovery(eos, opts, pol, m, cons, E, B, guesses)
+    return prim, flags
+end
+
+# `con2prim_hydro`, also returning the EOS point of the recovered state, whose
+# derivatives the implicit stage solve's Newton Jacobian reads (step 3). The
+# stage solve iterates on the fluid's share of the energy and momentum, so the
+# recovery is split at that share: `field_budget` subtracts the fields, and
+# `fluid_recovery` recovers from what is left. Both are shared with the stage
+# solve, so that its recovery at a field `E` is `con2prim_hydro` bit for bit.
+@inline function hydro_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
+                                cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
+                                guesses::NTuple{3,T}) where {T}
     isg = inv(m.sqrtγ)
     D = cons_D(cons) * isg
     S = cons_S(cons) * isg
     τ = cons_τ(cons) * isg
     DYₑ = cons_DYₑ(cons) * isg
+    S_fluid, τ_fluid = field_budget(m, S, τ, E, B)
+    return fluid_recovery(eos, opts, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses)
+end
 
-    S_fluid = S - cross_down(m, E, B)
-    τ_fluid = τ - (dot_up(m, E, E) + dot_up(m, B, B)) / 2
+# The fluid's share of the undensitized total momentum `S_i` and energy `τ`:
+# `S_i − ε_ijk Eʲ Bᵏ` and `τ − ½(E² + B²)`.
+@inline field_budget(m::Metric3{T}, S::SVector{3,T}, τ::T, E::SVector{3,T},
+                     B::SVector{3,T}) where {T} =
+    (S - cross_down(m, E, B), τ - (dot_up(m, E, E) + dot_up(m, B, B)) / 2)
+
+# The hydrodynamic recovery from the fluid's own undensitized `D`, `S_i`, `τ`
+# and `D Yₑ`: EntropyEOS's `con2prim_safe` at `B² = 0`, and the velocity
+# rebuilt along `Sⁱ` at the returned rapidity.
+@inline function fluid_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
+                                S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
+                                guesses::NTuple{3,T}) where {T}
     Su = raise(m, S_fluid)
     S² = sum(S_fluid .* Su)
     # A NaN passes through to the policy, which flags it; a quadratic form
@@ -84,7 +112,7 @@ repaired conserved state. See "Primitive recovery" in `CODE.md`.
     b = out.base
     v = velocity_at_rapidity(m, Su, b.w)
     prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
-    return prim, out.policy_flags
+    return prim, out.policy_flags, b.eos
 end
 
 """
@@ -105,6 +133,15 @@ exact answer for `IdealConductor` — not a second primitive recovery. With
 in `CODE.md`.
 """
 @inline function con2prim_ideal(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
+                                cons::NTuple{NU,T}, B::SVector{3,T},
+                                guesses::NTuple{3,T}) where {T}
+    prim, flags, _ = ideal_recovery(eos, opts, pol, m, cons, B, guesses)
+    return prim, flags
+end
+
+# `con2prim_ideal`, also returning the EOS point, for the stage solve's seed.
+@inline function ideal_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
@@ -138,5 +175,5 @@ in `CODE.md`.
     v_perp = S_perp > zero(T) ? (b.v_perp / S_perp) * Su_perp : zero(SVector{3,T})
     v = velocity_at_rapidity(m, b.v_par * b̂ + v_perp, b.w)
     prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
-    return prim, out.policy_flags
+    return prim, out.policy_flags, b.eos
 end
