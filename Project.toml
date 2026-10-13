@@ -3,5 +3,32 @@ uuid = "f3727fb5-afac-43cc-bb8c-9034b99ae834"
 version = "0.1.0"
 authors = ["Erik Schnetter <schnetter@gmail.com>"]
 
+[deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+EntropyEOS = "75b96802-7bb2-4b1d-85f8-8113624a580e"
+IMEXRungeKutta = "6f46d5f7-e15e-41aa-a098-eed9d1a63ad8"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+SpacetimeMetrics = "77e61b41-605e-43a6-b70f-04b7dcd1f572"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
+
+# EntropyEOS (until EOS-0) and IMEXRungeKutta are not in the General
+# registry, so a clean clone finds them here, from their remotes and never
+# from a sibling checkout; TreeAMR and SpacetimeMetrics are, and need no
+# entry. `[sources]` is a 1.11 feature, which the Julia floor below already
+# is (see "Julia version" in `CODE.md`). EntropyEOS 1.0 is the first with
+# `AbstractEOS` and the analytic EOSes (EOS-1, EOS-2); IMEXRungeKutta 1.4 is
+# the release the plan's steps 4a–4c ended at.
+[sources]
+EntropyEOS = {rev = "main", url = "https://github.com/eschnett/EntropyEOS.jl"}
+IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
+
 [compat]
+Adapt = "4"
+EntropyEOS = "1"
+IMEXRungeKutta = "1.4"
+KernelAbstractions = "0.9.42, 1"
+SpacetimeMetrics = "1.6"
+StaticArrays = "1"
+TreeAMR = "0.2"
 julia = "1.11"

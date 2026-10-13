@@ -1,0 +1,11 @@
+[deps]
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+MultiFloats = "bdf0d083-296b-4888-a5b6-7498122e68a5"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+SpacetimeMetrics = "77e61b41-605e-43a6-b70f-04b7dcd1f572"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
+
+[compat]
+MultiFloats = "3"

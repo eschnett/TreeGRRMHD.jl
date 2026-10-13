@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+    # A Markdown-only change cannot move a measured number.
+    paths-ignore:
+      - "**.md"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.threads || 1 }} thread(s)
+    runs-on: ${{ matrix.os }}
+    # A guard against a runtime regression, not a budget: after step 0 the
+    # suite is a quarter of a minute locally, and most of a cold cell is
+    # installing and precompiling the dependencies (EntropyEOS brings HDF5).
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # One cell per axis, spelled out rather than a `version x os`
+      # product, after TreeHydro: the floor version, the current release,
+      # macOS/arm64, and threads.
+      matrix:
+        include:
+          # Julia 1.11 is the floor, shared by all the Tree* packages since
+          # 2026-09-25 so that an unregistered dependency can be located
+          # with `[sources]`, a 1.11 key (see "Julia version" in `CODE.md`).
+          # It is stricter than 1.13: it still refuses to redefine a
+          # `const`, which is what `test/runtests.jl`'s first testset is
+          # for. It carries the coverage, because instrumented it is the
+          # cheapest cell (TreeHydro measured 1.04x at 1.11 against 3.14x
+          # at 1.13).
+          - version: "1.11"
+            os: macOS-latest
+            coverage: true
+          - version: "1"
+            os: ubuntu-latest
+          # arm64 on the current release.
+          - version: "1"
+            os: macOS-latest
+          # Threaded. Never instrument this one: a coverage hit is an
+          # atomic increment on one counter per line, so threads running
+          # the same kernel contend on one cache line -- TreeHydro measured
+          # 100x.
+          - version: "1"
+            os: ubuntu-latest
+            threads: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      # EntropyEOS (until EOS-0) and IMEXRungeKutta are not in the General
+      # registry. They are added by URL through `Project.toml`'s `[sources]`
+      # rather than by a `Pkg.add(url = ...)` step here, so that CI, a clean
+      # checkout and a developer's `Pkg.instantiate()` resolve them the same
+      # way, from their remotes and never from a sibling checkout (see
+      # "Upstream prerequisites" in `CODE.md`).
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          # One cell, and only where the badge reads it. The dispatch arm
+          # keeps the upload path exercisable from a branch.
+          coverage: ${{ matrix.coverage == true && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+          # Explicit, as in TreeAMR and TreeHydro: the kernels will carry
+          # `@inbounds`, and `--check-bounds=yes` is the only thing that
+          # falsifies the index arithmetic it asserts. It is already this
+          # action's default; the point is that a default which silently
+          # changed would turn an unchecked `@inbounds` into memory
+          # corruption rather than a test failure.
+          check_bounds: 'yes'
+        env:
+          # Every number the suite asserts must be identical at one thread
+          # and at four.
+          JULIA_NUM_THREADS: ${{ matrix.threads || 1 }}
+      - uses: julia-actions/julia-processcoverage@v1
+        if: ${{ matrix.coverage == true && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+      - uses: codecov/codecov-action@v7
+        if: ${{ matrix.coverage == true && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # A Codecov outage should not turn a green test run red.
+          fail_ci_if_error: false
