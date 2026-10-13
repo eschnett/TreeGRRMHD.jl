@@ -37,4 +37,7 @@ using TreeGRRMHD
     # Step 1: the units, the variables and the 3+1 primitive recovery.
     include("units_tests.jl")
     include("recovery_tests.jl")
+    # Step 2: the pointwise physics. Uses `recovery_tests.jl`'s state
+    # generators, so it comes after it.
+    include("pointwise_tests.jl")
 end

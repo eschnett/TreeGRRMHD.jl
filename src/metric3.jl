@@ -82,33 +82,47 @@ Minkowski space in Cartesian coordinates: `α = 1`, `β = 0`, `γ_ij = δ_ij`.
     return Metric3{T}(one(T), zero(SVector{3,T}), I3, I3, one(T))
 end
 
+# Matrix products written out with plain `*` and `+` (amended in step 2).
+# StaticArrays' `*` accumulates with `muladd`, which LLVM may or may not fuse
+# into an FMA depending on where the product is inlined, so the same
+# expression in a kernel and on the host could differ in the last bit — as
+# step 2's kernel test found for the fluxes. Plain operations are never
+# fused, so every pointwise function computes the same bits wherever it is
+# compiled for the CPU.
+@inline mul3(A::SMatrix{3,3}, v::SVector{3}) =
+    @inbounds SVector(A[1, 1] * v[1] + A[1, 2] * v[2] + A[1, 3] * v[3],
+                      A[2, 1] * v[1] + A[2, 2] * v[2] + A[2, 3] * v[3],
+                      A[3, 1] * v[1] + A[3, 2] * v[2] + A[3, 3] * v[3])
+@inline mul3(A::SMatrix{3,3}, B::SMatrix{3,3}) =
+    @inbounds hcat(mul3(A, B[:, 1]), mul3(A, B[:, 2]), mul3(A, B[:, 3]))
+
 """
     lower(m::Metric3, v)
 
 `v_i = γ_ij vʲ`.
 """
-@inline lower(m::Metric3, v::SVector{3}) = m.γ * v
+@inline lower(m::Metric3, v::SVector{3}) = mul3(m.γ, v)
 
 """
     raise(m::Metric3, w)
 
 `wⁱ = γ^ij w_j`.
 """
-@inline raise(m::Metric3, w::SVector{3}) = m.γu * w
+@inline raise(m::Metric3, w::SVector{3}) = mul3(m.γu, w)
 
 """
     dot_up(m::Metric3, a, b)
 
 `γ_ij aⁱ bʲ`, for two contravariant vectors.
 """
-@inline dot_up(m::Metric3, a::SVector{3}, b::SVector{3}) = sum(a .* (m.γ * b))
+@inline dot_up(m::Metric3, a::SVector{3}, b::SVector{3}) = sum(a .* mul3(m.γ, b))
 
 """
     dot_down(m::Metric3, a, b)
 
 `γ^ij a_i b_j`, for two covariant vectors.
 """
-@inline dot_down(m::Metric3, a::SVector{3}, b::SVector{3}) = sum(a .* (m.γu * b))
+@inline dot_down(m::Metric3, a::SVector{3}, b::SVector{3}) = sum(a .* mul3(m.γu, b))
 
 # The cross product of the symbol, `[ijk] aʲ bᵏ`, which is a component list
 # and not yet a tensor.

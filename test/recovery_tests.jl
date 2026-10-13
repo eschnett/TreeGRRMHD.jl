@@ -38,17 +38,25 @@ rec_gas(Γ, ::Type{T}=Float64) where {T} =
 
 # A boosted spinning Kerr-Schild hole, sampled at a random event between
 # r = 3M and 20M: lapse, shift and a non-diagonal 3-metric all far from
-# flat, with `√γ` between about 1 and 2.
-function rec_metric(rng)
+# flat, with `√γ` between about 1 and 2. `rec_event` returns the spacetime
+# and the event `(t, x, y, z)`, for the tests that need the metric's
+# derivatives there too (step 2); `rec_metric` its 3+1 split.
+function rec_event(rng)
     hole = SpacetimeMetrics.KerrSchild{Float64}(1.0, 0.9 * rand(rng))
     vb = SVector{3}(randn(rng, 3))
     m4 = SpacetimeMetrics.boost(hole, (0.6 * rand(rng) / sqrt(sum(abs2, vb))) * vb)
     while true
         x = SVector{3}(randn(rng, 3))
         x = ((3 + 17 * rand(rng)) / sqrt(sum(abs2, x))) * x
-        α, β, γ = SpacetimeMetrics.adm_decompose(m4, SVector(10 * randn(rng), x...))
-        α > 0 && return Metric3(α, β, γ)
+        p = SVector(10 * randn(rng), x...)
+        α, _, _ = SpacetimeMetrics.adm_decompose(m4, p)
+        α > 0 && return m4, p
     end
+end
+
+function rec_metric(rng)
+    m4, p = rec_event(rng)
+    return Metric3(SpacetimeMetrics.adm_decompose(m4, p)...)
 end
 
 # A random direction of unit length in the metric `m`.
@@ -279,8 +287,9 @@ end
     @test worst_s < 1e-10
     @test worst_ρ_tight < 3e-11
     @test worst_s_tight < 1e-10
-    # Measured at most 5.4e-14, `τ` per itself at Γ = 5/3 on Julia 1.11
-    # (4.6e-14 at 1.13; step 1): over eighteen times inside the bound.
+    # Measured at most 4.6e-14, `τ` per itself at Γ = 2, at Julia 1.11 and
+    # 1.13 alike since the metric products stopped contracting (step 2; step
+    # 1 had 5.4e-14 at 1.11): over twenty times inside the bound.
     @test worst_cons <= 1e-12
     @test worst_τ <= 1e-12
     @info "con2prim_hydro ∘ prim2con, Γ = $Γ: conditioned (ρ,w,v), s; raw s (default tol)" worst_ρ worst_s worst_s_raw
