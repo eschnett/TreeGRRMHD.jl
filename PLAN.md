@@ -650,8 +650,11 @@ Accept:
   divided by `κ_ρ` and `κ_s`, below 3e−11 and 1e−10; see EOS-2). A raw 1e−12 in the primitives
   is not attainable (proposed in step 0). *(Step 1:)* "relative" is per component for `D`,
   `D Yₑ` and `𝔈`, and against the energy density `τ + D` for `S_i` and `τ`; `√γ D s` is not an
-  input of the recovery and is checked through `s` (proposed in step 1). Measured 9.8e−13: 1e−12
-  is `con2prim`'s own tolerance, so the bound has no margin.
+  input of the recovery and is checked through `s` (proposed in step 1). At EntropyEOS's default
+  tolerance this measures 9.8e−13, since 1e−12 is `con2prim`'s own stopping criterion; so the
+  conserved round trip is asserted with `Con2PrimOptions(tol = 1e−14)`, where it measures at most
+  5.4e−14 (`τ` per itself, Julia 1.11; 4.6e−14 at 1.13), over 18× inside the bound, and the
+  default-tolerance number is recorded (amended in step 1 after review).
   - `W ≤ 10`;
   - random metrics, from Kerr-Schild at random points and random boosts;
   - random E and B with EM energy up to 100× the fluid's.

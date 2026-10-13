@@ -14,9 +14,12 @@
 # in the primitives, the errors divided by the conditioning factors
 # `κ_ρ = hW²` (for ρ, w and v) and `κ_s = (1 + τ/(ρW²U))·max(1, U/(s U_s))`
 # (for s), below upstream's 3e-11 and 1e-10; in the conserved variables, 1e-12
-# relative. The latter is the recovery's own tolerance: `con2prim` stops when
-# its energy residual is below 1e-12 of `τ`, so the conserved round trip
-# cannot be tighter than that, and is not measured against anything looser.
+# relative. At EntropyEOS's default tolerance the latter would be a claim about
+# its stopping criterion — `con2prim` stops when its energy residual is below
+# 1e-12 of `τ`, often at the cold seed — and not about the 3+1 layer, and it
+# would hold with no margin (9.8e-13 measured in step 1). So the conserved
+# round trip is asserted with the solver run to `tol = 1e-14`, where what is
+# left is this layer's rounding, and the default tolerance is recorded.
 
 using KernelAbstractions: @kernel, @index, CPU, synchronize
 using Random: Xoshiro
@@ -217,10 +220,16 @@ end
     # (W ≤ 10) in a random boosted Kerr-Schild metric, with random E and B
     # carrying between 1e-4 and 100 times the fluid's `τ`.
     eos = rec_gas(Γ)
+    # The default tolerance, as the scheme will call it, and a tight one for
+    # the conserved round trip. 1e-14 is the tightest power of ten at which
+    # every draw still converges by Newton; at 1e-15 some fall back to the
+    # nested solve, and the round trip is no better (measured in step 1).
     opts = REC_EOS.Con2PrimOptions{Float64}()
+    tight = REC_EOS.Con2PrimOptions{Float64}(; tol=1e-14)
     pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
     rng = Xoshiro(23)
     worst_ρ = worst_s = worst_s_raw = worst_cons = worst_τ = 0.0
+    worst_ρ_tight = worst_s_tight = default_cons = default_τ = 0.0
     flagged = 0
     for _ in 1:1000
         m = rec_metric(rng)
@@ -249,20 +258,34 @@ end
         @test isapprox(sqrt(TreeGRRMHD.dot_up(m, vq, vq)), tanh(TreeGRRMHD.prim_w(q));
                        rtol=8eps())
 
-        # Back to the conserved variables. `√γ D s` is not an input of the
-        # hydrodynamic recovery — `s` comes from `τ`, and `D s` is reset from
-        # it ("Matter" in `CODE.md`) — so its slot is checked through `s`
-        # above, and not here.
-        e, eτ = rec_cons_errors(m, cons, prim2con(eos, m, q, E, B))
+        # Back to the conserved variables, at the tight tolerance. `√γ D s` is
+        # not an input of the hydrodynamic recovery — `s` comes from `τ`, and
+        # `D s` is reset from it ("Matter" in `CODE.md`) — so its slot is
+        # checked through `s` above, and not here.
+        qt, ft = con2prim_hydro(eos, tight, pol, m, cons, E, B, cold_guesses(Float64))
+        ft == 0 || (flagged += 1)
+        eρ, es, _ = rec_prim_errors(m, prim, qt, κ_ρ, κ_s)
+        worst_ρ_tight = max(worst_ρ_tight, eρ)
+        worst_s_tight = max(worst_s_tight, es)
+        e, eτ = rec_cons_errors(m, cons, prim2con(eos, m, qt, E, B))
         worst_cons = max(worst_cons, e)
         worst_τ = max(worst_τ, eτ)
+        e, eτ = rec_cons_errors(m, cons, prim2con(eos, m, q, E, B))
+        default_cons = max(default_cons, e)
+        default_τ = max(default_τ, eτ)
     end
     @test flagged == 0
     @test worst_ρ < 3e-11
     @test worst_s < 1e-10
+    @test worst_ρ_tight < 3e-11
+    @test worst_s_tight < 1e-10
+    # Measured at most 5.4e-14, `τ` per itself at Γ = 5/3 on Julia 1.11
+    # (4.6e-14 at 1.13; step 1): over eighteen times inside the bound.
     @test worst_cons <= 1e-12
-    @info "con2prim_hydro ∘ prim2con, Γ = $Γ: conditioned (ρ,w,v), s; raw s; conserved " *
-          "(per energy density); τ per itself" worst_ρ worst_s worst_s_raw worst_cons worst_τ
+    @test worst_τ <= 1e-12
+    @info "con2prim_hydro ∘ prim2con, Γ = $Γ: conditioned (ρ,w,v), s; raw s (default tol)" worst_ρ worst_s worst_s_raw
+    @info "… conserved (per energy density) and τ per itself, at tol = 1e-14 and at the " *
+          "default" worst_cons worst_τ default_cons default_τ worst_ρ_tight worst_s_tight
 end
 
 @testset "con2prim_ideal recovers v when E = −v×B: Γ=$Γ" for Γ in REC_GAMMAS

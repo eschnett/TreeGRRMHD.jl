@@ -417,14 +417,23 @@ across the window, `W ≤ 10`, metrics from a boosted Kerr-Schild hole with
 `a ≤ 0.9` at random events between `r = 3M` and `20M`, and `E`, `B`
 carrying 1e−4 to 100 times the fluid's `τ` — `con2prim_hydro ∘ prim2con`
 has conditioned worst errors 4.5e−13 in `(ρ, w, v)` and 8.4e−12 in `s`
-(raw `s` up to 5.7e−7 at `Γ = 2`, where the thermal energy is a tiny part of `τ` and `κ_s` is large). In the conserved
-variables the round trip is 9.8e−13 relative, with `S_i` and `τ` measured
-against the energy density `𝓔 = τ + D` they are components of (`τ` against
-itself: 9.9e−13). That is the solver's own tolerance — `con2prim` stops
-when its energy residual is below 1e−12 of `τ`, often at the cold seed
-with no Newton step — and not rounding, so 1e−12 has no margin there; the
-step-1 acceptance was written at exactly that number (proposed in step 1:
-the norm; see the step-1 report). `√γ D s` is not an input of the
+(raw `s` up to 5.7e−7 at `Γ = 2`, where the thermal energy is a tiny part
+of `τ` and `κ_s` is large). In the conserved variables, with `S_i` and `τ` measured against the energy density
+`𝓔 = τ + D` they are components of (proposed in step 1), the round trip at
+EntropyEOS's default tolerance is 9.8e−13 relative (`τ` against itself:
+9.9e−13). That is the solver's stopping criterion — `con2prim` stops when
+its energy residual is below 1e−12 of `τ`, often at the cold seed with no
+Newton step — and not this layer's rounding, and it leaves the 1e−12 of
+the step-1 acceptance no margin. So the test runs the conserved round trip
+with `Con2PrimOptions(tol = 1e−14)`, the tightest power of ten at which
+every draw still converges by Newton (at 1e−15 some fall back to the
+nested solve, and the round trip is no better): the worst error is then
+4.3e−14 against `𝓔` and 4.6e−14 for `τ` against itself, both at `Γ = 2`
+at Julia 1.13, and 5.1e−14 and 5.4e−14 at `Γ = 5/3` at 1.11, whose
+elementary functions round differently; and the conditioned primitives 3.0e−14 in `(ρ, w, v)` and 2.7e−13 in `s`
+(measured in step 1; amended in step 1 after review, which found the
+default-tolerance assertion fragile). The scheme itself runs at the
+default tolerance. `√γ D s` is not an input of the
 hydrodynamic recovery and is checked through `s`. `con2prim_ideal` on
 states built with `E = −v × B` (the same draws, `B²` up to 100 times the
 fluid's `τ`, `B` along and across `v` included) has conditioned worst
