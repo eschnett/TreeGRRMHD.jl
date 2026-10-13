@@ -261,7 +261,18 @@ S^ij = ρ h W² vⁱ vʲ + p γ^ij    − Eⁱ Eʲ − Bⁱ Bʲ + ½ γ^ij (E² 
 in Palenzuela 2013 and Dionysopoulou et al. 2013). The momentum source is
 equivalently `½ √−g T^{ab} ∂ⱼ g_ab`, which is the cheaper form when the
 metric derivatives come from TreeGH (proposed; the two are checked against
-each other in a test). The entropy equation is not a conservation law
+each other in a test). *(Step 2:)* both are `geometric_source` in
+`src/sources.jl`, and on boosted Kerr-Schild with fields up to 100 times
+the fluid's energy they agree to 5.4e−16 of the magnitude of their terms;
+the covariant form also agrees with `√−g T^{μν}(∂_μ g_νj − Γ^δ_νμ g_δj)`
+from SpacetimeMetrics' Christoffels to 1.2e−15, and the energy source with
+Banyuls et al. (1997)'s `√−g (T^{μt} ∂_μα − α T^{μν} Γᵗ_μν)` to 5.6e−16
+(measured in step 2). **The covariant form is the default** (proposed in
+step 2): every provider produces `∂ⱼ g_ab` natively, and the Valencia form
+must first derive `∂ⱼα` and `∂ⱼβⁱ` from it. Measured in step 2 (Julia
+1.11, `Float64`, one call, Apple M3 Pro): 36 ns against 50 ns for the
+geometric source, 41 ns against 74 ns for a cell's whole explicit source.
+The entropy equation is not a conservation law
 through shocks; `D s` is advected only as a fallback for the primitive
 recovery and is reset from the recovered `s` wherever the energy inversion
 succeeds (proposed; whether it earns its keep is (open)).
@@ -284,7 +295,13 @@ The sign of the shift term in Faraday's law follows from Komissarov's
 `E_aux = αD + β × B`, and agrees with IllinoisGRMHD's ideal
 `∂ₜA_i = ε_ijk vʲ Bᵏ − ∂ᵢ(αΦ − βʲA_j)` — whose `vⁱ = uⁱ/u⁰ = α v_Eⁱ − βⁱ`
 is the coordinate velocity — once `E = −v_E × B` (checked while writing
-this; a test pins both signs). The gauge is generalized Lorenz with damping `ξ`
+this; a test pins both signs). *(Measured in step 2:)* the EMF agrees with
+IllinoisGRMHD's form to 1.4e−15 of its terms on random states in boosted
+Kerr-Schild; the flux of `𝔈` is Komissarov's `−[kdl] H_l` exactly; and in
+flat space the fluxes, the EMF, the gauge potential and the gauge flux
+reproduce an exact electromagnetic plane wave in the Lorenz gauge —
+`∂ₜE = ∇ × B`, `∂ₜA = −E − ∇Φ`, `∂ₜΦ = −∇·A` — to 6.3e−16, with
+Ampère's source equal to `−j` to 2.2e−16 (`test/pointwise_tests.jl`). The gauge is generalized Lorenz with damping `ξ`
 (Farris et al. 2012), which removes the zero-speed gauge mode that
 otherwise produces spurious `B` at refinement boundaries. `ξ` is (open).
 
@@ -322,6 +339,20 @@ jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 
 The `q v` part is explicit. The `σ` part is **stiff** inside a star
 (`σ Δt ≫ 1`), and is the implicit part of the time integrator.
+
+*(Proposed in step 2:)* the models are in `src/ohm.jl`, and
+`conductivity(model, prim)` takes the whole primitive state, so that a
+later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2)`
+is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)`: continuous, `σ₀` deep inside matter
+and zero at and below `cutoff·ρ_atm`, so the atmosphere carries no current;
+rung 6 settles its shape against Palenzuela (2013). For `IdealConductor`
+the conduction current is not a function of the state — it is whatever
+holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
+`Inf` and `ohm_current` throws an `ArgumentError` rather than return
+`∞ · 0`. Where `σ = 0` the conduction term is not formed (a mask
+branches). Measured in step 2: at `E = −v × B` the current is 2.3e−16 of
+`σ W |B|`, and in flat space the bracket is the fluid-frame field
+`F^{ab} u_b` with the charge the normal observer sees, to 4.4e−16.
 Extension slots, not planned: a mean-field dynamo term, and force-free
 currents in the magnetosphere.
 
@@ -329,6 +360,12 @@ currents in the magnetosphere.
 
 `T^{ab} = 𝓔 n^a n^b + S^a n^b + n^a S^b + S^{ab}` from the same total
 `𝓔`, `S_i`, `S^{ij}` as above; lowered with `g_ab`, it is what TreeGH reads.
+*(Step 2:)* `stress_energy` and `T4_lower` in `src/stress_energy.jl`.
+`nᵃnᵇT_ab = 𝓔` and `−nᵇT_ib = S_i` hold to 8.0e−16 of `max |T_ab|`; the
+fluid part is `ρh uᵃuᵇ + p gᵃᵇ` to 5.5e−16, the field part is trace-free to
+1.2e−15, and in flat space it is `F^{ac}F^b_c − ¼ηᵃᵇF²` with
+`F_{i0} = E_i`, `F_ij = [ijk]Bᵏ` to 3.3e−16, which pins the sign of the
+Poynting term (measured in step 2).
 
 ## Thermodynamics
 
@@ -428,9 +465,10 @@ the step-1 acceptance no margin. So the test runs the conserved round trip
 with `Con2PrimOptions(tol = 1e−14)`, the tightest power of ten at which
 every draw still converges by Newton (at 1e−15 some fall back to the
 nested solve, and the round trip is no better): the worst error is then
-4.3e−14 against `𝓔` and 4.6e−14 for `τ` against itself, both at `Γ = 2`
-at Julia 1.13, and 5.1e−14 and 5.4e−14 at `Γ = 5/3` at 1.11, whose
-elementary functions round differently; and the conditioned primitives 3.0e−14 in `(ρ, w, v)` and 2.7e−13 in `s`
+4.3e−14 against `𝓔` and 4.6e−14 for `τ` against itself, both at `Γ = 2`,
+at Julia 1.11 and 1.13 alike (amended in step 2: step 1 measured 5.1e−14
+and 5.4e−14 at `Γ = 5/3` at 1.11, before the metric products stopped
+contracting; see "Precision and devices"); and the conditioned primitives 3.0e−14 in `(ρ, w, v)` and 2.7e−13 in `s`
 (measured in step 1; amended in step 1 after review, which found the
 default-tolerance assertion fragile). The scheme itself runs at the
 default tolerance. `√γ D s` is not an input of the
@@ -507,7 +545,12 @@ below 2¹⁶, so exact even in `Float32`), `Eⁱ`, `Bⁱ`, `q`, and the metric
 `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric derivatives and
 `K_ij` the sources read are not in it yet: step 2 decides the form of the
 sources, and with it whether they are stored or interpolated on the fly
-(proposed in step 1).
+(proposed in step 1). *(Step 2:)* they are not stored, and `P` stays at 30
+slots (proposed in step 2). The sources are their only reader, once per
+cell per right-hand side, so storing them (36 more slots: `∂ⱼg_ab` and
+`K_ij`) would only move the same evaluation into another kernel and add a
+write and a read; the source kernel asks the provider for them
+(`metric_gradient`), as it would ask for the metric at a face.
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -540,6 +583,18 @@ resistive codes this design follows, robust and diffusive. Split speeds
 (fluid speeds for `D`, `D Yₑ`, `D s`, light speed for the rest) and a
 resistive HLLC are (open), to be decided by measurement on the TOV star.
 
+*(Step 2:)* `src/flux.jl` and `src/riemann.jl`. A face state is the tuple
+`(cons, prim, E, B)` — the densitized conserved state, the primitive state
+it was built from, and the contravariant fields — which is what
+`physical_flux(m, cons, prim, E, B, Val(d))` takes (proposed in step 2).
+Both states are at the same face, so the light-cone speeds are the same on
+both sides and the solvers need no EOS. Measured in step 2: `F(U, U)` is the
+physical flux exactly for LLF and to 2.2e−16 for HLLE; the direction-`d`
+flux is the direction-1 flux of the relabelled state to 4.7e−16 in flat
+space and 6.8e−16 in Kerr-Schild; the fluxes are `α√γ Tᵈ_j` (momentum) and
+`α²√γ T^{td}` (energy) to 4.8e−16; and the light cone is null in `g^{ab}`
+to 1.6e−15.
+
 ### The electromotive force for `A`
 
 Upwind constrained transport (proposed): at each `d`-edge the EMF
@@ -552,12 +607,32 @@ with the LLF/HLL dissipation `𝔈` receives from the Riemann solver; without
 it the Maxwell subsystem is upwinded in `E` alone. The metric at edges
 comes from 1D 4th-order interpolation between the edge's vertices.
 
+*(Step 2:)* `uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))` in `src/emf.jl` (proposed
+in step 2). With `(d, a, b)` cyclic, its four states are the full `E` of
+each state (`LL, LR, RL, RR`, the first letter the side along `a`), and the
+face-normal fields that cross the edge: `Bᵃ` reconstructed along `b`, `Bᵇ`
+along `a`, one value per side. `Bᵈ` does not enter, since
+`(β × B)_d = √γ(βᵃBᵇ − βᵇBᵃ)`. The result is
+`Σ wᵃwᵇ e + √γ aᵃ(Bᵇ_R − Bᵇ_L) − √γ aᵇ(Bᵃ_R − Bᵃ_L)`, the HLL average of
+`𝔅ᵇ`'s flux `−EMF_d` along `a` and `𝔅ᵃ`'s `+EMF_d` along `b`. The test
+that pins it: in a constant metric (frozen Kerr-Schild samples) every jump
+of the 1D vacuum Maxwell equations with continuous `Eˣ`, `Bˣ` is carried
+by light waves at exactly `λ±`, so HLL with those speeds is the exact
+Godunov solver, and the HLLE flux of `𝔈` together with the UCT EMFs equals
+the physical flux of the HLL middle state — to 3.9e−16 (measured in step
+2). A wrong sign in the EMF's shift or jump terms, or in the flux of `𝔈`,
+breaks that.
+
 ### Sources
 
 At cell centers, explicit: the geometric momentum and energy sources
 above; the shift term `√γ q βⁱ` and the `−α√γ q vⁱ` part of the current in
 Ampère's law. At vertices, explicit: the gauge damping `−ξ α Φ̃`. **The only
 implicit term** is Ampère's `−α√γ σ W [E + v × B − (v·E) v]`.
+*(Step 2:)* `src/sources.jl`: `geometric_source` (both forms), the cell's
+whole `explicit_source` (none for `D`, `D Yₑ`, `D s`), and Ampère's source
+as `ampere_explicit_source` + `ampere_stiff_source` = `ampere_source`, the
+stiff part kept as a function for the stage solve's residual.
 
 ### Floors, the atmosphere and the magnetosphere
 
@@ -717,6 +792,20 @@ The kernels dispatch on a metric provider (proposed):
   **evolved**. One code path for both, so the Cowling runs test exactly
   the interpolation the coupled runs use.
 
+*(Step 2:)* `Flat` and `Analytic` are in `src/metric.jl`; every provider
+answers `point_metric(provider, t, x) -> Metric3` and
+`metric_gradient(provider, t, x) -> MetricGradient`. `MetricGradient`
+holds `dg[j, a, b] = ∂_j g_ab` — the spatial derivative index **first**, as
+in GHSO2, then the spacetime indices with 1 = `t` — and `K_ij`; the lapse
+and shift derivatives are derived from it (`d_lapse`, `d_shift`, which
+agree with ForwardDiff of the 3+1 split to 2.4e−16 of their terms). The
+conversion from SpacetimeMetrics' derivative-last `dmetric` is written in
+`src/metric.jl` and nowhere else (proposed in step 2). `K_ij` is computed
+there from the same `dmetric` call: SpacetimeMetrics' `ExtrinsicCurvature`
+differentiates the metric a second time and allocates 432 bytes per call at
+Julia 1.11 and 1.13, which a device kernel cannot (measured in step 2); the
+two agree to 4.3e−16.
+
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
 are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
@@ -731,7 +820,8 @@ Interpolated within a block from the vertices (proposed):
 - **Faces**: 2D, 16 points. **Edges**: 1D, 4 points.
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
-edges. One interaction with the ghost widths is (open): a 4th-order
+edges. The derivatives and `K_ij` are not stored but evaluated where the
+sources are (proposed in step 2; see "Field sets"). One interaction with the ghost widths is (open): a 4th-order
 interpolation to a cell center reaches one vertex beyond the cell on either
 side, so reaching the outermost ghost cell of a `G = 3` cell set needs
 `G = 4` on the vertex set, and TreeGH fixes `G = q/2 + 1 = 3`. The
@@ -864,7 +954,17 @@ provider.
 The pointwise layer of step 1 — `Metric3`, `prim2con`, `con2prim_hydro`,
 `con2prim_ideal` — runs inside a KernelAbstractions kernel bit-identically
 to the host at `Float64` and `Float32`, allocation-free and inferred, and
-so does `GeometricEOS` around a table at `Float64` (measured in step 1). `GeometricEOS` around a table is not
+so does `GeometricEOS` around a table at `Float64` (measured in step 1).
+So does step 2's layer — `Analytic(KerrSchild)` with its ForwardDiff
+derivatives, the stress-energy, both Riemann solvers in every direction,
+Ohm's law, both source forms, the UCT EMF and the gauge terms — at `Float64`
+and `Float32` (measured in step 2). That needed one change: StaticArrays'
+matrix product accumulates with `muladd`, which LLVM fused differently in
+the kernel and on the host, so three of the 79 numbers differed in the last
+bit; `lower`, `raise`, `dot_up` and `dot_down` now multiply with plain `*`
+and `+` (`mul3` in `src/metric3.jl`), which is never fused (amended in step
+2). On a device, which contracts by its own rules, bit-identity is not the
+claim; step 14 states what is. `GeometricEOS` around a table is not
 `isbits` (the table holds arrays) and is passed to a CPU kernel as it is;
 it carries an `Adapt` rule for a device.
 

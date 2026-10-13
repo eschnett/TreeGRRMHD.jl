@@ -10,8 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 and 1 are done; step 2 is next.** *(Amended in step 1, 2026-10-13.)* Steps 2 and 3
-need nothing new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
+**Steps 0, 1 and 2 are done; step 3 is next.** *(Amended in step 2, 2026-10-13.)* Step 3
+needs nothing new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
 1.4.0 is tagged, unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in
 EntropyEOS 1.0.0, so step 5, the first evolution, waits for AMR-1 alone. TreeAMR is at 0.2.0
 (registered), and none of AMR-1 to AMR-6 has landed. The "state" column of the table below has
@@ -665,6 +665,8 @@ Accept:
 
 ## Step 2 — Pointwise physics
 
+*(Done, 2026-10-13, on `claude/step-2-pointwise`.)*
+
 `CODE.md`: "Maxwell", "Ohm's law and the conductivity", "Stress-energy for the spacetime",
 "Riemann solver", "The electromotive force for `A`", "Sources", "Metric providers" (pointwise).
 Waits: none.
@@ -682,6 +684,14 @@ Changes:
 - **`src/metric.jl`:** `Flat()` and `Analytic(m)`, evaluated pointwise via SpacetimeMetrics. This
   is the one place the derivative index order is converted.
 
+*(Amended in step 2:)* as built, a face state is the tuple `(cons, prim, E, B)`, so the solvers are
+`riemann_flux(Val(:llf | :hlle), m, L, R, Val(d))`; the EMF is
+`uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))`; a provider answers `point_metric(p, t, x)` and
+`metric_gradient(p, t, x)`, the latter a `MetricGradient` with `dg[j,a,b] = ∂_j g_ab` and `K_ij`;
+the conductivity is `conductivity(model, prim)`. `src/metric3.jl`'s products became `mul3` (plain
+`*` and `+`) so that a kernel stays bit-identical to the host. The test file is
+`test/pointwise_tests.jl`, and `test/Project.toml` gained ForwardDiff.
+
 Accept:
 - **Consistency:** `F(U, U)` equals the physical flux for both solvers. The direction-`d` flux
   equals the permuted direction-1 flux in flat space.
@@ -693,6 +703,14 @@ Accept:
 - **Stress-energy:** `n^a n^b T_ab = 𝓔` and `−γ_i^a n^b T_ab = S_i`.
 - **Ohm:** `j = 0` for `E = −v×B` with `q = 0`.
 - Everything is kernel-callable, and compiles at Float32.
+
+*(Measured in step 2, worst over Julia 1.11 and 1.13:)* consistency 0 (LLF) and 2.2e−16 (HLLE);
+the relabelled directions 4.7e−16 (flat) and 6.8e−16 (Kerr-Schild); the plane wave 6.3e−16; the
+IllinoisGRMHD EMF 1.4e−15; the momentum-source forms 5.4e−16; the projections of `T_ab` 8.0e−16;
+`|j|` at `E = −v×B` 2.3e−16 of `σW|B|`; the layer is bit-identical in a CPU kernel at `Float64` and
+`Float32`, inferred and allocation-free. Beyond the list: HLLE with the UCT EMF is the exact upwind
+solver of vacuum Maxwell in a constant curved metric (3.9e−16), and the energy source is Banyuls et
+al.'s (5.6e−16). Every bound is at least ten times the measurement; `CODE.md` has the rest.
 
 ## Step 3 — The implicit stage solve
 

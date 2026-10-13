@@ -40,20 +40,26 @@ Rules that follow from `CODE.md` and govern every change here:
 
 ## Current state
 
-**Steps 0 (scaffolding) and 1 (the pointwise recovery) are done; step 2
-is next.** `CODE.md` records the reviewed design (2026-09-23); `PLAN.md` is
-the implementation plan: steps 0–15 on `claude/step-N-slug` branches, run
-one agent per step, and the exact upstream requirements under IDs `AMR-n`,
-`GH-n`, `EOS-n`, each naming the step it blocks, with a state column. What
-exists: the module shell, `src/precision.jl` and `src/device.jl` (ported
-from TreeHydro), `test/prerequisite_tests.jl` (the names the scheme calls,
-and every upstream ID logged as landed or waiting), and step 1's pointwise
-layer — `src/units.jl` (geometric units, `GeometricEOS`), `src/metric3.jl`,
+**Steps 0 (scaffolding), 1 (the pointwise recovery) and 2 (the pointwise
+physics) are done; step 3 is next.** `CODE.md` records the reviewed design
+(2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
+`claude/step-N-slug` branches, run one agent per step, and the exact
+upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
+step it blocks, with a state column. What exists: the module shell,
+`src/precision.jl` and `src/device.jl` (ported from TreeHydro),
+`test/prerequisite_tests.jl` (the names the scheme calls, and every
+upstream ID logged as landed or waiting), step 1's pointwise layer —
+`src/units.jl` (geometric units, `GeometricEOS`), `src/metric3.jl`,
 `src/variables.jl` (the slot layouts of `U` and `P`), `src/prim2con.jl` and
-`src/con2prim.jl` (`con2prim_hydro`, `con2prim_ideal`). Steps 4a–4c are
-done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the IMEX
-design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5 waits for
-AMR-1 alone.
+`src/con2prim.jl` (`con2prim_hydro`, `con2prim_ideal`) — and step 2's —
+`src/metric.jl` (the `Flat`/`Analytic` providers and `MetricGradient`, the
+one place SpacetimeMetrics' derivative index order is converted),
+`src/stress_energy.jl`, `src/ohm.jl`, `src/flux.jl`, `src/riemann.jl`,
+`src/emf.jl` and `src/sources.jl`. `test/pointwise_tests.jl` uses
+`recovery_tests.jl`'s state generators and is included after it. Steps
+4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
+IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5
+waits for AMR-1 alone.
 
 ## Commands
 
@@ -98,7 +104,10 @@ paid for compiling the test environment). The suite's own
 installed, registry and every package fetched) the 1.11 instantiate took
 77 s and the test 92 s; it resolved EntropyEOS and IMEXRungeKutta from
 their GitHub URLs, as it must. The log names every upstream ID as landed
-or waiting; grep it for `landed:` and `waiting:`.
+or waiting; grep it for `landed:` and `waiting:`. At the end of step 2
+(2026-10-13): **20513 tests**, a `Test Summary` time of 37–39 s at 1.11
+and 28 s at 1.13 at one thread, four and `--check-bounds=yes`;
+`test/pointwise_tests.jl` takes about 12 s of it.
 
 ## Conventions
 
