@@ -40,8 +40,9 @@ Rules that follow from `CODE.md` and govern every change here:
 
 ## Current state
 
-**Steps 0 (scaffolding), 1 (the pointwise recovery) and 2 (the pointwise
-physics) are done; step 3 is next.** `CODE.md` records the reviewed design
+**Steps 0 (scaffolding), 1 (the pointwise recovery), 2 (the pointwise
+physics) and 3 (the implicit stage solve) are done; step 5 is next, and
+waits for AMR-1.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -55,8 +56,10 @@ upstream ID logged as landed or waiting), step 1's pointwise layer —
 `src/metric.jl` (the `Flat`/`Analytic` providers and `MetricGradient`, the
 one place SpacetimeMetrics' derivative index order is converted),
 `src/stress_energy.jl`, `src/ohm.jl`, `src/flux.jl`, `src/riemann.jl`,
-`src/emf.jl` and `src/sources.jl`. `test/pointwise_tests.jl` uses
-`recovery_tests.jl`'s state generators and is included after it. Steps
+`src/emf.jl` and `src/sources.jl` — and step 3's `src/stage_solve.jl`
+(`solve_ohm_stage`, Newton on the fluid's share of the energy and momentum,
+`OhmStageResult`). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
+use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5
 waits for AMR-1 alone.

@@ -23,7 +23,7 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 and 2 of `PLAN.md`, the pointwise layers the scheme will
+*Status: steps 1 to 3 of `PLAN.md`, the pointwise layers the scheme will
 stand on.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
@@ -32,7 +32,9 @@ recovery around EntropyEOS's one `con2prim_safe` ([`con2prim_hydro`](@ref),
 and [`con2prim_ideal`](@ref) as the stage solve's seed). Step 2: the metric
 providers [`Flat`](@ref) and [`Analytic`](@ref), the stress-energy, Ohm's
 law, the physical fluxes, the light-cone Riemann solvers, the UCT–HLL EMF
-and the sources. No mesh code yet.
+and the sources. Step 3: the implicit stage solve of Ohm's law,
+[`solve_ohm_stage`](@ref), with its options and its result flags. No mesh
+code yet.
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.

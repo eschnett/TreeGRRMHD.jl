@@ -10,8 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0, 1 and 2 are done; step 3 is next.** *(Amended in step 2, 2026-10-13.)* Step 3
-needs nothing new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
+**Steps 0 to 3 are done; step 5 is next, and waits for AMR-1.** *(Amended in step 3,
+2026-10-13.)* Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
 1.4.0 is tagged, unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in
 EntropyEOS 1.0.0, so step 5, the first evolution, waits for AMR-1 alone. TreeAMR is at 0.2.0
 (registered), and none of AMR-1 to AMR-6 has landed. The "state" column of the table below has
@@ -750,6 +750,8 @@ al.'s (5.6e−16). Every bound is at least ten times the measurement; `CODE.md` 
 
 ## Step 3 — The implicit stage solve
 
+*(Done, 2026-10-13, on `claude/step-3-stage-solve`.)*
+
 `CODE.md`: "The implicit stage solve". Waits: none.
 
 Changes: `src/stage_solve.jl`, with
@@ -773,6 +775,32 @@ Accept:
   - the branch map (fixed point, Newton or fallback) and the maximum iteration counts are
     recorded "(measured in step 3)".
 - Allocation-free and kernel-callable.
+
+*(Amended in step 3:)* as built, the signature is
+`solve_ohm_stage(eos, opts, pol, σ, m, cons★, E★, B, γΔt, guesses; stage) -> (E, prim,
+result, recoveries)`, with `stage::OhmStageOptions` for the tolerance and the limits, and
+`result::OhmStageResult` two bit words (the solve's branch and modifiers, and EntropyEOS's
+policy flags). The iteration runs on the fluid's share of the energy and momentum rather than
+on `v`, with the velocity carried as `u = W v`; the Jacobian is analytic; repaired iterates are
+replaced by the repaired state's share; `conductivity_slope` (`src/ohm.jl`) gives Newton
+`∂σ/∂ρ`. `con2prim_hydro` and `con2prim_ideal` are split (`field_budget`, `fluid_recovery`,
+`ideal_recovery`) so that the solve's recoveries are theirs bit for bit. The tests are
+`test/stage_solve_tests.jl`, on stage problems built backwards from a known solution.
+
+*(Measured in step 3, Julia 1.11 and 1.13:)* σ = 0 gives `E === E★` and the hydro recovery
+`isequal`; `IdealConductor` gives `E = −v × B` to 5.6e−13 of `|B|`. Over the sweep, eight
+problems a point at Γ = 4/3, 5/3 and 2: no NaN; at every converged point Ohm's law to 3.3e−16
+and the matter to 1.5e−12 of `τ + D`; the fixed point takes every point with `b²/ρ ≤ 10⁻³` in
+at most 6 recoveries, Newton the rest in at most 10 where no iterate needed a repair and 32
+where some did; the fallback takes 36, 78 (77 at 1.11) and 103 of 2592 points, all at
+`b²/ρ ≥ 10` and `σΔt ≤ 10²`, where both seeds are inadmissible but once. Beyond the list: the
+analytic Jacobians agree with central differences to 1.1e−8 and 8.3e−8; the stage equations
+have more than one root in that corner; under IMEXSSP3433 a resting cell's field decays at
+orders 2.92 and 2.96 with its matter bit for bit; the solve is bit-identical in a CPU kernel at
+`Float64` and `Float32`, inferred and allocation-free. Every bound on a residual or an error is
+at least ten times the measurement, except where a bound is a theorem the measurement attains
+(the stiff limit of `ohm_E`, `≤ 1 + 10⁻⁶`); the counts have room of 1.6× (recoveries) and 2×
+(fallbacks); `CODE.md` has the rest.
 
 ## Steps 4a–4c — The IMEX package (in its own repository)
 

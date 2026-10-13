@@ -100,8 +100,8 @@ end
     end
     @info "ohm_E against a dense solve; the stiff limit's departure from −v×B in units of " *
           "its bound" worst worst_ideal
-    # Measured 2.1e-15; and the bound attained, to rounding: 1 + 1.4e-9.
-    @test worst < 2e-14
+    # Measured 2.1e-15; and the bound attained, to rounding.
+    @test worst < 3e-14
     @test worst_ideal < 1 + 1e-6
 end
 
@@ -457,7 +457,7 @@ end
     # is zero in every other slot and `D`, `S_i`, `τ`, `D Yₑ` and `D s` come
     # back bit for bit. With no field and no flow, Ampère's source is
     # `−ασ𝔈`, and the step is SSP3(4,3,3)'s L-stable DIRK on it: third
-    # order, and after one step at `ασΔt = 10⁶` the field is gone.
+    # order, and one stiff step leaves `O(1/(ασΔt))` of the field.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
     pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
@@ -485,10 +485,18 @@ end
     @info "IMEXSSP3433 on a resting cell: errors at 10, 20, 40 steps, and the orders" errs rates
     # Measured orders 2.9 and 3.0.
     @test all(r -> 2.7 < r < 3.3, rates)
-    u = run(1e6 / m.α, 1)
-    𝔈 = SVector(u[ST.U_E], u[ST.U_E + 1], u[ST.U_E + 2])
-    @test st_norm(m, 𝔈) <= 1e-5 * st_norm(m, m.sqrtγ * E0)
-    @test all(i -> u[i] === u0[i], 1:(ST.U_E - 1))
+    # L-stability: one step at `z = ασΔt` leaves `R(−z) = O(1/z)` of the
+    # field.
+    stiff = map((1e6, 1e8)) do z
+        u = run(z / m.α, 1)
+        @test all(i -> u[i] === u0[i], 1:(ST.U_E - 1))
+        𝔈 = SVector(u[ST.U_E], u[ST.U_E + 1], u[ST.U_E + 2])
+        st_norm(m, 𝔈) / st_norm(m, m.sqrtγ * E0)
+    end
+    @info "… and what one step leaves at ασΔt = 1e6 and 1e8" stiff
+    # Measured 6.7e-6 and 6.7e-8: `6.7/z`.
+    @test stiff[1] <= 1e-4
+    @test 50 < stiff[1] / stiff[2] < 200
 end
 
 @kernel function st_kernel!(Es, prims, results, iters, eos, opts, pol, @Const(σs), @Const(metrics),

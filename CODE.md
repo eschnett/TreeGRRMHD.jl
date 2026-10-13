@@ -14,11 +14,13 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 and 1 of `PLAN.md` are done — the scaffolding, and the
+*Status: steps 0 to 3 of `PLAN.md` are done — the scaffolding; the
 pointwise layer: units, the variable layouts, the point metric, `prim2con`
-and the 3+1 primitive recovery — and step 2 is next. There is no mesh code
-yet, and every number below about the scheme is unmeasured. (Amended in
-step 1.)*
+and the 3+1 primitive recovery; the pointwise physics a right-hand side
+evaluates; and the implicit stage solve — as are steps 4a–4c in
+IMEXRungeKutta. Step 5, the first evolution, is next and waits for AMR-1.
+There is no mesh code yet, and every number below about the scheme is
+unmeasured. (Amended in step 3.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -366,8 +368,10 @@ holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 branches). Measured in step 2: at `E = −v × B` the current is 2.3e−16 of
 `σ W |B|`, and in flat space the bracket is the fluid-frame field
 `F^{ab} u_b` with the charge the normal observer sees, to 4.4e−16.
-Extension slots, not planned: a mean-field dynamo term, and force-free
-currents in the magnetosphere.
+*(Proposed in step 3:)* `conductivity_slope(model, prim)` is `∂σ/∂ρ`, for
+the stage solve's Newton Jacobian; a later model that reads `s` or `Yₑ`
+adds their derivatives. Extension slots, not planned: a mean-field dynamo
+term, and force-free currents in the magnetosphere.
 
 ### Stress-energy for the spacetime
 
@@ -493,6 +497,11 @@ recovery runs in a kernel and lands within 3.6e−5, conditioned, of the
 state (EntropyEOS's `Float32` tolerance is 6.1e−5) on states dense enough
 that the thermal energy is a percent of `τ`; at `ρ = 1e−9` the gas's `U` is
 1e−7 of its rest mass and `Float32` cannot determine `s` at all.
+
+*(Step 3:)* `con2prim_hydro` is split at the fluid's share — `field_budget`
+subtracts the fields' energy and momentum, `fluid_recovery` recovers from
+what is left and also returns the EOS point — so that the stage solve,
+which iterates on that share, calls the same recovery bit for bit.
 
 `con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
 them: `policy_flags`, not the solver's result, is EntropyEOS's validity
@@ -722,13 +731,15 @@ stage's implicit coefficient times `Δt`.
   hydrodynamic mode, as in [Primitive recovery](#primitive-recovery).
 
 So the stage is a three-dimensional root find for `v`,
-`R(v) = v − V_c2p(S − E(v) × B, τ − ½(E(v)² + B²))`. **One con2prim is used
-for every σ.** A plain fixed-point iteration contracts roughly like
-`λ b²/(ρh)` with `λ = cW/(1 + cW)`: fast where `σΔt` is small (the
-magnetosphere, where `E` barely depends on `v`) or where the magnetization
-is low (a star's interior); slow or divergent only where both are large,
-such as the surface layer. There the outer iteration is Newton on `v`,
-still one con2prim per iteration, seeded from the `σΔt → ∞` limit: there
+`R(v) = v − V_c2p(S − E(v) × B, τ − ½(E(v)² + B²))` (amended in step 3:
+the same map, iterated on the fluid's share of the energy and momentum
+instead; see "As built" below). **One con2prim is used for every σ.** A
+plain fixed-point iteration contracts roughly like `λ b²/(ρh)` with
+`λ = cW/(1 + cW)`: fast where `σΔt` is small (the magnetosphere, where `E`
+barely depends on `v`) or where the magnetization is low (a star's
+interior); slow or divergent only where both are large, such as the
+surface layer. There the outer iteration is Newton on `v`, still one
+con2prim per iteration, seeded from the `σΔt → ∞` limit: there
 `E = −v × B` and the whole inversion is exactly the ideal-MHD problem,
 which the same EntropyEOS routine solves when called with `B² ≠ 0`. That
 ideal call is a seed — and the exact answer for `IdealConductor` — not a
@@ -756,6 +767,118 @@ residual is flat, and a Jacobian through it is singular.
 Where `con2prim_safe` reports a repair inside the iteration, the likely
 answer here is to leave Newton for the fixed point or the ideal seed, and
 to flag it. Rung 1's σ × magnetization sweep decides.
+
+**As built** (step 3, `src/stage_solve.jl`):
+`solve_ohm_stage(eos, opts, pol, σ, m, cons★, E★, B, γΔt, guesses; stage)
+-> (E, prim, result, recoveries)`, allocation-free and bit-identical in a
+CPU kernel at `Float64` and `Float32` (measured in step 3).
+
+- **The iteration runs on the fluid's share** of the energy and momentum,
+  `X = (S_f, τ_f)`, not on `v` (amended in step 3). Each iteration recovers
+  the fluid from `X` (one `con2prim_safe`, hydrodynamic mode), solves Ohm's
+  law for `E` at its velocity, and compares `X` with the share
+  `X(E) = (S − ε E × B, τ − ½(E² + B²))` that `E` leaves. It is the same
+  map as the root find for `v`, cut at a different place. The cut matters
+  where `b²/ρ ≫ 1`: there `X(E)` is a small difference of large numbers, a
+  velocity error `δu` moves it by `λ b²/(ρh) δu` of the fluid's own
+  energy, and the recovery repairs whatever the fluid cannot hold. Newton
+  on the velocity had a basin of `δu ~ 10⁻⁴` at `b²/ρ = 10³`, and fell
+  back on 191 of 1296 points of the sweep below (Γ = 2); Newton on `X`
+  hands the recovery only the linearly predicted share, which stays on the
+  fluid's scale, and falls back on 40 (measured in step 3).
+- **The velocity is carried as `u = W v`** (proposed in step 3): every `u`
+  is subluminal, and the Jacobian through `v` has a `W² (E★ − E) vᵀ` term
+  from `∂W/∂v` that through `u` becomes `(E★ − E) vᵀ/W`.
+- **The Jacobian is analytic** (decided in step 3). `∂u/∂X` is the
+  recovery's derivative by the implicit function theorem on its two
+  equations `|S| = z tanh w`, `τ = z − p − D` in `(s, w)`, with
+  EntropyEOS's own `z_w`, `z_s`, `p_w`, `p_s` from the EOS point the
+  recovery returns; `∂E/∂u` is implicit differentiation of the linear
+  system. Newton's `1 − PQ` (4×4, `P = ∂X/∂E · ∂E/∂u`, `Q = ∂u/∂X`) is
+  inverted by Woodbury through the 3×3 `1 − QP`, and a density-dependent σ
+  adds a rank-one term through `∂ρ/∂X` and `conductivity_slope(model, prim)
+  = ∂σ/∂ρ` (proposed in step 3; a model reading `s` or `Yₑ` would add a
+  column each). Both derivatives agree with central differences to the
+  differences' own error, 1.1e−8 and 8.3e−8 (measured in step 3). No
+  extra recovery, no finite difference.
+- **Which branch** (proposed in step 3): σ evaluated at the predictor's
+  recovery, at `E★`; if it is zero, `E = E★` and that recovery are the
+  answer, bit for bit (`OHM_SIGMA_ZERO`). Otherwise the fixed point where
+  the contraction factor `‖K‖`, the Frobenius norm in an orthonormal frame
+  of the fixed point's Jacobian at the predictor, is at most `1/100`, and
+  Newton otherwise; the fixed point also hands over to Newton when an
+  iteration shrinks the residual by less than half (`OHM_SWITCHED`).
+  Newton is seeded from the ideal recovery where `λ = cW/(1 + cW) > ½`, from
+  the predictor otherwise, and from whichever of the two the policy did not
+  have to repair if only one (`OHM_IDEAL_SEED`). At a threshold of `1/10`
+  the fixed point needed up to 11 recoveries (4.4 on average) against
+  Newton's 7; at `1/1000` the sweep below costs 3% fewer recoveries than at
+  `1/100`, which is within its noise.
+- **Clamps inside the residual** (decided in step 3, closing the (open)
+  above): a share the recovery had to repair is replaced by the repaired
+  state's own (`fluid_share`), so that every iterate is a fluid state and
+  its derivative is the recovery's; a Newton step that grows the residual
+  is halved, up to eight times (`OHM_BACKTRACKED`); and any repair inside
+  the iteration is flagged (`OHM_REPAIRED`). Leaving Newton for the fixed
+  point at a repair, the guess above, was not needed.
+- **Converged** when `|X − X(E)| ≤ 10⁻¹²(τ + D)` (proposed in step 3;
+  `max(1e-12, 1024 eps(T))`): the share closes to EntropyEOS's own
+  recovery tolerance, measured against the total energy density as the
+  recovery's round trip is. The returned `E` was solved at the returned
+  state's velocity, so Ohm's law holds between them to rounding, and
+  `prim2con(prim, E, B)` reproduces the totals to that tolerance plus the
+  recovery's.
+- **The fallback** after 30 recoveries is the lagged velocity: `E` at the
+  velocity of the iterate with the smallest residual, the fluid recovered
+  from that `E` (`OHM_FALLBACK`).
+- `OhmStageResult(flags, policy_flags)`: one branch bit and any of the
+  modifiers, and EntropyEOS's flags of the returned state; both reduce by
+  `|` and count by bit (step 5 counts them per chunk).
+
+**The sweep** (measured in step 3, `test/stage_solve_tests.jl`; Julia
+1.13, 1.11 alike but where noted). Stage problems are built backwards
+from a known solution: a fluid in a boosted Kerr-Schild metric,
+`E = −v × B` plus a non-ideal part up to `|B|/(1 + cW)`, and the `E★` the
+stage equation then requires. On `σΔt ∈ 10^{−3…8}` × `b²/ρ ∈ 10^{−4…4}`
+(ideal comoving `b²`) × `W ∈ {1, 2, 10}`, eight problems a point, for
+`Γ ∈ {4/3, 5/3, 2}`:
+
+- no NaN; at every converged point Ohm's law holds to 3.3e−16 of its terms
+  and the matter to 1.5e−12 of `τ + D`;
+- the fixed point takes every point with `b²/ρ ≤ 10⁻³`, at every `σΔt`,
+  and its boundary moves up to `b²/ρ ~ 10⁻¹` as `σΔt` falls to `10⁻³`; it
+  needs at most 6 recoveries (3.6 on average). Newton takes the rest, in
+  at most 10 recoveries, seeds included, where no iterate needed a repair
+  (3.6 to 4.2 on average), and up to 32 where some did. Of the 2592
+  points per Γ, 1248 and 907 (Γ = 4/3 and 2) by the fixed point, 1308 and
+  1582 by Newton, 1084 and 1283 of those from the ideal seed;
+- **the fallback** took 36, 78 (77 at 1.11) and 103 points (Γ = 4/3, 5/3, 2;
+  at most 4.0%), all at `b²/ρ ≥ 10` and `σΔt ≤ 10²`, mostly `W ≥ 2`, and
+  all but one where both seeds needed a repair: where `E★` departs from
+  both the solution and the ideal field by far more than the fluid's
+  energy, so that neither the predictor's share nor the ideal recovery is
+  a fluid state, and the solution is an island in `σΔt` — continuation
+  from either limit was tried and does not reach it. The lagged `E` there
+  is off the solution by a median 0.11 of `|E| + |B|`, at most 0.46 (Γ = 2);
+- **the stage equations have more than one root** there: 5, 2 and 2 points
+  converge, to the same residual, to another solution than the one the
+  problem was built from;
+- `DensityProfile` with its cutoff within a factor of three of the
+  density: residual 8.6e−13, and 1 of 148 not converged, a Newton iteration
+  held at the entropy window's edge (3 before the Jacobian carried
+  `∂σ/∂ρ`);
+- 200 inadmissible predictors (the share at `E★` below the coldest state):
+  all finite, and where converged the residual is 1.9e−13.
+
+Cost (measured in step 3, Julia 1.13, Apple M3 Pro, the Γ = 2 gas, one
+call): 1.3 µs on the fixed point (3 recoveries of 0.37 µs), 1.7–2.4 µs for
+Newton (3–4 recoveries), 0.7 µs at `σ = 0` and 0.5 µs for
+`IdealConductor`; a fallback costs 33 recoveries, 0.17 ms where the
+recoveries themselves take EntropyEOS's repair path. Under IMEXRungeKutta's
+SSP3(4,3,3), with `solve_imp!` writing only `𝔈`, a resting cell's field
+decays as `exp(−ασt)` at orders 2.92 and 2.96, its matter variables come
+back bit for bit, and one step at `ασΔt = z` leaves `6.7/z` of the field
+(`z = 10⁶` and `10⁸`), SSP3(4,3,3)'s L-stability.
 
 ### The IMEX package
 
@@ -972,7 +1095,8 @@ so does `GeometricEOS` around a table at `Float64` (measured in step 1).
 So does step 2's layer — `Analytic(KerrSchild)` with its ForwardDiff
 derivatives, the stress-energy, both Riemann solvers in every direction,
 Ohm's law, both source forms, the UCT EMF and the gauge terms — at `Float64`
-and `Float32` (measured in step 2). That needed one change: StaticArrays'
+and `Float32` (measured in step 2), and step 3's stage solve on every
+branch (measured in step 3). Step 2 needed one change: StaticArrays'
 matrix product accumulates with `muladd`, which LLVM fused differently in
 the kernel and on the host, so three of the 79 numbers differed in the last
 bit; `lower`, `raise`, `dot_up` and `dot_down` now multiply with plain `*`
@@ -994,7 +1118,9 @@ named as claims.
    self-similar current sheet against its analytic profile; Balsara 1–5
    with `IdealConductor`, against GRaM-X's figures; a σ × magnetization
    sweep of the implicit stage solve, recording where each branch of it
-   is taken.
+   is taken. *(Step 3 did the sweep pointwise, on stage problems with a
+   known solution — "The implicit stage solve"; rung 1 records the branches
+   an evolution takes.)*
 2. **Flat space, 2D and 3D, with AMR**: the cylindrical explosion, the
    magnetic rotor, Orszag–Tang, field-loop advection across coarse-fine
    faces — `∇·B` at round-off, rest mass and magnetic flux conserved
@@ -1050,5 +1176,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - Unlimited conservative prolongation at a stellar surface floors cells.
 - Light-cone fluxes are diffusive in a star's interior.
 - The implicit stage may converge poorly where magnetization and `σΔt`
-  are both large; rung 1's sweep exists to find out where.
+  are both large; rung 1's sweep exists to find out where. *(Measured in
+  step 3, pointwise:)* not where both are large — the ideal seed is exact
+  there — but at `b²/ρ ≥ 10` with `σΔt` between `10⁻³` and `10²`, when
+  `E★` is so far from both the solution and the ideal field that neither
+  seed is a fluid state: 1.4–4.0% of the sweep falls back to the lagged
+  velocity, and the stage equations there have more than one root. Rung 1
+  sees how often an evolution meets it.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
