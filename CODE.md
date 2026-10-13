@@ -14,9 +14,11 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: design only. No code exists yet; the implementation plan is
-`PLAN.md` (drafted), step 0 is next, and every number below is
-unmeasured.*
+*Status: step 0 of `PLAN.md` (scaffolding) is done — the module shell,
+the host helpers, and the tests that say what the resolved releases
+provide and which upstream items have landed — and step 1 is next. There
+is no physics yet, and every number below about the scheme is unmeasured.
+(Amended in step 0.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -69,8 +71,11 @@ step N)", "(measured in step N)" — rather than diverging silently.
   precisely under [Upstream prerequisites](#upstream-prerequisites); the
   plan sequences the steps that need them to wait. Do not edit the sibling
   checkouts from here.
-- **Not yet a production code.** No MPI and no I/O until TreeAMR has them
-  (its M7 and M9); single node, threads or one device.
+- **Not yet a production code.** Single node, threads or one device.
+  TreeAMR has MPI since its M7 (as an extension) and checkpoints since its
+  M9, which moved into the companion package TreeIOHDF5 with TreeAMR 0.2;
+  this package uses neither yet. *(Amended in step 0: this item used to
+  say "no MPI and no I/O until TreeAMR has them".)*
 
 ## Upstream prerequisites
 
@@ -80,6 +85,23 @@ should carry, and the check this package adds when an item lands — are in
 `PLAN.md`, "Upstream requirements", under the IDs used here. The summary
 below keeps only the reasons. "(req)" blocks the step named; "(wanted)" has
 a workaround listed in `PLAN.md`; "(later)" is not needed before rung 7.
+
+**State on 2026-10-13** (amended in step 0), as `test/prerequisite_tests.jl`
+reports it and, for TreeGH, as its `main` reads:
+
+- TreeAMR **0.2.0**, registered: none of AMR-1 to AMR-6 has landed, so
+  step 5 waits for AMR-1.
+- EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
+  **EOS-1 and EOS-2 have landed**; EOS-3 and EOS-4 have not.
+- IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
+  are done there, and it is a dependency from step 0.
+- TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
+  registered: GH-0 has landed (the step-8 work is on `main`); GH-1 and
+  GH-3 to GH-5 have not; GH-2 is open (see `PLAN.md`). TreeGH is not a
+  dependency before step 10, so the suite cannot detect its items.
+
+The unregistered dependencies are named in `Project.toml`'s `[sources]`
+with their GitHub remotes; nothing resolves from a sibling checkout.
 
 ### TreeAMR
 
@@ -114,7 +136,16 @@ a workaround listed in `PLAN.md`; "(later)" is not needed before rung 7.
 - **AMR-6 (later) A device-capable boundary hook that reads the interior**,
   for outflow conditions. Workaround: Dirichlet from the initial or
   analytic exterior, which is what the TOV milestones need anyway.
-- *(later)* MPI (M7), I/O and checkpointing (M9), point interpolation.
+- *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
+  and point interpolation (M11), all three of which TreeAMR has; none is
+  an upstream item any more. *(Amended in step 0.)*
+
+This is a **physics package** in TreeAMR's sense (its `CODE.md`,
+"Companion interface", 2026-10-08): it uses TreeAMR's exports only, and
+bounds TreeAMR by a minor series, `TreeAMR = "0.2"`. The prerequisite
+tests check the names it calls against the exports, and `src/device.jl`
+uploads its own metadata with `KernelAbstractions.allocate` rather than
+reaching for TreeAMR's internal `todevice` (proposed in step 0).
 
 ### TreeGeneralizedHarmonic
 
@@ -158,13 +189,16 @@ in step 11. *(Amended with PLAN.md.)*
 ### EntropyEOS
 
 - **EOS-0 (req, step 0; workaround) Registration** in General. Until then
-  CI adds it by URL.
+  `Project.toml`'s `[sources]` adds it by URL, for CI, a clean checkout
+  and a developer alike. *(Amended in step 0: "CI adds it by URL".)*
 - **EOS-1 (req, step 5) An abstract EOS interface** (decided): an
   `AbstractEOS` supertype, the solver and policy retyped to it, and the
   four bounds read through accessors instead of fields, so that `evaluate`,
   `con2prim_safe`, the atmosphere policy and the device view work unchanged
   for any EOS that implements `evaluate`, `srange`, `srange_extended`, the
-  bounds and `κ`.
+  bounds and `κ`. *Landed in EntropyEOS 1.0.0*, with one difference from
+  the request: `κ` stays unexported and is documented as `EntropyEOS.κ`,
+  so this package calls it qualified (amended in step 0).
 - **EOS-2 (req, step 5) Analytic EOSes behind that interface**: a Γ-law
   and a hybrid (piecewise polytrope plus thermal Γ), as potentials
   `U(ρ, s)`. **A polytrope is the Γ-law at fixed entropy**,
@@ -173,6 +207,10 @@ in step 11. *(Amended with PLAN.md.)*
   `(s, w)` Newton is singular there. *(Amended with PLAN.md, which also
   moved this item from rung 4 to step 5: the synthetic table cannot host
   the flat-space tests — see [Thermodynamics](#thermodynamics).)*
+  *Landed in EntropyEOS 1.0.0* as `IdealGasEOS`, `HybridEOS` and
+  `polytropic_entropy`, with the requested keyword constructors; both are
+  `isbits`, `κ = 1`, and the TOV polytrope `K = 100, Γ = 2` is
+  `IdealGasEOS` at `polytropic_entropy(eos, 100)` (checked in step 0).
 - **EOS-3 (wanted, step 12) A public fixed-entropy inversion** — the "at
   fixed `s`, solve for `w`" step that `con2prim` already contains — for the
   entropy fallback, and a public entropy-from-energy solve for initial
@@ -328,6 +366,17 @@ recovery is therefore **pure hydrodynamics**: subtract them from `τ` and
 `con2prim_safe` (decided). It never fails: atmosphere, ceilings, rapidity
 cap, the entropy window and non-finite input are its policy, every repair
 is reported in its flags, and every repaired state is exactly invertible.
+
+How exactly it inverts is conditioned, not uniform (amended in step 0).
+EntropyEOS states its round-trip accuracy with the errors divided by
+`κ_ρ = hW²` (for `ρ` and the rapidity `w`) and by
+`κ_s = (1 + τ/(ρW²U))·max(1, U/(s U_s))` (for `s`): the entropy is
+ill-determined where the thermal energy is a small part of `τ`, and the
+density where `hW² ≫ 1`. Its suite asserts the conditioned errors below
+3e−11 and 1e−10; a raw relative 1e−12 is not attainable — step 0 measured
+8.9e−10 in `s` at `ρ = 1e−8`, `s = 5.2`, `W = cosh 2` on the Γ = 2 gas,
+while over the prerequisite test's 24 states the conditioned errors are at
+most 2.1e−14 in `ρ` and `w` and 1.7e−13 in `s`.
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -563,6 +612,13 @@ package relies on it for:
   sides (TreeGH plus MHD) per SSP3(4,3,3) step;
 - fixed `Δt`, generic arrays and Julia 1.10.
 
+Per SSP3(4,3,3) step, IMEXRungeKutta 1.4.0 makes 3 explicit evaluations,
+4 stage solves, 3 stage-limiter calls (its first stage is implicit, so no
+explicit stage is trivial) and 1 step-limiter call; the prerequisite tests
+pin all four counts (measured in step 0). It is a dependency from step 0,
+through `[sources]`, so that the contract is checked before step 5 builds
+on it (proposed in step 0).
+
 When its validation measures SSP3(4,3,3)'s L-stability and stiff-limit
 order, amend [The partition](#the-partition). *(Amended 2026-09-24: the
 specification moved to IMEXRungeKutta's `CODE.md`.)*
@@ -694,6 +750,37 @@ A dependency's own `[sources]` is still ignored when this package resolves
 it, so what it needs from an unregistered package must be named in this
 package's own `[sources]`.
 
+`Project.toml` names EntropyEOS and IMEXRungeKutta there, by their GitHub
+URLs at `rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,
+a clean `git archive` and a developer's `Pkg.instantiate()` all resolve
+them the same way (amended in step 0; the plan had CI run
+`Pkg.add(url = …)`). The test environment reaches them through the
+package (`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing
+them again, so that a second `[sources]` cannot disagree with the first.
+
+## Precision and devices
+
+*(Proposed in step 0.)* Every driver is generic in the element type `T`,
+a leading positional argument defaulting to `Float64`, and in the
+KernelAbstractions backend, a keyword defaulting to `CPU()`. Physics is
+validated in `Float64`; `Float32` is the device smoke test and the leak
+detector (a stray `Float64` constant widens a result), since EntropyEOS is
+validated in `Float64` only. `src/precision.jl` carries TreeHydro's bridges
+over `Base`'s gaps at a software float (`wrap`, `ceilint`, `floorint`,
+`roundint`, `tofloat64`) for host-side control flow; they are tested at
+`Float32x2` too, which is a claim about them and not about the physics.
+`src/device.jl` carries TreeHydro's and TreeGH's `to_backend` (per-block
+metadata a kernel reads, uploaded once) and `hostcopy`/`hostcopy!` (a field
+set brought to the host for a viewer; on the CPU `hostcopy` returns the set
+itself). Diagnostics never copy the state to the host: they reduce where
+the data are.
+
+A SpacetimeMetrics metric is an `isbits` kernel argument: inside a
+`map_blocks!` kernel it gives the ADM split, `K_ij` and a ForwardDiff
+derivative bit-identical to the host at `Float64` and `Float32` (measured
+in step 0, Kerr-Schild at `a = M/2`). That is the premise of the `Analytic`
+provider.
+
 ## Validation ladder
 
 These become the milestones of `PLAN.md`; each rung is a set of testsets
@@ -757,7 +844,8 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 
 ## Known risks
 
-- No MPI yet: single node until TreeAMR's M7.
+- No MPI yet: single node, although TreeAMR now has its M7 (amended in
+  step 0).
 - Unlimited conservative prolongation at a stellar surface floors cells.
 - Light-cone fluxes are diffusive in a star's interior.
 - The implicit stage may converge poorly where magnetization and `σΔt`

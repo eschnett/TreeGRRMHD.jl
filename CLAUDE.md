@@ -40,24 +40,62 @@ Rules that follow from `CODE.md` and govern every change here:
 
 ## Current state
 
-**Design and plan only.** `CODE.md` records the reviewed design
-(2026-09-23); `PLAN.md` is the implementation plan (drafted 2026-09-23):
+**Step 0 (scaffolding) is done; step 1 is next.** `CODE.md` records the
+reviewed design (2026-09-23); `PLAN.md` is the implementation plan:
 steps 0–15 on `claude/step-N-slug` branches, run one agent per step, and
 the exact upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each
-naming the step it blocks. `src/TreeGRRMHD.jl` is still the Pkg template.
-**Step 0 is next.** Steps 4a–4c build the IMEX package in its own
-repository, `~/src/jl/IMEXRungeKutta`, whose `CODE.md` is the IMEX
-design.
+naming the step it blocks, with a state column. What exists is the module
+shell, `src/precision.jl` and `src/device.jl` (ported from TreeHydro), and
+`test/prerequisite_tests.jl`, which checks the names the scheme will call
+and logs every upstream ID as landed or waiting. Steps 4a–4c are done in
+`~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the IMEX design.
+EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5 waits for AMR-1
+alone.
 
 ## Commands
 
-Nothing to run yet beyond the template. Once there is a test suite, follow
-TreeHydro's discipline (`TreeHydro/CLAUDE.md`, "Commands"): the whole suite
-at one thread, at four threads, and with `--check-bounds=yes`, e.g.
+TreeHydro's discipline (`TreeHydro/CLAUDE.md`, "Commands"): the whole
+suite at one thread, at four threads, and with `--check-bounds=yes`, at
+the floor version and at the current release. `Pkg.test` does not inherit
+`-t`, so the thread count has to be passed explicitly:
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
+
+```bash
+julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
+```
+
+```bash
+julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])'
+```
+
+The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR
+and SpacetimeMetrics from the General registry and EntropyEOS and
+IMEXRungeKutta from their remotes through `[sources]` — never from a
+sibling checkout. This is what CI does; run it under the floor too:
+
+```bash
+d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && \
+  julia +1.11 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+```
+
+A `Manifest.toml` resolved by one Julia version breaks loading under
+another (1.13 refuses a 1.11 manifest's `MbedTLS_jll`), so delete it, or
+use a clean tree, when switching versions.
+
+Measured at the end of step 0 (2026-10-13), each from a clean `git archive`
+in a depot that already had the packages, on this shared machine at a load
+of about 6 on 12 cores: **219 tests**, at every version and thread count —
+at 1.13, 24 s wall per `Pkg.test` at one thread and at four, 39 s with
+`--check-bounds=yes`; at 1.11, 44 s, 29 s and 30 s (the first of them
+paid for compiling the test environment). The suite's own
+`Test Summary` time is 15–19 s throughout. In a fresh depot (nothing
+installed, registry and every package fetched) the 1.11 instantiate took
+77 s and the test 92 s; it resolved EntropyEOS and IMEXRungeKutta from
+their GitHub URLs, as it must. The log names every upstream ID as landed
+or waiting; grep it for `landed:` and `waiting:`.
 
 ## Conventions
 

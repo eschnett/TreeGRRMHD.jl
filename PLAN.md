@@ -10,9 +10,12 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Nothing is done yet; step 0 is next.** Steps 0–3 and 4a–4c need nothing new from upstream;
-4a–4c build the IMEX package in its own repository. Step 5, the first evolution, waits for
-AMR-1, EOS-1 and EOS-2.
+**Step 0 is done; step 1 is next.** *(Amended in step 0, 2026-10-13.)* Steps 1–3 need nothing
+new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
+1.4.0 is tagged, unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in
+EntropyEOS 1.0.0, so step 5, the first evolution, waits for AMR-1 alone. TreeAMR is at 0.2.0
+(registered), and none of AMR-1 to AMR-6 has landed. The "state" column of the table below has
+each item.
 
 The steps follow `CODE.md`'s validation ladder (rungs 1–7):
 - It is preceded by the pointwise physics and the IMEX package.
@@ -42,11 +45,11 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
     workaround is not.
 - **Dependencies resolve from releases, never from sibling checkouts.**
   - TreeAMR and SpacetimeMetrics come from the General registry.
-  - Unregistered ones are added by URL in CI and in the clean-checkout check (`Pkg.add(url=…)`).
-    That covers EntropyEOS until EOS-0, TreeGH and KorzynskiSpin until GH-2, and the IMEX
-    package.
-  - `[sources]` needs Julia 1.11, which is the floor since 2026-09-25, so it may replace the
-    URL adds (CODE.md "Julia version").
+  - Unregistered ones are named by URL in `Project.toml`'s `[sources]`, which Julia 1.11 — the
+    floor since 2026-09-25 — reads (CODE.md "Julia version"). That covers EntropyEOS until
+    EOS-0 and the IMEX package, and will cover TreeGH and its unregistered dependencies until
+    GH-2. CI, the clean-checkout check and a developer all resolve them the same way, so CI
+    adds nothing by hand. *(Amended in step 0: this used to be `Pkg.add(url=…)` in CI.)*
 - **Julia 1.11 floor.** Be generic in `T` and in the backend from the first line:
   - `T` is a leading positional argument (default `Float64`); `backend` is a keyword (default
     `CPU()`).
@@ -158,29 +161,32 @@ Priorities:
 - **later** is not needed before rung 7.
 
 Every item lands in a **registered release** (or a pushed commit where registration is pending),
-never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.1.x,
-EntropyEOS 0.1.x).
+never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
+EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-| ID | package | priority | needed by step | summary |
-|---|---|---|---|---|
-| AMR-1 | TreeAMR | req | 5 | state vector over several field sets |
-| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` |
-| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets |
-| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation |
-| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` |
-| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) |
-| EOS-0 | EntropyEOS | req, workaround | 0 | register in General |
-| EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface |
-| EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS |
-| EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy |
-| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice |
-| GH-0 | TreeGH | req | 10 | land step 8 on `main` |
-| GH-1 | TreeGH | req | 10 | public access to the vertex metric |
-| GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor |
-| GH-3 | TreeGH | req | 11 | stress-energy input |
-| GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator |
-| GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` |
-| GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ |
+The state column is as of 2026-10-13 (added in step 0): what `test/prerequisite_tests.jl`
+reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
+
+| ID | package | priority | needed by step | summary | state |
+|---|---|---|---|---|---|
+| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | waiting |
+| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | waiting |
+| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | waiting |
+| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | waiting |
+| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | waiting |
+| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | waiting |
+| EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
+| EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed, 1.0.0 |
+| EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed, 1.0.0 |
+| EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
+| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
+| GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
+| GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
+| GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
+| GH-3 | TreeGH | req | 11 | stress-energy input | waiting |
+| GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator | waiting |
+| GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` | waiting |
+| GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
 
 ### AMR-1 — A state vector over several field sets (req, step 5)
 
@@ -242,6 +248,11 @@ and overrides `boundary`. `fs => schedule` and `fs => nothing` are unchanged.
 fill each set with its own hook immediately before `regrid!`.
 
 **Workaround until then:** exactly that. The code is marked `AMR-2`.
+
+**Also** *(added in step 0)*: TreeAMR 0.2.0 refuses `fs => (schedule, hook)` today, but by a
+field access on the tuple inside `check_regrid_set!` (regrid.jl:827) — a `FieldError` at Julia
+1.12 and later, an `ErrorException` at 1.11 — rather than an `ArgumentError` saying which pair
+forms it takes. Whichever way AMR-2 is answered, that refusal should be an `ArgumentError`.
 
 **Upstream acceptance.** Regridding a cell set and a vertex set with different `nvars` and
 different Dirichlet hooks in one call transfers exactly what two single-set calls transfer.
@@ -308,8 +319,10 @@ This is for outflow conditions. Today the region form is CPU-only (ghosts.jl:347
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
-Register EntropyEOS in General, as 0.1.x. Until then, CI and the clean-checkout check run
-`Pkg.add(url = "https://github.com/eschnett/EntropyEOS.jl", rev = "main")` before `instantiate`.
+Register EntropyEOS in General, as 1.x (it is at 1.0.0). Until then `Project.toml`'s
+`[sources]` names `url = "https://github.com/eschnett/EntropyEOS.jl", rev = "main"`, which CI
+and the clean-checkout check read. *(Amended in step 0: 0.1.x, and a `Pkg.add(url=…)` before
+`instantiate`.)*
 
 ### EOS-1 — An abstract EOS interface (req, step 5)
 
@@ -344,6 +357,10 @@ Base.eltype(eos); narrow(eos, S)           # instances isbits; Adapt is the iden
 **Upstream acceptance.**
 - The existing suite is bit-identical.
 - A test-only toy subtype runs `con2prim_safe` end to end.
+
+**Landed** in EntropyEOS 1.0.0 *(recorded in step 0)*, except that `κ` stays unexported and is
+documented as `EntropyEOS.κ(eos)`; this package calls it qualified, and the prerequisite test
+asserts it is unexported, so an export later is noticed.
 
 ### EOS-2 — Analytic Γ-law and hybrid EOSes (req, step 5)
 
@@ -386,6 +403,13 @@ polytropic_entropy(eos::IdealGasEOS, K) -> s       # the s with K(s) = K
 
 **Downstream check.** The step-1 3+1 round trip on `IdealGasEOS` at Γ = 4/3, 5/3 and 2.
 
+**Landed** in EntropyEOS 1.0.0 *(recorded in step 0)*. Its suite states the round trip with the
+errors divided by EntropyEOS's conditioning factors, `κ_ρ = hW²` and
+`κ_s = (1 + τ/(ρW²U))·max(1, U/(s U_s))`, below 3e−11 (ρ, w) and 1e−10 (s), rather than as a
+raw 1e−12: the raw entropy error is 8.9e−10 at `ρ = 1e−8`, `W = cosh 2` on the Γ = 2 gas
+(measured in step 0). Step 0's prerequisite test runs the hydrodynamic-mode call on both EOSes,
+24 states, with the conditioned worst errors 2.1e−14 (ρ, w) and 1.7e−13 (s).
+
 ### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, step 12)
 
 **API.**
@@ -417,6 +441,10 @@ cold_slice(eos, ρ★s::AbstractVector; T_MeV) -> (yₑ, s, p, U)
 - `s(T)` comes from `sigma_extended`.
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
+
+**Landed by inspection** *(step 0)*: TreeGH's `main` (fbfd416, 2026-10-09) has `accounting`,
+`t_target`, the `:fitted` interior and the stage limiter, and its `CLAUDE.md` records steps
+8a–8f as done. The suite cannot check it until TreeGH is a dependency.
 
 The step-8 branches, with tip `claude/step-8f-matrix` (47 commits ahead), widen `GHProblem`,
 `gh_rhs_kernel!` and `evolve!`:
@@ -456,11 +484,16 @@ quantities at vertices must match SpacetimeMetrics:
 - Register TreeGeneralizedHarmonic and KorzynskiSpin in General.
 - Every `[compat]` entry must be satisfiable from registered releases alone. `[sources]` of a
   dependency is ignored when TreeGRRMHD resolves it, so the TreeAMR features TreeGH uses must be
-  in a released TreeAMR. Today TreeGH pins TreeAMR `main` again (05e99f4).
+  in a released TreeAMR. *(Amended in step 0:)* TreeGH 0.1.0 is now on the registered TreeAMR
+  0.2, which settles that part. What is left, as of fbfd416: TreeGH itself, TreeIOHDF5 (new,
+  for its checkpoints) and IMEXRungeKutta are unregistered, and its `ApparentHorizonFinder =
+  "2.1"` is ahead of the registry, which has 2.0.0. KorzynskiSpin 1.1.0 and
+  AbstractSphericalHarmonics are registered.
 - **Julia 1.11.** Settled on 2026-09-25: every Tree* package's floor is 1.11, so TreeGH's pin
   to 1.11 no longer constrains TreeGRRMHD, and TreeGH is an ordinary dependency rather than a
   weak one behind `TreeGRRMHDTreeGHExt` (CODE.md "Julia version").
-- **Workaround until registered:** CI adds TreeGH and KorzynskiSpin by URL.
+- **Workaround until registered:** `[sources]` names TreeGH, TreeIOHDF5 and, if still needed,
+  ApparentHorizonFinder by URL (amended in step 0: was "CI adds TreeGH and KorzynskiSpin").
 
 ### GH-3 — Stress-energy input (req, step 11)
 
@@ -556,12 +589,15 @@ a generalized interior for collapse, and Ψ₄.
 
 ## Step 0 — Scaffolding
 
+*(Done, 2026-10-13, on `claude/step-0-scaffolding`.)*
+
 `CODE.md`: "Julia version", "Upstream prerequisites". Waits: none (EOS-0 by workaround).
 
 Changes:
 - **`Project.toml`:**
-  - deps: KernelAbstractions, StaticArrays, Adapt, TreeAMR (`"0.1.2"`), SpacetimeMetrics
-    (`"1.6"`), EntropyEOS (by URL until EOS-0);
+  - deps: KernelAbstractions, StaticArrays, Adapt, TreeAMR (`"0.2"`; amended in step 0 from
+    `"0.1.2"`), SpacetimeMetrics (`"1.6"`), EntropyEOS (`"1"`, by `[sources]` until EOS-0), and
+    IMEXRungeKutta (`"1.4"`, by `[sources]`; added in step 0);
   - `julia = "1.11"`.
 - **`src/`:**
   - `src/TreeGRRMHD.jl`, the module shell, replacing `hello`/`domath`;
@@ -598,7 +634,10 @@ Changes:
   - `con2prim_ideal(…)` is the `B² ≠ 0` call used as the ideal seed.
 
 Accept:
-- `con2prim_hydro ∘ prim2con` is the identity to 1e−12 relative on random states:
+- `con2prim_hydro ∘ prim2con` is the identity on random states, to 1e−12 relative in the
+  conserved variables and, in the primitives, to EntropyEOS's own conditioned bounds (errors
+  divided by `κ_ρ` and `κ_s`, below 3e−11 and 1e−10; see EOS-2). A raw 1e−12 in the primitives
+  is not attainable (proposed in step 0):
   - `W ≤ 10`;
   - random metrics, from Kerr-Schild at random points and random boosts;
   - random E and B with EM energy up to 100× the fluid's.
@@ -678,11 +717,15 @@ What TreeGRRMHD needs from it:
   stiff-limit order recorded. Amend `CODE.md`'s "The partition" with them.
 - A tag (v0.1.0). Registration is Erik's call; until then the package is added by URL.
 
+*(Amended in step 0:)* done. IMEXRungeKutta is at v1.4.0, with `IMEXSSP3433`, `IMEXSSP222`,
+both limiters and the `solve_imp!` contract; `CODE.md`'s "The partition" carries its
+measurements. It is a dependency from step 0, through `[sources]`.
+
 ## Step 5 — The staggered scheme in 1D: smooth problems (rung 1a)
 
 `CODE.md`: "Where the fields live", "Field sets", "Reconstruction", "Riemann solver", "The
 electromotive force for `A`", "The right-hand side", "Time integration", "Boundaries".
-Waits: **AMR-1, EOS-1, EOS-2, 4b**.
+Waits: **AMR-1** (EOS-1, EOS-2 and 4b have landed; amended in step 0).
 
 Changes:
 - **`src/fieldsets.jl`:** creates `U`, `A_{1,2,3}`, `Φ̃`, `P`, `B_d`, `F_d` and `EMF_d` for
