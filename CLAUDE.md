@@ -40,17 +40,20 @@ Rules that follow from `CODE.md` and govern every change here:
 
 ## Current state
 
-**Step 0 (scaffolding) is done; step 1 is next.** `CODE.md` records the
-reviewed design (2026-09-23); `PLAN.md` is the implementation plan:
-steps 0–15 on `claude/step-N-slug` branches, run one agent per step, and
-the exact upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each
-naming the step it blocks, with a state column. What exists is the module
-shell, `src/precision.jl` and `src/device.jl` (ported from TreeHydro), and
-`test/prerequisite_tests.jl`, which checks the names the scheme will call
-and logs every upstream ID as landed or waiting. Steps 4a–4c are done in
-`~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the IMEX design.
-EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5 waits for AMR-1
-alone.
+**Steps 0 (scaffolding) and 1 (the pointwise recovery) are done; step 2
+is next.** `CODE.md` records the reviewed design (2026-09-23); `PLAN.md` is
+the implementation plan: steps 0–15 on `claude/step-N-slug` branches, run
+one agent per step, and the exact upstream requirements under IDs `AMR-n`,
+`GH-n`, `EOS-n`, each naming the step it blocks, with a state column. What
+exists: the module shell, `src/precision.jl` and `src/device.jl` (ported
+from TreeHydro), `test/prerequisite_tests.jl` (the names the scheme calls,
+and every upstream ID logged as landed or waiting), and step 1's pointwise
+layer — `src/units.jl` (geometric units, `GeometricEOS`), `src/metric3.jl`,
+`src/variables.jl` (the slot layouts of `U` and `P`), `src/prim2con.jl` and
+`src/con2prim.jl` (`con2prim_hydro`, `con2prim_ideal`). Steps 4a–4c are
+done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the IMEX
+design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5 waits for
+AMR-1 alone.
 
 ## Commands
 

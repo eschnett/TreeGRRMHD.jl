@@ -14,11 +14,11 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: step 0 of `PLAN.md` (scaffolding) is done — the module shell,
-the host helpers, and the tests that say what the resolved releases
-provide and which upstream items have landed — and step 1 is next. There
-is no physics yet, and every number below about the scheme is unmeasured.
-(Amended in step 0.)*
+*Status: steps 0 and 1 of `PLAN.md` are done — the scaffolding, and the
+pointwise layer: units, the variable layouts, the point metric, `prim2con`
+and the 3+1 primitive recovery — and step 2 is next. There is no mesh code
+yet, and every number below about the scheme is unmeasured. (Amended in
+step 1.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -342,6 +342,25 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A units adapter** converts between geometric units (`G = c = M☉ = 1`)
   and EntropyEOS's run units (cgs-like: densities in g/cm³, `U = ε/c²`),
   including `κ`. It is the only place a unit conversion is written.
+  *(Proposed in step 1:)* it is `GeometricEOS(eos; density)` in
+  `src/units.jl`, an `AbstractEOS` around an EOS in its own units whose
+  densities are the scheme's: `evaluate` scales `ρ★` by the density unit on
+  the way in and `U_ρ`, `U_ρs` (once), `U_ρρ` (twice) and `p` (inversely)
+  on the way out, the entropy windows are the inner EOS's at the scaled
+  density, and the density bounds shift by its logarithm. The recovery's
+  equations are homogeneous of degree one in the densities (`D`, `τ`, `S`,
+  `B²`, `ρhW²` and `p` scale together), so `con2prim_safe`, `prim2con` and
+  the atmosphere policy then run in geometric units unchanged, with no
+  conversion at any call site. The density unit is `c⁶/(G (GM☉)²)` =
+  6.1758e17 g/cm³ (measured in step 1, from the IAU 2015 nominal `GM☉` and
+  CODATA 2018 `G`). `κ` enters only where a physical rest-mass density
+  `ρ★/κ` is wanted (initial data in `ρ`, a baryon-mass diagnostic), through
+  `EOSUnits`; the scheme's `D` is `√γ ρ★ W` throughout. An analytic EOS
+  built in geometric units — the TOV polytrope, the shock tubes — needs no
+  adapter at all. Measured in step 1: the adapter reproduces an ideal gas
+  written directly in geometric units to 9.1e-15 in every `EOSPoint` field,
+  and a table recovered through it agrees with the same table recovered in
+  g/cm³ to 3.0e-15 in `(ρ, w)` and 8.4e-13 in `s`, conditioned.
 - **Warm starts** (`u_guess`, the previous `log₁₀ T`) are carried per cell
   in the primitive set and passed to every EOS call, including those at
   reconstructed face states.
@@ -349,8 +368,9 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   needed from the first evolution (step 5) on, not only from rung 4: the
   synthetic ideal-gas table is `Γ = 5/3` only, in cgs, with `T ≤ 50 MeV`,
   so it cannot host the flat-space tests (Balsara 1 is `Γ = 2`, and
-  Balsara 3 has `ε = 1500`). Until they exist, the synthetic table serves
-  only the pointwise unit tests of steps 1–3. *(Amended with PLAN.md.)*
+  Balsara 3 has `ε = 1500`). *(Amended with PLAN.md.)* EOS-2 landed
+  before step 1, so the synthetic table serves only as the table the units
+  adapter is checked on (amended in step 1).
 - **A polytrope is a Γ-law at fixed entropy**, not a barotropic EOS:
   EntropyEOS's `(s, w)` Newton needs `U_s ≠ 0`. The TOV star's
   `p = Kρ^Γ` is the Γ-law evaluated at the `s` with `K(s) = K`.
@@ -362,8 +382,21 @@ Because `E` is evolved, the electromagnetic energy `½(E² + B²)` and
 momentum `ε_ijk Eʲ Bᵏ` do not depend on the fluid velocity. Primitive
 recovery is therefore **pure hydrodynamics**: subtract them from `τ` and
 `S_i`, project with `γ^{ij}` to EntropyEOS's scalar form
-`(D, τ, D_Y, S_∥, S_⊥, B²)` with `S_⊥ = 0`, `B² = 0`, and call
-`con2prim_safe` (decided). It never fails: atmosphere, ceilings, rapidity
+`(D, τ, D_Y, S_∥, S_⊥, B²)` with `S_∥ = 0`, `S_⊥ = |S|`, `B² = 0`, and
+call `con2prim_safe` (decided). *(Amended in step 1: this said `S_⊥ = 0`.
+With `B² = 0` the two splits give the same solve, but EntropyEOS requires
+`S_⊥ ≥ 0` while `S_∥` is signed, and its own `prim2con` calls all of the
+momentum perpendicular when there is no field to project against; the
+repaired states it packages then carry the speed in `v_⊥`.)* The velocity
+is rebuilt with its direction from `Sⁱ = γ^{ij} S_j` and its magnitude from
+the returned rapidity, `vⁱ = tanh w · Sⁱ/|S|` (proposed in step 1). That
+makes the primitive state self-consistent to rounding, and right on a
+repaired state; the literal `vⁱ = Sⁱ/(ρhW²)` carries the momentum residual
+into `atanh |v|` amplified by `W²`, which left 7e-11 in the conserved `D`
+of the round trip against 4e-14 (measured in step 1). This is
+`con2prim_hydro` in `src/con2prim.jl`; `con2prim_ideal` is the `B² ≠ 0`
+call on the totals, splitting `S` along and across `B` in the metric, used
+only as the stage solve's seed. It never fails: atmosphere, ceilings, rapidity
 cap, the entropy window and non-finite input are its policy, every repair
 is reported in its flags, and every repaired state is exactly invertible.
 
@@ -377,6 +410,34 @@ density where `hW² ≫ 1`. Its suite asserts the conditioned errors below
 8.9e−10 in `s` at `ρ = 1e−8`, `s = 5.2`, `W = cosh 2` on the Γ = 2 gas,
 while over the prerequisite test's 24 states the conditioned errors are at
 most 2.1e−14 in `ρ` and `w` and 1.7e−13 in `s`.
+
+Through the 3+1 layer (measured in step 1, `test/recovery_tests.jl`): on
+1000 random states per `Γ ∈ {4/3, 5/3, 2}` — `ρ` across the box, `s`
+across the window, `W ≤ 10`, metrics from a boosted Kerr-Schild hole with
+`a ≤ 0.9` at random events between `r = 3M` and `20M`, and `E`, `B`
+carrying 1e−4 to 100 times the fluid's `τ` — `con2prim_hydro ∘ prim2con`
+has conditioned worst errors 4.5e−13 in `(ρ, w, v)` and 8.4e−12 in `s`
+(raw `s` up to 5.7e−7 at `Γ = 2`, where the thermal energy is a tiny part of `τ` and `κ_s` is large). In the conserved
+variables the round trip is 9.8e−13 relative, with `S_i` and `τ` measured
+against the energy density `𝓔 = τ + D` they are components of (`τ` against
+itself: 9.9e−13). That is the solver's own tolerance — `con2prim` stops
+when its energy residual is below 1e−12 of `τ`, often at the cold seed
+with no Newton step — and not rounding, so 1e−12 has no margin there; the
+step-1 acceptance was written at exactly that number (proposed in step 1:
+the norm; see the step-1 report). `√γ D s` is not an input of the
+hydrodynamic recovery and is checked through `s`. `con2prim_ideal` on
+states built with `E = −v × B` (the same draws, `B²` up to 100 times the
+fluid's `τ`, `B` along and across `v` included) has conditioned worst
+errors 1.8e−12 in `(ρ, w, v)` and 3.7e−12 in `s`. At `Float32` the
+recovery runs in a kernel and lands within 3.6e−5, conditioned, of the
+state (EntropyEOS's `Float32` tolerance is 6.1e−5) on states dense enough
+that the thermal energy is a percent of `τ`; at `ρ = 1e−9` the gas's `U` is
+1e−7 of its rest mass and `Float32` cannot determine `s` at all.
+
+`con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
+them: `policy_flags`, not the solver's result, is EntropyEOS's validity
+signal, and a failed solve is always repaired and flagged (proposed in step
+1).
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -423,11 +484,21 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | matter `U` | cell | 10 | 3 | Conservative width 3 (limited when upstream has it) / `=> schedule` |
 | `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | PointValue, width (open) / `=> schedule` |
 | `Φ̃` | vertex | 1 | 3 | PointValue, width as `A` / `=> schedule` |
-| `P` — primitives, EOS aux, `B̄` at cells, `q`, cell metric | cell | ~25 | 3 | `=> nothing` |
+| `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
+
+`P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
+table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
+the rapidity `w` (also the next recovery's warm start), `p`, `h`, `cs²` and
+the EOS's own warm start — then the policy flags (as a number; every bit is
+below 2¹⁶, so exact even in `Float32`), `Eⁱ`, `Bⁱ`, `q`, and the metric
+`α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric derivatives and
+`K_ij` the sources read are not in it yet: step 2 decides the form of the
+sources, and with it whether they are stored or interpolated on the fly
+(proposed in step 1).
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -780,6 +851,13 @@ A SpacetimeMetrics metric is an `isbits` kernel argument: inside a
 derivative bit-identical to the host at `Float64` and `Float32` (measured
 in step 0, Kerr-Schild at `a = M/2`). That is the premise of the `Analytic`
 provider.
+
+The pointwise layer of step 1 — `Metric3`, `prim2con`, `con2prim_hydro`,
+`con2prim_ideal` — runs inside a KernelAbstractions kernel bit-identically
+to the host at `Float64` and `Float32`, allocation-free and inferred, and
+so does `GeometricEOS` around a table at `Float64` (measured in step 1). `GeometricEOS` around a table is not
+`isbits` (the table holds arrays) and is passed to a CPU kernel as it is;
+it carries an `Adapt` rule for a device.
 
 ## Validation ladder
 

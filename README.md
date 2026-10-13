@@ -33,14 +33,17 @@ time integrator from
 is neutron stars and core-collapse supernovae; the first science target is a
 magnetized TOV star.
 
-**Status: scaffolding (step 0 of `PLAN.md`). There is no physics yet.** What
-exists is the module shell, the `Base` bridges for software floating-point
-types, the host-copy helpers, and the tests that say the resolved releases
-of TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide
-what the scheme will be written against — including that a SpacetimeMetrics
-metric runs inside a kernel, bit-identically to the host, and that the
-integrator calls the stage solve and both limiters as the design assumes —
-and which of the upstream items the plan waits for have landed.
+**Status: the pointwise layer (steps 0 and 1 of `PLAN.md`). There is no
+mesh code yet.** What exists is the module shell and its host helpers; the
+tests that say the resolved releases of TreeAMR, EntropyEOS,
+SpacetimeMetrics and IMEXRungeKutta still provide what the scheme will be
+written against, and which of the upstream items the plan waits for have
+landed; and the pointwise physics the scheme will stand on — geometric
+units and an adapter that shows a tabulated EOS in them, the 3+1 point
+metric, the layouts of the evolved and primitive variables, and the
+conversion between primitive and conserved variables, electromagnetic
+parts included, around EntropyEOS's primitive recovery. Each of these runs
+inside a KernelAbstractions kernel, bit-identically to the host.
 
 `CODE.md` is the design document: what each piece is for and why it is that
 way. `PLAN.md` is the implementation plan, step by step, with the exact

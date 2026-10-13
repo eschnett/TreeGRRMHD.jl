@@ -10,8 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Step 0 is done; step 1 is next.** *(Amended in step 0, 2026-10-13.)* Steps 1–3 need nothing
-new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
+**Steps 0 and 1 are done; step 2 is next.** *(Amended in step 1, 2026-10-13.)* Steps 2 and 3
+need nothing new from upstream. Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
 1.4.0 is tagged, unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in
 EntropyEOS 1.0.0, so step 5, the first evolution, waits for AMR-1 alone. TreeAMR is at 0.2.0
 (registered), and none of AMR-1 to AMR-6 has landed. The "state" column of the table below has
@@ -120,11 +120,15 @@ This is TreeGH's pattern.
   range. It is not in the state vector, not in `regrid!`'s transfer, and not in a checkpoint.
 - **EntropyEOS's calling conventions.**
   - Inputs are **undensitized** (divide by `√γ`). `D` is `ρ* W`, in κ-rescaled units for tables;
-    κ = 1 for the analytic EOSes.
-  - `S_par`/`S_perp` are scalars. For the hydro mode pass `B² = 0`, `S_par = 0` and
-    `S_perp = √(γ^{ij}S_iS_j)`.
-  - The output velocity is scalar: rebuild `vⁱ = Sⁱ/(ρhW²)`. In the ideal seed it is
-    `vⁱ = (Sⁱ + (S·B)Bⁱ/z)/(z + B²)` with `z = ρhW²`.
+    κ = 1 for the analytic EOSes. A table is seen in geometric units through `GeometricEOS`
+    (step 1), so no call site converts units.
+  - `S_par`/`S_perp` are scalars, and `S_perp ≥ 0`. For the hydro mode pass `B² = 0`,
+    `S_par = 0` and `S_perp = √(γ^{ij}S_iS_j)`.
+  - The output velocity is scalar. Its direction is `Sⁱ`'s; at the converged state its magnitude
+    is `|S|/(ρhW²)`, and in the ideal seed `vⁱ = (Sⁱ + (S·B)Bⁱ/z)/(z + B²)` with `z = ρhW²`. Take
+    the magnitude from the returned rapidity, `|v| = tanh w`, not from that quotient: the quotient
+    carries the solver's momentum residual into `atanh |v|` amplified by `W²` (7e-11 in the
+    round trip's `D`), and on a repaired state it is not the repaired speed (amended in step 1).
   - The warm-start guesses of `con2prim`/`con2prim_safe` are **positional**, although the
     docstrings show keywords.
 - **TreeGH's conventions.**
@@ -401,7 +405,8 @@ polytropic_entropy(eos::IdealGasEOS, K) -> s       # the s with K(s) = K
 - `isbits`, allocation-free and `@inferred`.
 - The gated GPU test runs `con2prim` on both EOSes.
 
-**Downstream check.** The step-1 3+1 round trip on `IdealGasEOS` at Γ = 4/3, 5/3 and 2.
+**Downstream check.** The step-1 3+1 round trip on `IdealGasEOS` at Γ = 4/3, 5/3 and 2 (done in
+step 1: `test/recovery_tests.jl`).
 
 **Landed** in EntropyEOS 1.0.0 *(recorded in step 0)*. Its suite states the round trip with the
 errors divided by EntropyEOS's conditioning factors, `κ_ρ = hW²` and
@@ -618,14 +623,20 @@ Accept:
 
 ## Step 1 — Units, variables and the 3+1 primitive recovery
 
-`CODE.md`: "Conventions", "Thermodynamics", "Primitive recovery". Waits: none. The synthetic
-table is used until EOS-2, and `IdealGasEOS` once it exists.
+*(Done, 2026-10-13, on `claude/step-1-recovery`.)*
+
+`CODE.md`: "Conventions", "Thermodynamics", "Primitive recovery". Waits: none. EOS-2 had landed,
+so the tests run on `IdealGasEOS`; the synthetic table checks the units adapter (amended in
+step 1).
 
 Changes:
-- **`src/units.jl`:** geometric ↔ EntropyEOS run units, with one density factor and κ.
+- **`src/units.jl`:** geometric ↔ EntropyEOS run units, with one density factor and κ. *(Step
+  1:)* `EOSUnits`, and `GeometricEOS`, an `AbstractEOS` that applies the factor inside the EOS
+  interface.
 - **`src/variables.jl`:** index constants and `NTuple` accessors for the 10 cell variables and
   for `P`'s layout.
-- **`src/metric3.jl`:** an `isbits` pointwise `Metric3{T}` (α, βⁱ, γ_ij, γ^ij, √γ).
+- **`src/metric3.jl`:** an `isbits` pointwise `Metric3{T}` (α, βⁱ, γ_ij, γ^ij, √γ), with the
+  ε-tensor cross products and `ideal_E`.
 - **`src/prim2con.jl`:** `prim2con(eos, m, prim, E, B) -> cons`, the 3+1 form including the EM
   parts.
 - **`src/con2prim.jl`:**
@@ -637,7 +648,10 @@ Accept:
 - `con2prim_hydro ∘ prim2con` is the identity on random states, to 1e−12 relative in the
   conserved variables and, in the primitives, to EntropyEOS's own conditioned bounds (errors
   divided by `κ_ρ` and `κ_s`, below 3e−11 and 1e−10; see EOS-2). A raw 1e−12 in the primitives
-  is not attainable (proposed in step 0):
+  is not attainable (proposed in step 0). *(Step 1:)* "relative" is per component for `D`,
+  `D Yₑ` and `𝔈`, and against the energy density `τ + D` for `S_i` and `τ`; `√γ D s` is not an
+  input of the recovery and is checked through `s` (proposed in step 1). Measured 9.8e−13: 1e−12
+  is `con2prim`'s own tolerance, so the bound has no margin.
   - `W ≤ 10`;
   - random metrics, from Kerr-Schild at random points and random boosts;
   - random E and B with EM energy up to 100× the fluid's.
