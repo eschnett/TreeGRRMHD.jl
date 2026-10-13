@@ -535,6 +535,52 @@ end
                   "no β-equilibrium slice; blocks step 13")
 end
 
+# The bytes one call allocates after a first call compiles it, specialized on
+# every argument (Julia 1.11 boxes an unspecialized `args...`).
+function prereq_allocations(f::F, args::Vararg{Any,N}) where {F,N}
+    f(args...)
+    return @allocated f(args...)
+end
+
+@testset "SM-1: ExtrinsicCurvature is allocation-free and takes one dmetric (when landed)" begin
+    # Guards the `Analytic` provider's `K_ij` on a device (step 9, step 14):
+    # until SpacetimeMetrics' `ExtrinsicCurvature` stops allocating and takes
+    # the provider's own `dmetric` result, `src/metric.jl` computes `K_ij`
+    # itself (the SM-1 workaround). Detected by the new method and by the
+    # bytes the old one allocates, never by a version. When it lands, upstream's
+    # `K_ij` must be the workaround's, to rounding, so that the switch changes
+    # no physics.
+    m4 = SpacetimeMetrics.boost(SpacetimeMetrics.KerrSchild{Float64}(1.0, 0.7),
+                                SVector(0.2, -0.1, 0.3))
+    p = SVector(0.4, 3.0, -4.0, 5.0)
+    bytes = prereq_allocations(SpacetimeMetrics.ExtrinsicCurvature, m4, p)
+    newmethod = hasmethod(SpacetimeMetrics.ExtrinsicCurvature,
+                          Tuple{TreeGRRMHD.SMatrix{4,4,Float64,16},
+                                TreeGRRMHD.SArray{Tuple{4,4,4},Float64,3,64}})
+    landed = newmethod && bytes == 0
+    if landed
+        worst = 0.0
+        for k in 1:20
+            q = SVector(0.1 * k, 3.0 + k, -4.0 + 0.5 * k, 5.0 - 0.3 * k)
+            g, sdg = SpacetimeMetrics.dmetric(m4, q)
+            K = SpacetimeMetrics.ExtrinsicCurvature(g, sdg)
+            @test K == SpacetimeMetrics.ExtrinsicCurvature(m4, q)
+            α, β, _ = SpacetimeMetrics.adm_decompose(g)
+            Kw = TreeGRRMHD.extrinsic_curvature(α, β, sdg)
+            worst = max(worst, maximum(abs.(K - Kw)) / maximum(abs.(K)))
+        end
+        @test worst < 1e-13
+        @test prereq_allocations(SpacetimeMetrics.ExtrinsicCurvature,
+                                 SpacetimeMetrics.dmetric(m4, p)...) == 0
+    end
+    prereq_report("SM-1", landed,
+                  landed ? "`ExtrinsicCurvature(g, dg)`, allocation-free; drop the SM-1 " *
+                           "workaround in src/metric.jl" :
+                  "`ExtrinsicCurvature` allocates $bytes bytes" *
+                  (newmethod ? "" : " and has no `(g, dg)` method") *
+                  "; src/metric.jl computes K_ij itself (workaround marked SM-1)")
+end
+
 @testset "GH-$n: reported once TreeGeneralizedHarmonic is a dependency" for n in 0:6
     # Guards nothing yet. TreeGH is not in this package's environment until
     # step 10 (it is unregistered, and its own unregistered dependencies

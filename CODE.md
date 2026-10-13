@@ -95,6 +95,8 @@ reports it and, for TreeGH, as its `main` reads:
   **EOS-1 and EOS-2 have landed**; EOS-3 and EOS-4 have not.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
+- SpacetimeMetrics **1.6**, registered: SM-1 (added in step 2) has not
+  landed.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 and
   GH-3 to GH-5 have not; GH-2 is open (see `PLAN.md`). TreeGH is not a
@@ -217,6 +219,17 @@ in step 11. *(Amended with PLAN.md.)*
   data.
 - **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
   `s_cold(ρ)` for tabulated-EOS stars.
+
+### SpacetimeMetrics
+
+- **SM-1 (wanted, step 9; workaround) An allocation-free extrinsic
+  curvature** *(added in step 2)*: `ExtrinsicCurvature(m, p)` allocates
+  432 bytes per call (measured in step 2, Julia 1.11 and 1.13), which a
+  device kernel cannot, and it differentiates the metric again where the
+  `Analytic` provider already holds one `dmetric` result; the request adds
+  `ExtrinsicCurvature(g, dg)` on that result. Until it lands,
+  `src/metric.jl`'s `extrinsic_curvature` computes `K_ij` from the
+  provider's own `dmetric` (see [Metric providers](#metric-providers)).
 
 ## The equations
 
@@ -804,7 +817,8 @@ conversion from SpacetimeMetrics' derivative-last `dmetric` is written in
 there from the same `dmetric` call: SpacetimeMetrics' `ExtrinsicCurvature`
 differentiates the metric a second time and allocates 432 bytes per call at
 Julia 1.11 and 1.13, which a device kernel cannot (measured in step 2); the
-two agree to 4.3e−16.
+two agree to 4.3e−16. That local computation is the workaround of SM-1
+(amended in step 2).
 
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes

@@ -191,6 +191,7 @@ reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
 | GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator | waiting |
 | GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` | waiting |
 | GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
+| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | waiting (added in step 2) |
 
 ### AMR-1 — A state vector over several field sets (req, step 5)
 
@@ -591,6 +592,41 @@ stored cell of a `G = 3` matter set.
 
 A damped-harmonic gauge driver, radiative or constraint-preserving outer boundaries, excision or
 a generalized interior for collapse, and Ψ₄.
+
+### SM-1 — Allocation-free extrinsic curvature (wanted, step 9; workaround)
+
+*(Added in step 2.)* The `Analytic` provider needs `K_ij` at every cell of every right-hand side,
+inside a kernel. SpacetimeMetrics 1.6's `ExtrinsicCurvature(m, p)` allocates 432 bytes per call
+(Julia 1.11 and 1.13, Kerr-Schild), which a device kernel cannot do, and it differentiates the
+metric a second time where the provider already holds one `dmetric` result.
+
+**What.** Make the existing method allocation-free, and add a method that takes the result of one
+`dmetric` call.
+
+**API.**
+```julia
+ExtrinsicCurvature(m::AbstractMetric, p::AbstractVector) -> SMatrix{3,3}     # unchanged, 0 bytes
+ExtrinsicCurvature(g::SMatrix{4,4}, dg::SArray{Tuple{4,4,4}}) -> SMatrix{3,3} # new; dg[a,b,c] = ∂_c g_ab
+```
+
+**Semantics.**
+- The same `K_ij = −(∂ₜγ_ij − D_iβ_j − D_jβ_i)/(2α)` as today, symmetric.
+- `ExtrinsicCurvature(m, p) == ExtrinsicCurvature(dmetric(m, p)...)`.
+- Generic in the element type (dual numbers included), `isbits` in and out, no allocation.
+
+**Upstream acceptance.**
+- `@allocated ExtrinsicCurvature(KerrSchild(1, 0.5), p) == 0` after a warm-up call, and the same
+  for the new method, at `Float64` and `Float32`.
+- The two methods agree bit for bit on Kerr-Schild, boosted Kerr-Schild and a gauge wave.
+
+**Downstream check.** `test/prerequisite_tests.jl`, "SM-1": the item has landed when the new method
+exists (`hasmethod`) and the old one allocates nothing (`@allocated`); then the upstream `K_ij`
+must agree with this package's `extrinsic_curvature` to 1e-13 of `max |K|` on boosted Kerr-Schild.
+
+**Workaround** (amended in step 2): `extrinsic_curvature(α, β, sdg)` in `src/metric.jl`, marked
+`SM-1`, computes `K_ij` from the provider's own `dmetric` result. It agrees with upstream's to
+4.3e−16 (measured in step 2). When SM-1 lands, `metric_gradient(::Analytic, …)` calls
+`ExtrinsicCurvature(g, sdg)` and the local function goes.
 
 ## Step 0 — Scaffolding
 

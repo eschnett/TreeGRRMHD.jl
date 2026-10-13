@@ -116,9 +116,13 @@ curvature `K_ij` at time `t` and position `x`, in this package's index order
     # spatial `j` (the time derivative enters through `K_ij` alone).
     dg = SArray{Tuple{3,4,4}}(sdg[a, b, j + 1] for j in 1:3, a in 1:4, b in 1:4)
     α, β, _ = SpacetimeMetrics.adm_decompose(g)
-    return MetricGradient(dg, extrinsic_curvature(α, β, sdg))
+    return MetricGradient(dg, extrinsic_curvature(α, β, sdg))     # SM-1 workaround
 end
 
+# SM-1 workaround (`PLAN.md`, "Upstream requirements"): goes when
+# SpacetimeMetrics' `ExtrinsicCurvature` is allocation-free and takes one
+# `dmetric` result.
+#
 # `K_ij = −(∂ₜγ_ij − ∂ᵢβ_j − ∂ⱼβ_i + 2 βˡ Γ_lij)/(2α)` from SpacetimeMetrics'
 # `sdg[a, b, c] = ∂_c g_ab` of the same evaluation, with `β_j = g_tj` and the
 # spatial Christoffel symbols of the first kind
