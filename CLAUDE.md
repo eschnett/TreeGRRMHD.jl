@@ -48,8 +48,11 @@ is unblocked (2026-10-14).** `CODE.md` records the reviewed design
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
 step it blocks, with a state column. What exists: the module shell,
 `src/precision.jl` and `src/device.jl` (ported from TreeHydro),
-`test/prerequisite_tests.jl` (the names the scheme calls, and every
-upstream ID logged as landed or waiting), step 1's pointwise layer —
+`test/prerequisite_tests.jl` (the names the scheme calls, the IMEX
+contract, and a probe per upstream ID still waiting; a landed item whose
+release `[compat]` requires loses its probe — `PLAN.md`, "Upstream
+requirements"), `test/upstream_behaviour_tests.jl` (the bounded
+prolongation, until step 8 tests it in place), step 1's pointwise layer —
 `src/units.jl` (geometric units, `GeometricEOS`), `src/metric3.jl`,
 `src/variables.jl` (the slot layouts of `U` and `P`), `src/prim2con.jl` and
 `src/con2prim.jl` (`con2prim_hydro`, `con2prim_ideal`) — and step 2's —
@@ -114,8 +117,10 @@ paid for compiling the test environment). The suite's own
 `Test Summary` time is 15–19 s throughout. In a fresh depot (nothing
 installed, registry and every package fetched) the 1.11 instantiate took
 77 s and the test 92 s; it resolved EntropyEOS and IMEXRungeKutta from
-their GitHub URLs, as it must. The log names every upstream ID as landed
-or waiting; grep it for `landed:` and `waiting:`. At the end of step 2
+their GitHub URLs, as it must. The log names every upstream ID still
+probed as landed or waiting; grep it for `landed:` and `waiting:` (since
+2026-10-14 a landed item guaranteed by `[compat]` has no probe, so
+`landed:` should not appear). At the end of step 2
 (2026-10-13): **20513 tests**, a `Test Summary` time of 37–39 s at 1.11
 and 28 s at 1.13 at one thread, four and `--check-bounds=yes`;
 `test/pointwise_tests.jl` takes about 12 s of it.

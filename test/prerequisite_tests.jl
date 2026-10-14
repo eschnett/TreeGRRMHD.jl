@@ -9,12 +9,19 @@
 # a step rather than here; the name lists are the cheapest thing that fails
 # when an upstream release renames something.
 #
-# Then one testset per upstream ID ("Upstream requirements" in `PLAN.md`).
-# Each detects its item by `isdefined`, `hasmethod` or `applicable` — never
-# by a version number — and either runs the downstream check (the item has
-# landed) or says, in an `@info` naming the ID, that it is waiting and which
-# step it blocks. A waiting item is not a failure: the suite stays green, and
-# the log says what the next step is waiting for.
+# Then one testset per upstream ID still waiting ("Upstream requirements" in
+# `PLAN.md`). Each detects its item by `isdefined`, `hasmethod` or
+# `applicable` — never by a version number — and says, in an `@info` naming
+# the ID, whether it is waiting and which step it blocks. A waiting item is
+# not a failure: the suite stays green, and the log says what the next step
+# is waiting for. Once an item has landed and `[compat]` requires a release
+# that contains it, its probe is retired: the testset is deleted, the item
+# is marked "landed in <package> <version>" in `PLAN.md`, and its names
+# join the lists below (decided by Erik 2026-10-14). That retired AMR-1 to
+# AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0) and SM-1
+# (SpacetimeMetrics 1.7.0); the behaviour this package relies on from them
+# is tested where it is used (`test/upstream_behaviour_tests.jl` for the
+# bounded prolongation, `test/pointwise_tests.jl` for `K_ij`).
 #
 # Nothing here is magnetohydrodynamics. These are claims about the mesh, the
 # equation of state, the analytic metrics, the integrator, and the two
@@ -43,22 +50,6 @@ function prereq_forest(::Val{D}; N=8, extents=ntuple(_ -> (0.0, 1.0), D)) where 
     return forest
 end
 
-# The evolved sets of "Field sets" in `CODE.md`: the ten cell-centered matter
-# variables, the three components of `A` on their edges, and the gauge scalar
-# `Φ̃` on the vertices, all at `G = 3`. In `D < 3` a component of `A` along a
-# missing direction takes the centering that remains — the vertex
-# ("Where the fields live").
-prereq_A_centering(::Val{D}, d) where {D} = d <= D ? edgecentered(D, d) : vertexcentered(D)
-
-function prereq_evolved_sets(forest::Forest{D}) where {D}
-    G = ntuple(_ -> 3, D)
-    U = FieldSet{Float64}(forest, 10; G=G, centering=cellcentered(D))
-    A = ntuple(d -> FieldSet{Float64}(forest, 1; G=G,
-                                      centering=prereq_A_centering(Val(D), d)), 3)
-    Φ = FieldSet{Float64}(forest, 1; G=G, centering=vertexcentered(D))
-    return (U, A..., Φ)
-end
-
 # A value per variable that is different at every point and in every set,
 # so that a segment in the wrong place or a transposed copy would show.
 prereq_values(nvars, tag) =
@@ -79,6 +70,7 @@ prereq_values(nvars, tag) =
                  :Operators, :PointValue, :Conservative, :GhostSchedule, :fill_ghosts!,
                  :CellBoundary, :boundary_by_coordinates,
                  :statelength, :statevector, :statearray, :scatter!, :gather!,
+                 :staterange, :stateview,
                  :map_blocks!, :block_mapreduce, :mesh_mapreduce, :volume_weighted_norm,
                  :RegridFlag, :Refine, :Coarsen, :Keep, :regrid!, :adapt_to_initial_data!,
                  :total_mass, :firing_boxes, :InterfaceSchedule, :restrict_interfaces!)
@@ -90,11 +82,15 @@ end
     # Guards an upstream rename of the one primitive recovery ("Primitive
     # recovery" in `CODE.md`: `con2prim_safe` in hydrodynamic mode for every
     # σ, `con2prim` only as the ideal seed), of the policy that wraps it, and
-    # of the synthetic table step 1 checks the units adapter on. The
-    # `AbstractEOS` interface and the analytic EOSes are EOS-1 and EOS-2,
-    # checked below as upstream items. (Amended in step 1: the synthetic
-    # table was to stand in for the analytic EOSes until EOS-2.)
-    for name in (:EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
+    # of the synthetic table step 1 checks the units adapter on, and of the
+    # `AbstractEOS` interface and the analytic EOSes (EOS-1 and EOS-2, landed
+    # in EntropyEOS 1.0.0; their probes were retired 2026-10-14). `κ` stays
+    # unexported and is called qualified (amended in step 0). (Amended in
+    # step 1: the synthetic table was to stand in for the analytic EOSes
+    # until EOS-2.)
+    for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
+                 :IdealGasEOS, :HybridEOS, :polytropic_entropy,
+                 :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
                  :narrow, :prim2con, :Prim2ConOut, :con2prim, :Con2PrimIn,
                  :Con2PrimOptions, :Con2PrimOut, :con2prim_safe, :Con2PrimSafeOut,
                  :PolicyOptions, :PrimState, :default_policy, :C2PResult,
@@ -102,6 +98,7 @@ end
                  :make_synthetic_table, :build_eos)
         @test name in names(EOS)
     end
+    @test isdefined(EOS, :κ) && :κ ∉ names(EOS)
 end
 
 @testset "The resolved SpacetimeMetrics exports the backgrounds and the ADM split" begin
@@ -276,8 +273,9 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# The upstream items, one testset per ID. "landed" runs the check; "waiting"
-# says so in the log and names the step it blocks.
+# The upstream items still waiting, one testset per ID. "waiting" says so in
+# the log and names the step it blocks; "landed" says the probe is due to be
+# retired, once `[compat]` requires the release that has it.
 
 function prereq_report(id, landed::Bool, what)
     if landed
@@ -286,199 +284,6 @@ function prereq_report(id, landed::Bool, what)
         @info "$id waiting: $what"
     end
     return landed
-end
-
-@testset "AMR-1: a state vector over several field sets round-trips (when landed)" begin
-    # Guards the multi-set state vector step 5 cannot start without: one
-    # integrator advances the matter, `A` and `Φ̃` (and from step 11 TreeGH's
-    # set) as one flat vector. When it lands, each segment must have exactly
-    # its set's single-set layout, `stateview` and `statearray` must alias
-    # `u`, and sets of different centerings and `nvars` must mix.
-    forest = prereq_forest(Val(1))
-    sets = prereq_evolved_sets(forest)
-    landed = isdefined(TreeAMR, :staterange) && isdefined(TreeAMR, :stateview) &&
-             applicable(TreeAMR.staterange, sets, 1) && applicable(statevector, sets) &&
-             applicable(scatter!, sets, zeros(1)) && applicable(gather!, zeros(1), sets)
-    prereq_report("AMR-1", landed,
-                  landed ? "the multi-set state vector, checked in D = 1, 2, 3" :
-                  "TreeAMR has no multi-set `staterange`/`stateview`/`statevector`; " *
-                  "blocks step 5")
-    if landed
-        for D in 1:3
-            forest = prereq_forest(Val(D))
-            sets = prereq_evolved_sets(forest)
-            for (i, fs) in enumerate(sets)
-                fill_by_coordinates!(AllVariables(prereq_values(fs.nvars, i)), fs)
-            end
-            u = statevector(sets)
-            @test length(u) == sum(statelength, sets) == statelength(sets)
-            gather!(u, sets)
-            offset = 0
-            for (i, fs) in enumerate(sets)
-                single = statevector(fs)
-                gather!(single, fs)
-                r = TreeAMR.staterange(sets, i)
-                @test r == (offset + 1):(offset + statelength(fs))
-                @test TreeAMR.stateview(u, sets, i) == single
-                offset = last(r)
-            end
-            # The round trip: scattered into fresh sets, each set holds what
-            # its own single-set gather says the segment holds.
-            fresh = prereq_evolved_sets(forest)
-            scatter!(fresh, u)
-            for (i, gs) in enumerate(fresh)
-                single = statevector(gs)
-                gather!(single, gs)
-                @test single == TreeAMR.stateview(u, sets, i)
-            end
-            # Aliasing: a write through the segment is a write to `u`.
-            v = statearray(u, sets, 2)
-            v[1] = -12345.0
-            @test u[first(TreeAMR.staterange(sets, 2))] == -12345.0
-        end
-    end
-end
-
-@testset "AMR-2: regrid! takes a boundary hook per set (when landed)" begin
-    # Guards the per-set hook steps 6 and 8 want: one `AllVariables` hook is
-    # length-checked against every set's `nvars`, so one hook cannot serve
-    # the matter (10) and `A` (1). Detected by asking `regrid!` to take
-    # `fs => (schedule, hook)` on a throwaway forest with every block kept;
-    # the same call with `fs => schedule` is the control, so a refusal for
-    # any other reason is not mistaken for the item missing. The documented
-    # alternative (`boundary = nothing` leaves the outward ghosts alone) is a
-    # promise in prose and cannot be detected; until either, the workaround
-    # marked `AMR-2` is allowed.
-    forest = prereq_forest(Val(1))
-    fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(1))
-    ops = Operators(; prolongation=1, restriction=2, family=Conservative)
-    sched = GhostSchedule(fs, ops)
-    hook = CellBoundary(AllVariables(x -> (0.0,)))
-    keep = fill(Keep, nleaves(forest))
-    regrid!(forest, fs => sched; flags=keep)
-    @test nblocks(fs) == nleaves(forest)               # the control went through
-    # Any exception counts as a refusal, since the control has gone through:
-    # TreeAMR 0.2.0 refuses the form not with an `ArgumentError` but with a
-    # field access on the tuple in its own argument check (a `FieldError` at
-    # 1.12 and later, an `ErrorException` before), measured in step 0.
-    refusal = nothing
-    landed = try
-        regrid!(forest, fs => (GhostSchedule(fs, ops), hook); flags=fill(Keep, nleaves(forest)))
-        true
-    catch err
-        refusal = typeof(err)
-        false
-    end
-    prereq_report("AMR-2", landed,
-                  landed ? "`regrid!` accepts `fs => (schedule, hook)`" :
-                  "`regrid!` refuses `fs => (schedule, hook)` ($refusal); step 6 uses " *
-                  "the workaround marked AMR-2")
-end
-
-@testset "AMR-3: adapt_to_initial_data! adapts several sets (when landed)" begin
-    # Guards the multi-set initial adaptation step 8 wants; until then the
-    # matter set is adapted alone and the others are created on the final
-    # forest (the workaround marked `AMR-3`).
-    forest = prereq_forest(Val(1))
-    fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(1))
-    ops = Operators(; prolongation=1, restriction=2, family=Conservative)
-    landed = applicable(adapt_to_initial_data!, (fs => ops, fs => ops))
-    prereq_report("AMR-3", landed,
-                  landed ? "`adapt_to_initial_data!` takes a tuple of pairs" :
-                  "`adapt_to_initial_data!` takes one set; step 8 uses the workaround")
-end
-
-@testset "AMR-4: Operators bounds the conservative prolongation (when landed)" begin
-    # Guards the limited conservative prolongation step 10 strongly wants at
-    # a stellar surface. It landed (TreeAMR 902042a, 0.2.1) not as a choice
-    # of limiter but as a property, `Operators(; …, bounded = true)`: an
-    # MC-bounded order-3 conservative prolongation that creates no new
-    # extrema (amended 2026-10-14). The control is that the keywords it has
-    # always had are seen, so a renamed constructor is not mistaken for the
-    # item missing; the item is detected by the keyword and the field, never
-    # by a version. When landed, a surface — a drop over thirteen orders of
-    # magnitude — refined everywhere stays positive and within its range and
-    # keeps its total, where the unbounded operator overshoots it.
-    @test hasmethod(Operators, Tuple{}, (:prolongation, :restriction, :family))
-    landed = hasmethod(Operators, Tuple{}, (:prolongation, :restriction, :family, :bounded)) &&
-             :bounded in fieldnames(Operators)
-    prereq_report("AMR-4", landed,
-                  landed ? "`Operators(; …, bounded = true)`, the MC-bounded conservative " *
-                           "prolongation, checked on a surface in D = 1, 2" :
-                  "no `bounded` keyword on `Operators`; step 10 measures width 1 and 3 " *
-                  "without it")
-    if landed
-        for D in 1:2
-            surface(x) = (x[1] < 0.3 ? 1.0 : 1.0e-13,)
-            bounded = Operators(; prolongation=3, restriction=2, family=Conservative,
-                                bounded=true)
-            forest = prereq_forest(Val(D))
-            fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(D))
-            fill_by_coordinates!(AllVariables(surface), fs)
-            before = total_mass(fs)
-            regrid!(forest, fs => GhostSchedule(fs, bounded); flags=fill(Refine, nleaves(forest)))
-            fill_ghosts!(fs, GhostSchedule(fs, bounded))
-            lo, hi = extrema(fs.work)
-            @test 0 < lo && hi <= 1 + eps()
-            @test isapprox(total_mass(fs), before; rtol=1e-13)
-            # The control: unbounded, the same refinement overshoots.
-            unbounded = Operators(; prolongation=3, restriction=2, family=Conservative)
-            forest = prereq_forest(Val(D))
-            fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(D))
-            fill_by_coordinates!(AllVariables(surface), fs)
-            regrid!(forest, fs => GhostSchedule(fs, unbounded);
-                    flags=fill(Refine, nleaves(forest)))
-            lo, hi = extrema(fs.work)
-            @test lo < 0 || hi > 1
-        end
-    end
-end
-
-@testset "AMR-5: map_blocks! takes a workgroup size (when landed)" begin
-    # Guards the launch-shape knob step 14 wants for device tuning.
-    @test hasmethod(map_blocks!, Tuple{Any,FieldSet,Vararg{Any}}, (:stored, :closed))
-    landed = hasmethod(map_blocks!, Tuple{Any,FieldSet,Vararg{Any}}, (:workgroupsize,))
-    prereq_report("AMR-5", landed,
-                  landed ? "`map_blocks!(…; workgroupsize)`" :
-                  "no `workgroupsize` keyword on `map_blocks!`; wanted by step 14")
-end
-
-@testset "AMR-6: outflow faces fill their ghosts on every backend (when landed)" begin
-    # Guards the outflow boundary later rungs want. It landed (TreeAMR
-    # a983419, 0.2.1) not as a device-capable hook that reads the interior
-    # but as a face kind, `Forest(roots; …, outflow = ((lo, hi), …))`, whose
-    # ghosts the schedule fills with the nearest owned value (zero-gradient
-    # extrapolation), on every backend and across ranks (amended
-    # 2026-10-14). Detected by the face kind and the keyword, never by a
-    # version. When landed, a one-dimensional forest with both faces outflow
-    # fills its ghosts with the cells next to them, for data that vary.
-    landed = isdefined(TreeAMR, :OutflowFace) &&
-             hasmethod(Forest, Tuple{Tuple{Int}}, (:N, :outflow))
-    prereq_report("AMR-6", landed,
-                  landed ? "outflow faces, `Forest(…; outflow)`, checked in D = 1" :
-                  "no outflow face kind; outflow waits for it")
-    if landed
-        forest = Forest((2,); N=8, outflow=((true, true),), extents=((0.0, 1.0),))
-        fs = FieldSet{Float64}(forest, 1; G=2, centering=cellcentered(1))
-        fill_by_coordinates!(AllVariables(x -> (1 + x[1]^2,)), fs)
-        ops = Operators(; prolongation=1, restriction=2, family=Conservative)
-        fill_ghosts!(fs, GhostSchedule(fs, ops))
-        nfaces = 0
-        for b in 1:nblocks(fs)
-            w = blockview(fs, b)
-            lo, hi = block_extent(forest, blockkey(fs, b))[1]
-            if lo == 0.0                        # the low face: ghosts 1, 2 copy cell 3
-                @test w[1, 1] == w[3, 1] && w[2, 1] == w[3, 1]
-                nfaces += 1
-            end
-            if hi == 1.0                        # the high face: copy cell n − 2
-                n = size(w, 1)
-                @test w[n, 1] == w[n - 2, 1] && w[n - 1, 1] == w[n - 2, 1]
-                nfaces += 1
-            end
-        end
-        @test nfaces == 2
-    end
 end
 
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
@@ -492,95 +297,6 @@ end
                   landed ? "EntropyEOS is in a reachable registry; the `[sources]` " *
                   "entry can go" :
                   "EntropyEOS is in no reachable registry; `[sources]` adds it by URL")
-end
-
-@testset "EOS-1: every EntropyEOS entry point is typed on AbstractEOS (when landed)" begin
-    # Guards the interface the analytic EOSes stand on: `con2prim_safe`, the
-    # policy and `prim2con` for any subtype, and the four bounds and `κ`
-    # through accessors. `κ` is the one deviation from the request: it stays
-    # unexported and is documented as `EntropyEOS.κ`, so it is checked
-    # qualified (amended in step 0).
-    landed = isdefined(EOS, :AbstractEOS) && EOS.EOSTableView <: EOS.AbstractEOS &&
-             all(n -> isdefined(EOS, n), (:logρ_bounds, :yₑ_bounds, :κ))
-    prereq_report("EOS-1", landed,
-                  landed ? "`AbstractEOS`, its accessors, and the solver typed on it" :
-                  "no `AbstractEOS`; blocks step 5")
-    if landed
-        A = EOS.AbstractEOS{Float64}
-        @test hasmethod(EOS.con2prim_safe, Tuple{A,EOS.Con2PrimIn{Float64},
-                                                 EOS.Con2PrimOptions{Float64},
-                                                 EOS.PolicyOptions{Float64}})
-        # The warm-start guesses are positional, although the docstrings
-        # show keywords ("Sharp edges" in `PLAN.md`).
-        @test hasmethod(EOS.con2prim_safe, Tuple{A,EOS.Con2PrimIn{Float64},
-                                                 EOS.Con2PrimOptions{Float64},
-                                                 EOS.PolicyOptions{Float64},
-                                                 Float64,Float64,Float64})
-        @test hasmethod(EOS.prim2con, Tuple{A,Float64,Float64,Float64,Float64,Float64,
-                                            Float64})
-        @test hasmethod(EOS.default_policy, Tuple{A,Float64})
-        @test :κ ∉ names(EOS)
-    end
-end
-
-@testset "EOS-2: the analytic EOSes invert their own conserved state (when landed)" begin
-    # Guards the EOSes the flat-space and TOV tests run on (rungs 1–6). The
-    # check is the call this package will make, in the hydrodynamic mode
-    # (`B² = 0`), with the warm starts passed positionally: `con2prim_safe ∘
-    # prim2con` recovers the state, with no policy repair, on the Γ = 2
-    # polytrope's EOS and a two-piece hybrid. The errors are scaled by
-    # EntropyEOS's own conditioning factors (its `test_analytic_eos.jl`): the
-    # entropy is ill-determined where the thermal energy is a small part of
-    # `τ`, and the density where `hW² ≫ 1`, so a raw 1e-12 is not what the
-    # recovery promises (amended in step 0). The thresholds are upstream's.
-    landed = all(n -> isdefined(EOS, n), (:IdealGasEOS, :HybridEOS, :polytropic_entropy))
-    prereq_report("EOS-2", landed,
-                  landed ? "`IdealGasEOS`, `HybridEOS`, `polytropic_entropy`" :
-                  "no analytic EOS; blocks step 5")
-    if landed
-        box = (; s_ref=5.0, s_window=(4.0, 6.0), ρ_bounds=(1e-10, 1e-2),
-               yₑ_bounds=(0.05, 0.6))
-        ideal = EOS.IdealGasEOS{Float64}(; Γ=2.0, K_ref=100.0, box...)
-        hybrid = EOS.HybridEOS{Float64,2}(; ρ_breaks=(1e-4,), K₀=100.0, Γs=(2.0, 2.0),
-                                          Γ_th=1.75, K_th_ref=1.0, box...)
-        @test isbits(ideal) && isbits(hybrid)
-        @test ideal isa EOS.AbstractEOS{Float64} && hybrid isa EOS.AbstractEOS{Float64}
-        @test EOS.κ(ideal) === 1.0
-
-        # The polytrope K = 100, Γ = 2 of the TOV milestones is this EOS at
-        # one entropy, and its central density 1.28e-3 is inside the box.
-        s_poly = EOS.polytropic_entropy(ideal, 100.0)
-        pt = EOS.evaluate(ideal, 1.28e-3, s_poly, 0.3, NaN)
-        @test isapprox(pt.p, 100 * 1.28e-3^2; rtol=4eps())
-
-        opts = EOS.Con2PrimOptions{Float64}()
-        worst_ρ = worst_s = 0.0
-        bad = 0
-        for eos in (ideal, hybrid), ρ in (1e-8, 1.28e-3), s in (4.2, 5.8), w in (0.0, 0.5, 2.0)
-            yₑ = 0.3
-            pol = EOS.default_policy(eos, 1e-10)
-            pt = EOS.evaluate(eos, ρ, s, yₑ, NaN)
-            c = EOS.prim2con(eos, ρ, s, yₑ, w, 0.0, 1.0)
-            cin = EOS.Con2PrimIn{Float64}(c.D, c.τ, c.D_Y, c.S_par, c.S_perp, c.B²)
-            out = EOS.con2prim_safe(eos, cin, opts, pol, NaN, NaN, NaN)
-            ok = out.solved && out.policy_flags == 0 &&
-                 out.base.result in (EOS.C2PResult.converged_newton,
-                                     EOS.C2PResult.converged_fallback)
-            ok || (bad += 1)
-            W² = cosh(w)^2
-            κ_ρ = pt.h * W²
-            κ_s = (1 + c.τ / (ρ * W² * pt.U)) * max(1, pt.U / (s * pt.U_s))
-            eρ = max(abs(out.base.ρ - ρ) / ρ, abs(out.base.w - w) / max(w, 1)) / κ_ρ
-            es = abs(out.base.s - s) / s / κ_s
-            worst_ρ = max(worst_ρ, eρ)
-            worst_s = max(worst_s, es)
-            @test out.base.ye == yₑ
-        end
-        @test bad == 0
-        @test worst_ρ < 3e-11
-        @test worst_s < 1e-10
-        @info "EOS-2 round trip, conditioned worst errors" worst_ρ worst_s
-    end
 end
 
 @testset "EOS-3: the fixed-entropy inversion is public (when landed)" begin
@@ -598,63 +314,6 @@ end
     prereq_report("EOS-4", landed,
                   landed ? "`beta_equilibrium`, `cold_slice`" :
                   "no β-equilibrium slice; blocks step 13")
-end
-
-# The bytes one call allocates after a first call compiles it, specialized on
-# every argument (Julia 1.11 boxes an unspecialized `args...`).
-function prereq_allocations(f::F, args::Vararg{Any,N}) where {F,N}
-    f(args...)
-    return @allocated f(args...)
-end
-
-# `K_ij = −(∂ₜγ_ij − ∂ᵢβ_j − ∂ⱼβ_i + 2 βˡ Γ_lij)/(2α)` from SpacetimeMetrics'
-# `sdg[a, b, c] = ∂_c g_ab`, `β_j = g_tj` and the spatial Christoffel symbols of
-# the first kind `Γ_lij = ½(∂ᵢγ_lj + ∂ⱼγ_li − ∂_lγ_ij)`: the formula of the SM-1
-# workaround `src/metric.jl` carried until SM-1 landed (2026-10-14), kept here
-# as the independent check on upstream's.
-function prereq_extrinsic_curvature(α, β, sdg)
-    K(i, j) = -(sdg[i + 1, j + 1, 1] - sdg[1, j + 1, i + 1] - sdg[1, i + 1, j + 1] +
-                sum(β[l] * (sdg[l + 1, j + 1, i + 1] + sdg[l + 1, i + 1, j + 1] -
-                            sdg[i + 1, j + 1, l + 1]) for l in 1:3)) / (2 * α)
-    return TreeGRRMHD.SMatrix{3,3}([K(i, j) for i in 1:3, j in 1:3])
-end
-
-@testset "SM-1: ExtrinsicCurvature is allocation-free and takes one dmetric (when landed)" begin
-    # Guards the `Analytic` provider's `K_ij` on a device (step 9, step 14):
-    # `src/metric.jl` calls SpacetimeMetrics' `ExtrinsicCurvature(g, dg)` on
-    # the provider's own `dmetric` result, which must allocate nothing and
-    # agree with the formula of the former workaround (SM-1, landed in
-    # SpacetimeMetrics 1.7.0, 2026-10-14). Detected by the method and by the
-    # bytes it allocates, never by a version.
-    m4 = SpacetimeMetrics.boost(SpacetimeMetrics.KerrSchild{Float64}(1.0, 0.7),
-                                SVector(0.2, -0.1, 0.3))
-    p = SVector(0.4, 3.0, -4.0, 5.0)
-    bytes = prereq_allocations(SpacetimeMetrics.ExtrinsicCurvature, m4, p)
-    newmethod = hasmethod(SpacetimeMetrics.ExtrinsicCurvature,
-                          Tuple{TreeGRRMHD.SMatrix{4,4,Float64,16},
-                                TreeGRRMHD.SArray{Tuple{4,4,4},Float64,3,64}})
-    landed = newmethod && bytes == 0
-    if landed
-        worst = 0.0
-        for k in 1:20
-            q = SVector(0.1 * k, 3.0 + k, -4.0 + 0.5 * k, 5.0 - 0.3 * k)
-            g, sdg = SpacetimeMetrics.dmetric(m4, q)
-            K = SpacetimeMetrics.ExtrinsicCurvature(g, sdg)
-            @test K == SpacetimeMetrics.ExtrinsicCurvature(m4, q)
-            α, β, _ = SpacetimeMetrics.adm_decompose(g)
-            Kw = prereq_extrinsic_curvature(α, β, sdg)
-            worst = max(worst, maximum(abs.(K - Kw)) / maximum(abs.(K)))
-        end
-        @test worst < 1e-13
-        @test prereq_allocations(SpacetimeMetrics.ExtrinsicCurvature,
-                                 SpacetimeMetrics.dmetric(m4, p)...) == 0
-    end
-    prereq_report("SM-1", landed,
-                  landed ? "`ExtrinsicCurvature(g, dg)`, allocation-free, called by " *
-                           "src/metric.jl" :
-                  "`ExtrinsicCurvature` allocates $bytes bytes" *
-                  (newmethod ? "" : " and has no `(g, dg)` method") *
-                  "; src/metric.jl computes K_ij itself (workaround marked SM-1)")
 end
 
 @testset "GH-$n: reported once TreeGeneralizedHarmonic is a dependency" for n in 0:6

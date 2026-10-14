@@ -89,20 +89,27 @@ below keeps only the reasons. "(req)" blocks the step named; "(wanted)" has
 a workaround listed in `PLAN.md`; "(later)" is not needed before rung 7.
 
 **State on 2026-10-14** (amended in step 3, after the reviewer ran the
-suite against the new releases), as `test/prerequisite_tests.jl` reports it
-and, for TreeGH, as its `main` reads:
+suite against the new releases), as `[compat]` guarantees it for what has
+landed, as `test/prerequisite_tests.jl` reports it for what is waiting,
+and, for TreeGH, as its `main` reads. A landed item whose release the
+compat floor requires has no probe any more (decided by Erik 2026-10-14;
+the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-6,
+EOS-1, EOS-2 and SM-1. Their names are in the prerequisite test's name
+lists; what this package relies on from them and does not yet exercise
+through its own code is in `test/upstream_behaviour_tests.jl`.
 
 - TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
   so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
-  landed**, AMR-4 and AMR-6 in a different form (below). Step 5 waits for
-  nothing.
+  landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a different form (below).
+  Step 5 waits for nothing.
 - EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
-  **EOS-1 and EOS-2 have landed**; EOS-3 and EOS-4 have not.
+  **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0** (`EntropyEOS =
+  "1"`); EOS-3 and EOS-4 have not.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
-  requires Julia 1.11, the floor here): **SM-1 has landed**, and its
-  workaround is gone.
+  requires Julia 1.11, the floor here): **SM-1 has landed in
+  SpacetimeMetrics 1.7.0**, and its workaround is gone.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 and
   GH-3 to GH-5 have not; GH-2 is open (see `PLAN.md`). TreeGH is not a
@@ -144,9 +151,10 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   bounded=true)` — the order-3 conservative prolongation with an MC slope
   and a scaling that keeps every child within the range of its parent and
   the parent's face neighbours, exactly conservative, in the ghost fill and
-  the regrid transfer alike. The prerequisite test checks that a surface
-  refined everywhere stays positive and within range and keeps its total,
-  where the unbounded operator overshoots. See [Refinement](#refinement)
+  the regrid transfer alike. `test/upstream_behaviour_tests.jl` checks
+  that a surface refined everywhere stays positive and within range and
+  keeps its total, where the unbounded operator overshoots (until step 8's
+  refinement tests take it over). See [Refinement](#refinement)
   for what upstream's design assumes of this package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
   TreeGH's list).
@@ -251,8 +259,8 @@ in step 11. *(Amended with PLAN.md.)*
   `Analytic` provider already holds one `dmetric` result; the request adds
   `ExtrinsicCurvature(g, dg)` on that result. *(Landed in SpacetimeMetrics
   1.7.0, 2026-10-14:)* `src/metric.jl` calls `ExtrinsicCurvature(g, dg)`,
-  and its local `extrinsic_curvature` is gone; the prerequisite test keeps
-  that formula as the check on upstream's.
+  and its local `extrinsic_curvature` is gone; `test/pointwise_tests.jl`
+  keeps that formula as the check on upstream's.
 
 ## The equations
 
@@ -571,8 +579,9 @@ ill-determined where the thermal energy is a small part of `τ`, and the
 density where `hW² ≫ 1`. Its suite asserts the conditioned errors below
 3e−11 and 1e−10; a raw relative 1e−12 is not attainable — step 0 measured
 8.9e−10 in `s` at `ρ = 1e−8`, `s = 5.2`, `W = cosh 2` on the Γ = 2 gas,
-while over the prerequisite test's 24 states the conditioned errors are at
-most 2.1e−14 in `ρ` and `w` and 1.7e−13 in `s`.
+while over step 0's prerequisite test's 24 states (retired with EOS-2's
+probe, 2026-10-14) the conditioned errors were at most 2.1e−14 in `ρ` and
+`w` and 1.7e−13 in `s`.
 
 Through the 3+1 layer (measured in step 1, `test/recovery_tests.jl`): on
 1000 random states per `Γ ∈ {4/3, 5/3, 2}` — `ρ` across the box, `s`

@@ -161,6 +161,14 @@ Each item gives:
   testset is skipped with an `@info` naming the ID. It detects the item by `isdefined` /
   `hasmethod`, never by version number.
 
+**Retiring a probe** (decided by Erik 2026-10-14). Once an item has landed *and* `[compat]` requires
+a release that contains it, its testset is deleted from `test/prerequisite_tests.jl` and the item
+is marked "landed in <package> <version>" in the table and in its section. Probes remain only for
+items still waiting. The names a retired item added join the name lists of step 0's checks (which
+stay, with the metric-as-kernel-argument check and the IMEX contract checks); a property of the
+release this package relies on and does not yet exercise through its own code moves to
+`test/upstream_behaviour_tests.jl` until the step that uses it tests it in place.
+
 Priorities:
 - **req** blocks the step named.
 - **wanted** has a workaround, listed with the item.
@@ -170,20 +178,21 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-14 (added in step 0, amended 2026-10-14): what `test/prerequisite_tests.jl`
-reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
+The state column is as of 2026-10-14 (added in step 0, amended 2026-10-14): for the items still
+waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
+what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
 | ID | package | priority | needed by step | summary | state |
 |---|---|---|---|---|---|
-| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | landed, 0.2.1 |
-| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | landed, 0.2.1 |
-| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | landed, 0.2.1 |
-| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed as `bounded = true`, 0.2.1 |
-| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed, 0.2.1 |
-| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed as outflow faces, 0.2.1 |
+| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | landed in TreeAMR 0.2.1 |
+| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | landed in TreeAMR 0.2.1 |
+| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | landed in TreeAMR 0.2.1 |
+| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed in TreeAMR 0.2.1, as `bounded = true` |
+| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
+| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
-| EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed, 1.0.0 |
-| EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed, 1.0.0 |
+| EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
+| EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
 | EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
@@ -193,7 +202,7 @@ reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
 | GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator | waiting |
 | GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` | waiting |
 | GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
-| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed, 1.7.0 (workaround dropped) |
+| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed in SpacetimeMetrics 1.7.0 (workaround dropped) |
 
 ### AMR-1 — A state vector over several field sets (req, step 5)
 
@@ -322,10 +331,11 @@ conservative order 1 (already bounded) and refused otherwise. One kernel serves 
 and the regrid. Its commit message records what upstream assumes of this package: that it
 "will leave admissibility to EntropyEOS, cell by cell, prolongate the primitive variables in
 the ghost fill and the conserved ones only in the regrid" — a design point steps 8 and 10 take
-up (`CODE.md`, "Refinement"). `test/prerequisite_tests.jl`, "AMR-4", detects the keyword and
-the field and checks, in D = 1 and 2, that a surface (1 to 1e−13) refined everywhere stays
-positive and within range and keeps its total, where the unbounded operator overshoots. The
-step-10 downstream check stands.
+up (`CODE.md`, "Refinement"). `test/upstream_behaviour_tests.jl` checks, in D = 1 and 2, that a
+surface (1 to 1e−13) refined everywhere stays positive and within range and keeps its total, where
+the unbounded operator overshoots; it moves to step 8's refinement tests. (Until 2026-10-14 this
+was the AMR-4 probe in `test/prerequisite_tests.jl`, retired when `TreeAMR = "0.2.1"` came to
+guarantee it.) The step-10 downstream check stands.
 
 ### AMR-5 — `workgroupsize` on `map_blocks!` (wanted, step 14)
 
@@ -341,9 +351,10 @@ This is for outflow conditions. Today the region form is CPU-only (ghosts.jl:347
 outflow face kind, `Forest(roots; …, outflow = ((lo, hi), …))`, whose ghosts the schedule fills
 as clamped transfers with the nearest owned value (zero-gradient, first order at the face), on
 every backend and across ranks; a nonlinear condition (forbidding inflow) stays with the
-application. `test/prerequisite_tests.jl`, "AMR-6", detects `OutflowFace` and the keyword and
-checks that both outflow faces of a one-dimensional forest copy their nearest cell into the
-ghosts.
+application. Its probe, which checked that both outflow faces of a one-dimensional forest copy
+their nearest cell into the ghosts, was retired on 2026-10-14 (`TreeAMR = "0.2.1"` guarantees it);
+the step that first uses outflow faces tests them in place. `OutflowFace` is not exported: this
+package reaches outflow through `Forest`'s `outflow` keyword only.
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
@@ -387,8 +398,9 @@ Base.eltype(eos); narrow(eos, S)           # instances isbits; Adapt is the iden
 - A test-only toy subtype runs `con2prim_safe` end to end.
 
 **Landed** in EntropyEOS 1.0.0 *(recorded in step 0)*, except that `κ` stays unexported and is
-documented as `EntropyEOS.κ(eos)`; this package calls it qualified, and the prerequisite test
-asserts it is unexported, so an export later is noticed.
+documented as `EntropyEOS.κ(eos)`; this package calls it qualified, and the prerequisite test's
+EntropyEOS name list asserts it is unexported, so an export later is noticed. The EOS-1 probe was
+retired on 2026-10-14 (`EntropyEOS = "1"` guarantees it); its names joined that list.
 
 ### EOS-2 — Analytic Γ-law and hybrid EOSes (req, step 5)
 
@@ -436,8 +448,11 @@ step 1: `test/recovery_tests.jl`).
 errors divided by EntropyEOS's conditioning factors, `κ_ρ = hW²` and
 `κ_s = (1 + τ/(ρW²U))·max(1, U/(s U_s))`, below 3e−11 (ρ, w) and 1e−10 (s), rather than as a
 raw 1e−12: the raw entropy error is 8.9e−10 at `ρ = 1e−8`, `W = cosh 2` on the Γ = 2 gas
-(measured in step 0). Step 0's prerequisite test runs the hydrodynamic-mode call on both EOSes,
-24 states, with the conditioned worst errors 2.1e−14 (ρ, w) and 1.7e−13 (s).
+(measured in step 0). Step 0's prerequisite test ran the hydrodynamic-mode call on both EOSes,
+24 states, with the conditioned worst errors 2.1e−14 (ρ, w) and 1.7e−13 (s). That probe was retired
+on 2026-10-14 (`EntropyEOS = "1"` guarantees it): `test/recovery_tests.jl` makes the same call
+through the 3+1 layer on the Γ-law gas, and `HybridEOS` is next exercised here by the step that
+first uses it.
 
 ### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, step 12)
 
@@ -642,7 +657,8 @@ ExtrinsicCurvature(g::SMatrix{4,4}, dg::SArray{Tuple{4,4,4}}) -> SMatrix{3,3} # 
   for the new method, at `Float64` and `Float32`.
 - The two methods agree bit for bit on Kerr-Schild, boosted Kerr-Schild and a gauge wave.
 
-**Downstream check.** `test/prerequisite_tests.jl`, "SM-1": the item has landed when the new method
+**Downstream check** (retired 2026-10-14, see below). `test/prerequisite_tests.jl`, "SM-1": the
+item has landed when the new method
 exists (`hasmethod`) and the old one allocates nothing (`@allocated`); then the upstream `K_ij`
 must agree with this package's `extrinsic_curvature` to 1e-13 of `max |K|` on boosted Kerr-Schild.
 
@@ -652,7 +668,11 @@ must agree with this package's `extrinsic_curvature` to 1e-13 of `max |K|` on bo
 `ExtrinsicCurvature(g, sdg)` and the local function goes. *(Landed 2026-10-14, SpacetimeMetrics
 1.7.0:)* done; the compat is `SpacetimeMetrics = "1.7"` (which requires Julia 1.11, the floor),
 and the prerequisite test compares upstream's `K_ij` with the former workaround's formula, kept in
-the test, and checks that both methods allocate nothing.
+the test, and checks that both methods allocate nothing. *(Probe retired 2026-10-14,
+`SpacetimeMetrics = "1.7"` guaranteeing it:)* the comparison with the formula moved into
+`test/pointwise_tests.jl`'s metric-provider testset (upstream's two methods agree bit for bit, so
+comparing them checks nothing independently; 3.7e−16 of `max |K|`), and step 2's kernel test already
+asserts that `metric_gradient`, which calls the new method, allocates nothing.
 
 ## Step 0 — Scaffolding
 

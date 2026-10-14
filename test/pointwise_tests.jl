@@ -65,15 +65,30 @@ pw_vacuum(::Type{T}=Float64) where {T} =
     PW.pack_prim(zero(T), zero(SVector{3,T}), T(5), T(1 // 2), zero(T), zero(T), one(T),
                  zero(T), T(NaN))
 
+# `K_ij = −(∂ₜγ_ij − ∂ᵢβ_j − ∂ⱼβ_i + 2 βˡ Γ_lij)/(2α)` from SpacetimeMetrics'
+# `sdg[a, b, c] = ∂_c g_ab` (with `β_j = g_tj`), the contravariant shift
+# `βˡ` and the spatial Christoffel symbols of the first kind
+# `Γ_lij = ½(∂ᵢγ_lj + ∂ⱼγ_li − ∂_lγ_ij)`: the formula of the SM-1 workaround
+# `src/metric.jl` carried until SM-1 landed (SpacetimeMetrics 1.7.0,
+# 2026-10-14), kept as the check on upstream's that does not go through
+# upstream's own code.
+function pw_extrinsic_curvature(α, β, sdg)
+    K(i, j) = -(sdg[i + 1, j + 1, 1] - sdg[1, j + 1, i + 1] - sdg[1, i + 1, j + 1] +
+                sum(β[l] * (sdg[l + 1, j + 1, i + 1] + sdg[l + 1, i + 1, j + 1] -
+                            sdg[i + 1, j + 1, l + 1]) for l in 1:3)) / (2 * α)
+    return SMatrix{3,3}([K(i, j) for i in 1:3, j in 1:3])
+end
+
 @testset "The metric providers give SpacetimeMetrics' metric, the derivative index converted once" begin
     # Guards the one place the derivative index order is converted
     # ("Sharp edges" in `PLAN.md`): a `dg` read with SpacetimeMetrics'
     # derivative-last order would put a time derivative where a spatial one
     # belongs, and the sources would be wrong by terms that vanish only in a
     # static metric. Also the lapse and shift derivatives derived from it,
-    # against ForwardDiff of the 3+1 split itself, and `Flat()`.
+    # against ForwardDiff of the 3+1 split itself, `K_ij` against upstream's
+    # and against an independent formula, and `Flat()`.
     rng = Xoshiro(31)
-    worst_α = worst_β = worst_K = 0.0
+    worst_α = worst_β = worst_K = worst_Kf = 0.0
     for _ in 1:100
         m4, p = rec_event(rng)
         prov = Analytic(m4)
@@ -90,6 +105,11 @@ pw_vacuum(::Type{T}=Float64) where {T} =
         # agrees with upstream's to rounding.
         K_ref = SpacetimeMetrics.ExtrinsicCurvature(m4, p)
         worst_K = max(worst_K, maximum(abs.(dm.K - K_ref)) / maximum(abs.(K_ref)))
+        # Upstream's two methods agree bit for bit (SM-1's acceptance), so
+        # the formula is also checked against one that is not upstream's
+        # (SM-1's downstream check, moved here when its probe was retired).
+        K_f = pw_extrinsic_curvature(m.α, m.β, sdg)
+        worst_Kf = max(worst_Kf, maximum(abs.(dm.K - K_f)) / maximum(abs.(K_ref)))
         @test dm.K == dm.K'
 
         split(y) = SpacetimeMetrics.adm_decompose(m4, SVector(t, y[1], y[2], y[3]))
@@ -108,8 +128,9 @@ pw_vacuum(::Type{T}=Float64) where {T} =
         worst_α = max(worst_α, maximum(abs.(dα - dα_ad)) / α_scale)
         worst_β = max(worst_β, maximum(abs.(transpose(dβ) - dβ_ad)) / β_scale)
     end
-    @info "Lapse and shift derivatives from ∂g against ForwardDiff, K against upstream, relative" worst_α worst_β worst_K
+    @info "Lapse and shift derivatives from ∂g against ForwardDiff, K against upstream and the formula, relative" worst_α worst_β worst_K worst_Kf
     @test worst_K < 1e-13
+    @test worst_Kf < 1e-13
     @test worst_α < 1e-14
     @test worst_β < 1e-14
 
