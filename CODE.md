@@ -218,7 +218,10 @@ in step 11. *(Amended with PLAN.md.)*
 - **EOS-3 (wanted, step 12) A public fixed-entropy inversion** — the "at
   fixed `s`, solve for `w`" step that `con2prim` already contains — for the
   entropy fallback, and a public entropy-from-energy solve for initial
-  data.
+  data. *(Amended in step 3 after review:)* the stage solve's [bracketed
+  path](#the-bracketed-path) needs the entropy-from-energy solve now; its
+  workaround, `pressure_at_energy` (marked EOS-3), inverts `U(ρ★, s)` with
+  forward `evaluate` calls.
 - **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
   `s_cold(ρ)` for tabulated-EOS stars.
 
@@ -828,9 +831,12 @@ CPU kernel at `Float64` and `Float32` (measured in step 3).
   state's velocity, so Ohm's law holds between them to rounding, and
   `prim2con(prim, E, B)` reproduces the totals to that tolerance plus the
   recovery's.
-- **The fallback** after 30 recoveries is the lagged velocity: `E` at the
-  velocity of the iterate with the smallest residual, the fluid recovered
-  from that `E` (`OHM_FALLBACK`).
+- **When the iteration fails** — 30 recoveries without converging — the
+  [bracketed path](#the-bracketed-path) searches the fluid's rapidity for
+  roots and seeds the iteration from each (`OHM_BRACKETED`; amended in step
+  3 after review). Only if that finds nothing either is the answer the
+  lagged velocity: `E` at the velocity of the iterate with the smallest
+  residual, the fluid recovered from that `E` (`OHM_FALLBACK`).
 - `OhmStageResult(flags, policy_flags)`: one branch bit and any of the
   modifiers, and EntropyEOS's flags of the returned state; both reduce by
   `|` and count by bit (step 5 counts them per chunk).
@@ -852,33 +858,144 @@ stage equation then requires. On `σΔt ∈ 10^{−3…8}` × `b²/ρ ∈ 10^{�
   (3.6 to 4.2 on average), and up to 32 where some did. Of the 2592
   points per Γ, 1248 and 907 (Γ = 4/3 and 2) by the fixed point, 1308 and
   1582 by Newton, 1084 and 1283 of those from the ideal seed;
-- **the fallback** took 36, 78 (77 at 1.11) and 103 points (Γ = 4/3, 5/3, 2;
-  at most 4.0%), all at `b²/ρ ≥ 10` and `σΔt ≤ 10²`, mostly `W ≥ 2`, and
-  all but one where both seeds needed a repair: where `E★` departs from
-  both the solution and the ideal field by far more than the fluid's
-  energy, so that neither the predictor's share nor the ideal recovery is
-  a fluid state, and the solution is an island in `σΔt` — continuation
-  from either limit was tried and does not reach it. The lagged `E` there
-  is off the solution by a median 0.11 of `|E| + |B|`, at most 0.46 (Γ = 2);
-- **the stage equations have more than one root** there: 5, 2 and 2 points
+- **the iteration fails** on 36, 78 (77 at 1.11) and 103 points (Γ = 4/3,
+  5/3, 2; at most 4.0%), all at `b²/ρ ≥ 10` and `σΔt ≤ 10²`, mostly
+  `W ≥ 2`, and all but one where both seeds needed a repair: where `E★`
+  departs from both the solution and the ideal field by far more than the
+  fluid's energy, so that neither the predictor's share nor the ideal
+  recovery is a fluid state, and the solution is an island in `σΔt` —
+  continuation from either limit was tried and does not reach it. Before
+  the bracketed path these all fell back, the lagged `E` off the solution
+  by a median 0.11 of `|E| + |B|`, at most 0.46 (Γ = 2). *(Amended in step
+  3 after review:)* the bracketed path now solves 30, 69 and 94 of them,
+  and the fallback takes 6, 9 and 9 (7, 11, 10 at 1.11) — all at
+  `f > 0.1`; the fixed-`f`
+  table is under [the bracketed path](#the-bracketed-path);
+- **the stage equations have more than one root** there: 6, 5 and 4 points
   converge, to the same residual, to another solution than the one the
-  problem was built from;
+  problem was built from — see "Which root" below;
 - `DensityProfile` with its cutoff within a factor of three of the
-  density: residual 8.6e−13, and 1 of 148 not converged, a Newton iteration
-  held at the entropy window's edge (3 before the Jacobian carried
-  `∂σ/∂ρ`);
+  density: residual 8.6e−13, and all 148 converged (amended after review:
+  1 had fallen back, a Newton iteration held at the entropy window's edge;
+  3 before the Jacobian carried `∂σ/∂ρ`);
 - 200 inadmissible predictors (the share at `E★` below the coldest state):
   all finite, and where converged the residual is 1.9e−13.
 
 Cost (measured in step 3, Julia 1.13, Apple M3 Pro, the Γ = 2 gas, one
 call): 1.3 µs on the fixed point (3 recoveries of 0.37 µs), 1.7–2.4 µs for
 Newton (3–4 recoveries), 0.7 µs at `σ = 0` and 0.5 µs for
-`IdealConductor`; a fallback costs 33 recoveries, 0.17 ms where the
-recoveries themselves take EntropyEOS's repair path. Under IMEXRungeKutta's
+`IdealConductor`. In the strongly magnetized corner Newton takes 15 µs
+(median), its recoveries taking EntropyEOS's repair path at about 10 µs
+each; the bracketed path takes 280 µs (median, 410 µs p90), most of it the
+30 failed recoveries before it; a fallback, now after a fruitless scan,
+10 ms (median, 25 ms at most), and only at `f > 0.1` (amended in step 3
+after review: it was 0.17 ms). Under IMEXRungeKutta's
 SSP3(4,3,3), with `solve_imp!` writing only `𝔈`, a resting cell's field
 decays as `exp(−ασt)` at orders 2.92 and 2.96, its matter variables come
 back bit for bit, and one step at `ασΔt = z` leaves `6.7/z` of the field
 (`z = 10⁶` and `10⁸`), SSP3(4,3,3)'s L-stability.
+
+#### The bracketed path
+
+*(Added in step 3 after review.)* The iteration converges from a seed within
+the fluid's own scale of the answer. Review measured how often it has none:
+with the predictor's non-ideal fraction fixed, `f = |E★ + v × B|/|B|`, over
+the corner `b²/ρ ∈ 10…10⁴`, `σΔt ∈ 10⁻³…10²`, `W ∈ {1, 2, 10}` (16
+problems a point, 1152 in all), the fallback took 0.17%, 3.5%, 8.0% and
+20.9% at Γ = 2 for `f = 10⁻³, 10⁻², 0.1, 1`. Once `f b²/ρ ≳ 10` the field's
+error carries more energy than the fluid has, and neither seed is a fluid
+state. A smooth, resolved flow has `f ~ 0.01–0.1` per step.
+
+**The reduction** (`src/stage_bracket.jl`). Take the fluid's rapidity `w` as
+the one unknown. Then `W`, `ρ = D/W` and `σ(ρ)` are known, and Ohm's law
+gives `E = [E★ − c u × B + κ (u·E★) u]/(1 + cW)`, `κ = (c/W)/(1 + c/W)`,
+at `u = W v`. The momentum balance `S = D h u + ε E × B` (`z v = D h u`)
+splits along `B`, where the field carries none, `D h u_∥ = S_∥`, and across
+it, where `ε (u × B) × B = −B² u_⊥` makes it a rotation-dilation,
+
+    A u_⊥ + k (u_⊥ × B) = r,   A = D h + cB²/(1 + cW),   k = κ (u·E★)/(1 + cW),
+    r = (S − S_∥ b̂ − ε E★ × B/(1 + cW))^♯,
+
+inverted in closed form, `u_⊥ = (A r − k r × B)/(A² + k² B²)`. Its one
+scalar `ζ = u·E★` solves a cubic, `(ζ − ζ_∥)(A² + κ̃²B²ζ²) − A (r·E★) +
+κ̃ ζ ((r × B)·E★) = 0` with `κ̃ = κ/(1 + cW)`; the real root nearest the
+unrotated `ζ_∥ + (r·E★)/A` is the physical one (measured at Γ = 2: always
+at `f = 0.1`, and in all but 25 of 768 problems at `f = 1`). That gives `u(h)` for a
+trial specific enthalpy `h`, and `|u(h)| = sinh w` fixes `h`: a root in a band
+of `h` bounded in closed form (`|k| ≤ κ̃ sinh w |E★|` bounds `|u_⊥|` both
+ways). The energy then requires `p = D h W − D − τ_f` and `U = h − 1 − p/ρ`
+of the fluid, with `τ_f = τ − ½(E² + B²)`, and the residual is
+`φ(w) = p_EOS(ρ, U) − p`. No step but the last needs the EOS.
+
+**What it calls** (proposed in step 3). `p_EOS(ρ, U)` inverts `U(ρ, s)` for
+`s` at fixed `ρ` — EntropyEOS's `entropy_from_energy`, requested as EOS-3,
+written here as its workaround (`pressure_at_energy`): safeguarded Newton
+on `EntropyEOS.evaluate` inside `srange_extended`, where `U_s = T > 0`, and
+the EOS continued linearly in `U` beyond it, so that `φ` is smooth and has
+no clamp. It is an inversion of the equation of state, with no policy, no
+repair and no state handed to the scheme: the root's field seeds the
+iteration, whose recoveries are `con2prim_safe`'s, and the returned state,
+its policy and its flags are EntropyEOS's as on every other branch. The path
+does solve the recovery's equations together with Ohm's law, to find a
+seed; whether that sits within "One con2prim" in `CLAUDE.md` is Erik's
+decision, and the alternative is the magnetization-aware conductivity
+(`σ → 0` where `b²/ρ` is large) review proposed.
+
+**Why not a guaranteed bracket.** `φ(w)` is negative as `w → 0`
+(`p → ∞`), but its roots come in close pairs: the fluid's admissible states
+are a needle in `w`, since a velocity error moves the field's energy by
+`b²/ρ` times the fluid's, and inside it `φ` crosses zero at the solution and
+again nearby — measured within 10⁻³ in `w`, and the speed equation likewise
+has roots within 0.5% in `h`. A sign change of `φ` between the ends of
+`[0, w_cap]` is not guaranteed and not sufficient. Kastaun et al. (2021)'s
+bracket rests on a master function monotone in its variable, and the
+resistive stage has no such variable: the term `κ (u·E★) u` of Ohm's law,
+the relativistic correction to the conduction current along `u`, makes the
+momentum balance quadratic in `u` (the cubic in `ζ`) and the speed equation
+non-monotone in `h`; without it — at `κ = 0` — the reduction is monotone
+in `h` and the needle remains. So the path scans: 32 points of `w` from 0 to
+the policy's rapidity cap; every sign change refined by Illinois; every
+local extremum short of zero refined by golden section, since it may cross
+between the points; the cells where the energy crosses the EOS's extended
+window, and those around roots that did not converge, scanned again in 16
+sub-cells; on the speed equation's largest root of `h`, then its second (the
+speed equation is scanned the same way, in 24 points of its band). From each
+root inside the window, the iteration is run for up to 8 recoveries; the
+first that converges is the answer. At most 800 evaluations of `φ`.
+
+**Measured** (step 3 after review; Julia 1.13; the corner set above):
+
+| fallbacks of 1152 | f = 10⁻³ | 10⁻² | 0.03 | 0.1 | 0.3 | 1 |
+|---|---|---|---|---|---|---|
+| Γ = 4/3, before | 0 | 0 | — | 9 | — | 98 |
+| Γ = 4/3, after | 0 | 0 | 0 | 0 | 1 | 17 |
+| Γ = 5/3, after | 0 | 0 | 0 | 0 | 3 | 29 |
+| Γ = 2, before | 2 | 40 | — | 92 | — | 241 |
+| Γ = 2, after | 0 | 0 | 0 | 0 | 2 | 34 |
+
+Over the whole grid (`σΔt ∈ 10⁻³…10⁸`, `b²/ρ ∈ 10⁻⁴…10⁴`, eight a point,
+the test's generator): none at `f ≤ 0.1` for any Γ, and 7, 12, 16 of 2592 at
+`f = 1` (8, 12, 17 at Julia 1.11). At three more seeds of the generator: none of 46,656 at `f ≤ 0.03`,
+and **4 of 23,328 at `f = 0.1`** — all at `W = 10`, `b²/ρ ≥ 10³`,
+`σΔt = 10⁻²`, where the speed equation's roots lie closer together than its
+scan resolves, or the cubic's nearest root is not the physical one. That is
+the target, `f ≤ 0.1`, missed by 0.02% of the grid (0.07% of its corner).
+Every converged point holds its residual (1.5e−12 at most), and the
+residual-free parts of the path are checked on their own: `u(W, h)` at the
+known solution to 2.2e−13, `φ` there to 2.0e−12, the EOS inversion to
+1.9e−15 with no jump at its window's edges. The bracketed path runs in a CPU
+kernel bit-identically, at `Float64` and `Float32`.
+
+**Which root** (measured in step 3 after review). Where the predictor's
+share is a fluid state, the stage has a root continuous in `σΔt` from
+`σ = 0`, where it is the predictor's recovery, and the solve returns it: 380
+of 380 problems, tracked by continuation over eight decades of `σΔt`. Where
+it is not, no root is continuous from `σ = 0`, and the stage may have several
+admissible roots — every "other root" the sweeps found is a fluid state
+satisfying all the equations to round-off (no repair), slower than the one
+the problem was built from in 16 of 25. The solve then returns the root the
+iteration reaches from its seed, or, on the bracketed path, the root of
+lowest rapidity from which the iteration converges (proposed in step 3).
 
 ### The IMEX package
 
@@ -1096,7 +1213,11 @@ So does step 2's layer — `Analytic(KerrSchild)` with its ForwardDiff
 derivatives, the stress-energy, both Riemann solvers in every direction,
 Ohm's law, both source forms, the UCT EMF and the gauge terms — at `Float64`
 and `Float32` (measured in step 2), and step 3's stage solve on every
-branch (measured in step 3). Step 2 needed one change: StaticArrays'
+branch, the bracketed path included (measured in step 3). It is
+allocation-free, except that EntropyEOS's repair path — which the solve's
+iteration takes where it fails, before the bracketed path — allocates 544
+bytes a call under `--check-bounds=yes`, and nothing otherwise (measured in
+step 3 after review; upstream behavior, harmless off the test switch). Step 2 needed one change: StaticArrays'
 matrix product accumulates with `muladd`, which LLVM fused differently in
 the kernel and on the host, so three of the 79 numbers differed in the last
 bit; `lower`, `raise`, `dot_up` and `dot_down` now multiply with plain `*`
@@ -1180,7 +1301,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   step 3, pointwise:)* not where both are large — the ideal seed is exact
   there — but at `b²/ρ ≥ 10` with `σΔt` between `10⁻³` and `10²`, when
   `E★` is so far from both the solution and the ideal field that neither
-  seed is a fluid state: 1.4–4.0% of the sweep falls back to the lagged
-  velocity, and the stage equations there have more than one root. Rung 1
-  sees how often an evolution meets it.
+  seed is a fluid state: 1.4–4.0% of the sweep fell back to the lagged
+  velocity, and the stage equations there have more than one root. *(Amended
+  after review:)* the [bracketed path](#the-bracketed-path) leaves none at
+  `f ≤ 0.03` and 0.02% at `f = 0.1`; the alternative is a conductivity that
+  vanishes where `b²/ρ` is large. Rung 1 sees how often an evolution meets
+  it.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
