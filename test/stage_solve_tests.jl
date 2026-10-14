@@ -30,8 +30,11 @@ st_norm(m, a) = sqrt(ST.dot_up(m, a, a))
 # magnetization `b²/ρ` (the ideal comoving `b² = B²/W² + (B·v)²`) and the
 # Lorentz factor `W`. Returns the solution `(prim, E)`, the predictor `E★`,
 # the field `B`, the totals `cons★`, the model and `γΔt`. The model is
-# `Constant(σΔt/γΔt)`, or `model_of(ρ)` of the drawn density.
-function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing)
+# `Constant(σΔt/γΔt)`, or `model_of(ρ)` of the drawn density. The non-ideal
+# part of `E` is `f |B|/(1 + cW)` — so that `f ≈ |E★ + v × B|/|B|`, the
+# predictor's departure from the ideal field — with `f` drawn uniformly from
+# `[0, 1]` unless it is given (amended in step 3 after review).
+function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing, f=nothing)
     ρ = exp10(-6 + 3 * rand(rng))
     s = 4.1 + 1.8 * rand(rng)
     yₑ = 0.06 + 0.5 * rand(rng)
@@ -43,7 +46,8 @@ function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing)
     γΔt = 0.3
     model = model_of === nothing ? Constant(σΔt / γΔt) : model_of(ρ)
     c = γΔt * m.α * conductivity(model, prim)
-    E = ideal_E(m, v, B) + (rand(rng) * Bmag / (1 + c * W)) * rec_direction(rng, m)
+    μ = f === nothing ? rand(rng) : f
+    E = ideal_E(m, v, B) + (μ * Bmag / (1 + c * W)) * rec_direction(rng, m)
     E★ = E + c * ST.conduction_drift(m, prim, E, B)
     return prim, E, E★, B, prim2con(eos, m, prim, E, B), model, γΔt
 end
@@ -248,7 +252,7 @@ end
 
 # The σΔt × b²/ρ × W sweep, over every Γ: the branch each point takes, the
 # recoveries it needs, and the residuals.
-function st_sweep(Γ, nper)
+function st_sweep(Γ, nper; f=nothing)
     eos = rec_gas(Γ)
     opts = REC_EOS.Con2PrimOptions{Float64}()
     pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
@@ -256,7 +260,7 @@ function st_sweep(Γ, nper)
     points = NamedTuple[]
     for lσ in -3:8, lb in -4:4, W in (1.0, 2.0, 10.0), _ in 1:nper
         m = rec_metric(rng)
-        prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(lσ), exp10(lb), W)
+        prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(lσ), exp10(lb), W; f)
         E, q, r, n = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         r_ohm, r_matter = st_residual(eos, model, m, cons, E★, B, γΔt, E, q)
@@ -265,24 +269,32 @@ function st_sweep(Γ, nper)
         _, f★ = con2prim_hydro(eos, opts, pol, m, cons, E★, B, cold_guesses(Float64))
         _, fI = con2prim_ideal(eos, opts, pol, m, cons, B, cold_guesses(Float64))
         push!(points,
-              (; lσ, lb, W, flags=r.flags, n, finite=all(isfinite, E) && all(isfinite, q[1:10]),
-               r_ohm, r_matter, seeded=f★ == 0 || fI == 0,
+              (; lσ, lb, W, flags=r.flags, policy=r.policy_flags, n,
+               finite=all(isfinite, E) && all(isfinite, q[1:10]), r_ohm, r_matter,
+               seeded=f★ == 0 || fI == 0,
                dE=st_norm(m, E - Esol) / (st_norm(m, Esol) + st_norm(m, B))))
     end
     return points
 end
-
 st_branch(f) = f & OHM_FALLBACK != 0 ? "fallback" :
+               f & OHM_BRACKETED != 0 ? "bracketed" :
                f & OHM_FIXED_POINT != 0 ? "fixed point" :
                f & OHM_IDEAL_SEED != 0 ? "Newton, ideal seed" : "Newton"
+
+# The fallbacks the sweeps allow (see the testsets): a count, not a residual,
+# so twice the measured number, or 2 where it was 0 or 1.
+const ST_UNIFORM_FALLBACKS = Dict(4 // 3 => 12, 5 // 3 => 18, 2 // 1 => 18)
+const ST_FIXED_F_FALLBACKS = Dict((4 // 3, 0.1) => 2, (5 // 3, 0.1) => 2, (2 // 1, 0.1) => 2,
+                                  (4 // 3, 1.0) => 14, (5 // 3, 1.0) => 24, (2 // 1, 1.0) => 32)
 
 @testset "The σΔt × b²/ρ × W sweep: residual ≤ 1e-10 wherever the solve converged" begin
     # Guards the stage solve as a whole, over the grid of the acceptance —
     # `σΔt ∈ 10^{−3…8}`, `b²/ρ ∈ 10^{−4…4}`, `W ∈ {1, 2, 10}` — at every Γ,
-    # eight random problems a point: a residual left by a wrong branch, a
-    # NaN from a clamped recovery inside Newton, and a change that moves
-    # where each branch is taken or what it costs. The branch map and the
-    # counts are "(measured in step 3)" in `CODE.md`.
+    # eight random problems a point, with the predictor's non-ideal fraction
+    # `f` drawn uniformly: a residual left by a wrong branch, a NaN from a
+    # clamped recovery inside Newton, and a change that moves where each
+    # branch is taken or what it costs. The branch map and the counts are
+    # "(measured in step 3)" in `CODE.md`.
     for Γ in REC_GAMMAS
         pts = st_sweep(Γ, 8)
         conv = filter(p -> p.flags & OHM_FALLBACK == 0, pts)
@@ -290,8 +302,8 @@ st_branch(f) = f & OHM_FALLBACK != 0 ? "fallback" :
         @test all(p -> p.finite, pts)
         worst_ohm = maximum(p -> p.r_ohm, conv)
         worst_matter = maximum(p -> p.r_matter, conv)
-        # Measured at most 2.7e-16 (Ohm's law holds by construction between
-        # the returned E and the velocity it was solved at) and 1.3e-12 (the
+        # Measured at most 3.3e-16 (Ohm's law holds by construction between
+        # the returned E and the velocity it was solved at) and 1.5e-12 (the
         # solve's 1e-12 of τ + D, plus the recovery's own).
         @test worst_ohm <= 1e-10
         @test worst_matter <= 1e-10
@@ -303,35 +315,205 @@ st_branch(f) = f & OHM_FALLBACK != 0 ? "fallback" :
             counts[b] = get(counts, b, 0) + 1
             most[b] = max(get(most, b, 0), p.n)
         end
-        clean = filter(p -> p.flags & (OHM_REPAIRED | OHM_BACKTRACKED | OHM_SWITCHED) == 0, conv)
+        clean = filter(p -> p.flags & (OHM_REPAIRED | OHM_BACKTRACKED | OHM_SWITCHED |
+                                       OHM_BRACKETED) == 0, conv)
         most_clean = maximum(p -> p.n, clean)
-        fallback_region = sort(unique((p.lσ, p.lb, p.W) for p in fb))
+        bracketed = filter(p -> p.flags & OHM_BRACKETED != 0, pts)
+        bracketed_region = sort(unique((p.lσ, p.lb, p.W) for p in bracketed))
+        nfb = length(fb)
         other_root = count(p -> p.dE > 1e-8, conv)
-        seeded_fallbacks = count(p -> p.seeded, fb)
-        @info "Stage solve sweep, Γ = $Γ: points and most recoveries per branch, most " *
-              "recoveries without a repair or a backtrack, the fallback region " *
-              "(log₁₀ σΔt, log₁₀ b²/ρ, W), fallbacks with a fluid seed, converged to another root" seeded_fallbacks string(sort(collect(counts))) string(sort(collect(most))) most_clean string(fallback_region) other_root worst_ohm worst_matter
+        @info "Stage solve sweep, Γ = $Γ, uniform f: points and most recoveries per " *
+              "branch, most recoveries without a repair, a backtrack or the bracketed " *
+              "path, where the bracketed path was taken (log₁₀ σΔt, log₁₀ b²/ρ, W), " *
+              "fallbacks, converged to another root" string(sort(collect(counts))) string(sort(collect(most))) most_clean string(bracketed_region) nfb other_root worst_ohm worst_matter
 
         # Where the field barely couples to the fluid, the fixed point does
         # it all: b²/ρ ≤ 1e-3 at every σΔt (measured: every point).
         @test all(p -> p.flags & OHM_FIXED_POINT != 0, filter(p -> p.lb <= -3, pts))
-        # Without a repair or a backtrack, a few recoveries: measured at most
-        # 6 (fixed point) and 10 (Newton, seeds included) over the three Γ.
+        # Without a repair, a backtrack or the bracketed path, a few
+        # recoveries: measured at most 6 (fixed point) and 10 (Newton, seeds
+        # included) over the three Γ.
         @test maximum(p -> p.n, filter(p -> p.flags & OHM_FIXED_POINT != 0, clean)) <= 10
         @test most_clean <= 16
-        # The fallback is the strongly magnetized corner at intermediate
-        # σΔt, where both seeds needed a repair: measured only at b²/ρ ≥ 10
-        # and σΔt ≤ 1e2, on 36, 78 and 103 of the 2592 points (Γ = 4/3, 5/3,
-        # 2; at most 4.0%), and on one (Γ = 5/3) where a seed was a fluid
-        # state. A few points converge to another root of the stage
-        # equations than the one the problem was built from (5, 2 and 2), to
-        # the same residual: the stage has more than one solution there.
+        # The bracketed path is taken only in the strongly magnetized
+        # corner at intermediate σΔt, where the iteration failed: measured at
+        # b²/ρ ≥ 10 and σΔt ≤ 1e2, on 30, 69 and 94 points. The fallback
+        # takes 6, 9 and 9 of these 2592 (Γ = 4/3, 5/3, 2), all with f > 0.1;
+        # before the bracketed path it took 36, 78 and 103.
+        @test all(p -> p.lb >= 1 && p.lσ <= 2, bracketed)
         @test all(p -> p.lb >= 1 && p.lσ <= 2, fb)
-        @test length(fb) <= 0.08 * length(pts)
-        @test seeded_fallbacks <= 3
+        @test length(fb) <= ST_UNIFORM_FALLBACKS[Γ]
         # And it is flagged as such: no fallback is reported converged.
         @test all(p -> !ST.converged(OhmStageResult(p.flags, 0)), fb)
+        # A converged state is a fluid state: the policy repaired nothing.
+        @test all(p -> p.policy == 0, conv)
     end
+end
+
+@testset "At a fixed non-ideal fraction f ≤ 1e-2 the stage solve never falls back: Γ=$Γ" for Γ in
+                                                                                            REC_GAMMAS
+    # Guards the bracketed path, the stage solve's answer to the failure
+    # review found: at a fixed `f = |E★ + v×B|/|B|`, the fraction by which
+    # the predictor's field departs from the ideal one, the iteration's seeds
+    # stop being fluid states once `f b²/ρ ≳ 10` — the field's error then
+    # carries more energy than the fluid has — and before the bracketed
+    # path the fallback took 0.17%, 3.5%, 8.0% and 20.9% of the corner at
+    # Γ = 2 for `f = 1e-3, 1e-2, 0.1, 1` (review's measurement, `b²/ρ ≥ 10`,
+    # `σΔt ≤ 1e2`). A smooth, resolved flow has `f ~ 0.01 – 0.1` per step.
+    # Over the whole grid, eight problems a point, as the uniform sweep.
+    for f in (1e-3, 1e-2, 1e-1, 1.0)
+        pts = st_sweep(Γ, 8; f)
+        conv = filter(p -> p.flags & OHM_FALLBACK == 0, pts)
+        fb = filter(p -> p.flags & OHM_FALLBACK != 0, pts)
+        nbr = count(p -> p.flags & OHM_BRACKETED != 0, pts)
+        worst = maximum(p -> max(p.r_ohm, p.r_matter), conv)
+        nfb = length(fb)
+        other_root = count(p -> p.dE > 1e-8, conv)
+        fallback_at = string(sort([(p.lσ, p.lb, p.W) for p in fb]))
+        @info "Fixed f = $f, Γ = $Γ: fallbacks (where), bracketed, worst residual, other root" nfb fallback_at nbr worst other_root
+        @test all(p -> p.finite, pts)
+        @test worst <= 1e-10
+        @test all(p -> p.policy == 0, conv)
+        # The bracketed path only where the iteration has no fluid seed.
+        @test all(p -> p.lb >= 1 && p.lσ <= 2,
+                  filter(p -> p.flags & (OHM_BRACKETED | OHM_FALLBACK) != 0, pts))
+        if f <= 1e-2
+            # Measured: none, here and at four other seeds of the generator.
+            @test nfb == 0
+        else
+            # Measured 0 here at f = 0.1, and 4 in 23,328 at three other
+            # seeds of the generator (`W = 10`, `b²/ρ ≥ 1e3`, `σΔt = 1e-2`:
+            # roots of the speed equation closer together than the scans
+            # resolve, see "The bracketed path" in `CODE.md`); at f = 1, 7,
+            # 12 and 16 (Γ = 4/3, 5/3, 2).
+            @test nfb <= ST_FIXED_F_FALLBACKS[(Γ, f)]
+        end
+    end
+end
+
+@testset "The bracketed path's pieces: the cubic, the momentum algebra, the EOS inversion" begin
+    # Guards the algebra the bracketed path stands on, each against what it
+    # inverts: the cubic's root nearest a point; `momentum_velocity` at the
+    # known solution's `(W, h)` giving back its velocity (a sign or a factor
+    # of `W` in the rotation-dilation would not); `pressure_at_energy`
+    # inverting `EntropyEOS.evaluate`, and continuing it linearly, without a
+    # jump, beyond the extended window; and the rapidity residual vanishing
+    # at the known solution while its field is the solution's.
+    rng = Xoshiro(62)
+    worst_cubic = 0.0
+    for _ in 1:500
+        r = sort(randn(rng, 3) .* exp10.(2 * randn(rng, 3)))
+        c₃ = exp10(randn(rng))
+        c₂, c₁, c₀ = -c₃ * sum(r), c₃ * (r[1] * r[2] + r[1] * r[3] + r[2] * r[3]), -c₃ * prod(r)
+        x₀ = r[rand(rng, 1:3)] + 0.1 * randn(rng) * minimum(abs, diff(r))
+        x = ST.cubic_root_near(c₃, c₂, c₁, c₀, x₀)
+        near = r[argmin(abs.(r .- x₀))]
+        worst_cubic = max(worst_cubic, abs(x - near) / maximum(abs, r))
+    end
+    @test ST.cubic_root_near(0.0, 0.0, 2.0, -3.0, 7.0) == 1.5
+
+    eos = rec_gas(5 // 3)
+    worst_u = worst_E = worst_φ = 0.0
+    nφ = 0
+    for _ in 1:300
+        m = rec_metric(rng)
+        prim, Esol, E★, B, cons, model, γΔt =
+            st_problem(rng, eos, m, exp10(-3 + 5 * rand(rng)), exp10(-1 + 5 * rand(rng)),
+                       1 + 9 * rand(rng); f=0.1 * rand(rng))
+        D = ST.cons_D(cons) / m.sqrtγ
+        S = ST.cons_S(cons) / m.sqrtγ
+        τ = ST.cons_τ(cons) / m.sqrtγ
+        W = ST.prim_W(prim)
+        c = γΔt * m.α * conductivity(model, prim)
+        P = ST.ohm_momentum(m, S, E★, B, c, W)
+        u = ST.momentum_velocity(P, D, ST.prim_h(prim))
+        usol = ST.four_velocity(prim)
+        worst_u = max(worst_u, st_norm(m, u - usol) / W)
+        # The residual at the solution's rapidity, where the speed equation's
+        # largest root is the solution's `h` (it is not, near a fold).
+        φ, E, _, side = ST.rapidity_residual(eos, model, m, D, ST.prim_Yₑ(prim), S, τ, E★, B,
+                                             γΔt * m.α, ST.prim_w(prim), prim, τ + D,
+                                             ST.prim_s(prim))
+        if side == 0
+            nφ += 1
+            worst_φ = max(worst_φ, abs(φ))
+            worst_E = max(worst_E, st_norm(m, E - Esol) / (st_norm(m, Esol) + st_norm(m, B)))
+        end
+    end
+    worst_p = worst_jump = 0.0
+    for _ in 1:200
+        ρ = exp10(-9 + 7 * rand(rng))
+        sr = REC_EOS.srange_extended(eos, ρ, 0.3)
+        s = sr.s_min + (sr.s_max - sr.s_min) * rand(rng)
+        pt = REC_EOS.evaluate(eos, ρ, s, 0.3, NaN)
+        p, s′, side = ST.pressure_at_energy(eos, ρ, 0.3, pt.U, 5.0)
+        @test side == 0
+        worst_p = max(worst_p, abs(p - pt.p) / pt.p, abs(s′ - s) / s)
+        for edge in (sr.s_min, sr.s_max)
+            pe = REC_EOS.evaluate(eos, ρ, edge, 0.3, NaN)
+            δ = 1e-9 * pe.U
+            pin = ST.pressure_at_energy(eos, ρ, 0.3, pe.U - δ, 5.0)[1]
+            pout = ST.pressure_at_energy(eos, ρ, 0.3, pe.U + δ, 5.0)[1]
+            worst_jump = max(worst_jump, abs(pout - pin) / pe.p)
+        end
+    end
+    @info "The bracketed path's pieces: cubic root, u at (W, h), the residual and its field " *
+          "at the solution (of those inside the window), the EOS inversion and its edges" worst_cubic worst_u nφ worst_φ worst_E worst_p worst_jump
+    # Measured 6.7e-15, 2.2e-13, 2.0e-12 (the residual is relative to
+    # τ + D), 3.1e-14, 1.9e-15 and 2.0e-9 (a step of 2e-9 in U across each
+    # edge, where the slope p_s/U_s ~ 1: continuous).
+    @test worst_cubic < 1e-13
+    @test worst_u < 1e-10
+    @test nφ >= 200
+    @test worst_φ < 1e-10
+    @test worst_E < 1e-10
+    @test worst_p < 1e-12
+    @test worst_jump < 1e-7
+end
+
+@testset "The bracketed path reaches the solution the iteration cannot" begin
+    # Guards the bracketed path on its own, called where the iteration has
+    # no fluid seed (`f = 0.1`, `b²/ρ = 1e3`): every problem the iteration
+    # gives up on, it solves, to the known solution or another root of the
+    # stage, with the residual of a converged stage; and it never returns a
+    # repaired state as converged.
+    eos = rec_gas(2)
+    opts = REC_EOS.Con2PrimOptions{Float64}()
+    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    rng = Xoshiro(63)
+    stage = OhmStageOptions{Float64}()
+    tried = solved = 0
+    worst = 0.0
+    for _ in 1:400
+        m = rec_metric(rng)
+        prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(-2 + 2 * rand(rng)),
+                                                         1e3, rand(rng) < 0.5 ? 2.0 : 10.0;
+                                                         f=0.1)
+        D = ST.cons_D(cons) / m.sqrtγ
+        S = ST.cons_S(cons) / m.sqrtγ
+        τ = ST.cons_τ(cons) / m.sqrtγ
+        DYₑ = ST.cons_DYₑ(cons) / m.sqrtγ
+        αΔt = γΔt * m.α
+        S_f, τ_f = ST.field_budget(m, S, τ, E★, B)
+        q★, f★, pt★ = ST.fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, cold_guesses(Float64))
+        f★ == 0 || ((S_f, τ_f) = ST.fluid_share(eos, m, q★))
+        it = ST.share_iteration(eos, opts, pol, model, m, D, S, τ, DYₑ, E★, B, αΔt, τ + D, S_f,
+                                τ_f, q★, f★, pt★, conductivity(model, q★), true, stage.maxiter,
+                                stage)
+        it.done && continue
+        tried += 1
+        br = ST.bracketed_stage(eos, opts, pol, model, m, D, S, τ, DYₑ, E★, B, αΔt, τ + D,
+                                q★, stage)
+        br.done || continue
+        solved += 1
+        @test br.f == 0
+        worst = max(worst, st_residual(eos, model, m, cons, E★, B, γΔt, br.E, br.prim)...)
+    end
+    @info "Problems the iteration gave up on, of them solved by the bracketed path, worst residual" tried solved worst
+    # Measured 171 of 172.
+    @test tried >= 50
+    @test solved >= tried - 2
+    @test worst <= 1e-10
 end
 
 @testset "DensityProfile: the conductivity follows the recovered density" begin
@@ -515,8 +697,9 @@ end
     # (step 5): the solve, its options and its result are `isbits`, nothing
     # throws, allocates or fails to infer, and a kernel computes what the
     # host computes, on every branch — the fixed point, Newton from either
-    # seed, and the fallback of the strongly magnetized corner. `Float32` is
-    # the leak detector, and a smoke test of the solve itself.
+    # seed, the bracketed path and the fallback of the strongly magnetized
+    # corner. `Float32` is the leak detector, and a smoke test of the solve
+    # itself.
     eos64 = rec_gas(2)
     eos = REC_EOS.narrow(eos64, T)
     opts = REC_EOS.Con2PrimOptions{T}()
@@ -524,9 +707,15 @@ end
     rng = Xoshiro(61)
     σs, metrics, conss, E★s, Bs = T[], Metric3{T}[], NTuple{NU,T}[], SVector{3,T}[], SVector{3,T}[]
     exact = SVector{3,Float64}[]
-    for lσ in (-3, 0, 3, 8), lb in (-3, -1, 0, 3), W in (1.0, 2.0, 10.0)
+    # The grid's corners, and cells of the strongly magnetized corner at
+    # `f = 0.1`, where the bracketed path is taken.
+    cells = vcat([(lσ, lb, W, nothing) for lσ in (-3, 0, 3, 8), lb in (-3, -1, 0, 3),
+                  W in (1.0, 2.0, 10.0)][:],
+                 [(lσ, lb, W, 0.1) for lσ in (-2, -1, 0), lb in (3, 4), W in (2.0, 10.0)][:])
+    for (lσ, lb, W, f) in cells
         m64 = rec_metric(rng)
-        _, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos64, m64, exp10(lσ), exp10(lb), W)
+        _, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos64, m64, exp10(lσ), exp10(lb), W;
+                                                      f)
         push!(σs, T(model.σ₀))
         push!(metrics, Metric3(T(m64.α), T.(m64.β), T.(m64.γ)))
         push!(conss, T.(cons))
@@ -553,13 +742,16 @@ end
     @test eltype(Es) === SVector{3,T}
     @test all(E -> all(isfinite, E), Es)
     branches = reduce(|, r.flags for r in results)
-    @test branches & (OHM_FIXED_POINT | OHM_NEWTON | OHM_IDEAL_SEED) ==
-          OHM_FIXED_POINT | OHM_NEWTON | OHM_IDEAL_SEED
+    @test branches & (OHM_FIXED_POINT | OHM_NEWTON | OHM_IDEAL_SEED | OHM_BRACKETED) ==
+          OHM_FIXED_POINT | OHM_NEWTON | OHM_IDEAL_SEED | OHM_BRACKETED
+    nbr = count(r -> r.flags & OHM_BRACKETED != 0, results)
     @test isbits(OhmStageOptions{T}()) && isbits(results[1])
 
-    # Allocation-free and inferred on the host, at every model.
-    m, cons, E★, B = metrics[1], conss[1], E★s[1], Bs[1]
-    for mdl in (Vacuum(), Constant(T(10)), DensityProfile(T(10), T(1e-9)), IdealConductor())
+    # Allocation-free and inferred on the host, at every model, on a cell
+    # the bracketed path solves.
+    i_br = findfirst(r -> r.flags & OHM_BRACKETED != 0, results)
+    m, cons, E★, B = metrics[i_br], conss[i_br], E★s[i_br], Bs[i_br]
+    for mdl in (Vacuum(), Constant(σs[i_br]), DensityProfile(T(10), T(1e-9)), IdealConductor())
         @test (@inferred solve_ohm_stage(eos, opts, pol, mdl, m, cons, E★, B, γΔt,
                                          cold_guesses(T))) isa
               Tuple{SVector{3,T},NTuple{NPRIM,T},OhmStageResult,Int}
@@ -576,8 +768,9 @@ end
         st_norm(m64, Float64.(Es[i]) - exact[i]) /
         (st_norm(m64, exact[i]) + st_norm(m64, Float64.(Bs[i])))
     end
-    @info "The stage solve in a kernel, T = $T: converged cells, and their worst error against " *
-          "the known answer" length(conv) n worst
-    # Measured 6.3e-13 and 1.3e-4.
+    @info "The stage solve in a kernel, T = $T: converged cells, bracketed cells, and the " *
+          "worst error against the known answer" length(conv) n nbr worst
+    # Measured 4.0e-13 and 8.0e-5 (55 of 60 cells converged at Float32, 9 of
+    # them by the bracketed path; 60 and 11 at Float64).
     @test worst < (T === Float64 ? 1e-10 : 2e-3)
 end

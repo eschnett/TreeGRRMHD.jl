@@ -150,7 +150,18 @@ end
     S = cons_S(cons) * isg
     τ = cons_τ(cons) * isg
     DYₑ = cons_DYₑ(cons) * isg
+    return magnetized_recovery(eos, opts, pol, m, D, S, τ, DYₑ, B, guesses)
+end
 
+# The magnetized recovery from undensitized totals `D`, `S_i`, `τ`, `D Yₑ` and
+# the field `Bⁱ`: EntropyEOS's `con2prim_safe` with `B² ≠ 0`, the momentum
+# split along and across `B`. The stage solve calls it with an effective field
+# and corrected totals (step 3).
+@inline function magnetized_recovery(eos::EntropyEOS.AbstractEOS,
+                                     opts::EntropyEOS.Con2PrimOptions{T},
+                                     pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
+                                     S::SVector{3,T}, τ::T, DYₑ::T, B::SVector{3,T},
+                                     guesses::NTuple{3,T}) where {T}
     Su = raise(m, S)
     B² = dot_up(m, B, B)
     if B² > zero(T)

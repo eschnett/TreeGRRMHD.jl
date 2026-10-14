@@ -53,9 +53,13 @@
 #   did not have to repair, if only one.
 # - A share the recovery had to **repair** is replaced by the repaired
 #   state's own, so that every iterate is a fluid state with a derivative.
-# - If neither converges, the **lagged velocity** of Palenzuela et al.
-#   (2009): `E` solved at the fixed velocity of the best iterate, and the
-#   fluid recovered from that `E`.
+# - If the iteration does not converge — where neither seed is a fluid
+#   state — the **bracketed path** (`stage_bracket.jl`, added in step 3
+#   after review): a scan over the fluid's rapidity for the roots of one
+#   function of one variable, each root seeding the iteration again.
+# - If that finds nothing either, the **lagged velocity** of Palenzuela et
+#   al. (2009): `E` solved at the fixed velocity of the best iterate, and
+#   the fluid recovered from that `E`.
 #
 # Where each branch is taken, and what it costs, is measured in
 # `test/stage_solve_tests.jl` and recorded in `CODE.md`.
@@ -78,7 +82,8 @@ and a chunk can reduce by `|` and count by bit:
 
 - `flags`, the solve's own: exactly one of the branch bits
   [`OHM_SIGMA_ZERO`](@ref), [`OHM_IDEAL`](@ref), [`OHM_FIXED_POINT`](@ref),
-  [`OHM_NEWTON`](@ref), [`OHM_FALLBACK`](@ref), and any of the modifiers
+  [`OHM_NEWTON`](@ref), [`OHM_BRACKETED`](@ref), [`OHM_FALLBACK`](@ref),
+  and any of the modifiers
   [`OHM_IDEAL_SEED`](@ref), [`OHM_SWITCHED`](@ref),
   [`OHM_BACKTRACKED`](@ref), [`OHM_REPAIRED`](@ref);
 - `policy_flags`, EntropyEOS's policy flags of the returned primitive
@@ -100,7 +105,8 @@ const OHM_IDEAL = UInt32(1) << 1
 const OHM_FIXED_POINT = UInt32(1) << 2
 """Converged by Newton's method."""
 const OHM_NEWTON = UInt32(1) << 3
-"""Did not converge: the lagged velocity, the best one the solve saw."""
+"""Neither the iteration nor the bracketed search converged: the lagged velocity, the
+best one the iteration saw."""
 const OHM_FALLBACK = UInt32(1) << 4
 """Newton was seeded from the ideal recovery (`λ > λ_ideal`)."""
 const OHM_IDEAL_SEED = UInt32(1) << 5
@@ -110,6 +116,8 @@ const OHM_SWITCHED = UInt32(1) << 6
 const OHM_BACKTRACKED = UInt32(1) << 7
 """At least one recovery inside the iteration was repaired by the policy."""
 const OHM_REPAIRED = UInt32(1) << 8
+"""The iteration did not converge, and the bracketed search over the fluid's rapidity did."""
+const OHM_BRACKETED = UInt32(1) << 9
 
 """
     converged(r::OhmStageResult)
@@ -123,7 +131,8 @@ converge; its `policy_flags` say so.
 # --- The options ----------------------------------------------------------------
 
 """
-    OhmStageOptions{T}(; tol, maxiter=30, θ_newton=1/100, λ_ideal=1/2, max_backtrack=8)
+    OhmStageOptions{T}(; tol, maxiter=30, θ_newton=1/100, λ_ideal=1/2, max_backtrack=8,
+                       nscan=32, polish=8, max_eval=800)
 
 The knobs of [`solve_ohm_stage`](@ref), `isbits`:
 
@@ -140,8 +149,13 @@ The knobs of [`solve_ohm_stage`](@ref), `isbits`:
 - `λ_ideal`: Newton is seeded from the ideal recovery when
   `λ = cW/(1 + cW)` at the predictor exceeds it;
 - `max_backtrack`: the most consecutive halvings of a Newton step that grew
-  the residual, or made the recovery repair a state where the previous
-  iterate needed no repair.
+  the residual;
+- `nscan`: the points of the bracketed path's scan over the fluid's
+  rapidity, from 0 to the policy's cap;
+- `polish`: the most recoveries Newton takes from each root the bracketed
+  path finds;
+- `max_eval`: the most evaluations of the bracketed path's residual, which
+  bounds its cost where it finds nothing.
 """
 struct OhmStageOptions{T}
     tol::T
@@ -149,14 +163,17 @@ struct OhmStageOptions{T}
     θ_newton::T
     λ_ideal::T
     max_backtrack::Int32
+    nscan::Int32
+    polish::Int32
+    max_eval::Int32
 end
 
 @inline ohm_tol(::Type{T}) where {T} = max(T(1//10^12), 1024 * eps(T))
 
 function OhmStageOptions{T}(; tol=ohm_tol(T), maxiter=30, θ_newton=T(1//100), λ_ideal=T(1//2),
-                            max_backtrack=8) where {T}
+                            max_backtrack=8, nscan=32, polish=8, max_eval=800) where {T}
     return OhmStageOptions{T}(T(tol), Int32(maxiter), T(θ_newton), T(λ_ideal),
-                              Int32(max_backtrack))
+                              Int32(max_backtrack), Int32(nscan), Int32(polish), Int32(max_eval))
 end
 
 # --- Pointwise pieces -----------------------------------------------------------
@@ -425,10 +442,11 @@ writes `𝔈 = √γ E` into `U` and nothing else ("The implicit stage solve" in
 - [`IdealConductor`](@ref): `prim` is [`con2prim_ideal`](@ref) and
   `E = −v × B`; `E★` is not read.
 - Otherwise the fixed point or Newton on the fluid's share of the energy and
-  momentum, seeded from the predictor or from the ideal recovery; and if
-  neither converges in `stage.maxiter` recoveries, the lagged velocity: `E`
-  at the best iterate's velocity, and `prim = con2prim_hydro` at that `E`.
-  See [`OhmStageOptions`](@ref).
+  momentum, seeded from the predictor or from the ideal recovery; if that
+  does not converge in `stage.maxiter` recoveries, the bracketed path
+  ([`bracketed_stage`](@ref)); and if that finds nothing either, the lagged
+  velocity: `E` at the best iterate's velocity, and `prim = con2prim_hydro`
+  at that `E`. See [`OhmStageOptions`](@ref).
 
 Allocation-free and kernel-callable.
 """
@@ -483,14 +501,65 @@ Allocation-free and kernel-callable.
         end
     end
 
+    it = share_iteration(eos, opts, pol, model, m, D, S, τ, DYₑ, E★, B, αΔt, scale, S_f, τ_f,
+                         prim, f, pt, σ, newton, stage.maxiter, stage)
+    nrec += it.nrec
+    modifiers |= it.modifiers
+    if it.done
+        branch = it.newton ? OHM_NEWTON : OHM_FIXED_POINT
+        return it.E, it.prim, OhmStageResult(branch | modifiers, it.f), nrec
+    end
+
+    # Not converged: the bracketed search over the fluid's rapidity, which
+    # does not depend on a seed ("The bracketed path" in `CODE.md`).
+    br = bracketed_stage(eos, opts, pol, model, m, D, S, τ, DYₑ, E★, B, αΔt, scale, it.prim,
+                         stage)
+    nrec += br.nrec
+    if br.done
+        return br.E, br.prim, OhmStageResult(OHM_BRACKETED | modifiers | br.modifiers, br.f),
+               nrec
+    end
+
+    # Neither: the lagged velocity — `E` at the best velocity the iteration
+    # saw, and the fluid recovered from that `E`.
+    E = ohm_E(m, αΔt * it.best_σ, it.best_u, E★, B)
+    S_f, τ_f = field_budget(m, S, τ, E, B)
+    prim, f, _ = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(it.prim))
+    nrec += 1
+    return E, prim, OhmStageResult(OHM_FALLBACK | modifiers | br.modifiers, f), nrec
+end
+
+"""
+    share_iteration(eos, opts, pol, model, m, D, S, τ, DYₑ, E★, B, αΔt, scale,
+                    S_f, τ_f, prim, f, pt, σ, newton, maxiter, stage) -> NamedTuple
+
+The fast path of [`solve_ohm_stage`](@ref), and the polish of its bracketed
+path: the fixed point or Newton on the fluid's share `X = (S_f, τ_f)` of the
+undensitized totals `S`, `τ`, from the iterate `X` whose recovery is
+`(prim, f, pt)` with the conductivity `σ`, for at most `maxiter` further
+recoveries. Returns whether it converged (`done`), whether it ended on Newton,
+the last field and recovery (`E`, `prim`, `f`), the recoveries it made, the
+modifier bits, and the best iterate's velocity and conductivity for the
+lagged-velocity fallback.
+"""
+function share_iteration(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                 pol::EntropyEOS.PolicyOptions{T}, model::Conductivity,
+                                 m::Metric3{T}, D::T, S::SVector{3,T}, τ::T, DYₑ::T,
+                                 E★::SVector{3,T}, B::SVector{3,T}, αΔt::T, scale::T,
+                                 S_f::SVector{3,T}, τ_f::T, prim::NTuple{NPRIM,T}, f::UInt32,
+                                 pt::EntropyEOS.EOSPoint{T}, σ::T, newton::Bool, maxiter::Int32,
+                                 stage::OhmStageOptions{T}) where {T}
+    modifiers = UInt32(0)
+    nrec = 0
     # The best iterate, for the lagged-velocity fallback.
     best_err = T(Inf)
-    best_u, best_σ = u, σ
+    best_u, best_σ = four_velocity(prim), σ
     # Newton's last accepted iterate and step, for backtracking.
     S_prev, τ_prev, ΔS, Δτ = S_f, τ_f, zero(SVector{3,T}), zero(T)
     err_prev = T(Inf)
     nback = Int32(0)
-    repaired = UInt32(0)
+    E = E★
+    done = false
 
     it = Int32(0)
     while true
@@ -506,10 +575,10 @@ Allocation-free and kernel-callable.
             best_err, best_u, best_σ = err, u, σ
         end
         if err <= stage.tol
-            branch = newton ? OHM_NEWTON : OHM_FIXED_POINT
-            return E, prim, OhmStageResult(branch | modifiers | repaired, f), nrec
+            done = true
+            break
         end
-        it < stage.maxiter || break
+        it < maxiter || break
         it += Int32(1)
 
         if newton && nback < stage.max_backtrack && isfinite(err_prev) && !(err < err_prev)
@@ -541,19 +610,12 @@ Allocation-free and kernel-callable.
         prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
         nrec += 1
         if f != 0
-            repaired = OHM_REPAIRED
+            modifiers |= OHM_REPAIRED
             S_f, τ_f = fluid_share(eos, m, prim)
         end
         σ = conductivity(model, prim)
     end
-
-    # Not converged: the lagged velocity — `E` at the best velocity seen, and
-    # the fluid recovered from that `E`.
-    E = ohm_E(m, αΔt * best_σ, best_u, E★, B)
-    S_f, τ_f = field_budget(m, S, τ, E, B)
-    prim, f, _ = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
-    nrec += 1
-    return E, prim, OhmStageResult(OHM_FALLBACK | modifiers | repaired, f), nrec
+    return (; done, newton, E, prim, f, nrec, modifiers, best_err, best_u, best_σ)
 end
 
 @inline function solve_ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
