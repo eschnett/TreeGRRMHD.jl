@@ -18,9 +18,9 @@ Ohm's law replaced by a resistive one.
 pointwise layer: units, the variable layouts, the point metric, `prim2con`
 and the 3+1 primitive recovery; the pointwise physics a right-hand side
 evaluates; and the implicit stage solve — as are steps 4a–4c in
-IMEXRungeKutta. Step 5, the first evolution, is next and waits for AMR-1.
-There is no mesh code yet, and every number below about the scheme is
-unmeasured. (Amended in step 3.)*
+IMEXRungeKutta. Step 5, the first evolution, is next, and since TreeAMR
+0.2.1 (AMR-1) it waits for nothing. There is no mesh code yet, and every
+number below about the scheme is unmeasured. (Amended 2026-10-14.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -88,17 +88,21 @@ should carry, and the check this package adds when an item lands — are in
 below keeps only the reasons. "(req)" blocks the step named; "(wanted)" has
 a workaround listed in `PLAN.md`; "(later)" is not needed before rung 7.
 
-**State on 2026-10-13** (amended in step 0), as `test/prerequisite_tests.jl`
-reports it and, for TreeGH, as its `main` reads:
+**State on 2026-10-14** (amended in step 3, after the reviewer ran the
+suite against the new releases), as `test/prerequisite_tests.jl` reports it
+and, for TreeGH, as its `main` reads:
 
-- TreeAMR **0.2.0**, registered: none of AMR-1 to AMR-6 has landed, so
-  step 5 waits for AMR-1.
+- TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
+  so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
+  landed**, AMR-4 and AMR-6 in a different form (below). Step 5 waits for
+  nothing.
 - EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
   **EOS-1 and EOS-2 have landed**; EOS-3 and EOS-4 have not.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
-- SpacetimeMetrics **1.6**, registered: SM-1 (added in step 2) has not
-  landed.
+- SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
+  requires Julia 1.11, the floor here): **SM-1 has landed**, and its
+  workaround is gone.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 and
   GH-3 to GH-5 have not; GH-2 is open (see `PLAN.md`). TreeGH is not a
@@ -134,19 +138,35 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   coarse-fine face, at 0.47% in L1. Being nonlinear, it is not a
   fixed-weight tensor product, so it needs a new operator family or a hook
   covering both ghost filling and the regrid transfer. Workaround: width 1
-  near surfaces.
+  near surfaces. *(Landed in another form, TreeAMR 0.2.1, commit 902042a,
+  amended 2026-10-14:)* not a choice of limiter but a property,
+  `Operators(; prolongation=3, restriction=2, family=Conservative,
+  bounded=true)` — the order-3 conservative prolongation with an MC slope
+  and a scaling that keeps every child within the range of its parent and
+  the parent's face neighbours, exactly conservative, in the ghost fill and
+  the regrid transfer alike. The prerequisite test checks that a surface
+  refined everywhere stays positive and within range and keeps its total,
+  where the unbounded operator overshoots. See [Refinement](#refinement)
+  for what upstream's design assumes of this package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
   TreeGH's list).
 - **AMR-6 (later) A device-capable boundary hook that reads the interior**,
   for outflow conditions. Workaround: Dirichlet from the initial or
   analytic exterior, which is what the TOV milestones need anyway.
+  *(Landed in another form, TreeAMR 0.2.1, commit a983419, amended
+  2026-10-14:)* not a hook but a face kind, `Forest(roots; …, outflow =
+  ((lo, hi), …))`, whose ghosts the schedule fills with the nearest owned
+  value (zero-gradient, first order at the face), on every backend and
+  across ranks. A nonlinear condition, such as forbidding inflow, stays
+  with the application.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
 
 This is a **physics package** in TreeAMR's sense (its `CODE.md`,
 "Companion interface", 2026-10-08): it uses TreeAMR's exports only, and
-bounds TreeAMR by a minor series, `TreeAMR = "0.2"`. The prerequisite
+bounds TreeAMR by a minor series, `TreeAMR = "0.2"` (since 2026-10-14
+`"0.2.1"`, the release the landed items are in). The prerequisite
 tests check the names it calls against the exports, and `src/device.jl`
 uploads its own metadata with `KernelAbstractions.allocate` rather than
 reaching for TreeAMR's internal `todevice` (proposed in step 0).
@@ -229,9 +249,10 @@ in step 11. *(Amended with PLAN.md.)*
   432 bytes per call (measured in step 2, Julia 1.11 and 1.13), which a
   device kernel cannot, and it differentiates the metric again where the
   `Analytic` provider already holds one `dmetric` result; the request adds
-  `ExtrinsicCurvature(g, dg)` on that result. Until it lands,
-  `src/metric.jl`'s `extrinsic_curvature` computes `K_ij` from the
-  provider's own `dmetric` (see [Metric providers](#metric-providers)).
+  `ExtrinsicCurvature(g, dg)` on that result. *(Landed in SpacetimeMetrics
+  1.7.0, 2026-10-14:)* `src/metric.jl` calls `ExtrinsicCurvature(g, dg)`,
+  and its local `extrinsic_curvature` is gone; the prerequisite test keeps
+  that formula as the check on upstream's.
 
 ## The equations
 
@@ -1013,8 +1034,11 @@ conversion from SpacetimeMetrics' derivative-last `dmetric` is written in
 there from the same `dmetric` call: SpacetimeMetrics' `ExtrinsicCurvature`
 differentiates the metric a second time and allocates 432 bytes per call at
 Julia 1.11 and 1.13, which a device kernel cannot (measured in step 2); the
-two agree to 4.3e−16. That local computation is the workaround of SM-1
-(amended in step 2).
+two agree to 4.3e−16. That local computation was the workaround of SM-1
+(amended in step 2). *(Amended 2026-10-14:)* SM-1 landed in SpacetimeMetrics
+1.7.0; `metric_gradient(::Analytic, …)` now calls its allocation-free
+`ExtrinsicCurvature(g, dg)` on the same `dmetric` result, and the pointwise
+layer is still bit-identical in a CPU kernel.
 
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
@@ -1104,7 +1128,8 @@ Dirichlet from the initial or analytic state, through
 magnetized TOV star (proposed): shock tubes until a wave arrives, the
 Kerr-Schild tests from the analytic solution, the stars from the static
 exterior (atmosphere, the initial `A` and `Φ̃ = 0`, `E` of the static
-dipole). Outflow conditions wait for AMR-6.
+dipole). Outflow conditions were waiting for AMR-6; TreeAMR 0.2.1 has
+outflow faces (amended 2026-10-14), for whichever later rung needs them.
 
 ## Refinement
 
@@ -1113,6 +1138,20 @@ TreeHydro's `hydro_flags`, plus geometric radius boxes around a star that
 fix the levels the star is resolved with (proposed). `regrid!` is given
 every set over the forest: the evolved ones with their schedules, the rest
 `=> nothing`.
+
+**A design point for steps 8 and 10** *(recorded 2026-10-14; nothing is
+redesigned yet)*. TreeAMR's bounded prolongation (commit 902042a, AMR-4)
+was shaped by an expectation its commit message states of this package:
+that TreeGRRMHD "will leave admissibility to EntropyEOS, cell by cell,
+prolongate the primitive variables in the ghost fill and the conserved ones
+only in the regrid". The mesh guarantees only that a prolongated value
+stays within its neighbours' range, per variable — a property that suits
+primitives in a ghost fill (`ρ`, `s`, `vⁱ` each stay bounded, so a ghost is
+an admissible state wherever its neighbours are) and conservation in a
+regrid (the conserved variables' totals are kept). Steps 8 and 10 must
+decide whether to follow that split — which set the ghost fill acts on, how
+`P` is refilled after a fill, and what the reset limiter does to a
+prolongated conserved state — and record it here.
 
 ## Julia version
 

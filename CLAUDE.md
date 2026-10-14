@@ -42,7 +42,7 @@ Rules that follow from `CODE.md` and govern every change here:
 
 **Steps 0 (scaffolding), 1 (the pointwise recovery), 2 (the pointwise
 physics) and 3 (the implicit stage solve) are done; step 5 is next, and
-waits for AMR-1.** `CODE.md` records the reviewed design
+is unblocked (2026-10-14).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -58,11 +58,15 @@ one place SpacetimeMetrics' derivative index order is converted),
 `src/stress_energy.jl`, `src/ohm.jl`, `src/flux.jl`, `src/riemann.jl`,
 `src/emf.jl` and `src/sources.jl` — and step 3's `src/stage_solve.jl`
 (`solve_ohm_stage`, Newton on the fluid's share of the energy and momentum,
-`OhmStageResult`). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
+`OhmStageResult`), with `MagnetizationCutoff` in `src/ohm.jl` tapering σ to
+zero where `B²/D` exceeds 10 (decided by Erik 2026-10-14; the bracketed
+alternative is on `claude/step-3-bracketed-stage-solve`, not in the code). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
-IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), so step 5
-waits for AMR-1 alone.
+IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
+unregistered); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+another form (`bounded = true`, outflow faces); SpacetimeMetrics 1.7.0 has
+SM-1, whose workaround is gone. Step 5 waits for nothing.
 
 ## Commands
 

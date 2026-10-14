@@ -10,12 +10,14 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 are done; step 5 is next, and waits for AMR-1.** *(Amended in step 3,
-2026-10-13.)* Steps 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta
-1.4.0 is tagged, unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in
-EntropyEOS 1.0.0, so step 5, the first evolution, waits for AMR-1 alone. TreeAMR is at 0.2.0
-(registered), and none of AMR-1 to AMR-6 has landed. The "state" column of the table below has
-each item.
+**Steps 0 to 3 are done; step 5 is next, and is unblocked.** *(Amended 2026-10-14.)* Steps
+4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
+unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
+(still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
+AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form; SpacetimeMetrics 1.7.0 with
+SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
+`main` is still fbfd416 (GH-0 landed; GH-1 to GH-6 waiting; unregistered). The "state" column
+of the table below has each item.
 
 The steps follow `CODE.md`'s validation ladder (rungs 1–7):
 - It is preceded by the pointwise physics and the IMEX package.
@@ -168,17 +170,17 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-13 (added in step 0): what `test/prerequisite_tests.jl`
+The state column is as of 2026-10-14 (added in step 0, amended 2026-10-14): what `test/prerequisite_tests.jl`
 reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
 
 | ID | package | priority | needed by step | summary | state |
 |---|---|---|---|---|---|
-| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | waiting |
-| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | waiting |
-| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | waiting |
-| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | waiting |
-| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | waiting |
-| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | waiting |
+| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | landed, 0.2.1 |
+| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | landed, 0.2.1 |
+| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | landed, 0.2.1 |
+| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed as `bounded = true`, 0.2.1 |
+| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed, 0.2.1 |
+| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed as outflow faces, 0.2.1 |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed, 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed, 1.0.0 |
@@ -191,7 +193,7 @@ reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
 | GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator | waiting |
 | GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` | waiting |
 | GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
-| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | waiting (added in step 2) |
+| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed, 1.7.0 (workaround dropped) |
 
 ### AMR-1 — A state vector over several field sets (req, step 5)
 
@@ -312,6 +314,19 @@ Operators(; prolongation=3, restriction=2, family=Conservative, limiter=:minmod 
 **Downstream check.** The TOV surface across a coarse-fine face floors no cell at the initial
 regrid (step 10).
 
+*(Amended 2026-10-14: landed in another form, TreeAMR 0.2.1, commit 902042a.)* Not a choice of
+limiter but a property: `Operators(; prolongation=3, restriction=2, family=Conservative,
+bounded=true)`, the semantics above with the slope fixed to MC (minmod lost the interface
+order), `bounded = false` the default and bit-identical, `bounded = true` also accepted at
+conservative order 1 (already bounded) and refused otherwise. One kernel serves the ghost fill
+and the regrid. Its commit message records what upstream assumes of this package: that it
+"will leave admissibility to EntropyEOS, cell by cell, prolongate the primitive variables in
+the ghost fill and the conserved ones only in the regrid" — a design point steps 8 and 10 take
+up (`CODE.md`, "Refinement"). `test/prerequisite_tests.jl`, "AMR-4", detects the keyword and
+the field and checks, in D = 1 and 2, that a surface (1 to 1e−13) refined everywhere stays
+positive and within range and keeps its total, where the unbounded operator overshoots. The
+step-10 downstream check stands.
+
 ### AMR-5 — `workgroupsize` on `map_blocks!` (wanted, step 14)
 
 `map_blocks!(kernel!, fs, args...; closed=false, stored=false, workgroupsize=nothing)` passes
@@ -321,6 +336,14 @@ TreeGH's list.
 ### AMR-6 — A device-capable boundary hook that reads the interior (later)
 
 This is for outflow conditions. Today the region form is CPU-only (ghosts.jl:347–356).
+
+*(Amended 2026-10-14: landed in another form, TreeAMR 0.2.1, commit a983419.)* Not a hook but an
+outflow face kind, `Forest(roots; …, outflow = ((lo, hi), …))`, whose ghosts the schedule fills
+as clamped transfers with the nearest owned value (zero-gradient, first order at the face), on
+every backend and across ranks; a nonlinear condition (forbidding inflow) stays with the
+application. `test/prerequisite_tests.jl`, "AMR-6", detects `OutflowFace` and the keyword and
+checks that both outflow faces of a one-dimensional forest copy their nearest cell into the
+ghosts.
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
@@ -626,7 +649,10 @@ must agree with this package's `extrinsic_curvature` to 1e-13 of `max |K|` on bo
 **Workaround** (amended in step 2): `extrinsic_curvature(α, β, sdg)` in `src/metric.jl`, marked
 `SM-1`, computes `K_ij` from the provider's own `dmetric` result. It agrees with upstream's to
 4.3e−16 (measured in step 2). When SM-1 lands, `metric_gradient(::Analytic, …)` calls
-`ExtrinsicCurvature(g, sdg)` and the local function goes.
+`ExtrinsicCurvature(g, sdg)` and the local function goes. *(Landed 2026-10-14, SpacetimeMetrics
+1.7.0:)* done; the compat is `SpacetimeMetrics = "1.7"` (which requires Julia 1.11, the floor),
+and the prerequisite test compares upstream's `K_ij` with the former workaround's formula, kept in
+the test, and checks that both methods allocate nothing.
 
 ## Step 0 — Scaffolding
 
@@ -839,7 +865,9 @@ measurements. It is a dependency from step 0, through `[sources]`.
 
 `CODE.md`: "Where the fields live", "Field sets", "Reconstruction", "Riemann solver", "The
 electromotive force for `A`", "The right-hand side", "Time integration", "Boundaries".
-Waits: **AMR-1** (EOS-1, EOS-2 and 4b have landed; amended in step 0).
+Waits: **AMR-1** (EOS-1, EOS-2 and 4b have landed; amended in step 0). *(Amended 2026-10-14:)*
+AMR-1 has landed in TreeAMR 0.2.1, so step 5 waits for nothing; AMR-2 and AMR-3 have landed too,
+so steps 6 and 8 need no workaround for them.
 
 Changes:
 - **`src/fieldsets.jl`:** creates `U`, `A_{1,2,3}`, `Φ̃`, `P`, `B_d`, `F_d` and `EMF_d` for

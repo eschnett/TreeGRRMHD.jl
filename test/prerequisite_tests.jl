@@ -388,16 +388,50 @@ end
                   "`adapt_to_initial_data!` takes one set; step 8 uses the workaround")
 end
 
-@testset "AMR-4: Operators takes a limiter (when landed)" begin
+@testset "AMR-4: Operators bounds the conservative prolongation (when landed)" begin
     # Guards the limited conservative prolongation step 10 strongly wants at
-    # a stellar surface; the control is that the keywords it has today are
-    # seen, so a renamed constructor is not mistaken for the item missing.
+    # a stellar surface. It landed (TreeAMR 902042a, 0.2.1) not as a choice
+    # of limiter but as a property, `Operators(; …, bounded = true)`: an
+    # MC-bounded order-3 conservative prolongation that creates no new
+    # extrema (amended 2026-10-14). The control is that the keywords it has
+    # always had are seen, so a renamed constructor is not mistaken for the
+    # item missing; the item is detected by the keyword and the field, never
+    # by a version. When landed, a surface — a drop over thirteen orders of
+    # magnitude — refined everywhere stays positive and within its range and
+    # keeps its total, where the unbounded operator overshoots it.
     @test hasmethod(Operators, Tuple{}, (:prolongation, :restriction, :family))
-    landed = hasmethod(Operators, Tuple{}, (:prolongation, :restriction, :family, :limiter))
+    landed = hasmethod(Operators, Tuple{}, (:prolongation, :restriction, :family, :bounded)) &&
+             :bounded in fieldnames(Operators)
     prereq_report("AMR-4", landed,
-                  landed ? "`Operators(; …, limiter)`" :
-                  "no `limiter` keyword on `Operators`; step 10 measures width 1 and 3 " *
+                  landed ? "`Operators(; …, bounded = true)`, the MC-bounded conservative " *
+                           "prolongation, checked on a surface in D = 1, 2" :
+                  "no `bounded` keyword on `Operators`; step 10 measures width 1 and 3 " *
                   "without it")
+    if landed
+        for D in 1:2
+            surface(x) = (x[1] < 0.3 ? 1.0 : 1.0e-13,)
+            bounded = Operators(; prolongation=3, restriction=2, family=Conservative,
+                                bounded=true)
+            forest = prereq_forest(Val(D))
+            fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(D))
+            fill_by_coordinates!(AllVariables(surface), fs)
+            before = total_mass(fs)
+            regrid!(forest, fs => GhostSchedule(fs, bounded); flags=fill(Refine, nleaves(forest)))
+            fill_ghosts!(fs, GhostSchedule(fs, bounded))
+            lo, hi = extrema(fs.work)
+            @test 0 < lo && hi <= 1 + eps()
+            @test isapprox(total_mass(fs), before; rtol=1e-13)
+            # The control: unbounded, the same refinement overshoots.
+            unbounded = Operators(; prolongation=3, restriction=2, family=Conservative)
+            forest = prereq_forest(Val(D))
+            fs = FieldSet{Float64}(forest, 1; G=1, centering=cellcentered(D))
+            fill_by_coordinates!(AllVariables(surface), fs)
+            regrid!(forest, fs => GhostSchedule(fs, unbounded);
+                    flags=fill(Refine, nleaves(forest)))
+            lo, hi = extrema(fs.work)
+            @test lo < 0 || hi > 1
+        end
+    end
 end
 
 @testset "AMR-5: map_blocks! takes a workgroup size (when landed)" begin
@@ -409,11 +443,42 @@ end
                   "no `workgroupsize` keyword on `map_blocks!`; wanted by step 14")
 end
 
-@testset "AMR-6: a device boundary hook that reads the interior (later)" begin
-    # Guards nothing yet: the item has no API specified, so there is
-    # nothing to detect. Outflow waits for it; every case through rung 6 is
-    # Dirichlet from an initial or analytic exterior.
-    prereq_report("AMR-6", false, "later; no API specified, so not detectable")
+@testset "AMR-6: outflow faces fill their ghosts on every backend (when landed)" begin
+    # Guards the outflow boundary later rungs want. It landed (TreeAMR
+    # a983419, 0.2.1) not as a device-capable hook that reads the interior
+    # but as a face kind, `Forest(roots; …, outflow = ((lo, hi), …))`, whose
+    # ghosts the schedule fills with the nearest owned value (zero-gradient
+    # extrapolation), on every backend and across ranks (amended
+    # 2026-10-14). Detected by the face kind and the keyword, never by a
+    # version. When landed, a one-dimensional forest with both faces outflow
+    # fills its ghosts with the cells next to them, for data that vary.
+    landed = isdefined(TreeAMR, :OutflowFace) &&
+             hasmethod(Forest, Tuple{Tuple{Int}}, (:N, :outflow))
+    prereq_report("AMR-6", landed,
+                  landed ? "outflow faces, `Forest(…; outflow)`, checked in D = 1" :
+                  "no outflow face kind; outflow waits for it")
+    if landed
+        forest = Forest((2,); N=8, outflow=((true, true),), extents=((0.0, 1.0),))
+        fs = FieldSet{Float64}(forest, 1; G=2, centering=cellcentered(1))
+        fill_by_coordinates!(AllVariables(x -> (1 + x[1]^2,)), fs)
+        ops = Operators(; prolongation=1, restriction=2, family=Conservative)
+        fill_ghosts!(fs, GhostSchedule(fs, ops))
+        nfaces = 0
+        for b in 1:nblocks(fs)
+            w = blockview(fs, b)
+            lo, hi = block_extent(forest, blockkey(fs, b))[1]
+            if lo == 0.0                        # the low face: ghosts 1, 2 copy cell 3
+                @test w[1, 1] == w[3, 1] && w[2, 1] == w[3, 1]
+                nfaces += 1
+            end
+            if hi == 1.0                        # the high face: copy cell n − 2
+                n = size(w, 1)
+                @test w[n, 1] == w[n - 2, 1] && w[n - 1, 1] == w[n - 2, 1]
+                nfaces += 1
+            end
+        end
+        @test nfaces == 2
+    end
 end
 
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
@@ -542,14 +607,25 @@ function prereq_allocations(f::F, args::Vararg{Any,N}) where {F,N}
     return @allocated f(args...)
 end
 
+# `K_ij = −(∂ₜγ_ij − ∂ᵢβ_j − ∂ⱼβ_i + 2 βˡ Γ_lij)/(2α)` from SpacetimeMetrics'
+# `sdg[a, b, c] = ∂_c g_ab`, `β_j = g_tj` and the spatial Christoffel symbols of
+# the first kind `Γ_lij = ½(∂ᵢγ_lj + ∂ⱼγ_li − ∂_lγ_ij)`: the formula of the SM-1
+# workaround `src/metric.jl` carried until SM-1 landed (2026-10-14), kept here
+# as the independent check on upstream's.
+function prereq_extrinsic_curvature(α, β, sdg)
+    K(i, j) = -(sdg[i + 1, j + 1, 1] - sdg[1, j + 1, i + 1] - sdg[1, i + 1, j + 1] +
+                sum(β[l] * (sdg[l + 1, j + 1, i + 1] + sdg[l + 1, i + 1, j + 1] -
+                            sdg[i + 1, j + 1, l + 1]) for l in 1:3)) / (2 * α)
+    return TreeGRRMHD.SMatrix{3,3}([K(i, j) for i in 1:3, j in 1:3])
+end
+
 @testset "SM-1: ExtrinsicCurvature is allocation-free and takes one dmetric (when landed)" begin
     # Guards the `Analytic` provider's `K_ij` on a device (step 9, step 14):
-    # until SpacetimeMetrics' `ExtrinsicCurvature` stops allocating and takes
-    # the provider's own `dmetric` result, `src/metric.jl` computes `K_ij`
-    # itself (the SM-1 workaround). Detected by the new method and by the
-    # bytes the old one allocates, never by a version. When it lands, upstream's
-    # `K_ij` must be the workaround's, to rounding, so that the switch changes
-    # no physics.
+    # `src/metric.jl` calls SpacetimeMetrics' `ExtrinsicCurvature(g, dg)` on
+    # the provider's own `dmetric` result, which must allocate nothing and
+    # agree with the formula of the former workaround (SM-1, landed in
+    # SpacetimeMetrics 1.7.0, 2026-10-14). Detected by the method and by the
+    # bytes it allocates, never by a version.
     m4 = SpacetimeMetrics.boost(SpacetimeMetrics.KerrSchild{Float64}(1.0, 0.7),
                                 SVector(0.2, -0.1, 0.3))
     p = SVector(0.4, 3.0, -4.0, 5.0)
@@ -566,7 +642,7 @@ end
             K = SpacetimeMetrics.ExtrinsicCurvature(g, sdg)
             @test K == SpacetimeMetrics.ExtrinsicCurvature(m4, q)
             α, β, _ = SpacetimeMetrics.adm_decompose(g)
-            Kw = TreeGRRMHD.extrinsic_curvature(α, β, sdg)
+            Kw = prereq_extrinsic_curvature(α, β, sdg)
             worst = max(worst, maximum(abs.(K - Kw)) / maximum(abs.(K)))
         end
         @test worst < 1e-13
@@ -574,8 +650,8 @@ end
                                  SpacetimeMetrics.dmetric(m4, p)...) == 0
     end
     prereq_report("SM-1", landed,
-                  landed ? "`ExtrinsicCurvature(g, dg)`, allocation-free; drop the SM-1 " *
-                           "workaround in src/metric.jl" :
+                  landed ? "`ExtrinsicCurvature(g, dg)`, allocation-free, called by " *
+                           "src/metric.jl" :
                   "`ExtrinsicCurvature` allocates $bytes bytes" *
                   (newmethod ? "" : " and has no `(g, dg)` method") *
                   "; src/metric.jl computes K_ij itself (workaround marked SM-1)")

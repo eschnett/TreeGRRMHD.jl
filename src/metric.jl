@@ -115,29 +115,9 @@ curvature `K_ij` at time `t` and position `x`, in this package's index order
     # `c = 1` the time derivative, to `dg[j, a, b] = ∂_j g_ab` over the
     # spatial `j` (the time derivative enters through `K_ij` alone).
     dg = SArray{Tuple{3,4,4}}(sdg[a, b, j + 1] for j in 1:3, a in 1:4, b in 1:4)
-    α, β, _ = SpacetimeMetrics.adm_decompose(g)
-    return MetricGradient(dg, extrinsic_curvature(α, β, sdg))     # SM-1 workaround
-end
-
-# SM-1 workaround (`PLAN.md`, "Upstream requirements"): goes when
-# SpacetimeMetrics' `ExtrinsicCurvature` is allocation-free and takes one
-# `dmetric` result.
-#
-# `K_ij = −(∂ₜγ_ij − ∂ᵢβ_j − ∂ⱼβ_i + 2 βˡ Γ_lij)/(2α)` from SpacetimeMetrics'
-# `sdg[a, b, c] = ∂_c g_ab` of the same evaluation, with `β_j = g_tj` and the
-# spatial Christoffel symbols of the first kind
-# `Γ_lij = ½(∂ᵢγ_lj + ∂ⱼγ_li − ∂_lγ_ij)` (so `Γᵏ_ij β_k = βˡ Γ_lij`). This
-# is SpacetimeMetrics' `ExtrinsicCurvature`, written out here because that
-# one differentiates the metric a second time and allocates (432 bytes at
-# Julia 1.11), which a kernel on a device cannot (measured in step 2).
-@inline function extrinsic_curvature(α::T, β::SVector{3,T}, sdg) where {T}
-    K(i, j) = @inbounds -(sdg[i + 1, j + 1, 1] - sdg[1, j + 1, i + 1] - sdg[1, i + 1, j + 1] +
-                          sum(ntuple(Val(3)) do l
-                              β[l] * (sdg[l + 1, j + 1, i + 1] + sdg[l + 1, i + 1, j + 1] -
-                                      sdg[i + 1, j + 1, l + 1])
-                          end)) / (2 * α)
-    Kxx, Kxy, Kxz, Kyy, Kyz, Kzz = K(1, 1), K(1, 2), K(1, 3), K(2, 2), K(2, 3), K(3, 3)
-    return SMatrix{3,3,T,9}(Kxx, Kxy, Kxz, Kxy, Kyy, Kyz, Kxz, Kyz, Kzz)
+    # `K_ij` from the same evaluation: SpacetimeMetrics 1.7's allocation-free
+    # `ExtrinsicCurvature(g, dg)` (SM-1, landed; it replaced a local copy).
+    return MetricGradient(dg, SpacetimeMetrics.ExtrinsicCurvature(g, sdg))
 end
 
 # `∂_j γ_ik` for one direction `j`, as a 3×3 matrix.
