@@ -129,6 +129,15 @@ It wraps any finite-σ model — [`Constant`](@ref), [`DensityProfile`](@ref),
 [`IdealConductor`](@ref): the ideal recovery puts the field's inertia in its
 own model and is well posed at any magnetization, and `∞ · g` is not a
 conductivity.
+
+`μ_max` is required and has no default (decided by Erik 2026-10-14): it
+trades the stage's robustness against how much of the magnetosphere is
+resistive, so each case or driver states its own, and nothing wraps a model
+implicitly. `μ_max = 10` is the measured safe value — the largest with no
+fallback at a fixed non-ideal fraction `f ≤ 0.1` — and the physically
+motivated `50–100` costs a measured fallback rate of order `10⁻⁵`; see
+"Ohm's law and the conductivity" in `CODE.md`. `MagnetizationCutoff(model)`
+throws an `ArgumentError` saying so.
 """
 struct MagnetizationCutoff{M<:Conductivity,T} <: Conductivity
     model::M
@@ -143,6 +152,13 @@ struct MagnetizationCutoff{M<:Conductivity,T} <: Conductivity
     end
 end
 MagnetizationCutoff(model::Conductivity, μ_max::Integer) = MagnetizationCutoff(model, float(μ_max))
+function MagnetizationCutoff(model::Conductivity)
+    throw(ArgumentError("MagnetizationCutoff needs an explicit μ_max and has no default: " *
+                        "the threshold trades the stage solve's robustness against how much " *
+                        "of the plasma is resistive, so each case states its own " *
+                        "(μ_max = 10 is the measured safe value; see \"Ohm's law and the " *
+                        "conductivity\" in CODE.md)"))
+end
 
 """
     magnetization_taper(μ_max, μ) -> g ∈ [0, 1]

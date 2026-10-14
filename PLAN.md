@@ -839,9 +839,12 @@ within a stage; `conductivity(model, prim, μ)` and `magnetization(m, B, D)`. Ac
 sweep asserts, at fixed `f ∈ {10⁻³, 10⁻², 0.03, 0.1, 0.3, 1}` with the cutoff, no fallback at
 `f ≤ 0.1` over the whole grid at every Γ; the model's own testset (continuous, monotone, zero
 beyond the taper, refuses `IdealConductor`, bit-identical in a CPU kernel, allocation-free,
-inferred). Measured: `μ_max = 10`, the largest tested at which sixteen seeds (41,472 problems per
-Γ and `f`) show no fallback at `f ≤ 0.3`; at `f = 1`, 0, 3, 3 (Γ = 4/3, 5/3, 2). The table is
-in `CODE.md`, "Ohm's law and the conductivity".
+inferred, and `MagnetizationCutoff(model)` without `μ_max` throws). `μ_max` is required, with no
+default: each case and driver states its own (decided by Erik 2026-10-14), and the tests pass it
+explicitly. Measured: `μ_max = 10`, the largest tested at which sixteen seeds (41,472 problems per
+Γ and `f`) show no fallback at `f ≤ 0.1` (nor at `f ≤ 0.3`); at `f = 1`, 0, 3, 3 (Γ = 4/3, 5/3,
+2). The table, and the fallbacks a physically motivated `μ_max = 50–100` costs, are in `CODE.md`,
+"Ohm's law and the conductivity".
 
 ## Steps 4a–4c — The IMEX package (in its own repository)
 

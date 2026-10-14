@@ -366,7 +366,7 @@ end
         @test all(p -> p.finite, pts)
         @test worst <= 1e-10
         # Measured none at f ≤ 0.3 over this grid at sixteen seeds of the
-        # generator (124,416 problems per Γ and f), and 0, 3, 3 of them at
+        # generator (41,472 problems per Γ and f), and 0, 3, 3 of them at
         # f = 1 (Γ = 4/3, 5/3, 2).
         # The uniform draw (`f` from `[0, 1]`, `nothing` here), recorded: none.
         if f === nothing || f <= 0.3
@@ -381,8 +381,9 @@ end
     # Guards the model: continuous and monotone in `μ = B²/D`, the inner
     # model's σ below the taper and exactly zero beyond it (a mask: the inner
     # model is not read), the same in Ohm's current and Ampère's stiff
-    # source, refused for an ideal conductor, and a stage beyond the taper
-    # is the vacuum's: `E = E★` exactly.
+    # source, refused for an ideal conductor and without an explicit μ_max
+    # (it has no default: a silent one would hide the robustness trade-off),
+    # and a stage beyond the taper is the vacuum's: `E = E★` exactly.
     prim = ST.pack_prim(1e-3, zero(SVector{3}), 5.0, 0.3, 0.0, 0.1, 1.5, 0.2, NaN)
     for inner in (Constant(7.0), DensityProfile(7.0, 1e-5), Vacuum())
         c = MagnetizationCutoff(inner, ST_μ_MAX)
@@ -402,6 +403,9 @@ end
     end
     @test_throws ArgumentError MagnetizationCutoff(IdealConductor(), 10.0)
     @test_throws ArgumentError MagnetizationCutoff(Constant(1.0), 0.0)
+    @test_throws ArgumentError MagnetizationCutoff(Constant(1.0))
+    @test_throws ArgumentError MagnetizationCutoff(Vacuum())
+    @test MagnetizationCutoff(Constant(1.0), 10) isa MagnetizationCutoff{Constant{Float64},Float64}
     @test_throws ArgumentError conductivity(MagnetizationCutoff(Constant(1.0), 10.0), prim)
     @test MagnetizationCutoff(Constant(1.0f0), 10.0f0) isa MagnetizationCutoff{Constant{Float32},Float32}
 

@@ -58,9 +58,13 @@ one place SpacetimeMetrics' derivative index order is converted),
 `src/stress_energy.jl`, `src/ohm.jl`, `src/flux.jl`, `src/riemann.jl`,
 `src/emf.jl` and `src/sources.jl` — and step 3's `src/stage_solve.jl`
 (`solve_ohm_stage`, Newton on the fluid's share of the energy and momentum,
-`OhmStageResult`), with `MagnetizationCutoff` in `src/ohm.jl` tapering σ to
-zero where `B²/D` exceeds 10 (decided by Erik 2026-10-14; the bracketed
-alternative is on `claude/step-3-bracketed-stage-solve`, not in the code). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
+`OhmStageResult`), with `MagnetizationCutoff(model, μ_max)` in `src/ohm.jl`
+tapering σ to zero where `B²/D` exceeds `μ_max` (decided by Erik
+2026-10-14; the bracketed alternative is on
+`claude/step-3-bracketed-stage-solve`, not in the code). **`μ_max` has no
+default**: every case and driver states its own, and nothing wraps a model
+implicitly; 10 is the measured safe value (`CODE.md`, "Ohm's law and the
+conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still

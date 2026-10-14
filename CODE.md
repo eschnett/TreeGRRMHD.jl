@@ -434,19 +434,37 @@ frame's `μ/W ≤ b²/ρ ≤ W μ`.
   infinite, `∞ · g` is not a conductivity, and the ideal recovery is well
   posed at any magnetization — it carries the field's inertia in its own
   model, which is why it is the iteration's seed in the stiff limit.
-- **The threshold, `μ_max = 10`** (measured in step 3): the largest of
-  `{5, 10, 20, 30, 50, 70, 100, 300, 1000}` at which the iteration, with no
-  other help, has no fallback at any fixed `f ≤ 0.1` over the whole grid
-  (`σΔt ∈ 10⁻³…10⁸`, `b²/ρ ∈ 10⁻⁴…10⁴`, `W ∈ {1, 2, 10}`, eight problems a
-  point) at every Γ across sixteen seeds of the test's generator — 41,472
-  problems per Γ and `f`. At `μ_max = 10` none falls back up to `f = 0.3`;
-  at 20, 4 do at `f = 0.1` and 1 at `f = 10⁻²`; at 30, 3 at `f = 0.1`;
-  at 100, 1 at `f = 0.1` and 2 at `f = 0.03` — so 10 has a factor of two
-  in hand. The taper begins at `μ = 1`; since
-  `b²/ρ ≤ W μ`, σ is zero by `b²/ρ ≈ 10` for a fluid at rest and
-  `≈ 100` at `W = 10`, the same order as the magnetization ceilings of
-  ideal-GRMHD codes (`b²/ρ ~ 50–100`), which add mass where this switches
-  off the conduction current instead.
+- **`μ_max` is required and has no default** (decided by Erik
+  2026-10-14). It trades the stage's robustness against how much of the
+  magnetically dominated plasma stays resistive, which is a property of the
+  case, not of the scheme: each case and driver states its own value, no
+  code path wraps a model implicitly, and `MagnetizationCutoff(model)`
+  throws an `ArgumentError` saying so. The tests pass it explicitly.
+- **The measured safe value, `μ_max = 10`** (measured in step 3): the
+  largest of `{5, 10, 20, 30, 50, 70, 100, 300, 1000}` at which the
+  iteration, with no other help, has no fallback at any fixed `f ≤ 0.1`
+  over the whole grid (`σΔt ∈ 10⁻³…10⁸`, `b²/ρ ∈ 10⁻⁴…10⁴`,
+  `W ∈ {1, 2, 10}`, eight problems a point) at every Γ across sixteen seeds
+  of the test's generator — 41,472 problems per Γ and `f`. At `μ_max = 10`
+  none falls back up to `f = 0.3`. The taper begins at `μ = μ_max/10 = 1`;
+  since `b²/ρ ≤ W μ`, σ is zero by `b²/ρ ≈ 10` for a fluid at rest and
+  `≈ 100` at `W = 10`.
+- **A physically motivated larger value trades a small fallback rate**
+  (decided by Erik 2026-10-14). Ideal-GRMHD codes cap the magnetization at
+  `b²/ρ ~ 50–100` (adding mass where this switches off the conduction
+  current instead), and a case that wants the plasma resistive up to there
+  may take `μ_max` of that order. Measured, summed over Γ ∈ {4/3, 5/3, 2}
+  at sixteen seeds (124,416 problems per `f`):
+
+  | `μ_max` | f = 10⁻³ | 10⁻² | 0.03 | 0.1 | 0.3 | 1 |
+  |---|---|---|---|---|---|---|
+  | 10 | 0 | 0 | 0 | 0 | 0 | 6 |
+  | 20 | 0 | 1 | 0 | 4 | 6 | 35 |
+  | 30 | 1 | 0 | 2 | 3 | 17 | 44 |
+  | 100 | 0 | 0 | 2 | 1 | 24 | 208 |
+
+  — at `f ≤ 0.1` a rate of order `10⁻⁵`, at `f = 1` up to 0.2%, every one
+  caught by the lagged-velocity fallback and flagged `OHM_FALLBACK`.
 
 Fallbacks of 41,472 problems per cell (16 seeds × 2592), at a fixed
 `f = |E★ + v × B|/|B|`, the predictor's departure from the ideal field:
@@ -1294,7 +1312,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   is so far from both the solution and the ideal field that neither seed is
   a fluid state. *(Decided 2026-10-14:)* the
   [magnetization cutoff](#ohms-law-and-the-conductivity) takes σ to zero
-  there, and with it no fallback remains at `f ≤ 0.3`; the price is that
-  the field in magnetically dominated plasma evolves as in electrovacuum,
-  not as force-free. Rung 1 sees how often an evolution meets the taper.
+  there, and with it (at the measured safe `μ_max = 10`) no fallback
+  remains at `f ≤ 0.3`; the price is that above the taper the field
+  evolves as in electrovacuum, not as force-free — no conduction current
+  at all, where a magnetosphere's plasma would carry the force-free one —
+  and the taper already begins at `μ = μ_max/10`, so σ is reduced a decade
+  below the threshold a case states. Rung 1 sees how often an evolution
+  meets the taper.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
