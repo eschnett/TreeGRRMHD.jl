@@ -70,8 +70,8 @@ export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_
 export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_gradient
 # The pointwise physics
 export stress_energy, T4_lower
-export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, conductivity,
-       ohm_current
+export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, MagnetizationCutoff,
+       conductivity, magnetization, ohm_current
 export light_cone, physical_flux, riemann_flux, gauge_flux
 export faraday_emf, uct_hll_emf, gauge_potential
 export geometric_source, explicit_source, ampere_explicit_source, ampere_stiff_source,

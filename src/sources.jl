@@ -89,7 +89,7 @@ with it; nothing evaluates it explicitly.
 """
 @inline function ampere_stiff_source(model::Conductivity, m::Metric3{T}, prim::NTuple{N,T},
                                      E::SVector{3,T}, B::SVector{3,T}) where {N,T}
-    σ = conductivity(model, prim)
+    σ = conductivity(model, prim, magnetization(m, B, prim_ρ(prim) * prim_W(prim)))
     iszero(σ) && return zero(SVector{3,T})
     return -(m.α * m.sqrtγ * σ) * conduction_drift(m, prim, E, B)
 end

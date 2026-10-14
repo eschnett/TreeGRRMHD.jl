@@ -23,6 +23,9 @@ using StaticArrays: SVector, SMatrix
 import TreeGRRMHD.IRK
 
 const ST = TreeGRRMHD
+# The magnetization cutoff the scheme uses ("Ohm's law and the conductivity"
+# in `CODE.md`): σ tapers to zero over `μ = B²/D ∈ [1, 10]`.
+const ST_μ_MAX = 10.0
 
 st_norm(m, a) = sqrt(ST.dot_up(m, a, a))
 
@@ -30,8 +33,12 @@ st_norm(m, a) = sqrt(ST.dot_up(m, a, a))
 # magnetization `b²/ρ` (the ideal comoving `b² = B²/W² + (B·v)²`) and the
 # Lorentz factor `W`. Returns the solution `(prim, E)`, the predictor `E★`,
 # the field `B`, the totals `cons★`, the model and `γΔt`. The model is
-# `Constant(σΔt/γΔt)`, or `model_of(ρ)` of the drawn density.
-function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing)
+# `Constant(σΔt/γΔt)`, or `model_of(ρ)` of the drawn density, wrapped in the
+# package's `MagnetizationCutoff` if `cutoff`. The non-ideal part of `E` is
+# `f |B|/(1 + cW)` — so that `f ≈ |E★ + v × B|/|B|`, the predictor's
+# departure from the ideal field — with `f` drawn uniformly from `[0, 1]`
+# unless it is given (amended in step 3 after review).
+function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing, f=nothing, cutoff=false)
     ρ = exp10(-6 + 3 * rand(rng))
     s = 4.1 + 1.8 * rand(rng)
     yₑ = 0.06 + 0.5 * rand(rng)
@@ -42,8 +49,10 @@ function st_problem(rng, eos, m, σΔt, b²ρ, W; model_of=nothing)
     B = Bmag * B̂
     γΔt = 0.3
     model = model_of === nothing ? Constant(σΔt / γΔt) : model_of(ρ)
-    c = γΔt * m.α * conductivity(model, prim)
-    E = ideal_E(m, v, B) + (rand(rng) * Bmag / (1 + c * W)) * rec_direction(rng, m)
+    cutoff && (model = MagnetizationCutoff(model, ST_μ_MAX))
+    c = γΔt * m.α * conductivity(model, prim, magnetization(m, B, ρ * W))
+    μf = f === nothing ? rand(rng) : f
+    E = ideal_E(m, v, B) + (μf * Bmag / (1 + c * W)) * rec_direction(rng, m)
     E★ = E + c * ST.conduction_drift(m, prim, E, B)
     return prim, E, E★, B, prim2con(eos, m, prim, E, B), model, γΔt
 end
@@ -54,7 +63,8 @@ end
 # `τ + D` (as `recovery_tests.jl` measures the recovery's round trip).
 function st_residual(eos, model, m, cons★, E★, B, γΔt, E, prim)
     src = γΔt * ampere_stiff_source(model, m, prim, E, B) / m.sqrtγ
-    cW = γΔt * m.α * conductivity(model, prim) * ST.prim_W(prim)
+    μ = magnetization(m, B, ST.prim_ρ(prim) * ST.prim_W(prim))
+    cW = γΔt * m.α * conductivity(model, prim, μ) * ST.prim_W(prim)
     r_ohm = st_norm(m, E - E★ - src) /
             (st_norm(m, E★) + st_norm(m, E) + cW * (st_norm(m, E) + st_norm(m, B)))
     c = prim2con(eos, m, prim, E, B)
@@ -248,7 +258,7 @@ end
 
 # The σΔt × b²/ρ × W sweep, over every Γ: the branch each point takes, the
 # recoveries it needs, and the residuals.
-function st_sweep(Γ, nper)
+function st_sweep(Γ, nper; f=nothing, cutoff=false)
     eos = rec_gas(Γ)
     opts = REC_EOS.Con2PrimOptions{Float64}()
     pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
@@ -256,7 +266,8 @@ function st_sweep(Γ, nper)
     points = NamedTuple[]
     for lσ in -3:8, lb in -4:4, W in (1.0, 2.0, 10.0), _ in 1:nper
         m = rec_metric(rng)
-        prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(lσ), exp10(lb), W)
+        prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(lσ), exp10(lb), W;
+                                                         f, cutoff)
         E, q, r, n = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         r_ohm, r_matter = st_residual(eos, model, m, cons, E★, B, γΔt, E, q)
@@ -331,6 +342,91 @@ st_branch(f) = f & OHM_FALLBACK != 0 ? "fallback" :
         @test seeded_fallbacks <= 3
         # And it is flagged as such: no fallback is reported converged.
         @test all(p -> !ST.converged(OhmStageResult(p.flags, 0)), fb)
+    end
+end
+
+@testset "With the magnetization cutoff, no fallback at a fixed non-ideal fraction f ≤ 0.1: Γ=$Γ" for Γ in
+                                                                                                REC_GAMMAS
+    # Guards the cutoff that makes the stage well posed (decided by Erik
+    # 2026-10-14): review measured, without it, fallbacks on 0.17%, 3.5%,
+    # 8.0% and 20.9% of the strongly magnetized corner at Γ = 2 for a fixed
+    # `f = |E★ + v×B|/|B| = 1e-3, 1e-2, 0.1, 1` — the predictor's departure
+    # from the ideal field, `f ~ 0.01–0.1` per step in a resolved flow. With
+    # σ tapered to zero over `μ = B²/D ∈ [1, 10]`, the iteration must not
+    # fall back at any `f ≤ 0.1` over the whole grid. The problems are built
+    # with the tapered σ, so their known solution is the stage's.
+    for f in (nothing, 1e-3, 1e-2, 0.03, 0.1, 0.3, 1.0)
+        pts = st_sweep(Γ, 8; f, cutoff=true)
+        conv = filter(p -> p.flags & OHM_FALLBACK == 0, pts)
+        nfb = length(pts) - length(conv)
+        nσ0 = count(p -> p.flags & OHM_SIGMA_ZERO != 0, pts)
+        worst = maximum(p -> max(p.r_ohm, p.r_matter), conv)
+        @info "Cutoff μ_max = $ST_μ_MAX, f = $f, Γ = $Γ: fallbacks, σ = 0 by the cutoff, " *
+              "worst residual" nfb nσ0 worst
+        @test all(p -> p.finite, pts)
+        @test worst <= 1e-10
+        # Measured none at f ≤ 0.3 over this grid at sixteen seeds of the
+        # generator (124,416 problems per Γ and f), and 0, 3, 3 of them at
+        # f = 1 (Γ = 4/3, 5/3, 2).
+        # The uniform draw (`f` from `[0, 1]`, `nothing` here), recorded: none.
+        if f === nothing || f <= 0.3
+            @test nfb == 0
+        else
+            @test nfb <= 4
+        end
+    end
+end
+
+@testset "MagnetizationCutoff tapers σ smoothly to zero and composes with every finite σ" begin
+    # Guards the model: continuous and monotone in `μ = B²/D`, the inner
+    # model's σ below the taper and exactly zero beyond it (a mask: the inner
+    # model is not read), the same in Ohm's current and Ampère's stiff
+    # source, refused for an ideal conductor, and a stage beyond the taper
+    # is the vacuum's: `E = E★` exactly.
+    prim = ST.pack_prim(1e-3, zero(SVector{3}), 5.0, 0.3, 0.0, 0.1, 1.5, 0.2, NaN)
+    for inner in (Constant(7.0), DensityProfile(7.0, 1e-5), Vacuum())
+        c = MagnetizationCutoff(inner, ST_μ_MAX)
+        @test isbits(c)
+        σin = conductivity(inner, prim)
+        μs = exp10.(range(-2, 2, length=4001))
+        σs = [conductivity(c, prim, μ) for μ in μs]
+        @test all(σ -> σ == σin, σs[μs .<= ST_μ_MAX / 10])
+        @test all(σ -> σ === 0.0, σs[μs .>= ST_μ_MAX])
+        @test all(i -> σs[i + 1] <= σs[i], 1:(length(σs) - 1))       # monotone
+        # Continuous: the steepest step on this grid (Δlog₁₀μ = 1e-3) is the
+        # smoothstep's slope, 1.5 per decade, times the step: 1.5e-3 σ.
+        @test maximum(abs.(diff(σs))) <= 2e-3 * σin + eps()
+        @test conductivity(c, prim, NaN) |> isnan
+        @test conductivity(c, prim, 0.0) == σin
+        @test ST.conductivity_slope(c, prim, 1e3) == 0.0
+    end
+    @test_throws ArgumentError MagnetizationCutoff(IdealConductor(), 10.0)
+    @test_throws ArgumentError MagnetizationCutoff(Constant(1.0), 0.0)
+    @test_throws ArgumentError conductivity(MagnetizationCutoff(Constant(1.0), 10.0), prim)
+    @test MagnetizationCutoff(Constant(1.0f0), 10.0f0) isa MagnetizationCutoff{Constant{Float32},Float32}
+
+    # Ohm's current and Ampère's source read the cell's magnetization.
+    eos = rec_gas(2)
+    opts = REC_EOS.Con2PrimOptions{Float64}()
+    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    rng = Xoshiro(64)
+    for _ in 1:100
+        m = rec_metric(rng)
+        q = rec_prim(rng, eos, m)
+        D = ST.prim_ρ(q) * ST.prim_W(q)
+        E = SVector{3}(randn(rng, 3)) * 1e-3
+        c = MagnetizationCutoff(Constant(5.0), ST_μ_MAX)
+        Bhi = sqrt(2 * ST_μ_MAX * D) * rec_direction(rng, m)
+        Blo = sqrt(0.5 * D) * rec_direction(rng, m)
+        @test ohm_current(c, m, q, E, Bhi, 0.0) == zero(SVector{3})
+        @test ampere_stiff_source(c, m, q, E, Bhi) == zero(SVector{3})
+        @test ohm_current(c, m, q, E, Blo, 0.0) == ohm_current(Constant(5.0), m, q, E, Blo, 0.0)
+        # Beyond the taper the stage is the vacuum's, bit for bit.
+        cons = prim2con(eos, m, q, E, Bhi)
+        Es, qs, r, n = solve_ohm_stage(eos, opts, pol, c, m, cons, E, Bhi, 0.3,
+                                       cold_guesses(Float64))
+        qh, fh = con2prim_hydro(eos, opts, pol, m, cons, E, Bhi, cold_guesses(Float64))
+        @test Es === E && isequal(qs, qh) && r == OhmStageResult(OHM_SIGMA_ZERO, fh) && n == 1
     end
 end
 
@@ -510,13 +606,26 @@ end
     iters[i] = n
 end
 
+@kernel function st_cut_kernel!(Es, prims, results, iters, eos, opts, pol, μ_max, @Const(σs),
+                                @Const(metrics), @Const(conss), @Const(E★s), @Const(Bs), γΔt)
+    i = @index(Global)
+    model = MagnetizationCutoff(Constant(σs[i]), μ_max)
+    E, q, r, n = solve_ohm_stage(eos, opts, pol, model, metrics[i], conss[i], E★s[i], Bs[i], γΔt,
+                                 cold_guesses(typeof(γΔt)))
+    Es[i] = E
+    prims[i] = q
+    results[i] = r
+    iters[i] = n
+end
+
 @testset "The stage solve runs inside a CPU kernel, bit for bit: T=$T" for T in (Float64, Float32)
     # Guards the kernel-callability the RHS's `solve_imp!` will rely on
     # (step 5): the solve, its options and its result are `isbits`, nothing
     # throws, allocates or fails to infer, and a kernel computes what the
     # host computes, on every branch — the fixed point, Newton from either
-    # seed, and the fallback of the strongly magnetized corner. `Float32` is
-    # the leak detector, and a smoke test of the solve itself.
+    # seed, and the fallback of the strongly magnetized corner — and with
+    # the magnetization cutoff. `Float32` is the leak detector, and a smoke
+    # test of the solve itself.
     eos64 = rec_gas(2)
     eos = REC_EOS.narrow(eos64, T)
     opts = REC_EOS.Con2PrimOptions{T}()
@@ -557,9 +666,43 @@ end
           OHM_FIXED_POINT | OHM_NEWTON | OHM_IDEAL_SEED
     @test isbits(OhmStageOptions{T}()) && isbits(results[1])
 
+    # With the magnetization cutoff, on cells across the corner where it
+    # tapers σ (f = 0.1): bit for bit, and some cells inside the taper.
+    cσs, cms, ccs, cEs, cBs = T[], Metric3{T}[], NTuple{NU,T}[], SVector{3,T}[], SVector{3,T}[]
+    for lσ in (-2, 0, 3), lb in (-1, 0, 1, 2, 3), W in (1.0, 2.0, 10.0)
+        m64 = rec_metric(rng)
+        _, _, E★, B, cons, model, _ = st_problem(rng, eos64, m64, exp10(lσ), exp10(lb), W; f=0.1,
+                                                 cutoff=true)
+        push!(cσs, T(model.model.σ₀))
+        push!(cms, Metric3(T(m64.α), T.(m64.β), T.(m64.γ)))
+        push!(ccs, T.(cons))
+        push!(cEs, T.(E★))
+        push!(cBs, T.(B))
+    end
+    nc = length(cms)
+    μ_max = T(ST_μ_MAX)
+    chost = [solve_ohm_stage(eos, opts, pol, MagnetizationCutoff(Constant(cσs[i]), μ_max), cms[i],
+                             ccs[i], cEs[i], cBs[i], γΔt, cold_guesses(T)) for i in 1:nc]
+    cE = Vector{SVector{3,T}}(undef, nc)
+    cq = Vector{NTuple{NPRIM,T}}(undef, nc)
+    cr = Vector{OhmStageResult}(undef, nc)
+    cn = Vector{Int}(undef, nc)
+    st_cut_kernel!(backend)(cE, cq, cr, cn, eos, opts, pol, μ_max, cσs, cms, ccs, cEs, cBs, γΔt;
+                            ndrange=nc)
+    synchronize(backend)
+    @test isequal(cE, [h[1] for h in chost]) && isequal(cq, [h[2] for h in chost])
+    @test cr == [h[3] for h in chost] && cn == [h[4] for h in chost]
+    tapered = count(i -> 1 < ST.magnetization(cms[i], cBs[i], ST.cons_D(ccs[i]) / cms[i].sqrtγ) <
+                         ST_μ_MAX, 1:nc)
+    @test tapered >= 3
+    @test count(r -> r.flags & OHM_SIGMA_ZERO != 0, cr) >= 3
+    @test all(r -> ST.converged(r), cr)
+
     # Allocation-free and inferred on the host, at every model.
     m, cons, E★, B = metrics[1], conss[1], E★s[1], Bs[1]
-    for mdl in (Vacuum(), Constant(T(10)), DensityProfile(T(10), T(1e-9)), IdealConductor())
+    for mdl in (Vacuum(), Constant(T(10)), DensityProfile(T(10), T(1e-9)), IdealConductor(),
+                MagnetizationCutoff(Constant(T(10)), μ_max),
+                MagnetizationCutoff(DensityProfile(T(10), T(1e-9)), μ_max))
         @test (@inferred solve_ohm_stage(eos, opts, pol, mdl, m, cons, E★, B, γΔt,
                                          cold_guesses(T))) isa
               Tuple{SVector{3,T},NTuple{NPRIM,T},OhmStageResult,Int}

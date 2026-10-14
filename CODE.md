@@ -351,6 +351,7 @@ jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 | `Constant(σ₀)` | σ₀ | resistive shock tubes, current sheet |
 | `DensityProfile(σ₀, ρ_atm, …)` | σ₀ inside, → 0 toward `ρ_atm` | stars with a magnetosphere (Palenzuela 2013) |
 | `IdealConductor()` | ∞ | the exact ideal limit: `E = −v × B`, for Balsara 1–5 and comparison with GRaM-X |
+| `MagnetizationCutoff(model, μ_max)` | `model`'s, → 0 where `B²/D → μ_max` | any finite σ, where the plasma is magnetically dominated (step 3) |
 
 The `q v` part is explicit. The `σ` part is **stiff** inside a star
 (`σ Δt ≫ 1`), and is the implicit part of the time integrator.
@@ -372,6 +373,75 @@ branches). Measured in step 2: at `E = −v × B` the current is 2.3e−16 of
 the stage solve's Newton Jacobian; a later model that reads `s` or `Yₑ`
 adds their derivatives. Extension slots, not planned: a mean-field dynamo
 term, and force-free currents in the magnetosphere.
+
+**σ → 0 where the plasma is magnetically dominated** (decided by Erik
+2026-10-14, after step 3's review), and not only where `ρ → ρ_atm`. At
+`b²/ρ ≳ 10³` the Alfvén speed is within `ρh/b²` of the speed of light, the
+plasma's inertia is negligible and it is force-free. There one implicit
+stage hands the fluid more energy than it has: the share of stages the
+iteration cannot solve rises with `X`, the field energy the stage hands over
+per unit of the fluid's energy, from 1.7% (and 0.1% falling back) at
+`X < 1` to 46% (0.8%) at `X > 1000` (review's measurement); the stage
+equations there have several admissible roots; and a scalar Ohm's law in the
+fluid frame has no physical basis. Resistive neutron-star codes take σ → 0
+outside the star for this reason (Palenzuela 2013); this makes the same
+choice by magnetization as well as by density. A globally convergent stage
+solve for that regime, a bracketed search over the fluid's rapidity that
+leaves no fallback at `f ≤ 0.03` and 0.02% at `f = 0.1`, is kept on the
+branch `claude/step-3-bracketed-stage-solve` and is not in the code.
+
+*As built* (proposed in step 3): `MagnetizationCutoff(model, μ_max)` wraps
+any finite-σ model and multiplies its σ by a taper `g(μ)` of the
+magnetization `μ = magnetization(m, B, D) = γ_ij Bⁱ Bʲ / D` — the normal
+observer's field over the rest-mass density, which bounds the fluid
+frame's `μ/W ≤ b²/ρ ≤ W μ`.
+- **Constant within a stage.** `B` is explicit in the stage and the stage
+  moves no rest mass, so `μ` is computed once from the stage's `B` and `D`:
+  the cutoff adds no nonlinearity to the stage solve and nothing to its
+  Newton Jacobian (`conductivity_slope` is scaled by `g`). In Ohm's current
+  and Ampère's stiff source, `D = ρW` of the primitive state.
+- **Smooth and monotone.** `g = 1 − t²(3 − 2t)`, `t = log₁₀(10 μ/μ_max)`
+  clamped to `[0, 1]`: σ is the model's for `μ ≤ μ_max/10`, zero for
+  `μ ≥ μ_max`, and `C¹` and monotone between. Where `g = 0` the inner
+  model is not read, and the stage is the vacuum's (`E = E★`,
+  `OHM_SIGMA_ZERO`).
+- **Composable and `isbits`.** `conductivity(model, prim, μ)` is the
+  three-argument form every caller uses; it is `conductivity(model, prim)`
+  for the plain models, and the wrapper has no two-argument form (it
+  throws, saying why).
+- **`IdealConductor` is not tapered** (the constructor refuses it): its σ is
+  infinite, `∞ · g` is not a conductivity, and the ideal recovery is well
+  posed at any magnetization — it carries the field's inertia in its own
+  model, which is why it is the iteration's seed in the stiff limit.
+- **The threshold, `μ_max = 10`** (measured in step 3): the largest of
+  `{5, 10, 20, 30, 50, 70, 100, 300, 1000}` at which the iteration, with no
+  other help, has no fallback at any fixed `f ≤ 0.1` over the whole grid
+  (`σΔt ∈ 10⁻³…10⁸`, `b²/ρ ∈ 10⁻⁴…10⁴`, `W ∈ {1, 2, 10}`, eight problems a
+  point) at every Γ across sixteen seeds of the test's generator — 41,472
+  problems per Γ and `f`. At `μ_max = 10` none falls back up to `f = 0.3`;
+  at 20, 4 do at `f = 0.1` and 1 at `f = 10⁻²`; at 30, 3 at `f = 0.1`;
+  at 100, 1 at `f = 0.1` and 2 at `f = 0.03` — so 10 has a factor of two
+  in hand. The taper begins at `μ = 1`; since
+  `b²/ρ ≤ W μ`, σ is zero by `b²/ρ ≈ 10` for a fluid at rest and
+  `≈ 100` at `W = 10`, the same order as the magnetization ceilings of
+  ideal-GRMHD codes (`b²/ρ ~ 50–100`), which add mass where this switches
+  off the conduction current instead.
+
+Fallbacks of 41,472 problems per cell (16 seeds × 2592), at a fixed
+`f = |E★ + v × B|/|B|`, the predictor's departure from the ideal field:
+
+| | f = 10⁻³ | 10⁻² | 0.03 | 0.1 | 0.3 | 1 | uniform |
+|---|---|---|---|---|---|---|---|
+| Γ = 4/3, no cutoff | 2 | 1 | 26 | 76 | 236 | 684 | 361 |
+| Γ = 4/3, `μ_max = 10` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Γ = 5/3, no cutoff | 2 | 118 | 161 | 434 | 844 | 1600 | 1055 |
+| Γ = 5/3, `μ_max = 10` | 0 | 0 | 0 | 0 | 0 | 3 | 0 |
+| Γ = 2, no cutoff | 58 | 266 | 406 | 754 | 1199 | 2034 | 1434 |
+| Γ = 2, `μ_max = 10` | 0 | 0 | 0 | 0 | 0 | 3 | 1 |
+
+The problems are built with the tapered σ, so each known solution is the
+stage's; the residual at every converged point stays at most 1.8e−12 of
+`τ + D`.
 
 ### Stress-energy for the spacetime
 
@@ -858,8 +928,11 @@ stage equation then requires. On `σΔt ∈ 10^{−3…8}` × `b²/ρ ∈ 10^{�
   both the solution and the ideal field by far more than the fluid's
   energy, so that neither the predictor's share nor the ideal recovery is
   a fluid state, and the solution is an island in `σΔt` — continuation
-  from either limit was tried and does not reach it. The lagged `E` there
-  is off the solution by a median 0.11 of `|E| + |B|`, at most 0.46 (Γ = 2);
+  from either limit was tried and does not reach it. *(Decided
+  2026-10-14:)* the scheme takes σ to zero there with the
+  [magnetization cutoff](#ohms-law-and-the-conductivity), under which
+  none of these problems falls back (the uniform draw: 1 of 124,416 over
+  sixteen seeds, at Γ = 2). Without it, the lagged `E` there is off the solution by a median 0.11 of `|E| + |B|`, at most 0.46 (Γ = 2);
 - **the stage equations have more than one root** there: 5, 2 and 2 points
   converge, to the same residual, to another solution than the one the
   problem was built from;
@@ -1178,9 +1251,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - The implicit stage may converge poorly where magnetization and `σΔt`
   are both large; rung 1's sweep exists to find out where. *(Measured in
   step 3, pointwise:)* not where both are large — the ideal seed is exact
-  there — but at `b²/ρ ≥ 10` with `σΔt` between `10⁻³` and `10²`, when
-  `E★` is so far from both the solution and the ideal field that neither
-  seed is a fluid state: 1.4–4.0% of the sweep falls back to the lagged
-  velocity, and the stage equations there have more than one root. Rung 1
-  sees how often an evolution meets it.
+  there — but at `b²/ρ ≥ 10` with `σΔt` between `10⁻³` and `10²`, when `E★`
+  is so far from both the solution and the ideal field that neither seed is
+  a fluid state. *(Decided 2026-10-14:)* the
+  [magnetization cutoff](#ohms-law-and-the-conductivity) takes σ to zero
+  there, and with it no fallback remains at `f ≤ 0.3`; the price is that
+  the field in magnetically dominated plasma evolves as in electrovacuum,
+  not as force-free. Rung 1 sees how often an evolution meets the taper.
 - `q := ∇·E` turns numerical divergence of `E` into charge.

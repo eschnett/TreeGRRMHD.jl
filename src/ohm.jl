@@ -100,6 +100,97 @@ the stage solve a column for each (proposed in step 3).
 end
 
 """
+    magnetization(m::Metric3, B, D) -> μ
+
+`μ = γ_ij Bⁱ Bʲ / D`: twice the field's energy per unit rest mass, both seen
+by the normal observer, from the cell's field `Bⁱ` and its undensitized `D`.
+Within an implicit stage both are fixed — `B` is explicit and the stage
+moves no rest mass — so a conductivity that depends on `μ` adds nothing to
+the stage's nonlinearity (proposed in step 3). It bounds the fluid frame's
+magnetization: `μ/W ≤ b²/ρ ≤ W μ`.
+"""
+@inline magnetization(m::Metric3{T}, B::SVector{3,T}, D::T) where {T} = dot_up(m, B, B) / D
+
+"""
+    MagnetizationCutoff(model, μ_max)
+
+The conductivity of the finite-σ `model`, tapered to zero where the plasma is
+magnetically dominated: `σ = g(μ) σ_model`, with [`magnetization`](@ref)
+`μ = B²/D` and `g` a monotone `C¹` smoothstep in `log μ`, 1 for
+`μ ≤ μ_max/10` and 0 for `μ ≥ μ_max` (proposed in step 3). There the
+plasma's inertia is negligible against the field's, a stage of a scalar
+fluid-frame Ohm's law hands the fluid more energy than it has, and the stage
+equations stop having one admissible root; resistive neutron-star codes set
+`σ = 0` outside the star for the same reason (decided by Erik 2026-10-14;
+"Ohm's law and the conductivity" in `CODE.md`).
+
+It wraps any finite-σ model — [`Constant`](@ref), [`DensityProfile`](@ref),
+[`Vacuum`](@ref) — and is `isbits` when the model is. It refuses
+[`IdealConductor`](@ref): the ideal recovery puts the field's inertia in its
+own model and is well posed at any magnetization, and `∞ · g` is not a
+conductivity.
+"""
+struct MagnetizationCutoff{M<:Conductivity,T} <: Conductivity
+    model::M
+    μ_max::T
+    function MagnetizationCutoff(model::M, μ_max::T) where {M<:Conductivity,T<:Real}
+        model isa IdealConductor &&
+            throw(ArgumentError("an ideal conductor cannot be tapered: its σ is infinite, " *
+                                "and the ideal recovery is well posed at any magnetization"))
+        μ_max > zero(T) ||
+            throw(ArgumentError("the magnetization cutoff must be positive, got $μ_max"))
+        return new{M,T}(model, μ_max)
+    end
+end
+MagnetizationCutoff(model::Conductivity, μ_max::Integer) = MagnetizationCutoff(model, float(μ_max))
+
+"""
+    magnetization_taper(μ_max, μ) -> g ∈ [0, 1]
+
+The taper of [`MagnetizationCutoff`](@ref): `1 − t²(3 − 2t)` with
+`t = log₁₀(10 μ/μ_max)` clamped to `[0, 1]`. A NaN `μ` stays NaN.
+"""
+@inline function magnetization_taper(μ_max::T, μ::T) where {T}
+    t = log(10 * μ / μ_max) / log(T(10))
+    t = t < zero(T) ? zero(T) : t > one(T) ? one(T) : t     # NaN passes through
+    return one(T) - t * t * (3 - 2 * t)
+end
+
+"""
+    conductivity(model, prim, μ) -> σ
+
+The conductivity of `model` at the primitive state `prim` and the
+[`magnetization`](@ref) `μ`: `conductivity(model, prim)` for every model but
+[`MagnetizationCutoff`](@ref), which needs `μ` and has no two-argument form.
+"""
+@inline conductivity(model::Conductivity, prim::NTuple{N,T}, μ::T) where {N,T} =
+    conductivity(model, prim)
+@inline function conductivity(c::MagnetizationCutoff, prim::NTuple{N,T}, μ::T) where {N,T}
+    g = magnetization_taper(convert(T, c.μ_max), μ)
+    iszero(g) && return zero(T)                  # a mask: the model is not read
+    return g * conductivity(c.model, prim, μ)
+end
+conductivity(::MagnetizationCutoff, prim::NTuple) = throw_needs_magnetization()
+
+@noinline throw_needs_magnetization() =
+    throw(ArgumentError("a MagnetizationCutoff's conductivity depends on the magnetization: " *
+                        "call conductivity(model, prim, μ) with μ = magnetization(m, B, D)"))
+
+"""
+    conductivity_slope(model, prim, μ) -> ∂σ/∂ρ
+
+[`conductivity_slope`](@ref) at the magnetization `μ`, which is constant
+within a stage, so that the cutoff's taper only scales it.
+"""
+@inline conductivity_slope(model::Conductivity, prim::NTuple{N,T}, μ::T) where {N,T} =
+    conductivity_slope(model, prim)
+@inline function conductivity_slope(c::MagnetizationCutoff, prim::NTuple{N,T}, μ::T) where {N,T}
+    g = magnetization_taper(convert(T, c.μ_max), μ)
+    iszero(g) && return zero(T)
+    return g * conductivity_slope(c.model, prim, μ)
+end
+
+"""
     conduction_drift(m::Metric3, prim, E, B) -> SVector{3}
 
 The bracket of Ohm's law, `W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]`: the
@@ -129,7 +220,7 @@ and the conductivity" in `CODE.md`.
 @inline function ohm_current(model::Conductivity, m::Metric3{T}, prim::NTuple{N,T},
                              E::SVector{3,T}, B::SVector{3,T}, q::T) where {N,T}
     j_conv = q * prim_v(prim)
-    σ = conductivity(model, prim)
+    σ = conductivity(model, prim, magnetization(m, B, prim_ρ(prim) * prim_W(prim)))
     iszero(σ) && return j_conv
     return j_conv + σ * conduction_drift(m, prim, E, B)
 end

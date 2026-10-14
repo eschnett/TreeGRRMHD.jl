@@ -448,7 +448,9 @@ Allocation-free and kernel-callable.
     # where there is no conductivity, the first iterate otherwise.
     S_f, τ_f = field_budget(m, S, τ, E★, B)
     prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses)
-    σ = conductivity(model, prim)
+    # The magnetization is the stage's: `B` is explicit, `D` is not changed.
+    μ = magnetization(m, B, D)
+    σ = conductivity(model, prim, μ)
     iszero(σ) && return E★, prim, OhmStageResult(OHM_SIGMA_ZERO, f), 1
     # A share the policy repaired is replaced by the repaired state's own, so
     # that every iterate is a fluid state and its recovery's derivative is
@@ -475,7 +477,7 @@ Allocation-free and kernel-callable.
     if newton && (stiff || f != 0)
         primI, fI, ptI = ideal_recovery(eos, opts, pol, m, cons★, B, guesses_of(prim))
         nrec += 1
-        σI = conductivity(model, primI)
+        σI = conductivity(model, primI, μ)
         if !iszero(σI) && (stiff ? (fI == 0 || f != 0) : fI == 0)
             S_f, τ_f = fluid_share(eos, m, primI)
             prim, f, pt, σ = primI, fI, ptI, σI
@@ -525,7 +527,7 @@ Allocation-free and kernel-callable.
             newton = true
             nback = Int32(0)
             ΔS, Δτ = newton_step(m, D, prim, pt, c, u, E, B,
-                                 αΔt * conductivity_slope(model, prim), R_S, R_τ)
+                                 αΔt * conductivity_slope(model, prim, μ), R_S, R_τ)
             # A singular Jacobian (a clamped recovery) takes the fixed-point
             # step instead.
             if !(all(isfinite, ΔS) && isfinite(Δτ))
@@ -544,7 +546,7 @@ Allocation-free and kernel-callable.
             repaired = OHM_REPAIRED
             S_f, τ_f = fluid_share(eos, m, prim)
         end
-        σ = conductivity(model, prim)
+        σ = conductivity(model, prim, μ)
     end
 
     # Not converged: the lagged velocity — `E` at the best velocity seen, and

@@ -802,6 +802,21 @@ at least ten times the measurement, except where a bound is a theorem the measur
 (the stiff limit of `ohm_E`, `≤ 1 + 10⁻⁶`); the counts have room of 1.6× (recoveries) and 2×
 (fallbacks); `CODE.md` has the rest.
 
+*(Amended in step 3 after review; decided by Erik 2026-10-14:)* the fallback rate was not
+acceptable — with the predictor's non-ideal fraction `f = |E★ + v×B|/|B|` fixed, the corner
+`b²/ρ ≥ 10`, `σΔt ≤ 10²` fell back on 0.17%, 3.5%, 8.0% and 20.9% at Γ = 2 for
+`f = 10⁻³, 10⁻², 0.1, 1`. Two remedies were built: a globally convergent bracketed stage solve
+(kept, unmerged, on `claude/step-3-bracketed-stage-solve` for a draft PR) and, in the code, σ → 0
+where the plasma is magnetically dominated. Added: `MagnetizationCutoff(model, μ_max)`
+(`src/ohm.jl`), a `C¹` taper of any finite σ in `μ = B²/D` from `μ_max/10` to `μ_max`, constant
+within a stage; `conductivity(model, prim, μ)` and `magnetization(m, B, D)`. Accept: the
+sweep asserts, at fixed `f ∈ {10⁻³, 10⁻², 0.03, 0.1, 0.3, 1}` with the cutoff, no fallback at
+`f ≤ 0.1` over the whole grid at every Γ; the model's own testset (continuous, monotone, zero
+beyond the taper, refuses `IdealConductor`, bit-identical in a CPU kernel, allocation-free,
+inferred). Measured: `μ_max = 10`, the largest tested at which sixteen seeds (41,472 problems per
+Γ and `f`) show no fallback at `f ≤ 0.3`; at `f = 1`, 0, 3, 3 (Γ = 4/3, 5/3, 2). The table is
+in `CODE.md`, "Ohm's law and the conductivity".
+
 ## Steps 4a–4c — The IMEX package (in its own repository)
 
 These steps are done in `~/src/jl/IMEXRungeKutta`, following its `CODE.md`, its own plan, and
