@@ -521,10 +521,29 @@ end
 @testset "EOS-3: the fixed-entropy inversion is public (when landed)" begin
     # Guards the entropy fallback of step 12 and the entropy-from-energy
     # solve for initial data.
+    # And the stage solve's bracketed path, whose `pressure_at_energy` is
+    # EOS-3's workaround (step 3): once landed, upstream's entropy must be
+    # the workaround's.
     landed = isdefined(EOS, :con2prim_entropy) && isdefined(EOS, :entropy_from_energy)
     prereq_report("EOS-3", landed,
                   landed ? "`con2prim_entropy`, `entropy_from_energy`" :
-                  "no public fixed-entropy inversion; wanted by step 12")
+                  "no public fixed-entropy inversion; wanted by step 12; " *
+                  "`pressure_at_energy` is the workaround (step 3)")
+    if landed
+        eos = EOS.IdealGasEOS{Float64}(; Γ=2.0, K_ref=100.0, s_ref=5.0, s_window=(4.0, 6.0),
+                                       ρ_bounds=(1e-10, 1e-2), yₑ_bounds=(0.05, 0.6))
+        worst = 0.0
+        for k in 1:100
+            ρ = exp10(-9 + 7 * (k - 1) / 99)
+            s = 4.0 + 2.0 * ((k * 0.618) % 1)
+            U = EOS.evaluate(eos, ρ, s, 0.3, NaN).U
+            s_up, _, ok = EOS.entropy_from_energy(eos, ρ, 0.3, U)
+            _, s_here, _ = TreeGRRMHD.pressure_at_energy(eos, ρ, 0.3, U, 5.0)
+            @test ok
+            worst = max(worst, abs(s_up - s_here) / s)
+        end
+        @test worst < 1e-12
+    end
 end
 
 @testset "EOS-4: the cold β-equilibrium slice exists (when landed)" begin

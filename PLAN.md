@@ -182,7 +182,7 @@ reports, and for TreeGH, which the suite cannot load yet, what its `main` reads.
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed, 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed, 1.0.0 |
-| EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
+| EOS-3 | EntropyEOS | wanted | 3, 12 | public fixed-entropy inversion; entropy from energy | waiting (workaround, step 3) |
 | EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
@@ -416,7 +416,15 @@ raw 1e−12: the raw entropy error is 8.9e−10 at `ρ = 1e−8`, `W = cosh 2` o
 (measured in step 0). Step 0's prerequisite test runs the hydrodynamic-mode call on both EOSes,
 24 states, with the conditioned worst errors 2.1e−14 (ρ, w) and 1.7e−13 (s).
 
-### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, step 12)
+### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, steps 3 and 12)
+
+*(Amended in step 3 after review:)* the stage solve's bracketed path needs `entropy_from_energy`
+now, in the form `p_EOS(ρ★, U)` at fixed `ρ★` and `yₑ`, smooth beyond the window (step 3 continues
+the EOS linearly in `U` from the edge of `srange_extended`). **Workaround:**
+`pressure_at_energy` in `src/stage_bracket.jl`, marked EOS-3, a safeguarded Newton on
+`EntropyEOS.evaluate` inside `srange_extended`. When EOS-3 lands, it calls `entropy_from_energy`
+and the local solve goes. Downstream check, added to the existing one: upstream's `s` agrees with
+the workaround's to 1e-12 on random `(ρ★, s)` inside the extended window.
 
 **API.**
 ```julia
@@ -801,6 +809,27 @@ orders 2.92 and 2.96 with its matter bit for bit; the solve is bit-identical in 
 at least ten times the measurement, except where a bound is a theorem the measurement attains
 (the stiff limit of `ohm_E`, `≤ 1 + 10⁻⁶`); the counts have room of 1.6× (recoveries) and 2×
 (fallbacks); `CODE.md` has the rest.
+
+*(Amended in step 3 after review, Erik's option 1:)* the fallback rate was not acceptable:
+with the predictor's non-ideal fraction `f = |E★ + v×B|/|B|` fixed, the corner
+(`b²/ρ ≥ 10`, `σΔt ≤ 10²`) fell back on 0.17%, 3.5%, 8.0% and 20.9% at Γ = 2 for
+`f = 10⁻³, 10⁻², 0.1, 1`. Added: the bracketed path (`src/stage_bracket.jl`, `OHM_BRACKETED`),
+a scan over the fluid's rapidity for the roots of one function of it, each seeding the
+iteration; its one EOS operation beyond `con2prim_safe` is EOS-3's `entropy_from_energy`, written
+as EOS-3's workaround. Accept (target: no fallback at `f ≤ 0.1`, over the whole grid):
+- the sweep reports and asserts fallbacks at fixed `f ∈ {10⁻³, 10⁻², 0.1, 1}` per Γ, besides the
+  uniform draw.
+
+Measured: on the corner set, no fallback at `f ≤ 0.1` for any Γ (was up to 8.0%), 0.09–0.26% at
+`f = 0.3`, 1.5–3.0% at `f = 1` (was 8.5–20.9%); over the whole test grid, none at `f ≤ 0.1`;
+at three more seeds, none of 46,656 at `f ≤ 0.03` and 4 of 23,328 at `f = 0.1` — **the target
+missed by 0.02% of the grid**, at `W = 10`, `b²/ρ ≥ 10³`, `σΔt = 10⁻²`, where roots lie closer
+together than the scan resolves. Cost: 280 µs median for the bracketed path; a fallback 10 ms
+median. Where the predictor is a fluid state, the solve returns the root continuous in `σΔt`
+from `σ = 0` (380 of 380); where it is not, no root is, and the stage may have several.
+`CODE.md`, "The bracketed path", has the derivation and why no monotone master function
+exists. Whether the path is within "One con2prim", or the magnetization-aware conductivity
+(option 2) replaces it, is Erik's decision; the path is its own commit.
 
 ## Steps 4a–4c — The IMEX package (in its own repository)
 

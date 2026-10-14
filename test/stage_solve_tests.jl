@@ -338,8 +338,9 @@ const ST_FIXED_F_FALLBACKS = Dict((4 // 3, 0.1) => 2, (5 // 3, 0.1) => 2, (2 // 
         # The bracketed path is taken only in the strongly magnetized
         # corner at intermediate σΔt, where the iteration failed: measured at
         # b²/ρ ≥ 10 and σΔt ≤ 1e2, on 30, 69 and 94 points. The fallback
-        # takes 6, 9 and 9 of these 2592 (Γ = 4/3, 5/3, 2), all with f > 0.1;
-        # before the bracketed path it took 36, 78 and 103.
+        # takes 6, 9 and 9 of these 2592 (Γ = 4/3, 5/3, 2; 7, 11, 10 at Julia
+        # 1.11), all with f > 0.1; before the bracketed path it took 36, 78
+        # and 103.
         @test all(p -> p.lb >= 1 && p.lσ <= 2, bracketed)
         @test all(p -> p.lb >= 1 && p.lσ <= 2, fb)
         @test length(fb) <= ST_UNIFORM_FALLBACKS[Γ]
@@ -385,7 +386,7 @@ end
             # seeds of the generator (`W = 10`, `b²/ρ ≥ 1e3`, `σΔt = 1e-2`:
             # roots of the speed equation closer together than the scans
             # resolve, see "The bracketed path" in `CODE.md`); at f = 1, 7,
-            # 12 and 16 (Γ = 4/3, 5/3, 2).
+            # 12 and 16 (Γ = 4/3, 5/3, 2; 8, 12, 17 at Julia 1.11).
             @test nfb <= ST_FIXED_F_FALLBACKS[(Γ, f)]
         end
     end
@@ -747,16 +748,25 @@ end
     nbr = count(r -> r.flags & OHM_BRACKETED != 0, results)
     @test isbits(OhmStageOptions{T}()) && isbits(results[1])
 
-    # Allocation-free and inferred on the host, at every model, on a cell
-    # the bracketed path solves.
+    # Allocation-free and inferred on the host, at every model: on a cell the
+    # iteration solves without a repair, and on one the bracketed path
+    # solves. The latter's failed iteration takes EntropyEOS's repair path,
+    # which allocates 544 bytes a call under `--check-bounds=yes` and
+    # nothing otherwise (measured in step 3, an upstream behavior); so it is
+    # checked for allocations only when bounds checks are not forced.
     i_br = findfirst(r -> r.flags & OHM_BRACKETED != 0, results)
-    m, cons, E★, B = metrics[i_br], conss[i_br], E★s[i_br], Bs[i_br]
-    for mdl in (Vacuum(), Constant(σs[i_br]), DensityProfile(T(10), T(1e-9)), IdealConductor())
-        @test (@inferred solve_ohm_stage(eos, opts, pol, mdl, m, cons, E★, B, γΔt,
-                                         cold_guesses(T))) isa
-              Tuple{SVector{3,T},NTuple{NPRIM,T},OhmStageResult,Int}
-        @test rec_allocations(solve_ohm_stage, eos, opts, pol, mdl, m, cons, E★, B, γΔt,
-                              cold_guesses(T)) == 0
+    i_ok = findfirst(r -> r.flags & (OHM_REPAIRED | OHM_BRACKETED | OHM_FALLBACK) == 0 &&
+                          r.flags & OHM_NEWTON != 0, results)
+    forced = Base.JLOptions().check_bounds == 1
+    for (i, check) in ((i_ok, true), (i_br, !forced))
+        m, cons, E★, B = metrics[i], conss[i], E★s[i], Bs[i]
+        for mdl in (Vacuum(), Constant(σs[i]), DensityProfile(T(10), T(1e-9)), IdealConductor())
+            @test (@inferred solve_ohm_stage(eos, opts, pol, mdl, m, cons, E★, B, γΔt,
+                                             cold_guesses(T))) isa
+                  Tuple{SVector{3,T},NTuple{NPRIM,T},OhmStageResult,Int}
+            check && @test rec_allocations(solve_ohm_stage, eos, opts, pol, mdl, m, cons, E★, B,
+                                           γΔt, cold_guesses(T)) == 0
+        end
     end
 
     # Where it converged to the known answer's neighbourhood, it lands on it
