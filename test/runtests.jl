@@ -45,4 +45,7 @@ using TreeGRRMHD
     include("pointwise_tests.jl")
     # Step 3: the implicit stage solve. Uses `recovery_tests.jl`'s generators.
     include("stage_solve_tests.jl")
+    # Step 5: the staggered scheme on the mesh, and the 1D smooth waves.
+    include("scheme_tests.jl")
+    include("wave_tests.jl")
 end

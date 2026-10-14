@@ -18,13 +18,13 @@ time integrator, whose implicit stage this package solves itself, from
 [TreeHydro](https://github.com/eschnett/TreeHydro.jl) is the Newtonian
 rehearsal whose scheme, driver and conventions this package inherits.
 
-Every driver will take the floating-point type it computes in as a leading
+Every driver takes the floating-point type it computes in as a leading
 positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 to 3 of `PLAN.md`, the pointwise layers the scheme will
-stand on.* Step 1: geometric units and the EOS adapter
+*Status: steps 1 to 3 and 5 of `PLAN.md`: the pointwise layers, and the
+staggered scheme on the mesh with its first evolutions in 1D.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
 [`prim2con`](@ref) with the electromagnetic parts, and the 3+1 primitive
@@ -33,8 +33,14 @@ and [`con2prim_ideal`](@ref) as the stage solve's seed). Step 2: the metric
 providers [`Flat`](@ref) and [`Analytic`](@ref), the stress-energy, Ohm's
 law, the physical fluxes, the light-cone Riemann solvers, the UCT–HLL EMF
 and the sources. Step 3: the implicit stage solve of Ohm's law,
-[`solve_ohm_stage`](@ref), with its options and its result flags. No mesh
-code yet.
+[`solve_ohm_stage`](@ref), with its options and its result flags. Step 5:
+the field sets ([`mhd_fields`](@ref)) — the matter at cells, `A` on edges,
+`Φ̃` at vertices, `𝔅` on faces as the curl of `A` ([`curl_A!`](@ref)) —
+the right-hand side ([`mhd_rhs!`](@ref)), the implicit stage over the mesh
+([`ohm_solve!`](@ref)) and the reset ([`reset_atmosphere!`](@ref)) of
+[`MHDProblem`](@ref), the chunked driver [`evolve!`](@ref) of an
+[`MHDCase`](@ref), and the vacuum EM wave and the circularly polarized
+Alfvén wave ([`em_wave_case`](@ref), [`alfven_wave_case`](@ref)).
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.
@@ -43,7 +49,7 @@ module TreeGRRMHD
 
 using TreeAMR
 
-using KernelAbstractions: Backend, CPU, allocate, get_backend
+using KernelAbstractions: Backend, CPU, allocate, get_backend, @kernel, @index, @Const
 using StaticArrays: SArray, SMatrix, SVector
 
 # Imported, not `using`d: EntropyEOS exports `prim2con`, `con2prim` and
@@ -80,6 +86,13 @@ export geometric_source, explicit_source, ampere_explicit_source, ampere_stiff_s
 export solve_ohm_stage, OhmStageOptions, OhmStageResult, ohm_E
 export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM_IDEAL_SEED,
        OHM_BACKTRACKED, OHM_SWITCHED, OHM_REPAIRED
+# The field sets and the scheme
+export MHDFields, mhd_fields, evolved_sets, edge_centering, face_centering, curl_A!
+export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, update_primitives!, update_fields!
+export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales
+# The driver and the cases
+export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!
+export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 
 include("precision.jl")
 include("device.jl")
@@ -96,5 +109,12 @@ include("riemann.jl")
 include("emf.jl")
 include("sources.jl")
 include("stage_solve.jl")
+include("fieldsets.jl")
+include("curl.jl")
+include("reconstruction.jl")
+include("evolution.jl")
+include("driver.jl")
+include("cases/em_wave.jl")
+include("cases/alfven_wave.jl")
 
 end # module TreeGRRMHD
