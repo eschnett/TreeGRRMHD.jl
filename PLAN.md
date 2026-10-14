@@ -10,7 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 are done; step 5 is next, and is unblocked.** *(Amended 2026-10-14.)* Steps
+**Steps 0 to 3 and 5 are done; step 6 is next, and is unblocked** (AMR-2, which it wanted, has
+landed). *(Amended in step 5.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
 (still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
@@ -248,6 +249,10 @@ gather!(u::AbstractVector, sets)
 - The same round trip on a device backend, where CI has one.
 
 **Downstream check.** The same round trip over TreeGRRMHD's own tuple, in D = 1, 2, 3.
+*(Done in step 5:)* `test/scheme_tests.jl`, "AMR-1 downstream", over `evolved_sets(f) = (U,
+A₁, A₂, A₃, Φ̃)` on a two-level forest: each segment bit for bit the set's own state vector,
+`scatter!` the inverse of `gather!`, `statearray` aliasing `u`, a segment's reduction equal to
+a separate vector's, and a set over another forest refused.
 
 ### AMR-2 — Per-set boundary hooks in `regrid!` (wanted, step 6)
 
@@ -914,10 +919,50 @@ Accept:
   and momentum have no sources).
 - **Purity:** the RHS is pure, and never mutates `u`.
 
+*(Done, 2026-10-14, on `claude/step-5-staggered-1d`.)* *(Amended in step 5:)* as built, the
+files are as listed, plus `src/fieldsets.jl`'s diagnostics set `X` (per-cell tallies of the
+stage outcomes and the resets, reduced per chunk by `ohm_tally`); the driver is `evolve!(T,
+case::MHDCase, Val(D); N, t_end, chunk, cfl = 2/5, limiter, …)` with a case as data
+(`MHDCase`: `fields(x, t)`, `potential(x, t)`, the EOS, the model, the provider, `𝔅̄`, the box),
+exact initial data and references (Gauss cell averages for `U`, point values for `A`, `Φ̃`);
+the cases are `em_wave_case` and `alfven_wave_case`. The kernels are written for D = 1, 2, 3 and
+validated in 1D. The tests are `test/scheme_tests.jl` (centerings, the AMR-1 round trip, `∇·𝔅`
+on random `A` in D = 1, 2, 3, purity, the constructor's refusals, the reconstruction's
+fallback, the reset, chunking) and `test/wave_tests.jl` (the two waves). Decisions, each
+(proposed in step 5) in `CODE.md`: the background `𝔅̄` is the constant *densitized* field; the
+recoveries' warm starts come from the state (`s = D s/D`), not from `P`, so that the RHS is
+pure bit for bit; the reset writes back any policy repair, not the atmosphere alone; `cfl =
+2/5`; PointValue width 4 for `A` and `Φ̃` until step 8; `q` by centered differences at the
+owned cells; SSP3(4,3,3) stays the default tableau, with a new (open) question against
+ARS(4,4,3).
+
+*(Measured in step 5, Julia 1.11 and 1.13, one and four threads, identical:)*
+- **Vacuum EM wave:** L1 rates 1.938 (`𝔈ʸ`, `𝔈ᶻ`), 1.912 (`A_y`, `A_z`), 1.914 (`S_x`, `τ`),
+  2.00–2.02 (`D`, `D Yₑ`, `D s`); the prediction holds.
+- **Alfvén wave:** 2.089 (`S_y`, `S_z`), 2.10 (`A_y`, `A_z`), 2.09 (`𝔈`'s ideal projection),
+  2.78–2.85 (`D`, `S_x`, `τ`, `D Yₑ`, `D s`); the prediction holds for all but the state's own
+  `𝔈`, which converges at 0.85 because SSP3(4,3,3) is not stiffly accurate (each step ends
+  `O(Δt)` off the equilibrium the stages impose; `CODE.md`, "The partition"). ARS(4,4,3) lands
+  on it (2.10) for one more explicit evaluation a step, 8% more wall time.
+- **Conservation:** `D`, `S_i`, `τ`, `D Yₑ`, `D s` drift at most 0.016 ulp of their scale per
+  step (asserted ≤ 8). No stage was repaired, no reset fired; every stage was `OHM_SIGMA_ZERO`
+  (EM wave) or `OHM_IDEAL` (Alfvén wave), one recovery each.
+- **Purity:** `u` comes back bit for bit and the same `u` gives the same `du` bit for bit after
+  another state was evaluated; the stage solve writes only `𝔈`.
+- Beyond the list: `∇·𝔅` on random `A` (ghosts included, a two-level forest) is 0, 1.4e−16 and
+  2.9e−16 of `max |𝔅|` in D = 1, 2, 3; the Alfvén wave in `Float32` lands within 4e−5 of the
+  `Float64` error; one chunk and four chunks of the same `Δt` are bit-identical; a step of
+  SSP3(4,3,3) on 400 cells is 5.2 ms at one thread (Apple M3 Pro, 1.13). The suite is 24638
+  tests, 1m31s at 1.13 and 1m45s at 1.11 (`Test Summary`, one thread; 24292 and 40 s before the
+  step).
+
 ## Step 6 — Shock tubes and the stiff limit in 1D (rung 1b)
 
 `CODE.md`: "Validation ladder" 1, "Floors, the atmosphere and the magnetosphere".
-Waits: AMR-2 (workaround allowed).
+Waits: AMR-2 (workaround allowed). *(Amended in step 5:)* AMR-2 has landed, and `MHDProblem`
+takes one boundary hook per evolved set. Step 6 also decides the (open) tableau question of
+step 5 (`CODE.md`, "The partition"): SSP3(4,3,3) leaves each step's `𝔈` `O(Δt)` off the stiff
+equilibrium, and the step limiter reads it.
 
 Changes:
 - **`src/cases/shocktubes.jl`:**

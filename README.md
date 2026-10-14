@@ -33,12 +33,18 @@ time integrator from
 is neutron stars and core-collapse supernovae; the first science target is a
 magnetized TOV star.
 
-**Status: the pointwise layer (steps 0 to 3 of `PLAN.md`). There is
-no mesh code yet.** What exists is the module shell and its host helpers; the
-tests that say the resolved releases of TreeAMR, EntropyEOS,
-SpacetimeMetrics and IMEXRungeKutta still provide what the scheme will be
-written against, and which of the upstream items the plan waits for have
-landed; and the pointwise physics the scheme will stand on — geometric
+**Status: the pointwise layer and the first evolutions (steps 0 to 3 and 5
+of `PLAN.md`).** The staggered scheme runs on TreeAMR's mesh in one
+dimension: the matter and the electric field at cells, the vector potential
+on edges, the gauge scalar at vertices, and the magnetic field as the
+discrete curl of the potential, advanced by the IMEX integrator with the
+Ohm solve as its implicit stage. A vacuum electromagnetic wave and a
+large-amplitude circularly polarized Alfvén wave converge at second order,
+with the conserved totals constant to round-off. Beneath it lie the module
+shell and its host helpers; the tests that say the resolved releases of
+TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide what
+the scheme is written against, and which of the upstream items the plan
+waits for have landed; and the pointwise physics the scheme stands on — geometric
 units and an adapter that shows a tabulated EOS in them, the 3+1 point
 metric, the layouts of the evolved and primitive variables, and the
 conversion between primitive and conserved variables, electromagnetic

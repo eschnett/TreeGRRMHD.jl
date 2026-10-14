@@ -41,7 +41,8 @@ Rules that follow from `CODE.md` and govern every change here:
 ## Current state
 
 **Steps 0 (scaffolding), 1 (the pointwise recovery), 2 (the pointwise
-physics) and 3 (the implicit stage solve) are done; step 5 is next, and
+physics), 3 (the implicit stage solve) and 5 (the staggered scheme in 1D,
+rung 1a) are done; step 6 (shock tubes and the stiff limit) is next, and
 is unblocked (2026-10-14).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
@@ -73,7 +74,20 @@ use `recovery_tests.jl`'s state generators and are included after it. Steps
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
 unregistered); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces); SpacetimeMetrics 1.7.0 has
-SM-1, whose workaround is gone. Step 5 waits for nothing.
+SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
+(`mhd_fields`, every set of `CODE.md`'s table in D = 1, 2, 3, and the
+diagnostics set `X`), `src/curl.jl` (`curl_A!`, `𝔅 = curl A + 𝔅̄` on every
+stored face; `cell_𝔅`), `src/reconstruction.jl` (PLM, the positivity
+fallback, the face state), `src/evolution.jl` (`MHDProblem`, the kernels,
+`mhd_rhs!`, `ohm_solve!`, `reset_atmosphere!`, `ohm_tally`,
+`max_light_rate`, the conserved totals), `src/driver.jl` (`MHDCase`, exact
+initial data and references, `l1_errors`, `mhd_integrator`, `evolve!`) and
+`src/cases/` (`em_wave_case`, `alfven_wave_case`). The kernels are written
+for D = 1, 2, 3 and validated in 1D; step 7 validates 2D and 3D. The RHS is
+pure bit for bit because every recovery is seeded from the state
+(`state_guesses`), never from `P`. Tests: `test/scheme_tests.jl` and
+`test/wave_tests.jl` (the convergence studies, ~50 s, half of it
+compilation).
 
 ## Commands
 
@@ -123,7 +137,12 @@ probed as landed or waiting; grep it for `landed:` and `waiting:` (since
 `landed:` should not appear). At the end of step 2
 (2026-10-13): **20513 tests**, a `Test Summary` time of 37–39 s at 1.11
 and 28 s at 1.13 at one thread, four and `--check-bounds=yes`;
-`test/pointwise_tests.jl` takes about 12 s of it.
+`test/pointwise_tests.jl` takes about 12 s of it. At the end of step 5
+(2026-10-14): **24638 tests**, a `Test Summary` time of 1m31s at 1.13 at
+one thread and at four, 1m35s with `--check-bounds=yes`, and 1m45s and
+1m52s at 1.11 at one and four threads (24292 tests and 40 s at 1.13 before
+the step); the two step-5 files take about 75 s of it, more than half of
+that compiling the scheme's kernels.
 
 ## Conventions
 

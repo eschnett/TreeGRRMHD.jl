@@ -14,13 +14,15 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3 of `PLAN.md` are done — the scaffolding; the
+*Status: steps 0 to 3 and 5 of `PLAN.md` are done — the scaffolding; the
 pointwise layer: units, the variable layouts, the point metric, `prim2con`
 and the 3+1 primitive recovery; the pointwise physics a right-hand side
-evaluates; and the implicit stage solve — as are steps 4a–4c in
-IMEXRungeKutta. Step 5, the first evolution, is next, and since TreeAMR
-0.2.1 (AMR-1) it waits for nothing. There is no mesh code yet, and every
-number below about the scheme is unmeasured. (Amended 2026-10-14.)*
+evaluates; the implicit stage solve; and the staggered scheme on the mesh,
+with the first evolutions, the vacuum electromagnetic wave and the
+circularly polarized Alfvén wave in 1D (rung 1a) — as are steps 4a–4c in
+IMEXRungeKutta. Step 6, the shock tubes and the stiff limit in 1D, is next.
+The numbers below about the scheme are measured where they say so and
+unmeasured otherwise. (Amended in step 5.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -101,7 +103,7 @@ through its own code is in `test/upstream_behaviour_tests.jl`.
 - TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
   so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
   landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a different form (below).
-  Step 5 waits for nothing.
+  Step 5, which needed AMR-1, is done on it (amended in step 5).
 - EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
   **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0** (`EntropyEOS =
   "1"`); EOS-3 and EOS-4 have not.
@@ -126,7 +128,11 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   application that needs it"), plus segment views. The evolved state is a
   cell-centered matter set, three edge-centered sets for `A`, a
   vertex-centered set for the gauge scalar, and — when coupled — TreeGH's
-  vertex-centered set; one integrator advances all of them.
+  vertex-centered set; one integrator advances all of them. *(Used from
+  step 5:)* the state vector is over `evolved_sets(f) = (U, A₁, A₂, A₃,
+  Φ̃)`, and `test/scheme_tests.jl` makes the plan's downstream check — the
+  round trip over exactly that tuple in D = 1, 2, 3, on a two-level forest,
+  each segment bit for bit the set's own state vector.
 - **AMR-2 (wanted, step 6) Per-set boundary hooks in `regrid!`.** It takes
   one hook for every set, and an `AllVariables` hook is length-checked
   against each set's `nvars`, so one hook cannot serve this package's sets.
@@ -361,7 +367,12 @@ charge is monitored as a diagnostic.
 to `curl A` (proposed). It is what lets a vector potential represent a net
 flux through a periodic box, and a field along a direction the mesh does
 not resolve: a 1D shock tube's constant `Bˣ` is `B̄ˣ`, since no
-translation-invariant `A` produces it. It is zero for stars.
+translation-invariant `A` produces it. It is zero for stars. *(Amended in
+step 5:)* **the densitized `𝔅̄ⁱ` is the constant** (proposed in step 5), not
+`B̄ⁱ`: with `√γ` varying, `∂ᵢ(√γ B̄ⁱ) = B̄ⁱ∂ᵢ√γ ≠ 0`, a divergence the curl
+cannot cancel, while a constant `𝔅̄ⁱ` is divergence-free on any metric. In
+flat space the two are the same. It is `MHDProblem`'s `𝔅̄` and a case's
+(`src/curl.jl`); the Alfvén wave's guide field is the first user.
 
 ### Ohm's law and the conductivity
 
@@ -534,7 +545,19 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   g/cm³ to 3.0e-15 in `(ρ, w)` and 8.4e-13 in `s`, conditioned.
 - **Warm starts** (`u_guess`, the previous `log₁₀ T`) are carried per cell
   in the primitive set and passed to every EOS call, including those at
-  reconstructed face states.
+  reconstructed face states. *(Amended in step 5; proposed in step 5:)*
+  every **recovery** is seeded from the state itself — `s` from the advected
+  `(√γ D s)/(√γ D)`, a cold rapidity and EOS warm start (`state_guesses` in
+  `src/evolution.jl`) — and not from `P`. A warm start carried in `P` makes
+  each recovery depend, at the solver's tolerance, on whatever was evaluated
+  before: the right-hand side would not be a function of `(u, t)` bit for
+  bit (the plan's purity claim), and a restart from a checkpoint, which
+  holds no `P`, would not reproduce the run. The face states, reconstructed
+  from `P` within one evaluation, still take their cell's EOS warm start.
+  The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
+  cell on the Alfvén wave (measured in step 5, below). A table's `log₁₀ T`
+  is the warm start this loses; if step 13 finds it matters, the state can
+  carry it the way it carries `D s`.
 - **Analytic EOSes come from EntropyEOS** (decided; EOS-1, EOS-2). They are
   needed from the first evolution (step 5) on, not only from rung 4: the
   synthetic ideal-gas table is `Γ = 5/3` only, in cgs, with `T ≤ 50 MeV`,
@@ -676,6 +699,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed *(added in step 5)* | cell | 15 | 0 | `=> nothing` |
 
 `P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
@@ -691,6 +715,38 @@ cell per right-hand side, so storing them (36 more slots: `∂ⱼg_ab` and
 `K_ij`) would only move the same evaluation into another kernel and add a
 write and a read; the source kernel asks the provider for them
 (`metric_gradient`), as it would ask for the metric at a face.
+
+*As built in step 5* (`src/fieldsets.jl`, `mhd_fields(T, forest; G = 3)`):
+
+- **The missing directions.** In `D < 3` a quantity of a missing
+  direction takes the centering that remains: an edge along a missing
+  direction is vertex-like in every present one, a face normal to one is
+  cell-like in every present one (`edge_centering`, `face_centering`; for a
+  present direction they are TreeAMR's `edgecentered`, `facecentered`). So
+  in 1D `A_y`, `A_z` sit at the vertices, `𝔅ʸ`, `𝔅ᶻ` at the cells, and `𝔅ˣ`
+  at the faces holds only the background. There are `D` flux sets and always
+  three `B`, `A` and `EMF` sets.
+- **One `G` for every ghosted set** (`U`, `A`, `Φ̃`, `P`, `B`), checked by
+  `MHDProblem`. With `G_A = G_B` every stored face has the two edges its
+  curl reads in storage, and every stored cell the two faces its average
+  reads, so `B` and `P` cover the whole stored extent (`src/curl.jl`).
+  `N ≥ 2G + 2` follows (TreeAMR's invariant for a vertex-like dimension):
+  `N ≥ 8` at `G = 3`.
+- **`B_d` holds the densitized `𝔅ᵈ`**, and `P`'s `Bⁱ` is its cell average
+  over `√γ`. `P`'s `q` is written at the owned cells only (it is read by the
+  sources and nothing else); its ghosts hold zero.
+- **`X`, the diagnostics set** (proposed in step 5): per owned cell, the
+  implicit stages that set each of the nine `OhmStageResult` bits, the
+  stages whose state the policy repaired and the `|` of their flags, the
+  recoveries and the most one stage made, the cells the reset wrote, and the
+  light speed for the time step. The counts accumulate over a chunk and are
+  reduced once at its end (`ohm_tally`), which is "reduced per chunk"
+  without a reduction per stage.
+- **The operators** (proposed in step 5; the `A` width stays (open) until
+  step 8): Conservative width 3 for `U`, PointValue width 4 (prolongation and
+  restriction) for `A` and `Φ̃` — the scheme's order plus one, rounded up to
+  even. Nothing in step 5 refines, so they only have to pass TreeAMR's
+  checks; they are `MHDProblem`'s `ops_U` and `ops_A`.
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -711,6 +767,21 @@ arrival: PLM with minmod and MC (`G = 2`), then PPM, WENO-Z and MP5
 unphysical (negative `ρ`, `s` outside its window) falls back to first
 order, per face and per variable group. EOS evaluation at face states uses
 the cell's warm start.
+
+*As built in step 5* (`src/reconstruction.jl`, proposed in step 5): twelve
+numbers a cell, `(ρ, s, Yₑ, uⁱ, Eⁱ, Bⁱ)` from `P`, undensitized, each
+extrapolated as `q ± slope/2` with TreeHydro's `slope` (`:none`, `:minmod`,
+`:mc`; `limiter` has no default, as in TreeHydro). All three components of
+`B` are reconstructed and the normal one is then replaced by the face's
+`𝔅ᵈ/√γ`. The two groups are `(ρ, s, Yₑ, uⁱ)` — inadmissible where `ρ` is
+not positive and finite, `Yₑ` outside the EOS's window, `s` outside
+`srange(eos, ρ, Yₑ)` or `u` not finite — and `(Eⁱ, Bⁱ)`, inadmissible only
+where not finite; an inadmissible group takes its cell's values on that side
+of that face. The face state is then `vⁱ = uⁱ/W`, one EOS evaluation
+(`primitive_state`) and `prim2con` in the face metric, which the provider
+evaluates at the face (`Flat`, `Analytic`; `GHMetric` will interpolate it,
+step 10). A face's state costs two EOS evaluations, `primitive_state`'s and
+`prim2con`'s.
 
 ### Riemann solver
 
@@ -763,6 +834,20 @@ the physical flux of the HLL middle state — to 3.9e−16 (measured in step
 2). A wrong sign in the EMF's shift or jump terms, or in the flux of `𝔈`,
 breaks that.
 
+*As built in step 5* (`emf_kernel!` in `src/evolution.jl`, proposed in step
+5), at every edge of the closed range: the four states are the cells on
+either side of the edge along `a` and along `b` (along a missing direction,
+the one cell), each with its `E` extrapolated to the edge by the limited
+slope along each present transverse direction, `E + σₐ slopeₐ/2 + σ_b
+slope_b/2`; `𝔅ᵃ` is reconstructed along `b` from the `a`-faces and `𝔅ᵇ`
+along `a` from the `b`-faces, with the same limiter, both **densitized**,
+and divided by the edge's `√γ`. The flux of `𝔈` reconstructs the
+undensitized cell average instead; the two agree in flat space and differ
+at truncation order otherwise, which rung 3 will see if it matters. In 1D
+the EMF along `x` is the cell's own `αE_x + (β × B)_x` (no transverse
+direction to reconstruct along), and those along `y`, `z` are the 1D HLL
+fluxes of `𝔅ᶻ` and `𝔅ʸ`.
+
 ### Sources
 
 At cell centers, explicit: the geometric momentum and energy sources
@@ -795,6 +880,17 @@ TreeHydro's `reset = :step`: only the step limiter's changes reach the
 state, and the fluxes stay conservative whatever state they were computed
 from. See IMEXRungeKutta's `CODE.md`, "One step" and "Limiters in other
 codes".
+
+*As built in step 5* (`reset_atmosphere!`, `src/evolution.jl`): the reset
+computes `B` from the state's own `A` (a scatter and ghost fill of the three
+`A` sets and the curl, as the stage solve does), recovers every owned cell,
+and **writes back every cell the policy repaired** — `FLAG_POL_ANY`, not the
+atmosphere alone (proposed in step 5): every repaired state is exactly
+invertible and is what the next right-hand side would recover anyway, so
+writing it makes the state say what the scheme computes with. It writes the
+seven matter slots and never `𝔈`, and counts each cell it writes into `X`.
+A written state recovers as itself, so a second reset changes nothing (a
+test). In step 5's smooth runs it writes nothing.
 
 The conductivity model takes σ → 0 in the atmosphere, so the
 exterior is electrovacuum: the atmosphere carries no current (`v = 0`
@@ -834,6 +930,39 @@ variable. This does not accumulate over steps, but where the
 equilibrium has a jump it is an O(1) overshoot of 0.2844 C on each
 side (total variation +1.14 on 2 at C = 1). ARS(4,4,3) keeps order 3
 and lands on the equilibrium to O(ε).
+
+**Measured in the scheme** (step 5, `test/wave_tests.jl`). Under
+`IdealConductor` every stage solve imposes `E = −v × B` exactly, and the
+offset above leaves the `𝔈` of each step's result `O(Δt)` off it. On the
+Alfvén wave the stored `𝔈` converges at first order (L1 rate 0.85 over
+N = 50…400; errors 5.5e−3 to 9.4e−4), while its ideal projection — one
+stage solve of the final state, `−v × B` of its ideal recovery — and every
+other variable converge at second (2.09 to 2.85). The offset does not
+accumulate: the next stage solve replaces it and no right-hand side reads it.
+Under ARS(4,4,3) the stored `𝔈` is the projected one (the same errors to
+four digits, rate 2.10), for 4 explicit evaluations a step instead of 3:
+8% more wall time on the 1D wave. What the offset can still do is reach the
+step limiter, which recovers `uⁿ⁺¹` — `𝔈` included — and writes back what
+the policy repairs: where the field's energy dwarfs the fluid's, an
+`O(Δt)` error in `½E²` is a large error in the fluid's share. SSP3(4,3,3)
+stays the default (proposed in step 5); step 6's stiff-limit and
+atmosphere runs are where to compare the two, and ARS(4,4,3) is one
+keyword away (`evolve!`'s `tableau`).
+
+*As built in step 5* (`src/driver.jl`): `evolve!(T, case, Val(D); N,
+t_end, chunk, cfl, limiter, …)` builds the forest of `case.roots` blocks of
+`N` cells, the field sets and the problem, fills the exact initial state
+and runs chunk by chunk, each a fresh integrator that takes over the last
+one's scratch (`reuse`) and steps the state in place (`alias_u0`). Each
+chunk's `Δt` is `cfl / (D · max λ/h)` from the light cone at the chunk's
+start (`max_light_rate`, a `mesh_mapreduce` of the cells' light speed over
+their spacing), rounded down to a whole number of steps with TreeHydro's
+`chunk_count` tolerance; `cfl = 2/5` (proposed in step 5: TreeHydro's,
+under SSP3(4,3,3)'s explicit part, which is SSPRK(3,3)). The stage
+arithmetic is split evenly over the threads (`partition = :even`) for a CPU
+state; the block-owner partition, which needs TreeAMR's unexported
+`threadchunks`, is step 14's. A run in one chunk and the same run in four
+chunks of whole steps of the same `Δt` are bit-identical (a test).
 
 ### The implicit stage solve
 
@@ -1135,6 +1264,41 @@ evaluations, and the atmosphere stage limiter after it. The same reset runs
 once more on each step's result, as the step limiter. The right-hand side
 never mutates `u`.
 
+*As built in step 5* (`src/evolution.jl`, `mhd_rhs!`; the kernels are
+written for `D = 1, 2, 3` and step 5 validates `D = 1`):
+
+- Steps 2 and 3 are one kernel over the stored cells (`primitive_kernel!`):
+  the provider's metric at the cell, `B` from the faces, `E = 𝔈/√γ`, the
+  recovery from `state_guesses` (see "Thermodynamics"), all thirty slots of
+  `P`. `q` is a second kernel over the owned cells, by centered differences
+  of the ghost-filled `𝔈`, `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h`
+  (proposed in step 5).
+- Step 7 for `A_j` is `−EMF_j − (ψ[n + e_j] − ψ[n])/h` with
+  `ψ = αΦ − βᵏA_k` evaluated at the two vertices that bound the edge, `A_k`
+  averaged to a vertex from the two `k`-edges that meet there; along a
+  missing `j`, `−EMF_j` alone. For `Φ̃` it is the difference of the gauge
+  flux `α√γ Aʲ − βʲΦ̃` on the two `j`-edges either side of the vertex, with
+  `A_k`, `k ≠ j`, averaged to the `j`-edge (two or four points) and `Φ̃`
+  from its two vertices, plus `−ξαΦ̃` (proposed in step 5: second-order
+  averages; in flat space `ψ = Φ̃` and the flux is `A_j`, and nothing is
+  averaged that enters).
+- The implicit stage (`ohm_solve!`) computes `B` from `u★`'s `A` — a scatter
+  and ghost fill of the three `A` sets and the curl — and calls
+  `solve_ohm_stage` in every owned cell with that `B`, the provider's
+  metric and `state_guesses(u★)`, writing `√γ E` into `𝔈` and nothing else
+  and tallying the outcome into `X`.
+- Cost (measured in step 5, Julia 1.13, Apple M3 Pro, one thread, the
+  Alfvén wave on 400 cells in 40 blocks): 0.77 ms for a right-hand side, of
+  which the recovery over the 640 stored cells is 0.55 ms; 0.39 ms for an
+  implicit stage (`IdealConductor`) and 0.34 ms for a reset, which also
+  recovers every cell. A step of SSP3(4,3,3) — 3 right-hand sides, 4
+  stages, 4 resets — is 5.2 ms, a quarter of it the resets.
+- In 2D and 3D, a run of either wave that is translation-invariant in `y`
+  (and `z`) agreed with the 1D run to 2.7e−15 after seven steps, in a check
+  made while writing the kernels and not in the suite — compiling the 2D and
+  3D paths costs about 30 s, and their validation, bit for bit, is step
+  7's.
+
 ## Conservation at coarse-fine faces
 
 No subcycling, so conservation is a spatial fixup inside each
@@ -1157,6 +1321,11 @@ Kerr-Schild tests from the analytic solution, the stars from the static
 exterior (atmosphere, the initial `A` and `Φ̃ = 0`, `E` of the static
 dipole). Outflow conditions were waiting for AMR-6; TreeAMR 0.2.1 has
 outflow faces (amended 2026-10-14), for whichever later rung needs them.
+*(Step 5:)* `MHDProblem` takes `boundary = nothing` for a periodic domain
+(and refuses a non-periodic forest without hooks) or one hook per evolved
+set, in the order `(U, A₁, A₂, A₃, Φ̃)` — AMR-2 having landed, each set's
+`fill_ghosts!` gets its own. Step 5's waves are periodic; step 6's shock
+tubes are the first to pass hooks.
 
 ## Refinement
 
@@ -1245,6 +1414,16 @@ claim; step 14 states what is. `GeometricEOS` around a table is not
 `isbits` (the table holds arrays) and is passed to a CPU kernel as it is;
 it carries an `Adapt` rule for a device.
 
+*(Step 5:)* every kernel of the scheme and of the driver's initial data
+takes its geometry as `to_backend` arrays of the block origins and
+spacings and its physics as `isbits` arguments (the EOS, the options, the
+model, the provider, a case's callable `WaveFields`/`WavePotential`), and is
+generic in `T`: the Alfvén wave runs in `Float32` throughout — the matter
+and field kernels, the stage solve and the reset — and lands within 4e−5 of
+the `Float64` run's error (rung 1a). The diagnostics (`l1_errors`,
+`conserved_totals`, `ohm_tally`, `max_light_rate`) are `mesh_mapreduce`s,
+where the data are.
+
 ## Validation ladder
 
 These become the milestones of `PLAN.md`; each rung is a set of testsets
@@ -1260,6 +1439,28 @@ named as claims.
    is taken. *(Step 3 did the sweep pointwise, on stage problems with a
    known solution — "The implicit stage solve"; rung 1 records the branches
    an evolution takes.)*
+
+   *Rung 1a, measured in step 5* (`test/wave_tests.jl`; MC, HLLE,
+   SSP3(4,3,3) at `cfl = 2/5`, one period on `[0, 1]` periodic at N = 50,
+   100, 200, 400 cells, exact cell averages for the reference; L1 rates by
+   least squares over the four; Julia 1.11 and 1.13, one and four threads,
+   identical):
+   - **The vacuum EM wave** (`Vacuum`; `a = 1/10`, `b = 1/20` over a resting
+     Γ = 5/3 gas at `ρ = p = 1`): `𝔈ʸ`, `𝔈ᶻ` at 1.938 (L1 9.1e−4 to
+     1.6e−5), `A_y`, `A_z` at 1.912, `S_x` and `τ` at 1.914, `D`, `D Yₑ`,
+     `D s` at 2.00–2.02 — PLAN.md's prediction, ≥ 1.9, holds. `S_y`, `S_z`,
+     `A_x` and `Φ̃` stay zero exactly. Every stage is `OHM_SIGMA_ZERO`.
+   - **The circularly polarized Alfvén wave** (`IdealConductor`; Del Zanna
+     et al.'s `ρ = p = B₀ = η = 1`, Γ = 4/3, `v_A = 0.3820`): `S_y`, `S_z`
+     at 2.089, `A_y`, `A_z` at 2.10, the ideal projection of `𝔈` at 2.09,
+     `D`, `S_x`, `τ`, `D Yₑ`, `D s` at 2.78–2.85; the stored `𝔈` at 0.85
+     (see "The partition") — the prediction, ≥ 1.8, holds for all but the
+     stored `𝔈`. Every stage is `OHM_IDEAL`, one recovery each.
+   - **Conservation**: `√γ D`, `√γ S_i`, `√γ τ`, `√γ D Yₑ` and `√γ D s`
+     drift at most 0.016 ulp of their own scale per step (asserted ≤ 8).
+     No stage was repaired and no reset fired in either wave.
+   - **Float32**: the Alfvén wave runs in `Float32` throughout, and after a
+     tenth of a period its `A_y` error is the `Float64` run's to 4e−5.
 2. **Flat space, 2D and 3D, with AMR**: the cylindrical explosion, the
    magnetic rotor, Orszag–Tang, field-loop advection across coarse-fine
    faces — `∇·B` at round-off, rest mass and magnetic flux conserved
@@ -1307,6 +1508,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   and as the step limiter alone. TreeHydro named this case as the one
   where a per-stage reset could matter, and no code in IMEXRungeKutta's
   survey measured it (amended 2026-09-25).
+- SSP3(4,3,3) or ARS(4,4,3) as the default tableau (added in step 5): the
+  former leaves each step's `𝔈` `O(Δt)` off the stiff equilibrium, which the
+  step limiter reads (see "The partition"); the latter lands on it for one
+  more explicit evaluation a step. Step 6's stiff-limit and atmosphere runs
+  decide.
 
 ## Known risks
 
