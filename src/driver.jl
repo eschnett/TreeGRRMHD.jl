@@ -599,7 +599,7 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
 
 """
     evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
-            riemann = :hlle, ξ = default_ξ(…), stage = nothing, tableau = IMEXSSP3433(), G = 3,
+            riemann = :hlle, ξ = default_ξ(case), stage = nothing, tableau = IMEXSSP3433(), G = 3,
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
@@ -670,7 +670,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
             "pass either a static mesh (`refine`) or an adaptive one (`maxlevel > 0`), not " *
             "both: the first regrid would undo the static refinement."))
     end
-    ξ = resolve_ξ(T, ξ, case, refine !== nothing || maxlevel > 0)
+    ξ = resolve_ξ(T, ξ, case)
     rs = roots isa Tuple ? ntuple(d -> Int(roots[d]), D) : ntuple(_ -> Int(roots), D)
     forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
     refine === nothing || refine(forest)
@@ -730,27 +730,31 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
 end
 
 """
-    default_ξ(case, refined::Bool)
+    default_ξ(case)
 
-The gauge damping [`evolve!`](@ref) uses unless told otherwise (decided in
-step 8, "Refinement" in `CODE.md`): `16/L`, `L` the shortest side of the
-case's box — the damping of a gauge wave over a sixteenth of a light
-crossing — on a refined mesh, and zero on a uniform one. On a uniform mesh
-the gauge never reaches `𝔅`: `−∇(αΦ − β·A)` is a discrete gradient, whose
-discrete curl vanishes to rounding, so `ξ` changes no physical number and
-the uniform runs keep their bits. Across a coarse-fine face it does reach
-`𝔅`, since the prolongation of a coarse gradient is not a fine one; a pure
-gauge pulse on a two-level unit box left `max |𝔅|` at 5.3e−2 of the pulse
-after two light crossings with `ξ = 0`, 6.6e−3 at `ξ = 4`, 1.4e−3 at 16 and
-3.3e−4 at 64, while the oblique Alfvén wave's errors moved in the fifth
-digit at most (measured in step 8, `bin/gauge_damping.jl`).
+The gauge damping [`evolve!`](@ref) uses unless told otherwise: `16/L`, `L`
+the longest side of the case's box — the damping of a gauge wave over a
+sixteenth of a light crossing of the box — on every mesh, uniform or refined
+(decided in step 8; amended in step 8, decided by Erik 2026-10-15: "choose
+the same ξ on all meshes", where it was zero on a uniform mesh). The longest
+side, so that a case and its extrusions and turns (`extruded_case`,
+`turned_case`), whose boxes differ only in the directions added or
+exchanged, damp alike and stay the same run bit for bit. Across a
+coarse-fine face the gauge reaches `𝔅`, since the prolongation of a coarse
+gradient is not a fine one: a pure gauge pulse on a two-level unit box left
+`max |𝔅|` at 5.3e−2 of the pulse after two light crossings with `ξ = 0`,
+6.6e−3 at `ξ = 4`, 1.4e−3 at 16 and 3.3e−4 at 64, while the oblique Alfvén
+wave's errors moved in the fifth digit at most (measured in step 8,
+`bin/gauge_damping.jl`). On a uniform mesh `−∇(αΦ − β·A)` is a discrete
+gradient whose curl vanishes to rounding, so there `ξ` moves `A`'s gauge
+part and `Φ̃`, and `𝔅` and the matter only at rounding ("Refinement" in
+`CODE.md`).
 """
-default_ξ(case::MHDCase{T,D}, refined::Bool) where {T,D} =
-    refined ? 16 / minimum(e -> case.extents[e][2] - case.extents[e][1], 1:D) : zero(T)
+default_ξ(case::MHDCase{T,D}) where {T,D} =
+    16 / maximum(e -> case.extents[e][2] - case.extents[e][1], 1:D)
 
 # `evolve!`'s `ξ`: the default, or the caller's in the case's type.
-resolve_ξ(::Type{T}, ξ, case, refined) where {T} =
-    ξ === nothing ? T(default_ξ(case, refined)) : T(ξ)
+resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)
 
 """
     default_ops_U(), default_ops_A()

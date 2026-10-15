@@ -98,7 +98,9 @@ end
     # periodic box and the spurious field grows; with `ξ = 16/L` it decays
     # with the pulse. 2 × 2 roots of 8², one refined, to `t = 2`: measured
     # `max |𝔅|` at the end 0.18 with `ξ = 0` and 1.2e−3 with the default
-    # (of a pulse whose `|∇Φ̃|` peaks at 8.6), 4.4e−16 on the uniform mesh.
+    # (of a pulse whose `|∇Φ̃|` peaks at 8.6), and on the uniform mesh, with
+    # the same default `ξ` (one `ξ` on every mesh, decided by Erik
+    # 2026-10-15), 8.7e−19 (4.4e−16 at `ξ = 0`).
     gp = gauge_pulse_case(Float64; roots=2)
     maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1), 1:3)
     final(r) = (update_fields!(r.p, r.u, r.t); maxB(r.p))
@@ -108,7 +110,7 @@ end
     b = (final(uniform), final(undamped), final(damped))
     @info "Gauge pulse, t = 2: max |𝔅| $(b[1]) (uniform), $(b[2]) (two-level, ξ = 0), " *
           "$(b[3]) (two-level, ξ = $(damped.p.ξ))"
-    @test damped.p.ξ == 16 && uniform.p.ξ == 0
+    @test damped.p.ξ == 16 && uniform.p.ξ == 16
     @test b[1] ≤ 1e-13
     @test b[2] ≥ 1e-2
     @test b[3] ≤ b[2] / 30

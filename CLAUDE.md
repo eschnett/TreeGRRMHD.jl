@@ -120,8 +120,8 @@ bit; `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
 (`refine`) or an adaptive one (`maxlevel`, `refine_tol`, `coarsen_tol`,
 `buffer`; `adapt_case!` over every set, AMR-3). Decided by measurement
 (`CODE.md`, "Refinement"): the matter's operators Conservative width 3
-**bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on refined
-meshes and 0 on uniform ones, and the ghost fill in conserved variables
+**bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on every mesh
+(`L` the longest side; Erik's decision, 2026-10-15), and the ghost fill in conserved variables
 (primitives open until steps 10 and 12). AMR-9 (a flux-conservative
 transfer of edge sets) is new and waiting: the magnetic flux across levels
 holds to rounding as a rate, not as a state. `bin/interface_order.jl`,

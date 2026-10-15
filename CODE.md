@@ -1722,12 +1722,18 @@ proposed in step 8 unless marked otherwise):
   to three digits, as a second-order scheme makes it. The two-level errors
   lie between the uniform coarse and fine ones (1D at 256 cells: L1 3.6e−4
   against 5.8e−4 and 1.4e−4). The matter's bound changed no rate.
-- **The gauge damping** *(decided in step 8)*: `evolve!` uses
-  `ξ = 16/L` on a refined mesh, `L` the shortest side of the box, and
-  `ξ = 0` on a uniform one (`default_ξ`); a caller's `ξ` overrides it. On a
-  uniform mesh the gauge never reaches `𝔅` — `−∇(αΦ − β·A)` is a discrete
-  gradient, whose discrete curl vanishes to rounding — so a uniform run
-  keeps its bits. Across a coarse-fine face it does, since the
+- **The gauge damping** *(decided in step 8; amended in step 8, decided
+  by Erik 2026-10-15: "choose the same ξ on all meshes")*: `evolve!` uses
+  `ξ = 16/L` on every mesh, uniform or refined, `L` the longest side of the
+  box — the longest, so that a case's extrusions and turns, whose boxes
+  differ only along the added or exchanged directions, damp alike and stay
+  its run bit for bit (`default_ξ`); a caller's `ξ` overrides it. (As first
+  decided it was 16 over the shortest side on a refined mesh and 0 on a
+  uniform one.) On a uniform mesh the gauge never reaches `𝔅` —
+  `−∇(αΦ − β·A)` is a discrete gradient, whose discrete curl vanishes to
+  rounding — so there `ξ` moves the gauge part of `A` and `Φ̃` and, through
+  rounding, nothing else; what it moved in the suite is listed under
+  "Validation ladder" 2a and below. Across a coarse-fine face it does, since the
   prolongation of a coarse gradient is not a fine one. A pure gauge pulse
   (`gauge_pulse_case`: `A = 0`, `Φ̃` a Gaussian, nothing else;
   `bin/gauge_damping.jl`) on the periodic unit box, 2 × 2 roots of 16² with
@@ -2128,7 +2134,17 @@ named as claims.
      1.97, 1.98, 2.05, 2.01 (2.03, 1.92, 2.06, 2.04) under WENO-Z — the whole
      2D path, both fluxes, the curl and the EMF with two transverse
      reconstructions, at second order. The totals drift at most 1.6 ulp of
-     their scale per step.
+     their scale per step. *(Amended in step 8, decided by Erik
+     2026-10-15: with the gauge damping `ξ = 16/L` on every mesh.)* `A_x`'s
+     gauge part is damped: its rate goes from 2.77 to 2.769 (MC) and from
+     2.05 to 2.07 (WENO-Z, L1 3.67e−4, 8.62e−5, 2.14e−5 → 3.26e−4, 7.46e−5,
+     1.84e−5); `S_i`, `A_z` and the rates of `S` move in their last two
+     digits only, WENO-Z's drift from 1.43 to 1.42 ulp. Nothing else the
+     suite prints moved: the 1D runs' gauge is never excited (`A_x` is
+     constant where `E_x = 0`, and no 1D field reads it), and the 2D and 3D
+     symmetry, translation and turning claims hold bit for bit as before;
+     the 3D blast's `∇·𝔅` went from 1.2925e−16 to 1.2929e−16 and the tilted
+     field loop's `𝔅ᶻ` ratio in its 14th digit.
    - **The cylindrical explosion** (GRaM-X §V B; 64² on `[−6, 6]²`, minmod as
      GRaM-X runs it, `t = 1`, 27 steps): symmetric under `x → −x` to 1.6e−18
      and under `y → −y` with the fields reversed to 2.5e−17 of each
@@ -2175,8 +2191,8 @@ named as claims.
    *Rung 2b, measured in step 8* (`test/refinement_tests.jl`,
    `test/refinement_cases_tests.jl`; HLLE, SSP3(4,3,3), `cfl` 2/5 over `D`
    on the finest level; the matter's operators Conservative width 3
-   bounded, the potentials' PointValue width 4, `ξ = 16/L` on refined
-   meshes — "Refinement"; Julia 1.13):
+   bounded, the potentials' PointValue width 4, `ξ = 16/L` on every mesh
+   — "Refinement"; Julia 1.13):
    - **Conservation at coarse-fine faces**: every total but `𝔈`'s drifts
      0.008 (1D) and 0.12 (2D) ulp of its scale a step on static two-level
      meshes with the flux fixup, 1.5·10¹⁰ and 3.3·10¹¹ without; through
@@ -2248,7 +2264,8 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   stellar surfaces: width 3, bounded (TreeAMR's limited operator, AMR-4);
   the TOV surface's check is step 10's.
 - *(Closed in step 8.)* PointValue width for `A` and `Φ̃`: 4; the gauge
-  damping: `ξ = 16/L` on a refined mesh (see "Refinement").
+  damping: `ξ = 16/L` on every mesh, `L` the box's longest side (amended,
+  decided by Erik 2026-10-15; see "Refinement").
 - *(Added in step 8.)* Primitives or the conserved state in the matter's
   ghost fill (TreeAMR's expectation is the first): the conserved state,
   bounded, until the TOV surface (step 10) or the magnetosphere (step 12)

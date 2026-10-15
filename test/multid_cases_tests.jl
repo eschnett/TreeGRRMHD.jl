@@ -13,7 +13,8 @@
     # it. The 1D wave turned to `(1, 1)/√2` on the periodic `[0, √2]²`
     # (`oblique_case`), an eighth of a period at 16², 32² and 64² cells, against
     # the exact solution. Measured (MC): `S_x`, `S_z` 2.21, 2.23, `A_x`, `A_z`
-    # 2.77, 2.31; (WENO-Z) 1.97, 1.98, 2.05, 2.01 — the plan's 1.8 for the
+    # 2.77, 2.31; (WENO-Z) 1.97, 1.98, 2.05, 2.01 (2.769 and 2.07 for `A_x`
+    # since step 8 damps the gauge, `ξ = 16/L`) — the plan's 1.8 for the
     # 1D wave holds. And the totals are conserved to rounding.
     c1 = alfven_wave_case(Float64; roots=1)
     t_end = alfven_period(c1) / 8

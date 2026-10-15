@@ -1331,8 +1331,8 @@ Accept:
   `adapt_case!` (AMR-3). `gauge_pulse_case` (`src/cases/gauge.jl`). `bin/interface_order.jl`,
   `bin/gauge_damping.jl`, `bin/field_loop_refined.jl`.
 - **Decided by measurement** (`CODE.md`, "Refinement"): the potentials' width 4; the matter's
-  width 3 *bounded*, in the ghost fill and the regrid; `ξ = 16/L` on refined meshes (`default_ξ`),
-  0 on uniform ones; the ghost fill stays in conserved variables, against TreeAMR's expectation,
+  width 3 *bounded*, in the ghost fill and the regrid; `ξ = 16/L` on every mesh (`default_ξ`, `L`
+  the box's longest side; amended, decided by Erik 2026-10-15 — first 0 on uniform meshes); the ghost fill stays in conserved variables, against TreeAMR's expectation,
   with primitives (open) until steps 10 and 12.
 - Tests: `test/refinement_tests.jl` (the AMR-4 surface moved here, conservation, the magnetic flux,
   the tracked tube, `∇·𝔅` through regrids, the flux through the plane) and
@@ -1355,7 +1355,8 @@ ladder" 2b, has the rest:)*
   keeps it (2.04, 2.02), width 6 is width 4 — **the width is 4**.
 - **`ξ`:** a pure gauge pulse across a coarse-fine face leaves 5.3e−2 of spurious `|𝔅|` after two
   light crossings undamped, 1.4e−3 at `ξ = 16/L`, with no effect on the Alfvén wave's errors —
-  **`ξ = 16/L`** on refined meshes.
+  **`ξ = 16/L`**, on every mesh (decided by Erik 2026-10-15; on a uniform mesh it moved only the
+  2D oblique wave's `A_x` errors, 2.77 → 2.769 and 2.05 → 2.07 in rate, and last digits elsewhere).
 - **Tracked shock tube:** Balsara 1, periodic, ten regrids, 0.017 ulp a step (1.4·10⁷ without the
   fixup), nothing repaired.
 - **The suite:** 25369 tests, `Test Summary` 6m36s at one thread, 7m13s at four, 7m13s with
