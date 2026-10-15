@@ -101,7 +101,9 @@ compat floor requires has no probe any more (decided by Erik 2026-10-14;
 the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-6,
 EOS-1, EOS-2 and SM-1. Their names are in the prerequisite test's name
 lists; what this package relies on from them and does not yet exercise
-through its own code is in `test/upstream_behaviour_tests.jl`.
+through its own code is in `test/upstream_behaviour_tests.jl` (empty, and
+removed, since step 8 took the bounded prolongation into its refinement
+tests; it returns when a landed item needs it).
 
 - TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
   so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
@@ -161,10 +163,11 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   bounded=true)` — the order-3 conservative prolongation with an MC slope
   and a scaling that keeps every child within the range of its parent and
   the parent's face neighbours, exactly conservative, in the ghost fill and
-  the regrid transfer alike. `test/upstream_behaviour_tests.jl` checks
-  that a surface refined everywhere stays positive and within range and
-  keeps its total, where the unbounded operator overshoots (until step 8's
-  refinement tests take it over). See [Refinement](#refinement)
+  the regrid transfer alike. `test/refinement_tests.jl` checks that a
+  surface refined everywhere stays positive and within range and keeps its
+  total, where the unbounded operator overshoots (moved there from
+  `test/upstream_behaviour_tests.jl` in step 8), and the matter's ghost
+  fill and regrid use it since step 8. See [Refinement](#refinement)
   for what upstream's design assumes of this package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
   TreeGH's list).
@@ -183,6 +186,13 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   the reflecting derivation, the outflow clamp — so that a closed box is
   mirror-symmetric. Workaround: `low_walls!` and `outer_points!`, this
   package's kernels ("Boundaries").
+- **AMR-9 (wanted, no step blocked) A flux-conservative transfer of edge
+  sets** *(added in step 8)*: conservative along an edge's own (cell-like)
+  direction, point-value along the others, so that the magnetic flux
+  through a coarse face is the sum through its fine faces in the state,
+  not only in its rate ("Conservation at coarse-fine faces"). No
+  workaround: until then the state's flux across levels holds to the
+  potentials' interpolation error.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -704,8 +714,8 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | set | centering | nvars | `G` | operators / at `regrid!` |
 |---|---|---|---|---|
 | GH `U` (TreeGH) | vertex | 20 | 3 | PointValue width 6 / `=> schedule` |
-| matter `U` | cell | 10 | 3 | Conservative width 3 (limited when upstream has it) / `=> schedule` |
-| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | PointValue, width (open) / `=> schedule` |
+| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8) / `=> schedule` |
+| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
 | `Φ̃` | vertex | 1 | 3 | PointValue, width as `A` / `=> schedule` |
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
@@ -761,7 +771,10 @@ write and a read; the source kernel asks the provider for them
   step 8): Conservative width 3 for `U`, PointValue width 4 (prolongation and
   restriction) for `A` and `Φ̃` — the scheme's order plus one, rounded up to
   even. Nothing in step 5 refines, so they only have to pass TreeAMR's
-  checks; they are `MHDProblem`'s `ops_U` and `ops_A`.
+  checks; they are `MHDProblem`'s `ops_U` and `ops_A`. *(Decided in step
+  8:)* width 4 for `A` and `Φ̃` by the interface-order table, and the
+  matter's width 3 **bounded** (TreeAMR's MC-bounded prolongation) in the
+  ghost fill and the regrid — see "Refinement".
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -1467,6 +1480,57 @@ fine `A`, and the magnetic flux through a coarse face equals the sum
 through its fine faces. `∇·B = 0` does not depend on this — it holds on
 each level by construction — but flux conservation across levels does.
 
+*Measured in step 8* (`test/refinement_tests.jl`; MC, HLLE, SSP3(4,3,3),
+static two-level meshes and adaptive ones):
+- **The totals.** The Alfvén wave of rung 1a on 64 cells with the middle
+  half refined, a quarter period, drifts 0.008 ulp of a total's scale a
+  step with the flux fixup and 1.5·10¹⁰ without; along the diagonal on
+  2 × 2 roots of 8² with one refined, 0.12 and 3.3·10¹¹. Balsara 1 on its
+  box made periodic, tracked by two levels more through ten regrids, 0.017
+  and 1.4·10⁷; the rotor, adaptive, 0.036 through two regrids.
+- **The magnetic flux, as a rate.** With `(d, a, b)` cyclic, `∂ₜ𝔅ᵈ =
+  −(∂_a EMF_b − ∂_b EMF_a)` (the gauge terms' curl vanishes), so the rate at
+  which the flux through a face changes is `−∮ EMF · dl` around it. On every
+  face of every coarse block that lies on a coarse-fine face, the rate from
+  that block's EMFs equals the sum of the rates through the fine faces that
+  cover it to 1.7e−18 of a largest rate of 5.2e−3 (2D, Orszag–Tang's
+  initial data, 16 faces) and 8.7e−19 of 7.8e−3 (3D, the spherical blast in
+  its closed box, 192 faces) with the correction — rounding: the fine sum
+  telescopes in floating point — and 0.025 of 0.029 and 0.0037 of 0.0078
+  without it (proposed in step 8: the claim of PLAN.md's step 8, "the flux
+  through a coarse face equals the sum through its fine faces", made as
+  the rate it is made by).
+- **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
+  block across whose *face* the finer neighbour lies (TreeAMR's face
+  directions only). An edge at the end of a coarse-fine face is also an
+  edge of a coarse block that touches the fine region only along that edge,
+  whose own EMF there is not corrected, and with half-open ownership that
+  block may own the edge's `A` — the corner vertex of a refined quadrant in
+  2D belongs to the coarse block diagonally across. That `A` then evolves
+  with the coarse EMF. Nothing breaks: `A` is single-valued, so the state's
+  fluxes on either side are the same numbers, and `∇·𝔅 = 0` is structural;
+  it is the one place a coarse estimate of the EMF drives a value on a
+  coarse-fine face (proposed in step 8: accepted, not corrected).
+- **The magnetic flux, as a state** — not to rounding. In 2D the flux
+  through a face on the coarse-fine face is a difference of `A_z` at two
+  vertices the levels share, which the exchange copies, so the two sides
+  agree exactly. But the flux through the plane, `Σ hᴰ 𝔅ᶻ = ∮ A · dl`
+  around the periodic box, telescopes across a coarse-fine face only if
+  the coarse `A_y` on it is the mean of the fine ones beside it, and the
+  PointValue operators interpolate along an edge's own direction where a
+  conservative transfer would average: on the oblique Alfvén wave it drifts
+  5.8e−4 of its scale over an eighth of a period (5.1e−17 on the uniform
+  mesh), with the EMF correction or without (7.1e−4 and 7.2e−4 absolute at
+  `ξ = 0`), 1.4e−3 at width 2 — the operators', not the EMFs'. In 3D the
+  flux through a face on a coarse-fine face is the circulation of `A_y`,
+  `A_z` in its plane and inherits the same interpolation. A transfer that
+  is conservative along an edge's cell-like direction and point-value
+  along its vertex-like ones makes both exact; TreeAMR refuses
+  `Conservative` along a vertex-like dimension, so that is **AMR-9** in
+  `PLAN.md` (added in step 8; wanted, no step blocked). Rung 2's "magnetic
+  flux conserved across levels to round-off" holds for the rate, and waits
+  for AMR-9 for the state.
+
 ## Boundaries
 
 Dirichlet from the initial or analytic state, through
@@ -1593,6 +1657,147 @@ regrid (the conserved variables' totals are kept). Steps 8 and 10 must
 decide whether to follow that split — which set the ghost fill acts on, how
 `P` is refilled after a fill, and what the reset limiter does to a
 prolongated conserved state — and record it here.
+
+*As built in step 8* (`src/refinement.jl`, `evolve!` in `src/driver.jl`;
+proposed in step 8 unless marked otherwise):
+
+- **The indicator** (`mhd_flags`): Löhner's, with TreeHydro's local and
+  global noise floors (`ε = 1/100`, `ε_g = 1/1000`), on `ρ`, `|B|` and `|E|`
+  of each cell and its neighbours along every dimension, from a current
+  `P` (ghosts included) — the density for the matter's waves and the two
+  field magnitudes for the electromagnetic ones, which in an electrovacuum
+  move where `ρ` does not. TreeHydro's four marks (`(Refine, box)` above
+  `refine_tol` below `maxlevel`, `(Keep, box)` above `coarsen_tol` as a
+  travelling margin, `Coarsen` where nothing fired, else `Keep`), through
+  TreeAMR's `firing_boxes`, so it runs on every backend. The global
+  references are the largest `ρ` and the largest component of `Bⁱ` and of
+  `Eⁱ` (a `mesh_mapreduce` reduces one variable at a time; a reference off
+  by `√3` moves a noise floor). `refine_tol`, `coarsen_tol` and `maxlevel`
+  have no default, and `coarsen_tol < refine_tol` is required. The
+  geometric boxes around a star are step 10's.
+- **The regrid** (`regrid_state!`, at the start of every chunk after the
+  first): `regrid!` over every field set (`regrid_pairs`) — `U`, `A_j`, `Φ̃`
+  with their schedules and each with its own Dirichlet hook at the
+  regrid's time (AMR-2), `P`, `B_d`, `F_d`, `EMF_d` and `X` `=> nothing`,
+  resized and never transferred (`B` is never state: the regrid moves `A`,
+  and `B` is its curl). Then the problem is rebuilt over the same sets
+  (`rebuild`: schedules, interface schedules, per-block geometry and outer
+  faces), the state gathered, the potentials' low walls prescribed (AMR-8),
+  and the reset run once as the step limiter, so that a prolongated
+  conserved state the recovery would repair is repaired in the state and
+  its injection counted with the step limiter's (TreeHydro's post-regrid
+  reset). The integrator's scratch is dropped when the mesh moved.
+  TreeAMR's `regrid!` fills each evolved set's ghosts before its transfer
+  with the hook alone, without `outer_points!`; a new fine block next to a
+  wall and another block can therefore be prolongated from the hook's
+  clamped corner values (see "Boundaries"), which the next fill and the
+  limiters then overwrite wherever they are not owned.
+- **The initial mesh** (`adapt_case!`): TreeAMR's several-set
+  `adapt_to_initial_data!` (AMR-3) over every field set, the evolved ones
+  filled each pass from the case — the conserved state *at* each cell's
+  centre, a point value standing in for the Gauss average while the mesh is
+  chosen, and the potentials at their points — with their own hooks; the
+  criterion recovers `P` from the filled sets and flags. On the converged
+  mesh the exact initial data (`exact_state`, Gauss averages) is written.
+- **A static mesh**: `evolve!`'s `refine(forest)` refines the root mesh
+  before anything is built, for the coarse-fine tests.
+- **The operators** *(decided in step 8)*: the matter Conservative width 3,
+  **bounded**, in its ghost fill and in its regrid (see below); `A` and `Φ̃`
+  PointValue **width 4** — prolongation and restriction (step 5's proposal,
+  now measured). The Alfvén wave crossing coarse-fine faces
+  (`bin/interface_order.jl`; MC, the matter bounded):
+
+  | potentials' width | 1D, one period, `S_y` L1 / L∞ rate | 2D diagonal, an eighth, `S_x` L1 / L∞ rate |
+  |---|---|---|
+  | uniform coarse | 2.16 / 2.10 | 2.21 / 2.03 |
+  | uniform fine | 2.07 / 2.09 | 2.52 / 1.88 |
+  | 2 | 1.91 / **0.91** | 1.48 / **0.33** |
+  | 4 | 2.11 / 2.04 | 2.14 / 2.02 |
+  | 6 | 2.11 / 2.04 | 2.14 / 2.01 |
+
+  (1D: 32 … 256 coarse cells with the middle half refined; 2D: 2 × 2 roots
+  of 8², 16², 32² with one refined.) At width 2 the fine ghosts' `𝔅`, the
+  curl of a linear interpolation, is first order, and so is the error at
+  the face: L∞ loses an order in 1D and all of it in 2D. Width 6 is width 4
+  to three digits, as a second-order scheme makes it. The two-level errors
+  lie between the uniform coarse and fine ones (1D at 256 cells: L1 3.6e−4
+  against 5.8e−4 and 1.4e−4). The matter's bound changed no rate.
+- **The gauge damping** *(decided in step 8)*: `evolve!` uses
+  `ξ = 16/L` on a refined mesh, `L` the shortest side of the box, and
+  `ξ = 0` on a uniform one (`default_ξ`); a caller's `ξ` overrides it. On a
+  uniform mesh the gauge never reaches `𝔅` — `−∇(αΦ − β·A)` is a discrete
+  gradient, whose discrete curl vanishes to rounding — so a uniform run
+  keeps its bits. Across a coarse-fine face it does, since the
+  prolongation of a coarse gradient is not a fine one. A pure gauge pulse
+  (`gauge_pulse_case`: `A = 0`, `Φ̃` a Gaussian, nothing else;
+  `bin/gauge_damping.jl`) on the periodic unit box, 2 × 2 roots of 16² with
+  one refined, to `t = 2`:
+
+  | `ξ` | 0 | 1 | 4 | 16 | 64 |
+  |---|---|---|---|---|---|
+  | `max |𝔅|` over the run | 0.107 | 0.103 | 0.093 | 0.079 | 0.054 |
+  | `max |𝔅|` at `t = 2` | 5.3e−2 | 2.1e−2 | 6.6e−3 | 1.4e−3 | 3.3e−4 |
+  | `max |Φ̃|` at `t = 2` | 0.25 | 8.3e−2 | 4.0e−3 | 9.4e−5 | 5.2e−4 |
+
+  against at most 5.3e−15 on the uniform mesh at any `ξ`. Without damping
+  the pulse keeps crossing the faces of the periodic box and the spurious
+  field stays (at 8² roots it grows, 0.079 at `t = 1` to 0.18 at `t = 2`);
+  the damping takes it away with the pulse. The peak at the first crossing
+  is set by the interpolation, not by `ξ`. The oblique Alfvén wave on the
+  same mesh moved in the fifth digit of its L1 errors at most for any of
+  these `ξ`. 16 is where the remainder has fallen by 40 and `Φ̃` by 2600
+  within two light crossings. Beyond it the gauge mode is overdamped: `Φ̃`
+  follows `−∇·A/ξ`, and the longitudinal `A` diffuses (with coefficient
+  `1/ξ`) instead of leaving at the speed of light — at 64 the field's
+  remainder is smaller but five times more `Φ̃` is left at `t = 2`. And `ξΔt =
+  16Δt/L ≪ 1` at any resolution a box of side `L` is run at, far inside
+  the explicit part's stability.
+
+**The ghost fill of the matter** *(decided in step 8, proposed: the design
+point above)*. **The ghost fill prolongates the conserved state, bounded**
+(`Operators(…; bounded = true)`), and so does the regrid; `P` is refilled
+after every fill by the one recovery, in every stored cell, as since step
+5; and the reset after a regrid writes what the recovery repaired. This
+departs from TreeAMR's expectation (primitives in the ghost fill), for
+these reasons:
+
+- Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
+  atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; the
+  interior ghosts' recoveries over the run, those the policy repaired for
+  anything but the atmosphere):
+
+  | | uniform | two-level, unbounded | two-level, bounded |
+  |---|---|---|---|
+  | hydrodynamic: repaired ghosts; injected `D`, `τ` | 0; −8.4e−12, −2.2e−10 | 9 (non-finite: `D < 0`); 2.0e−9, 1.5e−8 | 0; −1.5e−11, −2.5e−10 |
+  | magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`) | 8; 2.5e−8, 6.9e−8 | 120 (non-finite); 4.2e−8, 8.6e−7 | 33 (`W` capped, entropy window); 3.5e−8, −6.1e−8 |
+
+  Bounded, the hydrodynamic front crosses with no repaired ghost and the
+  uniform mesh's injection; unbounded, the overshoot makes `D < 0` in fine
+  ghosts and injects 250 times the rest mass. So bounded is the default,
+  and the claim is asserted (`test/refinement_cases_tests.jl`).
+- **Conservation does not depend on it.** At a coarse-fine face it is
+  `restrict_interfaces!` on the fluxes, which makes the coarse flux the
+  fine average whatever the ghosts held; the regrid's bounded transfer is
+  exactly conservative. Primitives in the regrid would not be.
+- **`B` is never state, either way** — neither variant prolongates `B`; a
+  fine ghost's `B` is the curl of the prolongated `A`. But a conserved
+  ghost carries the electromagnetic energy and momentum of the *coarse*
+  field in its `τ` and `S`, from which the recovery subtracts those of the
+  ghost's own `B`: where the field dominates (the magnetized atmosphere
+  above), that difference lands in the fluid's energy, and the bounded fill
+  still repairs 33 ghost recoveries where the uniform mesh repairs 8 — no
+  non-finite one, and the uniform mesh's injection. Primitives
+  (`ρ`, `s`, `uⁱ`, `Eⁱ` bounded, then `prim2con` with the ghost's own `B`)
+  would remove that mismatch.
+- **What primitives in the ghost fill would cost**: a primitive field set
+  with its own schedule and its own Dirichlet hooks, the recovery before
+  the exchange instead of after it (on the owned cells only), and an EOS
+  evaluation per ghost to rebuild `P`'s thermodynamic slots — the RHS's
+  order of "The right-hand side" changes. Not for a 33-in-a-run effect in a
+  test atmosphere: **(open)**, to be decided where it matters, on the TOV
+  star's surface (step 10, whose AMR-4 downstream check stands) and its
+  magnetosphere (step 12).
+
 
 ## Julia version
 
@@ -1967,6 +2172,47 @@ named as claims.
      (MP5); `S_y` errors at 400 cells 2.3e−4, 2.6e−5, 1.3e−5, 1.3e−5. `D`,
      `S_x`, `τ` converge at 2.8–2.9 under MC and PPM and 5.6–5.7 under WENO-Z,
      and are at rounding (1e−15) under MP5. Every stage ideal, no reset.
+   *Rung 2b, measured in step 8* (`test/refinement_tests.jl`,
+   `test/refinement_cases_tests.jl`; HLLE, SSP3(4,3,3), `cfl` 2/5 over `D`
+   on the finest level; the matter's operators Conservative width 3
+   bounded, the potentials' PointValue width 4, `ξ = 16/L` on refined
+   meshes — "Refinement"; Julia 1.13):
+   - **Conservation at coarse-fine faces**: every total but `𝔈`'s drifts
+     0.008 (1D) and 0.12 (2D) ulp of its scale a step on static two-level
+     meshes with the flux fixup, 1.5·10¹⁰ and 3.3·10¹¹ without; through
+     regrids, 0.017 (Balsara 1, tracked, ten regrids) and 0.036 (the rotor,
+     two). See "Conservation at coarse-fine faces".
+   - **Magnetic flux**: the rate through every coarse face on a coarse-fine
+     face equals the fine faces' sum to 1.7e−18 (2D) and 8.7e−19 (3D) of the
+     largest rate with the EMF correction, 0.85 and 0.48 of it without. As a
+     state, the flux through the plane drifts 5.8e−4 of its scale across a
+     level — the potentials' operators, AMR-9.
+   - **`∇·𝔅`**: at most 2.0e−16 of `max |𝔅|` after every step on every
+     level and right after every regrid (the adaptive rotor), as in rung 2a.
+   - **The field loop across a coarse-fine face** (`x ≥ 0` refined, the face
+     through the loop's centre): its magnetic energy and its `A_z` error lie
+     between the uniform coarse and fine controls — at `t = 1/2`, 0.801 of
+     its initial energy against 0.623 and 0.844, L1(`A_z`) 1.6e−6 against
+     3.0e−6 and 8.7e−7; at `t = 4` (`bin/field_loop_refined.jl`, the loop a
+     third of its radius across the face), 0.584 against 0.206 and 0.619,
+     and 4.2e−6 against 9.3e−6 and 3.0e−6. The refined half keeps the fine
+     mesh's energy; the coarse half loses the coarse mesh's. (Adaptive, one
+     level where Löhner fires, the loop with its buffer and 2:1 balance
+     covers every root of so small a box: it is the uniform-fine run, to
+     every digit printed.)
+   - **The interface order and the gauge damping**: the tables in
+     "Refinement" (width 4: L∞ 2.04 in 1D, 2.02 in 2D, where width 2 gives
+     0.91 and 0.33; `ξ = 16/L` clears 97% of a gauge pulse's spurious
+     field within two light crossings).
+   - **The tracked shock tube**: Balsara 1 on its box made periodic, 100
+     coarse cells and two levels more where Löhner fires (`refine_tol =
+     0.08`, `coarsen_tol = 0.02`, buffer 6), regridded every 1/80: three
+     adaptation passes, ten regrids, 18 to 40 blocks, 416 steps, conserved
+     to 0.017 ulp a step, nothing repaired and no reset.
+   - **The atmosphere across a coarse-fine face**: the bounded ghost fill
+     repairs no ghost and injects what the uniform mesh does; unbounded,
+     `D < 0` in fine ghosts and 250 times the rest mass (the table in
+     "Refinement").
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
@@ -1998,9 +2244,15 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 
 - Riemann wave speeds: light cone for all variables (default), or split.
 - `T_ab` to vertices: 2nd order (default) or 4th.
-- Conservative prolongation width for the matter at stellar surfaces:
-  width 1 or 3, until a limited operator exists.
-- PointValue width for `A` and `Φ̃`; the gauge damping `ξ`.
+- *(Closed in step 8.)* Conservative prolongation width for the matter at
+  stellar surfaces: width 3, bounded (TreeAMR's limited operator, AMR-4);
+  the TOV surface's check is step 10's.
+- *(Closed in step 8.)* PointValue width for `A` and `Φ̃`: 4; the gauge
+  damping: `ξ = 16/L` on a refined mesh (see "Refinement").
+- *(Added in step 8.)* Primitives or the conserved state in the matter's
+  ghost fill (TreeAMR's expectation is the first): the conserved state,
+  bounded, until the TOV surface (step 10) or the magnetosphere (step 12)
+  says otherwise (see "Refinement").
 - TreeGH's CFL factor under the SSP3 explicit tableau.
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
@@ -2025,6 +2277,9 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - No MPI yet: single node, although TreeAMR now has its M7 (amended in
   step 0).
 - Unlimited conservative prolongation at a stellar surface floors cells.
+  *(Step 8:)* the matter's operator is bounded since; the atmosphere tube
+  across a coarse-fine face repairs no ghost with it, where the unbounded
+  one made `D < 0` (see "Refinement").
 - Light-cone fluxes are diffusive in a star's interior. *(Measured in step
   6:)* they smear contacts and slow waves: Balsara 2's contact converges as
   `h^{2/3}`, and Balsara 3's dense shell (ρ = 10.1 between a contact and a

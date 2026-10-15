@@ -42,9 +42,10 @@ Rules that follow from `CODE.md` and govern every change here:
 
 **Steps 0 (scaffolding), 1 (the pointwise recovery), 2 (the pointwise
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
-rung 1a), 6 (shock tubes and the stiff limit, rung 1b) and 7 (2D, 3D and
-higher-order reconstruction, rung 2a) are done; step 8 (coarse-fine faces
-and regridding) is next and waits for nothing (2026-10-15).** `CODE.md` records the reviewed design
+rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
+higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
+regridding, rung 2b) are done; step 9 (analytic curved backgrounds) is next
+and waits for nothing (2026-10-15).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -53,8 +54,7 @@ step it blocks, with a state column. What exists: the module shell,
 `test/prerequisite_tests.jl` (the names the scheme calls, the IMEX
 contract, and a probe per upstream ID still waiting; a landed item whose
 release `[compat]` requires loses its probe — `PLAN.md`, "Upstream
-requirements"), `test/upstream_behaviour_tests.jl` (the bounded
-prolongation, until step 8 tests it in place), step 1's pointwise layer —
+requirements"), step 1's pointwise layer —
 `src/units.jl` (geometric units, `GeometricEOS`), `src/metric3.jl`,
 `src/variables.jl` (the slot layouts of `U` and `P`), `src/prim2con.jl` and
 `src/con2prim.jl` (`con2prim_hydro`, `con2prim_ideal`) — and step 2's —
@@ -112,7 +112,22 @@ made the per-reconstruction Balsara table and `test/data/balsara3_ppm.ref`.
 Tests: `test/reconstruction_tests.jl` (uses `wave_tests.jl`'s helpers),
 `test/multid_tests.jl` and `test/multid_cases_tests.jl` (uses the former's
 helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
-3D kernels).
+3D kernels). Step 8: both walls of a closed box prescribed alike
+(`low_walls!`, `outer_points!` in `src/driver.jl`, AMR-8's workaround,
+decided by Erik 2026-10-15), so a closed box is mirror-symmetric bit for
+bit; `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
+`regrid_pairs`, `regrid_state!`); `evolve!` with a static mesh
+(`refine`) or an adaptive one (`maxlevel`, `refine_tol`, `coarsen_tol`,
+`buffer`; `adapt_case!` over every set, AMR-3). Decided by measurement
+(`CODE.md`, "Refinement"): the matter's operators Conservative width 3
+**bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on refined
+meshes and 0 on uniform ones, and the ghost fill in conserved variables
+(primitives open until steps 10 and 12). AMR-9 (a flux-conservative
+transfer of edge sets) is new and waiting: the magnetic flux across levels
+holds to rounding as a rate, not as a state. `bin/interface_order.jl`,
+`bin/gauge_damping.jl`, `bin/field_loop_refined.jl` made `CODE.md`'s step-8
+tables. Tests: `test/refinement_tests.jl` and
+`test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
 
 ## Commands
 
