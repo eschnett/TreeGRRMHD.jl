@@ -48,4 +48,9 @@ using TreeGRRMHD
     # Step 5: the staggered scheme on the mesh, and the 1D smooth waves.
     include("scheme_tests.jl")
     include("wave_tests.jl")
+    # Step 6: the shock tubes, the resistive tube and the current sheet, and
+    # the atmosphere. Use `prerequisite_tests.jl`'s `IRK`.
+    include("shocktube_tests.jl")
+    include("resistive_tests.jl")
+    include("atmosphere_tests.jl")
 end
