@@ -189,7 +189,12 @@ time of 5m01s at one thread, 5m06s at four, 5m34s with
 `--check-bounds=yes` and 5m08s for the clean-checkout check, about 150 s
 of the one-thread run compiling (161 s with bounds checks); every printed
 number identical at one and four threads, and to the runs before the
-floor changed. The same afternoon 1.12 took 5m22s (6m00s with bounds
+floor changed. At the end of step 8 (2026-10-15, at a load of 5–10 with
+other jobs running): **25369 tests**, a `Test Summary` time of 6m36s at
+one thread, 7m13s at four, 7m13s with `--check-bounds=yes` and 6m34s for
+the clean-checkout check; identical output at one and four threads and
+from the clean checkout, last digits only with bounds checks. The two
+step-8 files take 73 s and 44 s alone, compilation included. The same afternoon 1.12 took 5m22s (6m00s with bounds
 checks, its `Pkg.test()` default) and 1.11 6m05s with bounds checks — see
 `CODE.md`, "Julia version". At the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at

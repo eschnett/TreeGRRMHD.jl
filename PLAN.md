@@ -1358,9 +1358,13 @@ ladder" 2b, has the rest:)*
   **`ξ = 16/L`** on refined meshes.
 - **Tracked shock tube:** Balsara 1, periodic, ten regrids, 0.017 ulp a step (1.4·10⁷ without the
   fixup), nothing repaired.
-- **The suite:** 25369 tests, `Test Summary` 6m36s at one thread (1.13), against 25293 and 5m08s
-  before the step; every number printed before it unchanged but the walls's (see the first
-  commit). Under the 10-minute budget, so no split into a default and a long set.
+- **The suite:** 25369 tests, `Test Summary` 6m36s at one thread, 7m13s at four, 7m13s with
+  `--check-bounds=yes` and 6m34s for the clean-checkout check (Julia 1.13, at a load of 5–10 with
+  other jobs running), against 25293 and 5m08s before the step; one and four threads and the clean
+  checkout print identical numbers, `--check-bounds=yes` differs in last digits only (the tracked
+  tube's drift 0.017 → 0.015 ulp, the rotor's 0.036 → 0.040). Every number printed before the step
+  is unchanged but the walls' (see the first commit). Under the 10-minute budget, so no split into
+  a default and a long set.
 
 ## Step 9 — Analytic curved backgrounds (rung 3)
 
