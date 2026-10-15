@@ -1444,7 +1444,10 @@ ladder" 2b, has the rest:)*
   checkout print identical numbers, `--check-bounds=yes` differs in last digits only (the tracked
   tube's drift 0.017 → 0.015 ulp, the rotor's 0.036 → 0.040). Every number printed before the step
   is unchanged but the walls' (see the first commit). Under the 10-minute budget, so no split into
-  a default and a long set.
+  a default and a long set. After the reviewer's round (one `ξ` on every mesh, the complete
+  boundary condition after every fill, AMR-10): 25373 tests, 6m45s at one thread, 7m10s at four,
+  7m20s with `--check-bounds=yes`; identical at one and four threads, last digits only with bounds
+  checks.
 
 ## Step 9 — Analytic curved backgrounds (rung 3)
 
