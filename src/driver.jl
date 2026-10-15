@@ -74,10 +74,24 @@ end
 
 # --- initial data and references ----------------------------------------------------
 
-# The three-point Gauss–Legendre rule on [−1, 1]: nodes −√(3/5), 0, √(3/5),
-# weights 5/9, 8/9, 5/9.
-@inline gauss3_node(h, q::Int) = q == 2 ? zero(h) : (q == 1 ? -one(h) : one(h)) * sqrt(oftype(h, 3) / 5)
-@inline gauss3_weight(h, q::Int) = q == 2 ? oftype(h, 8) / 9 : oftype(h, 5) / 9
+# The three-point Gauss–Legendre rule on a cell of width `h` centered at 0:
+# nodes `−h√(3/5)/2`, `0`, `h√(3/5)/2`, weights `5/18`, `8/18`, `5/18`.
+@inline gauss3_node(h, q::Int) = q == 2 ? zero(h) : (q == 1 ? -one(h) : one(h)) * sqrt(oftype(h, 3) / 5) * h / 2
+
+# The rule's average of three samples, written as the middle sample plus a
+# correction in the differences (amended in step 7):
+#
+#     (5f₋ + 8f₀ + 5f₊)/18 = f₀ + 5((f₋ − f₀) + (f₊ − f₀))/18,
+#
+# so that three equal samples average to themselves bit for bit. A
+# tensor-product rule with the weights multiplied out (`Σ w_q f_q`) rounds a
+# constant to a neighbouring float, and a run that is translation-invariant
+# along `y` did not start from the 1D run's data (2.7e−15 apart after seven
+# steps, measured in step 5). Applied one dimension at a time, the average
+# along a direction the solution does not vary in is the identity, and is
+# symmetric under reflection (`f₋ ↔ f₊`).
+@inline gauss3_average(f₋, f₀, f₊) =
+    ntuple(v -> @inbounds(f₀[v] + 5 * ((f₋[v] - f₀[v]) + (f₊[v] - f₀[v])) / 18), Val(length(f₀)))
 
 # The conserved state of the case at the point `x` and time `t`.
 @inline function case_cons(fields, eos, provider, x::SVector{3,T}, t::T) where {T}
@@ -87,6 +101,20 @@ end
     return prim2con(eos, m, prim, E, B)
 end
 
+# The Gauss average over the directions `e ≤ E` of the cell centred at `x`,
+# one direction at a time, innermost `e = 1`: three averages over the
+# directions below `E` at the nodes along `E`, then their average.
+@inline cell_average(fields, eos, provider, x::SVector{3}, t, h, ::Val{0}) =
+    case_cons(fields, eos, provider, x, t)
+@inline function cell_average(fields, eos, provider, x::SVector{3,T}, t, h,
+                              ::Val{E}) where {T,E}
+    node(q) = x + SVector(ntuple(e -> e == E ? gauss3_node(h, q) : zero(T), Val(3)))
+    f₋ = cell_average(fields, eos, provider, node(1), t, h, Val(E - 1))
+    f₀ = cell_average(fields, eos, provider, x, t, h, Val(E - 1))
+    f₊ = cell_average(fields, eos, provider, node(3), t, h, Val(E - 1))
+    return gauss3_average(f₋, f₀, f₊)
+end
+
 @kernel function cell_average_kernel!(uU, fields, eos, provider, t, @Const(origins),
                                       @Const(spacings), ::Val{D}) where {D}
     I = @index(Global, NTuple)                       # local, owned
@@ -94,19 +122,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     xc = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    tt = oftype(h, t)
-    acc = ntuple(_ -> zero(h), Val(NU))
-    for q in CartesianIndices(ntuple(_ -> 3, Val(D)))
-        w = one(h)
-        δ = ntuple(Val(3)) do e
-            e ≤ D ? gauss3_node(h, q[e]) * h / 2 : zero(h)
-        end
-        for e in 1:D
-            w *= gauss3_weight(h, q[e]) / 2
-        end
-        c = case_cons(fields, eos, provider, xc + SVector(δ), tt)
-        acc = ntuple(v -> acc[v] + w * c[v], Val(NU))
-    end
+    acc = cell_average(fields, eos, provider, xc, oftype(h, t), h, Val(D))
     @inbounds for v in 1:NU
         uU[n..., v, b] = acc[v]
     end
@@ -371,9 +387,21 @@ function chunk_count(t_end::T, chunk::T) where {T}
 end
 
 """
-    evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = 2/5, limiter,
+    default_cfl(limiter) -> 2/5, or 1/5 for :mp5
+
+The light-speed CFL factor [`evolve!`](@ref) uses unless told otherwise:
+TreeHydro's 2/5 under SSP3(4,3,3)'s explicit SSPRK(3,3) part (proposed in step
+5), and 1/5 for MP5, whose monotonicity-preserving bound holds for a forward
+Euler step of CFL `≤ 1/(1 + α) = 1/5` at its `α = 4` (Suresh & Huynh 1997,
+§2.4; proposed in step 7): at 2/5 it fires the reset on Balsara 3 and 4 and
+grows Balsara 3's dense shell to `ρ ≈ 600` (measured in step 7).
+"""
+default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
+
+"""
+    evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
             riemann = :hlle, ξ = 0, stage = nothing, tableau = IMEXSSP3433(), G = 3,
-            backend = CPU()) -> NamedTuple
+            backend = CPU(), after_step = nothing) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on the uniform mesh of `case.roots` root
 blocks of `N` cells per dimension, in chunks of length `chunk`. Each chunk's
@@ -385,15 +413,21 @@ Returns `(; p, u, t, nsteps, chunks)`: the problem, the final state vector
 over `p.sets`, the final time, the total step count, and per chunk
 `(t, nsteps, dt, tally)`.
 
+`after_step(p, u, t)`, if given, is called after every step with the
+problem, the state and its time — a monitor, such as the `∇·𝔅` check of
+rung 2a ([`max_div_B`](@ref); added in step 7); it must not change `u`.
+
 `limiter` has no default (see [`MHDProblem`](@ref)); `cfl = 2/5` is
 TreeHydro's, under the explicit part of SSP3(4,3,3) — the SSPRK(3,3)
-tableau, whose SSP coefficient is 1 (proposed in step 5).
+tableau, whose SSP coefficient is 1 (proposed in step 5) — and 1/5 under
+MP5 ([`default_cfl`](@ref), step 7).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,
-                 cfl=T(2 // 5), limiter=nothing, riemann::Symbol=:hlle, ξ=zero(T),
+                 cfl=nothing, limiter=nothing, riemann::Symbol=:hlle, ξ=zero(T),
                  stage=nothing, tableau=IRK.IMEXSSP3433(), G::Integer=3,
-                 backend=CPU()) where {T,D}
-    t_end, chunk, cfl = T(t_end), T(chunk), T(cfl)
+                 backend=CPU(), after_step=nothing) where {T,D}
+    t_end, chunk = T(t_end), T(chunk)
+    cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
     chunk > 0 || throw(ArgumentError("chunk must be positive, got $chunk."))
     cfl > 0 || throw(ArgumentError("cfl must be positive, got $cfl."))
@@ -415,7 +449,14 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
         nsteps = chunk_count((t1 - t) * D * rate, cfl)
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,
                                reuse=integ)
-        IRK.solve!(integ)
+        if after_step === nothing
+            IRK.solve!(integ)
+        else
+            while integ.nstep < integ.nsteps
+                IRK.step!(integ)
+                after_step(p, integ.u, integ.t)
+            end
+        end
         push!(chunks, (; t=t1, nsteps, dt=(t1 - t) / nsteps, tally=ohm_tally(p)))
         total += nsteps
         t = t1

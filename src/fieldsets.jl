@@ -52,7 +52,7 @@ are cell-centered).
 face_centering(::Val{D}, d::Integer) where {D} = ntuple(e -> e == d ? :vertex : :cell, D)
 
 """Number of slots of the diagnostics set `X`: see [`MHDFields`](@ref)."""
-const NX = 18
+const NX = 19
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
@@ -75,6 +75,9 @@ const X_LIGHT = 15
 const X_STEP_RESETS = 16
 const X_INJECTED_D = 17
 const X_INJECTED_TAU = 18
+# *(Added in step 7:)* the cell's `Σ_d (𝔅ᵈ[n + e_d] − 𝔅ᵈ[n])`, `h ∇·𝔅`, written by
+# `max_div_B` when it is asked.
+const X_DIVB = 19
 const N_OHM_BITS = 9
 
 """
@@ -91,7 +94,7 @@ Every field set the scheme uses on one forest ("Field sets" in `CODE.md`):
 | `B[d]`, `d = 1:3` | face normal to `d` | 1 | 3 | scratch: `𝔅ᵈ = curl A + 𝔅̄`, every RHS |
 | `F[d]`, `d = 1:D` | face normal to `d` | 10 | 0 | scratch: the matter fluxes |
 | `EMF[j]`, `j = 1:3` | edge along `j` | 1 | 0 | scratch: the electromotive force |
-| `X` | cell | `NX` | 0 | scratch: per-cell tallies, the reset's injection, the light speed |
+| `X` | cell | `NX` | 0 | scratch: per-cell tallies, the reset's injection, the light speed, `h∇·𝔅` |
 
 The state vector is over [`evolved_sets`](@ref)`(f) = (U, A[1], A[2], A[3],
 Φ)`, in that order (AMR-1, TreeAMR 0.2.1). Build it with

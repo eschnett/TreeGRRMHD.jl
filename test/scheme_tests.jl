@@ -199,7 +199,7 @@ end
     f = mhd_fields(Float64, forest)
     kw = (; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model)
     @test_throws "no default limiter" MHDProblem(f; kw...)
-    @test_throws "limiter must be one of" MHDProblem(f; kw..., limiter=:ppm)
+    @test_throws "limiter must be one of" MHDProblem(f; kw..., limiter=:weno)
     @test_throws "riemann must be one of" MHDProblem(f; kw..., limiter=:mc, riemann=:hllc)
     closed = Forest((2,); N=10, periodic=(false,), extents=((0.0, 1.0),))
     @test_throws "no boundary hooks" MHDProblem(mhd_fields(Float64, closed); kw..., limiter=:mc)

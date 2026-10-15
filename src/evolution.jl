@@ -105,8 +105,10 @@ origins and spacings on the sets' backend, and the physics:
 - `ξ`: the gauge damping (open; step 8 decides it);
 - `stage`: the stage solve's [`OhmStageOptions`](@ref).
 
-**`limiter` has no default** (`:none`, `:minmod` or `:mc`), as in TreeHydro:
-it changes what is measured. `riemann` is `:hlle` (the light-cone HLL, whose
+**`limiter` has no default**, as in TreeHydro: it changes what is measured.
+It names the reconstruction ("Reconstruction" in `CODE.md`): PLM with the
+slope limiter `:none`, `:minmod` or `:mc` (step 5), or `:ppm`, `:wenoz`,
+`:mp5` (step 7), which need `G ≥ 3`. `riemann` is `:hlle` (the light-cone HLL, whose
 dissipation on `𝔈` matches the UCT EMF's on `𝔅`) or `:llf`.
 
 `ops_U` and `ops_A` are the operators of the matter set and of `A`, `Φ̃`
@@ -155,15 +157,19 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
         "The choice is the case's — :none keeps a clean O(h²) truncation error for a " *
         "convergence study, :minmod and :mc keep a shock monotone and clip a smooth " *
-        "extremum while doing it."))
+        "extremum while doing it; :ppm, :wenoz and :mp5 are the higher-order methods."))
     limiter in MHD_LIMITERS || throw(ArgumentError(
         "limiter must be one of $(MHD_LIMITERS), got :$limiter: it travels into the " *
-        "kernels as a Val, and `slope` has a method for each of those and no others."))
+        "kernels as a Val, and `face_offset` has a method for each of those and no others."))
+    G = f.U.G
+    need = stencil_radius(Val(limiter)) + 1
+    all(≥(need), G) || throw(ArgumentError(
+        "limiter :$limiter reads $(need - 1) cell(s) either side of a cell, so a face " *
+        "needs G ≥ $need ghost cells; the sets have G = $G (mhd_fields' `G`)."))
     riemann in MHD_SOLVERS || throw(ArgumentError(
         "riemann must be one of $(MHD_SOLVERS), got :$riemann: `riemann_flux` has a " *
         "method for each of those and no others (CODE.md, \"Riemann solver\")."))
     sets = evolved_sets(f)
-    G = f.U.G
     for s in (sets..., f.P, f.B...)
         s.G == G || throw(ArgumentError(
             "every ghosted set must have the matter set's ghost width G=$G, got " *
@@ -282,13 +288,9 @@ end
     x = point_x(@inbounds(origins[b]), h, n, Val(face_staggers(Val(D), Val(d))))
     m = point_metric(provider, oftype(h, t), x)
 
-    P₋₂ = read_vars(Pw, stored(shift(n, d, -2), GP), b, Val(NP))
     P₋₁ = read_vars(Pw, stored(shift(n, d, -1), GP), b, Val(NP))
     P₀ = read_vars(Pw, stored(n, GP), b, Val(NP))
-    P₊₁ = read_vars(Pw, stored(shift(n, d, 1), GP), b, Val(NP))
-    r₋₂, r₋₁, r₀, r₊₁ = recon_vars(P₋₂), recon_vars(P₋₁), recon_vars(P₀), recon_vars(P₊₁)
-    rL = limit_face(eos, extrapolate(lim, r₋₂, r₋₁, r₀, 1), r₋₁)
-    rR = limit_face(eos, extrapolate(lim, r₋₁, r₀, r₊₁, -1), r₀)
+    rL, rR = face_pair(eos, lim, Pw, n, b, Val(d), Val(GP))
 
     𝔅n = @inbounds Bd[stored(n, GB)..., 1, b]
     L = face_state(eos, m, rL, 𝔅n, prim_ueos(P₋₁), Val(d))
@@ -300,22 +302,60 @@ end
     end
 end
 
+# The reconstructed variables of the cell `k` cells from `n` along `d`.
+@inline recon_at(Pw, n::NTuple, k::Int, b::Int, ::Val{d}, ::Val{GP}) where {d,GP} =
+    recon_vars(read_vars(Pw, stored(shift(n, d, k), GP), b, Val(NP)))
+
+# The two reconstructed states at the face `n` normal to `d`, after the
+# positivity fallback: the left one from the cell `n − e_d` towards its upper
+# face, the right one from the cell `n` towards its lower face. PLM reads the
+# four cells `n − 2e_d … n + e_d`; the five-cell methods the six
+# `n − 3e_d … n + 2e_d`, which `G = 3` holds for every face of the closed range.
+@inline function face_pair(eos, lim::Val, Pw, n, b, vd::Val, vG::Val)
+    r₋₂, r₋₁ = recon_at(Pw, n, -2, b, vd, vG), recon_at(Pw, n, -1, b, vd, vG)
+    r₀, r₊₁ = recon_at(Pw, n, 0, b, vd, vG), recon_at(Pw, n, 1, b, vd, vG)
+    if stencil_radius(lim) == 1
+        rL = extrapolate(lim, r₋₂, r₋₁, r₀, 1)
+        rR = extrapolate(lim, r₋₁, r₀, r₊₁, -1)
+    else
+        r₋₃, r₊₂ = recon_at(Pw, n, -3, b, vd, vG), recon_at(Pw, n, 2, b, vd, vG)
+        rL = extrapolate(lim, r₋₃, r₋₂, r₋₁, r₀, r₊₁, 1)
+        rR = extrapolate(lim, r₋₂, r₋₁, r₀, r₊₁, r₊₂, -1)
+    end
+    return limit_face(eos, rL, r₋₁), limit_face(eos, rR, r₀)
+end
+
+# The offset of the electric field of cell `c` towards its side `σ` along the
+# present direction `e`, per component: `face_value − E_c` of the method, read
+# from `E` at the cells `c + k e_e`, `|k| ≤ stencil_radius`.
+@inline function E_offset(Pw, c::NTuple{D,Int}, b::Int, ::Val{GP}, lim::Val, ::Val{e},
+                          σ::Int, E₀) where {D,GP,e}
+    Em = read_E(Pw, stored(shift(c, e, -1), GP), b)
+    Ep = read_E(Pw, stored(shift(c, e, 1), GP), b)
+    if stencil_radius(lim) == 1
+        return σ * map((l, r) -> slope(lim, l, r), E₀ - Em, Ep - E₀) / 2
+    else
+        Emm = read_E(Pw, stored(shift(c, e, -2), GP), b)
+        Epp = read_E(Pw, stored(shift(c, e, 2), GP), b)
+        return SVector(ntuple(Val(3)) do k
+            @inbounds face_value(lim, Emm[k], Em[k], E₀[k], Ep[k], Epp[k], σ) - E₀[k]
+        end)
+    end
+end
+
 # The electric field of cell `c` extrapolated to its corner on the sides
-# `σa`, `σb` (`+1` upper, `−1` lower) along the present directions `a`, `b`.
-@inline function corner_E(Pw, c::NTuple{D,Int}, b::Int, ::Val{GP}, lim::Val, ::Val{a}, σa::Int,
-                          ::Val{bb}, σb::Int) where {D,GP,a,bb}
-    E = read_E(Pw, stored(c, GP), b)
-    if a ≤ D
-        Em = read_E(Pw, stored(shift(c, a, -1), GP), b)
-        Ep = read_E(Pw, stored(shift(c, a, 1), GP), b)
-        E = E + σa * map((l, r) -> slope(lim, l, r), E - Em, Ep - E) / 2
-    end
-    if bb ≤ D
-        c0 = read_E(Pw, stored(c, GP), b)
-        Em = read_E(Pw, stored(shift(c, bb, -1), GP), b)
-        Ep = read_E(Pw, stored(shift(c, bb, 1), GP), b)
-        E = E + σb * map((l, r) -> slope(lim, l, r), c0 - Em, Ep - c0) / 2
-    end
+# `σa`, `σb` (`+1` upper, `−1` lower) along the present directions `a`, `b`:
+# the cell value plus the offset towards each side, `E + δₐ + δ_b`, each
+# offset the one-dimensional reconstruction's along its direction (proposed in
+# step 5 for PLM, extended in step 7 to every method). Additive, not a
+# tensor product: second order at the corner whatever the method, which is
+# the scheme's order in more than one dimension (a face's flux at its centre).
+@inline function corner_E(Pw, c::NTuple{D,Int}, b::Int, vG::Val{GP}, lim::Val, va::Val{a},
+                          σa::Int, vb::Val{bb}, σb::Int) where {D,GP,a,bb}
+    E₀ = read_E(Pw, stored(c, GP), b)
+    E = E₀
+    a ≤ D && (E = E + E_offset(Pw, c, b, vG, lim, va, σa, E₀))
+    bb ≤ D && (E = E + E_offset(Pw, c, b, vG, lim, vb, σb, E₀))
     return E
 end
 
@@ -325,12 +365,16 @@ end
 @inline function edge_pair(Bw, n::NTuple{D,Int}, b::Int, ::Val{G}, lim::Val,
                            ::Val{e}) where {D,G,e}
     if e ≤ D
-        q₋₂ = @inbounds Bw[stored(shift(n, e, -2), G)..., 1, b]
-        q₋₁ = @inbounds Bw[stored(shift(n, e, -1), G)..., 1, b]
-        q₀ = @inbounds Bw[stored(n, G)..., 1, b]
-        q₊₁ = @inbounds Bw[stored(shift(n, e, 1), G)..., 1, b]
-        L = q₋₁ + slope(lim, q₋₁ - q₋₂, q₀ - q₋₁) / 2
-        R = q₀ - slope(lim, q₀ - q₋₁, q₊₁ - q₀) / 2
+        q(k) = @inbounds Bw[stored(shift(n, e, k), G)..., 1, b]
+        q₋₂, q₋₁, q₀, q₊₁ = q(-2), q(-1), q(0), q(1)
+        if stencil_radius(lim) == 1
+            L = q₋₁ + slope(lim, q₋₁ - q₋₂, q₀ - q₋₁) / 2
+            R = q₀ - slope(lim, q₀ - q₋₁, q₊₁ - q₀) / 2
+        else
+            q₋₃, q₊₂ = q(-3), q(2)
+            L = face_value(lim, q₋₃, q₋₂, q₋₁, q₀, q₊₁, 1)
+            R = face_value(lim, q₋₂, q₋₁, q₀, q₊₁, q₊₂, -1)
+        end
         return L, R
     else
         q = @inbounds Bw[stored(n, G)..., 1, b]
@@ -822,6 +866,40 @@ function max_light_rate(p::MHDProblem{T,D}, t) where {T,D}
     forest = X.forest
     return mesh_mapreduce(identity, max, zero(T), X; vars=X_LIGHT,
                           weight=key -> inv(spacing(T, forest, key)))
+end
+
+# `h ∇·𝔅 = Σ_d (𝔅ᵈ[n + e_d] − 𝔅ᵈ[n])` at the owned cells, into `X`.
+@kernel function divB_kernel!(Xw, @Const(B1), @Const(B2), @Const(B3), ::Val{D}, ::Val{GB},
+                              ::Val{GX}) where {D,GB,GX}
+    I = @index(Global, NTuple)
+    b = I[D + 1]
+    n = ntuple(e -> I[e], Val(D))
+    B = (B1, B2, B3)
+    div = sum(ntuple(Val(D)) do d
+        @inbounds B[d][stored(shift(n, d, 1), GB[d])..., 1, b] - B[d][stored(n, GB[d])..., 1, b]
+    end)
+    @inbounds Xw[stored(n, GX)..., X_DIVB, b] = div
+end
+
+"""
+    max_div_B(p::MHDProblem, u, t) -> max |∇·𝔅| h / max |𝔅|
+
+The divergence of the magnetic field of the state `u`, as the plan states its
+claim (step 7): `𝔅 = curl A + 𝔅̄` on every face from `u`'s potential
+([`update_fields!`](@ref)), the largest `|Σ_d (𝔅ᵈ[n + e_d] − 𝔅ᵈ[n])|` over the
+owned cells — `h ∇·𝔅` — over the largest `|𝔅ᵈ|` on any owned face (zero when
+there is no field at all). Structurally zero ("Where the fields live" in
+`CODE.md`), so this measures rounding. Overwrites the scratch sets `A`, `B`
+and the `X_DIVB` slot of `X`.
+"""
+function max_div_B(p::MHDProblem{T,D}, u, t) where {T,D}
+    f = p.f
+    update_fields!(p, u, t)
+    map_blocks!(divB_kernel!, f.X, f.X.work, f.B[1].work, f.B[2].work, f.B[3].work, Val(D),
+                Val(GB_of(f)), Val(f.X.G))
+    div = mesh_mapreduce(abs, max, zero(T), f.X; vars=X_DIVB)
+    scale = maximum(d -> mesh_mapreduce(abs, max, zero(T), f.B[d]; vars=1), 1:3)
+    return scale > 0 ? div / scale : div
 end
 
 """

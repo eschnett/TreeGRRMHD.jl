@@ -23,9 +23,9 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 to 3, 5 and 6 of `PLAN.md`: the pointwise layers, and the
-staggered scheme on the mesh with its first evolutions in 1D, smooth and
-discontinuous.* Step 1: geometric units and the EOS adapter
+*Status: steps 1 to 3 and 5 to 7 of `PLAN.md`: the pointwise layers, and the
+staggered scheme on the mesh with its evolutions in 1D, smooth and
+discontinuous, and in 2D and 3D on a uniform mesh.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
 [`prim2con`](@ref) with the electromagnetic parts, and the 3+1 primitive
@@ -48,7 +48,14 @@ and the discontinuous cases — Balsara's five shock tubes with Giacomazzo &
 Rezzolla's exact plateaus ([`balsara_case`](@ref), [`BALSARA_EXACT`](@ref)),
 the resistive tube ([`resistive_tube_case`](@ref)), Komissarov's current
 sheet ([`current_sheet_case`](@ref)) and a blast into the atmosphere
-([`atmosphere_tube_case`](@ref)).
+([`atmosphere_tube_case`](@ref)). Step 7: the higher-order reconstructions PPM,
+WENO-Z and MP5 beside PLM, the `∇·𝔅` monitor ([`max_div_B`](@ref)), cases
+made from others by a change of geometry ([`extruded_case`](@ref),
+[`turned_case`](@ref), [`oblique_case`](@ref)), and the multidimensional
+cases — the cylindrical explosion, the magnetic rotor, the Orszag–Tang vortex
+and the field loop ([`cylindrical_explosion_case`](@ref),
+[`magnetic_rotor_case`](@ref), [`orszag_tang_case`](@ref),
+[`field_loop_case`](@ref)).
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.
@@ -98,7 +105,7 @@ export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM
 export MHDFields, mhd_fields, evolved_sets, edge_centering, face_centering, curl_A!
 export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_primitives!,
        update_fields!, boundary_at
-export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales
+export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B
 # The driver and the cases
 export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
        profile_1d
@@ -107,6 +114,10 @@ export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA
        plateau_state,
        plateau_error, resistive_tube_case,
        current_sheet_case, atmosphere_tube_case
+export turned_case, extruded_case, oblique_case, TurnedFields, TurnedPotential, ObliqueFields,
+       ObliquePotential
+export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_loop_case,
+       explosion_gas
 
 include("precision.jl")
 include("device.jl")
@@ -131,5 +142,7 @@ include("driver.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")
 include("cases/shocktubes.jl")
+include("cases/geometry.jl")
+include("cases/multid.jl")
 
 end # module TreeGRRMHD
