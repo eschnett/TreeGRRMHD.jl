@@ -119,8 +119,8 @@ helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
 TreeHydro's discipline (`TreeHydro/CLAUDE.md`, "Commands"): the whole
 suite at one thread, at four threads, and with `--check-bounds=yes`, at
 the floor version (1.13: `julia +1.13`) and at the current release (plain
-`julia`; until 1.14 is released, the two are the same). `Pkg.test` does not inherit `-t`, so the thread count has to be
-passed explicitly:
+`julia`; until 1.14 is released, the two are the same). `Pkg.test` does
+not inherit `-t`, so the thread count has to be passed explicitly:
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'
@@ -168,7 +168,15 @@ probed as landed or waiting; grep it for `landed:` and `waiting:` (since
 `landed:` should not appear). At the end of step 2
 (2026-10-13): **20513 tests**, a `Test Summary` time of 37–39 s at 1.11
 and 28 s at 1.13 at one thread, four and `--check-bounds=yes`;
-`test/pointwise_tests.jl` takes about 12 s of it. At the end of step 7
+`test/pointwise_tests.jl` takes about 12 s of it. With the floor at 1.13
+(2026-10-15, at a load of about 5–9): **25293 tests**, a `Test Summary`
+time of 5m01s at one thread, 5m06s at four, 5m34s with
+`--check-bounds=yes` and 5m08s for the clean-checkout check, about 150 s
+of the one-thread run compiling (161 s with bounds checks); every printed
+number identical at one and four threads, and to the runs before the
+floor changed. The same afternoon 1.12 took 5m22s (6m00s with bounds
+checks, its `Pkg.test()` default) and 1.11 6m05s with bounds checks — see
+`CODE.md`, "Julia version". At the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
 `--check-bounds=yes`), on this machine at a load of about 10 with two

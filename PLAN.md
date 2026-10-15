@@ -52,7 +52,8 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
     later read; the floor is 1.13 (CODE.md "Julia version"; amended 2026-10-15: it was 1.11
     from 2026-09-25). That covers EntropyEOS until EOS-0 and the IMEX package, and will cover
     TreeGH and its unregistered dependencies until GH-2. CI, the clean-checkout check and a
-    developer all resolve them the same way, so CI adds nothing by hand. *(Amended in step 0: this used to be `Pkg.add(url=…)` in CI.)*
+    developer all resolve them the same way, so CI adds nothing by hand. *(Amended in step 0:
+    this used to be `Pkg.add(url=…)` in CI.)*
 - **Julia 1.13 floor** *(amended 2026-10-15: was 1.11)*. Be generic in `T` and in the backend
   from the first line:
   - `T` is a leading positional argument (default `Float64`); `backend` is a keyword (default

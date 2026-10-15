@@ -33,9 +33,11 @@ jobs:
           # "Julia version" in `CODE.md`). It carries the coverage, as the
           # floor always has here: one instrumented cell, and the oldest
           # compiler, where a version-dependent failure is likeliest to be
-          # missed by local runs at the current release. Until 1.14 is
-          # released the floor is the current release, so this cell repeats
-          # the macOS one below; it diverges again then.
+          # missed by local runs at the current release. Instrumented at
+          # 1.13 the suite took 1.24x (6m27s against 5m12s, both with bounds
+          # checks, 2026-10-15). Until 1.14 is released the floor is the
+          # current release, so this cell repeats the macOS one below; it
+          # diverges again then.
           - version: "1.13"
             os: macOS-latest
             coverage: true

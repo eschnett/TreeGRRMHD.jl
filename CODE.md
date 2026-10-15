@@ -1585,6 +1585,9 @@ six recorded worst cases.
 
 Until 1.14 is released the floor and the current release coincide, and
 CI's floor cell repeats a current-release cell; it diverges again then.
+That cell carries the coverage, which at 1.13 costs 1.24x (6m27s against
+5m12s, both with bounds checks; TreeHydro had measured 3.14x at 1.13
+before, against 1.04x at 1.11).
 
 What 1.11 and 1.12 needed and 1.13 does not is gone. The suite's
 allocation probe (`rec_allocations` in `test/recovery_tests.jl`) was a
