@@ -73,7 +73,7 @@ requirements on the sibling packages. `CLAUDE.md` has the commands.
 
 ## Installation
 
-Julia 1.11 or later. EntropyEOS and IMEXRungeKutta are not in the General
+Julia 1.12 or later. EntropyEOS and IMEXRungeKutta are not in the General
 registry yet; `Project.toml` names them under `[sources]`, so in a clone a
 plain instantiate finds them:
 

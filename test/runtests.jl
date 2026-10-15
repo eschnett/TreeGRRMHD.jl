@@ -10,12 +10,12 @@ using TreeGRRMHD
 
 @testset "TreeGRRMHD.jl" begin
     # Every test file below is `include`d into this one module, so a top-level
-    # name defined in two of them is one name. Julia before 1.12 refuses to
-    # redefine a `const` and 1.12 and later quietly allow it, so a collision
-    # passes every local run at the newer version and fails only the floor
-    # entries of CI — which is how TreeHydro's `TRACKED_1D` reached its `main`.
-    # Checked from the source text, once, before anything is included, so
-    # that it fails at every version and not only at the floor.
+    # name defined in two of them is one name. Julia 1.12 and later — every
+    # version this package supports — quietly redefine a `const`, so a
+    # collision would pass every run, the later definition replacing the
+    # earlier one. (TreeHydro's `TRACKED_1D` reached its `main` that way,
+    # caught there only by CI's 1.11 cell, which refused the redefinition.)
+    # Checked from the source text, once, before anything is included.
     @testset "No two test files define the same top-level constant" begin
         files = filter(f -> endswith(f, "_tests.jl"), readdir(@__DIR__))
         defined = Dict{String,Vector{String}}()

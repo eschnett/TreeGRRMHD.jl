@@ -113,8 +113,9 @@ through its own code is in `test/upstream_behaviour_tests.jl`.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
-  requires Julia 1.11, the floor here): **SM-1 has landed in
-  SpacetimeMetrics 1.7.0**, and its workaround is gone.
+  requires Julia 1.11, below the floor here, 1.12 — amended 2026-10-15):
+  **SM-1 has landed in SpacetimeMetrics 1.7.0**, and its workaround is
+  gone.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 and
   GH-3 to GH-5 have not; GH-2 is open (see `PLAN.md`). TreeGH is not a
@@ -1533,19 +1534,35 @@ prolongated conserved state — and record it here.
 
 ## Julia version
 
-`julia = "1.11"` (decided 2026-09-25). *(Amended: this section used to
-say `julia = "1.10"` wherever possible.)* All the Tree* packages — TreeAMR,
-TreeWave, TreeHydro, TreeGeneralizedHarmonic and this one — share the 1.11
-floor, so that an unregistered dependency can be located with a
-`[sources]` entry, a 1.11 key, rather than added by URL. That also removes
-the reason for the weak-dependency split proposed earlier: TreeGH's pin to
-1.11 (its `LinearAlgebra = "1.11"` compat entry, its `[sources]` entries,
-and ApparentHorizonFinder and KorzynskiSpin, whose checkouts both declare
-1.11) is now this package's floor too, so TreeGH can be an ordinary
-dependency and `TreeGRRMHDTreeGHExt` is not needed for the version's sake.
-A dependency's own `[sources]` is still ignored when this package resolves
-it, so what it needs from an unregistered package must be named in this
-package's own `[sources]`.
+`julia = "1.12"` *(amended 2026-10-15: the floor was raised from 1.11 to
+1.12 by Erik's decision)*. Before that it was `julia = "1.11"`, decided
+2026-09-25 (and before that `julia = "1.10"` wherever possible): all the
+Tree* packages — TreeAMR, TreeWave, TreeHydro, TreeGeneralizedHarmonic and
+this one — shared the 1.11 floor, so that an unregistered dependency can be
+located with a `[sources]` entry, a 1.11 key, rather than added by URL.
+That also removed the reason for the weak-dependency split proposed
+earlier: TreeGH's pin to 1.11 (its `LinearAlgebra = "1.11"` compat entry,
+its `[sources]` entries, and ApparentHorizonFinder and KorzynskiSpin, whose
+checkouts both declare 1.11) is satisfied by this package's floor, so TreeGH
+can be an ordinary dependency and `TreeGRRMHDTreeGHExt` is not needed for
+the version's sake. A dependency's own `[sources]` is still ignored when
+this package resolves it, so what it needs from an unregistered package
+must be named in this package's own `[sources]`.
+
+The sibling Tree* packages keep their own floor of 1.11. That does not
+constrain this one: a dependency's floor below this package's is
+satisfied by every version this package supports, so this package's floor
+is now higher than theirs and nothing upstream has to change. `[sources]`
+is still what locates the unregistered dependencies; 1.12 reads it as 1.11
+did. What 1.11 needed and 1.12 does not is gone: the suite's allocation
+probe (`rec_allocations` in `test/recovery_tests.jl`) was a
+`Vararg{Any,N}`-specialized method because 1.11 did not specialize a plain
+`args...` there and boxed the result, 16–672 bytes a call on all 50 of the
+probe's calls, where 1.12 and 1.13 allocate nothing either way (measured
+2026-10-15). The other difference runs the other way: 1.11 refused to
+redefine a `const`, and 1.12 does it silently, so the duplicate-constant
+check at the top of `test/runtests.jl` is now the only thing that finds a
+top-level name two test files share.
 
 `Project.toml` names EntropyEOS and IMEXRungeKutta there, by their GitHub
 URLs at `rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,

@@ -500,10 +500,8 @@ end
 end
 
 # The bytes one call allocates, after a first call compiles it, measured
-# inside a function specialized on `f` and every argument: Julia 1.11 does
-# not specialize a plain `args...` here, and then boxes the result (96 bytes
-# for an `NTuple{10,Float64}`), which 1.12 and later do not.
-function rec_allocations(f::F, args::Vararg{Any,N}) where {F,N}
+# inside a function rather than at the top level of a testset.
+function rec_allocations(f, args...)
     f(args...)
     return @allocated f(args...)
 end

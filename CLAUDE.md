@@ -118,8 +118,9 @@ helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
 
 TreeHydro's discipline (`TreeHydro/CLAUDE.md`, "Commands"): the whole
 suite at one thread, at four threads, and with `--check-bounds=yes`, at
-the floor version and at the current release. `Pkg.test` does not inherit
-`-t`, so the thread count has to be passed explicitly:
+the floor version (1.12: `julia +1.12`) and at the current release (plain
+`julia`). `Pkg.test` does not inherit `-t`, so the thread count has to be
+passed explicitly:
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'
@@ -140,11 +141,11 @@ sibling checkout. This is what CI does; run it under the floor too:
 
 ```bash
 d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && \
-  julia +1.11 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+  julia +1.12 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
 A `Manifest.toml` resolved by one Julia version breaks loading under
-another (1.13 refuses a 1.11 manifest's `MbedTLS_jll`), so delete it, or
+another (1.13 refused a 1.11 manifest's `MbedTLS_jll`), so delete it, or
 use a clean tree, when switching versions.
 
 Measured at the end of step 0 (2026-10-13), each from a clean `git archive`
@@ -197,9 +198,11 @@ packages are read together:
 - Docstrings are prose-first and point at `CODE.md`.
 - **Testset names are claims**, each opening with a comment naming the
   failure mode it guards.
-- **Julia 1.11 is the floor** (`julia = "1.11"` in `[compat]`), shared by
-  all the Tree* packages since 2026-09-25 so that unregistered dependencies
-  can be located with `[sources]`; see `CODE.md`, "Julia version".
+- **Julia 1.12 is the floor** (`julia = "1.12"` in `[compat]`), raised
+  from 1.11 by Erik's decision on 2026-10-15. The sibling Tree* packages
+  stay at 1.11, which does not constrain this one; `[sources]`, which
+  locates the unregistered dependencies, is a 1.11 key. See `CODE.md`,
+  "Julia version".
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.

@@ -15,8 +15,8 @@ TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 # EntropyEOS (until EOS-0) and IMEXRungeKutta are not in the General
 # registry, so a clean clone finds them here, from their remotes and never
 # from a sibling checkout; TreeAMR and SpacetimeMetrics are, and need no
-# entry. `[sources]` is a 1.11 feature, which the Julia floor below already
-# is (see "Julia version" in `CODE.md`). EntropyEOS 1.0 is the first with
+# entry. `[sources]` is a 1.11 feature, below the Julia floor (1.12; see
+# "Julia version" in `CODE.md`). EntropyEOS 1.0 is the first with
 # `AbstractEOS` and the analytic EOSes (EOS-1, EOS-2); IMEXRungeKutta 1.4 is
 # the release the plan's steps 4a–4c ended at.
 [sources]
@@ -31,4 +31,4 @@ KernelAbstractions = "0.9.42, 1"
 SpacetimeMetrics = "1.7"
 StaticArrays = "1"
 TreeAMR = "0.2.1"
-julia = "1.11"
+julia = "1.12"

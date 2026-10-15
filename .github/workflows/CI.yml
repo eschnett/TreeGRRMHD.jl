@@ -29,15 +29,12 @@ jobs:
       # macOS/arm64, and threads.
       matrix:
         include:
-          # Julia 1.11 is the floor, shared by all the Tree* packages since
-          # 2026-09-25 so that an unregistered dependency can be located
-          # with `[sources]`, a 1.11 key (see "Julia version" in `CODE.md`).
-          # It is stricter than 1.13: it still refuses to redefine a
-          # `const`, which is what `test/runtests.jl`'s first testset is
-          # for. It carries the coverage, because instrumented it is the
-          # cheapest cell (TreeHydro measured 1.04x at 1.11 against 3.14x
-          # at 1.13).
-          - version: "1.11"
+          # Julia 1.12 is the floor (raised from 1.11 on 2026-10-15; see
+          # "Julia version" in `CODE.md`). It carries the coverage, as the
+          # floor always has here: one instrumented cell, and the oldest
+          # compiler, where a version-dependent failure is likeliest to be
+          # missed by local runs at the current release.
+          - version: "1.12"
             os: macOS-latest
             coverage: true
           - version: "1"
