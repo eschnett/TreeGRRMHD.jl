@@ -117,8 +117,8 @@ nothing in step 5 refines, so they only have to pass TreeAMR's checks).
 the order of [`evolved_sets`](@ref) (AMR-2 having landed, each set takes its
 own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 [`boundary_at`](@ref) turns into such a hook at the time of each fill — the
-case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false` skips `restrict_interfaces!`, the negative control of
-step 8.
+case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
+skips `restrict_interfaces!`, the negative control of step 8.
 """
 struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
     f::FS

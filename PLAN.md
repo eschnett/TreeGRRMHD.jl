@@ -10,8 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 are done; step 6 is next, and is unblocked** (AMR-2, which it wanted, has
-landed). *(Amended in step 5.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3, 5 and 6 are done; step 7 is next, and waits for nothing.** *(Amended in step
+6.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
 (still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
@@ -147,6 +147,11 @@ This is TreeGH's pattern.
 - **The atmosphere reset is both limiters.** In IMEXRungeKutta a stage limiter's change reaches
   `uⁿ⁺¹` only through the explicit right-hand side, so pass the reset as `stage_limiter` and as
   `step_limiter`. As a stage limiter alone, it never resets the state.
+- **Two abscissae.** IMEXRungeKutta calls `f_exp!` and the stage limiter at `tⁿ + c̃Δt` and
+  `solve_imp!` at `tⁿ + cΔt`, and they differ (SSP3(4,3,3)'s first stage: `c̃ = 0`, `c = 0.24`).
+  Only the explicit part moves `A`, so a boundary or source that depends on `t` through `A`
+  is wrong in the stage solve unless it is written so that `t` drops out — hence the
+  potentials' Dirichlet data in the field (added in step 6).
 - **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
@@ -191,6 +196,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed in TreeAMR 0.2.1, as `bounded = true` |
 | AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
 | AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
+| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -360,6 +366,36 @@ application. Its probe, which checked that both outflow faces of a one-dimension
 their nearest cell into the ghosts, was retired on 2026-10-14 (`TreeAMR = "0.2.1"` guarantees it);
 the step that first uses outflow faces tests them in place. `OutflowFace` is not exported: this
 package reaches outflow through `Forest`'s `outflow` keyword only.
+
+### AMR-7 — A device-capable boundary hook relative to the nearest owned point (later, step 14; workaround)
+
+*(Added in step 6.)* **Why.** A non-periodic case's potentials take Dirichlet data *in the
+field*: each ghost of `A_j` and `Φ̃` holds the nearest evolved point's value plus the case's
+difference between the two points, so that `𝔅 = curl A` in the ghosts is the case's while the
+level of `A` follows the evolution. A Dirichlet `A` itself is wrong under any tableau whose
+explicit and implicit abscissae differ (`CODE.md`, "Boundaries"). That hook reads the block's
+interior, which only TreeAMR's region form allows, and the region form is CPU-only
+(ghosts.jl:893–911). AMR-6 as landed (outflow faces) copies the nearest owned value, which is
+this with a zero difference.
+
+**API.** A per-cell form that also receives the nearest owned point:
+```julia
+CellBoundary(Relative((xg, xr, v, δ) -> Δ))        # ghost = value at r + Δ
+CellBoundary(Relative(AllVariables((xg, xr, δ) -> Δs)))
+```
+with `r` the ghost's index clamped, along each outward direction, to the owned range
+`G+1 … G+N` (the shared high plane of a vertex-like dimension counting as a ghost).
+
+**Semantics.** Run as a kernel on every backend, in the same phase as today's hooks (after
+the copies and restrictions, before the prolongations), so the value read at `r` is the
+block's own owned value.
+
+**Upstream acceptance.** On a CPU it writes bit for bit what the equivalent region-form hook
+writes; on a device, a linear field with a constant-difference condition is reproduced in the
+ghosts in D = 1, 2, 3, on every centering.
+
+**Workaround until then:** the region form, `DirichletAt` for the potentials in
+`src/driver.jl`, marked `AMR-7`. Every non-periodic case therefore runs on the CPU only.
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
@@ -967,7 +1003,8 @@ equilibrium, and the step limiter reads it.
 Changes:
 - **`src/cases/shocktubes.jl`:**
   - Balsara 1–5 (GRaM-X Table I);
-  - the resistive shock tube swept over σ (Komissarov 2007);
+  - the resistive shock tube swept over σ (Komissarov 2007; amended in step 6: Palenzuela et
+    al. 2009 and Dionysopoulou et al. 2013);
   - the self-similar current sheet (Komissarov 2007);
   - Dirichlet hooks per set.
 - A host tool for reference solutions: a finer run of the same code.
@@ -982,6 +1019,56 @@ Accept:
     values copied with citation) **(predicted)**.
 - **The stage solve:** outcome counts per run are recorded, and no cell ever holds an unflagged
   NaN.
+
+*(Done, 2026-10-14, on `claude/step-6-shocktubes`.)* *(Amended in step 6:)* as built:
+- `src/cases/shocktubes.jl`: `shock_tube_case` (any Riemann problem along `x`, `𝔅̄ˣ` the normal
+  field, ideal or zero `E`), `balsara_case` with `BALSARA` (GRaM-X's Table 1, Giacomazzo &
+  Rezzolla's Table 4), `BALSARA_EXACT` (their Tables 7–11, total pressure), `BALSARA_PLATEAUS`
+  and `plateau_state`/`plateau_error`; `resistive_tube_case`; `current_sheet_case` with a
+  pure-Julia `erf_series`; `atmosphere_tube_case`; `shock_gas`, a Γ-law gas with a wide
+  entropy window.
+- **The resistive tube is not Komissarov's** (amended in step 6): Komissarov 2007 has a current
+  sheet and stationary shocks swept over η, but no shock tube swept over σ. The tube is
+  Palenzuela et al. (2009, §5.1.3) and Dionysopoulou et al. (2013): `(ρ, p, Bʸ) = (1, 1, 1/2)`
+  and `(1/8, 1/10, −1/2)`, `Bˣ = 0`, `Γ = 2`, σ ∈ {0, 10, 10², 10³, 10⁶} — the plan's own set.
+- **Dirichlet hooks per set** in `src/driver.jl` (`DirichletBoundary`, `case_boundary`,
+  `boundary_at`): the matter's Dirichlet, the potentials' Dirichlet in the field, CPU-only until
+  AMR-7 (new, added in step 6). `MHDProblem` takes any hook `boundary_at` maps to one of
+  TreeAMR's at the fill's time.
+- The reset in its two roles (`reset_atmosphere!`, `reset_step!`), with the step limiter's
+  injection in `ohm_tally`; `profile_1d`; `magnetization = +∞` at `D ≤ 0`.
+- Host tools: `bin/shocktube_reference.jl` (the 3200-cell references in `test/data/`, how they
+  were made in its header) and `bin/tableau_comparison.jl` (the table in `CODE.md`, "The
+  partition").
+- Tests: `test/shocktube_tests.jl`, `test/resistive_tests.jl`, `test/atmosphere_tests.jl`, and
+  an AMR-7 probe.
+
+*(Measured in step 6, Julia 1.11 and 1.13, one and four threads, identical; `CODE.md`,
+"Validation ladder" 1b, has the rest:)*
+- **Current sheet:** the prediction does not hold as stated. Against the erf profile the L1
+  distance saturates at 1.1e−3 of `B₀` by 200 cells, the profile's own distance from the system's
+  solution (the fluid's response and the displacement current). The acceptance is amended to the
+  order against the next finer run, 2.53 and 2.58 (asserted ≥ 1.8), with the distance to the
+  profile at Komissarov's resolution recorded (9.3e−4 at 200 cells, `t = 9`; asserted ≤ 2e−3).
+- **σ sweep:** monotone, 0.392, 0.202, 0.0611, 0.0134, 1.73e−5 (L1 of `𝔅ʸ`, 200 cells), as
+  `σ^−0.96` from 10³ to 10⁶; no fallback, at most 6 recoveries a stage.
+- **Balsara 1–5:** self-convergence ≥ 0.7 for tests 1, 4, 5 and test 2's `τ`, `𝔅ʸ`; test 2's
+  `D`, `S_x` at 0.66, 0.67 (a contact's `h^{2/3}`); test 3 not asymptotic below 800 cells (its
+  dense shell), rates −0.02 to 0.53. The tests assert the measured rates. Plateaus within 2% in
+  every window but test 3's `R4` (4.7% at 400 cells, 1.3% at 800); the thinnest regions have no
+  window at 400 cells.
+- **The stage solve:** every Balsara stage `OHM_IDEAL`; the resistive tube's and the current
+  sheet's branch counts in `CODE.md`; no fallback in any default-tableau run; no non-finite
+  value in any state (a negative `D` in a stage predictor is flagged non-finite by EntropyEOS and
+  repaired inside the stage).
+- **Atmosphere:** a 10⁸ ratio held, `ρ ≥ ρ_atm`; the step limiter's injection (`−8.4e−12` of
+  rest mass hydrodynamically, `2.5e−8` magnetized with the cutoff, of 0.5) equals the totals'
+  change to rounding.
+- **The tableau:** SSP3(4,3,3) stays the default (decided in step 6 on the comparison in
+  `CODE.md`, "The partition"; the open question is closed).
+- The suite is 24882 tests: `Test Summary` 2m42s at 1.13 and 3m25s at 1.11 at one thread,
+  2m55s and 3m03s at four, 2m57s with `--check-bounds=yes` (1.13); 24638 and 1m31s before the
+  step. Every printed number agrees across versions and thread counts.
 - **Atmosphere:** a shock tube with a 10⁸ density ratio exercises the limiter.
 
 ## Step 7 — 2D and 3D, and higher-order reconstruction (rung 2a)

@@ -33,14 +33,19 @@ time integrator from
 is neutron stars and core-collapse supernovae; the first science target is a
 magnetized TOV star.
 
-**Status: the pointwise layer and the first evolutions (steps 0 to 3 and 5
-of `PLAN.md`).** The staggered scheme runs on TreeAMR's mesh in one
+**Status: the pointwise layer and the first evolutions (steps 0 to 3, 5
+and 6 of `PLAN.md`).** The staggered scheme runs on TreeAMR's mesh in one
 dimension: the matter and the electric field at cells, the vector potential
 on edges, the gauge scalar at vertices, and the magnetic field as the
 discrete curl of the potential, advanced by the IMEX integrator with the
 Ohm solve as its implicit stage. A vacuum electromagnetic wave and a
 large-amplitude circularly polarized Alfvén wave converge at second order,
-with the conserved totals constant to round-off. Beneath it lie the module
+with the conserved totals constant to round-off; Balsara's five
+relativistic MHD shock tubes match Giacomazzo & Rezzolla's exact plateaus to
+2% (all but one region, next to a shell 400 cells do not resolve),
+a resistive shock tube approaches the ideal solution as the conductivity
+grows to 10⁶, a current sheet diffuses as it should, and a blast into an
+atmosphere 10⁸ times thinner is held by the atmosphere reset. Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of
 TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide what
 the scheme is written against, and which of the upstream items the plan

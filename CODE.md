@@ -14,15 +14,16 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3 and 5 of `PLAN.md` are done — the scaffolding; the
-pointwise layer: units, the variable layouts, the point metric, `prim2con`
-and the 3+1 primitive recovery; the pointwise physics a right-hand side
-evaluates; the implicit stage solve; and the staggered scheme on the mesh,
-with the first evolutions, the vacuum electromagnetic wave and the
-circularly polarized Alfvén wave in 1D (rung 1a) — as are steps 4a–4c in
-IMEXRungeKutta. Step 6, the shock tubes and the stiff limit in 1D, is next.
-The numbers below about the scheme are measured where they say so and
-unmeasured otherwise. (Amended in step 5.)*
+*Status: steps 0 to 3, 5 and 6 of `PLAN.md` are done — the scaffolding;
+the pointwise layer: units, the variable layouts, the point metric,
+`prim2con` and the 3+1 primitive recovery; the pointwise physics a
+right-hand side evaluates; the implicit stage solve; the staggered scheme
+on the mesh, with the vacuum electromagnetic wave and the circularly
+polarized Alfvén wave in 1D (rung 1a); and the shock tubes, the resistive
+tube swept over σ, the current sheet and the atmosphere in 1D (rung 1b) —
+as are steps 4a–4c in IMEXRungeKutta. Step 7, 2D and 3D with higher-order
+reconstruction, is next. The numbers below about the scheme are measured
+where they say so and unmeasured otherwise. (Amended in step 6.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -434,7 +435,10 @@ branch `claude/step-3-bracketed-stage-solve` and is not in the code.
 any finite-σ model and multiplies its σ by a taper `g(μ)` of the
 magnetization `μ = magnetization(m, B, D) = γ_ij Bⁱ Bʲ / D` — the normal
 observer's field over the rest-mass density, which bounds the fluid
-frame's `μ/W ≤ b²/ρ ≤ W μ`.
+frame's `μ/W ≤ b²/ρ ≤ W μ`. *(Proposed in step 6:)* `μ = +∞` where
+`D ≤ 0`, which a stage predictor next to a near vacuum can carry: no rest
+mass, no conductor. `B²/D` handed the taper's logarithm a negative number
+there, and the magnetized atmosphere tube threw a `DomainError`.
 - **Constant within a stage.** `B` is explicit in the stage and the stage
   moves no rest mass, so `μ` is computed once from the stage's `B` and `D`:
   the cutoff adds no nonlinearity to the stage solve and nothing to its
@@ -699,7 +703,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
-| `X` — per-cell tallies, light speed *(added in step 5)* | cell | 15 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)* | cell | 18 | 0 | `=> nothing` |
 
 `P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
@@ -739,7 +743,9 @@ write and a read; the source kernel asks the provider for them
   implicit stages that set each of the nine `OhmStageResult` bits, the
   stages whose state the policy repaired and the `|` of their flags, the
   recoveries and the most one stage made, the cells the reset wrote, and the
-  light speed for the time step. The counts accumulate over a chunk and are
+  light speed for the time step. *(Added in step 6:)* the cells the reset
+  wrote as the step limiter, and the change those writes made to `√γ D`
+  and `√γ τ`, summed — the rest mass and energy the reset injects. The counts accumulate over a chunk and are
   reduced once at its end (`ohm_tally`), which is "reduced per chunk"
   without a reduction per stage.
 - **The operators** (proposed in step 5; the `A` width stays (open) until
@@ -892,6 +898,14 @@ seven matter slots and never `𝔈`, and counts each cell it writes into `X`.
 A written state recovers as itself, so a second reset changes nothing (a
 test). In step 5's smooth runs it writes nothing.
 
+*(Step 6:)* the two roles are counted apart — `reset_atmosphere!` is the
+stage limiter, `reset_step!` the step limiter — and the step limiter also sums
+what each write changes in `√γ D` and `√γ τ` (`ohm_tally`'s `injected_D`,
+`injected_τ`, volume-weighted). Since only its writes reach the state, the
+totals of a box whose boundary fluxes vanish change by exactly those sums,
+to rounding: the atmosphere tube asserts it (`test/atmosphere_tests.jl`),
+which also shows the stage limiter's writes never leak into `uⁿ⁺¹`.
+
 The conductivity model takes σ → 0 in the atmosphere, so the
 exterior is electrovacuum: the atmosphere carries no current (`v = 0`
 and `σ = 0` there), and the fields outside a star are those of the
@@ -948,6 +962,66 @@ the policy repairs: where the field's energy dwarfs the fluid's, an
 stays the default (proposed in step 5); step 6's stiff-limit and
 atmosphere runs are where to compare the two, and ARS(4,4,3) is one
 keyword away (`evolve!`'s `tableau`).
+
+**SSP3(4,3,3) stays the default; the question is closed** (decided in step
+6, on the measurements below — Erik left the choice to them). The two
+tableaus give the same answer wherever the explicit part's stability does
+not matter, and where it does, SSP3(4,3,3)'s SSPRK(3,3) explicit part keeps
+the density positive and the reset idle while ARS(4,4,3)'s does not:
+- the same accuracy on Balsara 1, 2, 3 and 5, the resistive tube at every
+  σ (the distances to the ideal run agree to four digits) and the current
+  sheet;
+- on Balsara 4 (`W = 22` flows colliding) ARS(4,4,3) is 25% further from
+  the reference and its `R4` plateau is 2.55% off, outside the 2% the
+  prediction allows, against 0.64%; on Balsara 3 and 4 it fires the reset
+  (3 and 2 cells, injecting `2.8·10⁻³` and `0.22` of energy) where
+  SSP3(4,3,3) fires none;
+- into a near vacuum its explicit part undershoots: a rarefaction into a
+  medium at `10⁻⁸` reaches `2.1·10⁻¹⁰` (the reset writes 114 cells) where
+  SSP3(4,3,3) never goes below the medium, and in the magnetized ideal
+  atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) the undershoots, repaired where
+  the field's energy dwarfs the fluid's, inject `2.6·10⁴` of rest mass
+  into a box that holds 0.5, and the flow runs away to `W = 49`;
+- with the magnetization cutoff it takes 7 fallbacks and 33 recoveries in a
+  stage, SSP3(4,3,3) none and 6;
+- it costs 10–17% more wall time.
+
+SSP3(4,3,3)'s price is the one step 5 measured: each step's stored `𝔈` is
+`O(Δt)` off the stiff equilibrium — at a shock an `O(1)` jump, up to 8.1%
+of `max |𝔈|` from its ideal projection on Balsara 1 at 400 cells (ARS:
+`10⁻³⁰`). Nothing reads it but the next stage solve, which replaces it, and
+the step limiter, which in no Balsara, resistive or current-sheet run wrote
+a cell; in the atmosphere runs the injection it allows is the table's.
+
+The comparison (`bin/tableau_comparison.jl`, Julia 1.13, Apple M3 Pro, one
+thread; MC, HLLE, `cfl = 2/5`; Balsara at 400 cells against both 3200-cell
+references, which agree to `5·10⁻⁵` (Balsara 2) and `5·10⁻³` (Balsara 3) in
+`D`; the plateau error the worst over `BALSARA_PLATEAUS`; "excursion" the
+largest departure of `√γ D` from the reference's range over three cells
+either side, as a fraction of its total range):
+
+| case | tableau | L1 `D`, `τ`, `𝔅ʸ` | plateau | TV excess | excursion | stored `𝔈` off | resets stage/step | injected `D`, `τ` | wall |
+|---|---|---|---|---|---|---|---|---|---|
+| Balsara 1 | SSP3 | 0.00696, 0.0141, 0.00824 | 1.26% | 0.22% | 5.5% | 8.1% | 0/0 | 0, 0 | 2.60 s |
+| | ARS | 0.00696, 0.0141, 0.00824 | 1.27% | 0.23% | 5.6% | 0 | 0/0 | 0, 0 | 3.03 s |
+| Balsara 2 | SSP3 | 0.0305, 0.250, 0.0243 | 1.91% | −0.30% | 8.4% | 0.18% | 0/0 | 0, 0 | 3.45 s |
+| | ARS | 0.0305, 0.250, 0.0243 | 1.91% | −0.27% | 8.6% | 0 | 0/0 | 0, 0 | 3.99 s |
+| Balsara 3 | SSP3 | 0.380, 18.9, 0.0592 | 4.69% | −31% | 13.8% | 0.24% | 0/0 | 0, 0 | 6.15 s |
+| | ARS | 0.375, 18.7, 0.0591 | 4.20% | −31% | 12.9% | 0 | 3/3 | 6·10⁻¹⁹, 2.8·10⁻³ | 6.68 s |
+| Balsara 4 | SSP3 | 0.382, 11.4, 0.153 | 0.64% | 14.5% | 5.2% | 4.4% | 0/0 | 0, 0 | 4.57 s |
+| | ARS | 0.477, 12.4, 0.185 | 2.55% | 18.8% | 5.3% | 0 | 2/2 | −10⁻¹⁴, 0.222 | 5.13 s |
+| Balsara 5 | SSP3 | 0.00829, 0.0198, 0.00754 | 0.63% | 3.8% | 4.2% | 1.9% | 0/0 | 0, 0 | 4.43 s |
+| | ARS | 0.00829, 0.0199, 0.00756 | 0.64% | 3.8% | 4.2% | 0 | 0/0 | 0, 0 | 5.06 s |
+
+| case (200 cells) | SSP3 | ARS |
+|---|---|---|
+| resistive tube, L1(`𝔅ʸ` − ideal) at σ = 0, 10, 10², 10³, 10⁶ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ |
+| resistive tube, stages fixed point / Newton at σ = 10² | 94,930 / 65,070 | 39,867 / 120,133 |
+| current sheet to `t = 9`, L1 to the erf profile; wall | 9.30·10⁻⁴; 5.6 s | 9.30·10⁻⁴; 6.4 s |
+| rarefaction into `10⁻⁸` (atmosphere `10⁻¹⁰`): min ρ; resets | 1.0·10⁻⁸; 0/0 | 2.1·10⁻¹⁰; 152/114 |
+| atmosphere tube, `B = 0`: injected `D`, `τ` | −8.4·10⁻¹², −2.2·10⁻¹⁰ | 2.4·10⁻⁹, 1.2·10⁻⁸ |
+| atmosphere tube, ideal, `Bʸ = 10⁻³`: injected `D`, `τ`; max W | 1.6·10⁻⁹, −2.5·10⁻⁷; 4.83 | 2.6·10⁴, 5.3·10¹³; 48.9 |
+| atmosphere tube, `Constant(10³)` cut off at `μ_max = 10`: injected `D`, `τ`; fallbacks; most recoveries | 2.5·10⁻⁸, 6.9·10⁻⁸; 0; 6 | 4.6·10⁻⁸, 1.5·10⁻⁶; 7; 33 |
 
 *As built in step 5* (`src/driver.jl`): `evolve!(T, case, Val(D); N,
 t_end, chunk, cfl, limiter, …)` builds the forest of `case.roots` blocks of
@@ -1327,6 +1401,27 @@ set, in the order `(U, A₁, A₂, A₃, Φ̃)` — AMR-2 having landed, each se
 `fill_ghosts!` gets its own. Step 5's waves are periodic; step 6's shock
 tubes are the first to pass hooks.
 
+*As built in step 6* (`DirichletBoundary`, `case_boundary` in
+`src/driver.jl`; proposed in step 6). A case that is not periodic gets one
+hook per evolved set from its own `fields` and `potential`, evaluated at the
+time of each fill (`boundary_at(hook, t)`: every fill — a right-hand side's,
+a stage's, a reset's — knows its time):
+- **The matter**: Dirichlet, the case's conserved state at each ghost
+  cell's center, `CellBoundary(AllVariables(…))`, a kernel on every backend.
+- **The potentials**: Dirichlet *in the field*. A ghost of `A_j` or `Φ̃`
+  holds the nearest evolved point's value plus the case's difference between
+  the two points, so `𝔅` in the ghosts and on the boundary faces is the
+  case's, and the level of `A`, which nothing physical reads, is the
+  evolution's. A Dirichlet `A` itself is wrong: a uniform state with an
+  electric field has `A = A₀ − tE`, and the stage solve is told
+  `tⁿ + cΔt` while the stage's `A`, which only the explicit part moves, is
+  at `tⁿ + c̃Δt` — SSP3(4,3,3)'s first stage has `c̃ = 0`, `c = 0.24`. A
+  uniform flow at `vˣ = 0.999` lost a fifth of its density in the last
+  cell within 0.05 of a crossing that way, and the step limiter wrote that
+  cell every step (measured in step 6); with the field's Dirichlet data it
+  stays uniform to 3.3e−13 under either tableau (a test). This hook reads
+  the interior, TreeAMR's region form, CPU-only: AMR-7 in `PLAN.md`.
+
 ## Refinement
 
 A Löhner indicator on `ρ`, optionally on `|B|` and `|E|`, following
@@ -1432,7 +1527,10 @@ named as claims.
 1. **Flat space, 1D**: the vacuum electromagnetic wave (`Vacuum`) at the
    scheme's order; the large-amplitude circularly polarized Alfvén wave
    (`IdealConductor`) at the scheme's order; the resistive shock tube swept
-   over σ (Komissarov 2007), approaching Balsara 1 as σ → ∞; the
+   over σ (Palenzuela et al. 2009, Dionysopoulou et al. 2013 — amended in
+   step 6: Komissarov 2007 has no σ sweep, and the published tube is a
+   Brio–Wu tube with `Bˣ = 0`, not Balsara 1), approaching the ideal
+   solution as σ → ∞; the
    self-similar current sheet against its analytic profile; Balsara 1–5
    with `IdealConductor`, against GRaM-X's figures; a σ × magnetization
    sweep of the implicit stage solve, recording where each branch of it
@@ -1461,6 +1559,100 @@ named as claims.
      No stage was repaired and no reset fired in either wave.
    - **Float32**: the Alfvén wave runs in `Float32` throughout, and after a
      tenth of a period its `A_y` error is the `Float64` run's to 4e−5.
+
+   *Rung 1b, measured in step 6* (`test/shocktube_tests.jl`,
+   `test/resistive_tests.jl`, `test/atmosphere_tests.jl`; MC, HLLE,
+   SSP3(4,3,3) at `cfl = 2/5`, Dirichlet boundaries from each case's own
+   data — "Boundaries"; Julia 1.11 and 1.13, one and four threads; the
+   cases in `src/cases/shocktubes.jl`, every published number copied with
+   its citation):
+   - **Balsara 1–5** (`IdealConductor`; GRaM-X's Table 1, Giacomazzo &
+     Rezzolla's Table 4; on `[−1/2, 1/2]` to `t = 0.4`, 0.55 for test 5) at
+     100, 200 and 400 cells against a 3200-cell run of the same code
+     (`bin/shocktube_reference.jl`, stored in `test/data/`, 99–285 s a test
+     at four threads): L1 rates of `D`, `S_x`, `τ`, `𝔅ʸ` of 0.78, 0.85,
+     0.77, 0.85 (test 1), 0.66, 0.67, 0.74, 0.81 (2), −0.02, 0.14, 0.17,
+     0.53 (3), 0.95, 1.04, 0.94, 0.93 (4), 0.90, 0.75, 0.78, 0.97 (5).
+     PLAN.md's prediction, ≥ 0.7, holds but for test 2's `D` and `S_x` —
+     whose error is the contact's, and a contact converges as `h^{2/3}`
+     under a second-order scheme — and test 3, which is not asymptotic below
+     800 cells: its dense shell (`R5`, ρ = 10.1, between a contact moving
+     at 0.95 and a slow shock) holds at most ρ = 8.35 at 400 cells and 9.67
+     at 800, and its missing mass is the error of `D`, `S_x` and `τ` (`D`:
+     0.37, 0.34, 0.38, 0.30, 0.15 at 100 … 1600 cells). The test asserts
+     those measured rates with tolerances.
+   - **The plateaus** against Giacomazzo & Rezzolla's exact solution
+     (2006, Tables 7–11; `BALSARA_EXACT`, whose `p` is the total pressure),
+     averaged at 400 cells over each region's window (`BALSARA_PLATEAUS`,
+     where the 3200-cell run holds the region to 2%, less four cells either
+     side), with `ρ` and `p` relative to their own value and each component
+     of `v` and `B` to its largest magnitude in the solution
+     (`plateau_error`, proposed in step 6): every window within 2% —
+     the worst 1.26% (test 1, `R5`), 1.91% (2, `R5`), 0.13% (3, `R2`),
+     0.64% (4, `R4`), 0.64% (5, `R2`) — but test 3's `R4`, 4.7% dense at
+     400 cells (1.3% at 800), next to the unresolved shell. Too thin for a
+     window at 400 cells: test 2's `R6`/`R7`, test 3's `R5`–`R7`, test 5's
+     `R3` and `R6`; at 3200 cells all but test 3's `R6`/`R7` and test 5's
+     `R3` are held, the worst to 2.0% (test 3's shell).
+   - **Conservation with boundaries**: until a wave arrives, the totals
+     change by the far states' physical fluxes, `−(F_R − F_L)t`, to at most
+     4.1e−12 of their scale — the light-cone fluxes' exponentially small
+     precursors reaching the faces at 100 cells; 3e−14 at 400 — and
+     Balsara 1 on a periodic box conserves every total to 0.018 ulp a step.
+     A uniform flow at `vˣ = ±0.999` or `±1/2` crosses the box unchanged to
+     1.7e−12 of its scale under either tableau.
+   - **The stages**: every one of Balsara 1–5 is `OHM_IDEAL`, one recovery;
+     no repair, no reset, nothing non-finite.
+   - **The resistive tube** (Palenzuela et al. 2009, Dionysopoulou et al.
+     2013: a Brio–Wu tube with `Bʸ = ±1/2`, `Bˣ = 0`, `Γ = 2`, on `[0, 1]`
+     to 0.4; 200 cells): the L1 distance of `𝔅ʸ` to the `IdealConductor`
+     run is 0.392, 0.202, 0.0611, 0.0134 and 1.73e−5 at σ = 0, 10, 10²,
+     10³, 10⁶ — monotone, PLAN.md's claim — and falls as `σ^−0.96` from 10³
+     to 10⁶ (`σΔt ≈ 2000` there). The stages: all `OHM_SIGMA_ZERO` at σ = 0;
+     all fixed point at σ = 10; 94,930 fixed point and 65,070 Newton of
+     160,000 at 10²; 3,225 and 156,775 at 10³; 817 and 159,183 at 10⁶, every
+     Newton stage there from the ideal seed; no fallback, at most 6
+     recoveries in a stage, no repair, no reset.
+   - **The current sheet** (Komissarov 2007, §6.1.4: `B₀ = 1`, `p = 50`,
+     `ρ = 1`, `σ = 100`, `Γ = 4/3`, on `[−3/2, 3/2]` from the profile at
+     `t = 1`, with the quasi-static `Eᶻ = ∂ₓBʸ/σ` where the paper starts
+     from `E = 0`, proposed in step 6): PLAN.md predicted an L1 rate ≥ 1.8
+     against the erf profile, but the profile solves the diffusion limit
+     and not the system — the field's pressure moves the fluid at
+     `2·10⁻⁴`, whose `v × B` is 1% of the resistive `E`, and the
+     displacement current lags the diffusion by `O(1/σt)` — so the
+     distance saturates at 1.1e−3 of `B₀` (L1 per unit length; 2.8e−3,
+     8.2e−4, 1.06e−3, 1.14e−3 at 50 … 400 cells over `t = 1 → 2`). The
+     order is therefore measured against the next finer run (amended in
+     step 6): 2.53 and 2.58 over 50 … 400 cells. At Komissarov's 200 cells
+     and `t = 9` the distance to the profile is 9.3e−4 — "indistinguishable"
+     to 0.1% — and at `B₀ = 1/10`, where the fluid's response (quadratic in
+     `B₀`) drops out, it is five times smaller relative to `B₀`. Every stage
+     is a fixed point (1,068,800 of them to `t = 9`), at most 4 recoveries.
+   - **The atmosphere** (`atmosphere_tube_case`, proposed in step 6: a gas
+     at ρ = p = 1 expanding into the policy's own atmosphere at
+     `ρ_atm = 10⁻⁸`, `W` up to 4.9; 200 cells to `t = 0.4`): hydrodynamic
+     (`B = 0`), and magnetized as a star's surface would be — `Bʸ = 10⁻³`,
+     `B²/ρ = 100` in the atmosphere, `Constant(10³)` cut off at
+     `μ_max = 10` (the measured safe value), so the atmosphere is
+     electrovacuum. No density below `ρ_atm`, nothing non-finite; the reset
+     writes 35,158 cells as the stage limiter and 11,686 as the step
+     limiter (hydrodynamic; 33,263 and 11,054 magnetized) — the policy
+     flags every atmosphere cell, and the reset writes it back as it is —
+     and injects `−8.4·10⁻¹²` of rest
+     mass and `−2.2·10⁻¹⁰` of energy (`2.5·10⁻⁸` and `6.9·10⁻⁸`
+     magnetized) into a box holding 0.5 of rest mass — and the totals
+     change by exactly those amounts, to rounding, which also shows the
+     stage limiter's writes stay out of the state. Magnetized, the stages
+     are 48,362 `OHM_SIGMA_ZERO` (the cutoff), 111,572 fixed point and 66
+     Newton (61 from the ideal seed); no fallback, at most 6 recoveries. A
+     stage predictor next to the vacuum can carry `D < 0`, which EntropyEOS
+     reports as non-finite and repairs inside the stage (the flag appears
+     among the stages' policy flags, never in the state); its magnetization
+     is `+∞` (see "Ohm's law and the conductivity").
+   - Cost (Julia 1.13, Apple M3 Pro, one thread, 400 cells): a step of
+     Balsara 1 is 6.5 ms, of Balsara 3 15 ms (the recoveries at a pressure
+     ratio of 10⁴); the three test files take 45, 37 and 11 s.
 2. **Flat space, 2D and 3D, with AMR**: the cylindrical explosion, the
    magnetic rotor, Orszag–Tang, field-loop advection across coarse-fine
    faces — `∇·B` at round-off, rest mass and magnetic flux conserved
@@ -1508,18 +1700,21 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   and as the step limiter alone. TreeHydro named this case as the one
   where a per-stage reset could matter, and no code in IMEXRungeKutta's
   survey measured it (amended 2026-09-25).
-- SSP3(4,3,3) or ARS(4,4,3) as the default tableau (added in step 5): the
-  former leaves each step's `𝔈` `O(Δt)` off the stiff equilibrium, which the
-  step limiter reads (see "The partition"); the latter lands on it for one
-  more explicit evaluation a step. Step 6's stiff-limit and atmosphere runs
-  decide.
+- *(Closed in step 6.)* SSP3(4,3,3) or ARS(4,4,3) as the default tableau:
+  SSP3(4,3,3), whose explicit part is SSP; ARS(4,4,3) undershoots into a
+  near vacuum, fires the reset on Balsara 3 and 4, and floods a magnetized
+  atmosphere (see "The partition").
 
 ## Known risks
 
 - No MPI yet: single node, although TreeAMR now has its M7 (amended in
   step 0).
 - Unlimited conservative prolongation at a stellar surface floors cells.
-- Light-cone fluxes are diffusive in a star's interior.
+- Light-cone fluxes are diffusive in a star's interior. *(Measured in step
+  6:)* they smear contacts and slow waves: Balsara 2's contact converges as
+  `h^{2/3}`, and Balsara 3's dense shell (ρ = 10.1 between a contact and a
+  slow shock) is not resolved below 800 cells, where the 400-cell run's
+  peak density is 8.35.
 - The implicit stage may converge poorly where magnetization and `σΔt`
   are both large; rung 1's sweep exists to find out where. *(Measured in
   step 3, pointwise:)* not where both are large — the ideal seed is exact

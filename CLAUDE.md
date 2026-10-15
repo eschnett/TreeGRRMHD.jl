@@ -41,9 +41,9 @@ Rules that follow from `CODE.md` and govern every change here:
 ## Current state
 
 **Steps 0 (scaffolding), 1 (the pointwise recovery), 2 (the pointwise
-physics), 3 (the implicit stage solve) and 5 (the staggered scheme in 1D,
-rung 1a) are done; step 6 (shock tubes and the stiff limit) is next, and
-is unblocked (2026-10-14).** `CODE.md` records the reviewed design
+physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
+rung 1a) and 6 (shock tubes and the stiff limit, rung 1b) are done; step 7
+(2D, 3D and higher-order reconstruction) is next (2026-10-14).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -87,7 +87,18 @@ for D = 1, 2, 3 and validated in 1D; step 7 validates 2D and 3D. The RHS is
 pure bit for bit because every recovery is seeded from the state
 (`state_guesses`), never from `P`. Tests: `test/scheme_tests.jl` and
 `test/wave_tests.jl` (the convergence studies, ~50 s, half of it
-compilation).
+compilation). Step 6: non-periodic cases get Dirichlet hooks from their own
+data (`DirichletBoundary` in `src/driver.jl`; the potentials' are Dirichlet
+in the field and CPU-only, AMR-7), the reset is counted as stage and step
+limiter with the step limiter's injection (`reset_step!`, `ohm_tally`), and
+`src/cases/shocktubes.jl` has Balsara 1–5 with Giacomazzo & Rezzolla's
+exact plateaus, the resistive tube, Komissarov's current sheet and the
+atmosphere tube. `bin/shocktube_reference.jl` made the 3200-cell
+references in `test/data/` (rerun it only if the scheme changes, and say
+so); `bin/tableau_comparison.jl` made `CODE.md`'s SSP3-vs-ARS table.
+**SSP3(4,3,3) is the default tableau** (decided in step 6). Tests:
+`test/shocktube_tests.jl`, `test/resistive_tests.jl`,
+`test/atmosphere_tests.jl` (~45, 37 and 11 s).
 
 ## Commands
 
@@ -137,7 +148,10 @@ probed as landed or waiting; grep it for `landed:` and `waiting:` (since
 `landed:` should not appear). At the end of step 2
 (2026-10-13): **20513 tests**, a `Test Summary` time of 37–39 s at 1.11
 and 28 s at 1.13 at one thread, four and `--check-bounds=yes`;
-`test/pointwise_tests.jl` takes about 12 s of it. At the end of step 5
+`test/pointwise_tests.jl` takes about 12 s of it. At the end of step 6 (2026-10-14): **24882
+tests**, a `Test Summary` time of 2m42s at 1.13 and 3m25s at 1.11 at one
+thread (2m55s and 3m03s at four, 2m57s with `--check-bounds=yes`); the
+three step-6 files take about 95 s of it. At the end of step 5
 (2026-10-14): **24638 tests**, a `Test Summary` time of 1m31s at 1.13 at
 one thread and at four, 1m35s with `--check-bounds=yes`, and 1m45s and
 1m52s at 1.11 at one and four threads (24292 tests and 40 s at 1.13 before
