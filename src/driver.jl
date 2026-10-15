@@ -599,52 +599,116 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
 
 """
     evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
-            riemann = :hlle, ξ = 0, stage = nothing, tableau = IMEXSSP3433(), G = 3,
-            backend = CPU(), after_step = nothing) -> NamedTuple
+            riemann = :hlle, ξ = default_ξ(…), stage = nothing, tableau = IMEXSSP3433(), G = 3,
+            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A,
+            fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
+            buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
+            after_regrid = nothing) -> NamedTuple
 
-Run `case` from `t = 0` to `t_end` on the uniform mesh of `case.roots` root
-blocks of `N` cells per dimension, in chunks of length `chunk`. Each chunk's
-`Δt` is `cfl / (D · max λ/h)` from the light cone at the chunk's start
-([`max_light_rate`](@ref)), rounded down to a whole number of steps, and each
-chunk tallies its implicit stages and resets ([`ohm_tally`](@ref)).
+Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
+case's own by default) of `N` cells per dimension, in chunks of length
+`chunk`. Each chunk's `Δt` is `cfl / (D · max λ/h)` from the light cone at
+the chunk's start on the finest level ([`max_light_rate`](@ref)), rounded down
+to a whole number of steps, and each chunk tallies its implicit stages and
+resets ([`ohm_tally`](@ref)).
 
-Returns `(; p, u, t, nsteps, chunks)`: the problem, the final state vector
-over `p.sets`, the final time, the total step count, and per chunk
-`(t, nsteps, dt, tally)`.
+Returns `(; p, u, t, nsteps, chunks, nregrids, passes, nblocks, totals0)`:
+the problem, the final state vector over `p.sets`, the final time, the total
+step count, per chunk `(t, nsteps, dt, tally, nblocks)`, the number of
+regrids that moved the mesh, the initial adaptation's passes (0 without
+one), the final block count, and the [`conserved_totals`](@ref) of the
+initial state on the initial mesh (which a regridded run's own initial
+data on its final mesh does not reproduce to rounding).
 
 `after_step(p, u, t)`, if given, is called after every step with the
 problem, the state and its time — a monitor, such as the `∇·𝔅` check of
 rung 2a ([`max_div_B`](@ref); added in step 7); it must not change `u`.
+`after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
+once after the initial adaptation (added in step 8).
 
 `limiter` has no default (see [`MHDProblem`](@ref)); `cfl = 2/5` is
 TreeHydro's, under the explicit part of SSP3(4,3,3) — the SSPRK(3,3)
 tableau, whose SSP coefficient is 1 (proposed in step 5) — and 1/5 under
 MP5 ([`default_cfl`](@ref), step 7).
+
+**The mesh** *(added in step 8; "Refinement" in `CODE.md`)*:
+
+- `refine(forest)`, if given, refines the root mesh before anything is
+  built — a static mesh, fixed for the run (`maxlevel = 0`), such as the two
+  levels of the coarse-fine tests. It must leave the forest balanced.
+- `maxlevel > 0` adapts the mesh: [`adapt_to_initial_data!`](@ref) over every
+  field set on the case's own data (AMR-3), then a regrid at the start of
+  every chunk after the first ([`regrid_state!`](@ref)), both with
+  [`mhd_flags`](@ref) — Löhner on `ρ`, `|B|`, `|E|` — whose `refine_tol` and
+  `coarsen_tol` have no default; `buffer` is the margin in cells `regrid!`
+  dilates the firing cells by, the case's (feature speed × `chunk`), and
+  `ε`, `ε_g` the indicator's floors.
+- `ops_U`, `ops_A` are the operators of the matter and of the potentials
+  ([`MHDProblem`](@ref)), `fixup = false` skips `restrict_interfaces!` (the
+  negative control).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,
-                 cfl=nothing, limiter=nothing, riemann::Symbol=:hlle, ξ=zero(T),
+                 cfl=nothing, limiter=nothing, riemann::Symbol=:hlle, ξ=nothing,
                  stage=nothing, tableau=IRK.IMEXSSP3433(), G::Integer=3,
-                 backend=CPU(), after_step=nothing) where {T,D}
+                 backend=CPU(), after_step=nothing, roots=case.roots,
+                 ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
+                 fixup::Bool=true, refine=nothing, maxlevel::Integer=0, refine_tol=nothing,
+                 coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
+                 maxpasses::Integer=10, after_regrid=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
     chunk > 0 || throw(ArgumentError("chunk must be positive, got $chunk."))
     cfl > 0 || throw(ArgumentError("cfl must be positive, got $cfl."))
-    forest = Forest{T}(case.roots; N=N, periodic=case.periodic, extents=case.extents)
+    maxlevel ≥ 0 || throw(ArgumentError("maxlevel must be non-negative, got $maxlevel."))
+    if maxlevel > 0
+        (refine_tol === nothing || coarsen_tol === nothing) && throw(ArgumentError(
+            "an adaptive run (maxlevel = $maxlevel) needs refine_tol and coarsen_tol: " *
+            "they have no default, since what is under-resolved is the case's to say " *
+            "(CODE.md, \"Refinement\")."))
+        refine === nothing || throw(ArgumentError(
+            "pass either a static mesh (`refine`) or an adaptive one (`maxlevel > 0`), not " *
+            "both: the first regrid would undo the static refinement."))
+    end
+    ξ = resolve_ξ(T, ξ, case, refine !== nothing || maxlevel > 0)
+    rs = roots isa Tuple ? ntuple(d -> Int(roots[d]), D) : ntuple(_ -> Int(roots), D)
+    forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
+    refine === nothing || refine(forest)
     f = mhd_fields(T, forest; G=G, backend=backend)
-    p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
-                   provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage, limiter=limiter,
-                   riemann=riemann, boundary=case_boundary(case))
+    build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+                         provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
+                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A,
+                         fixup=fixup, boundary=case_boundary(case))
+    flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
+    passes = 0
+    if maxlevel > 0
+        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, buffer=buffer,
+                             maxpasses=maxpasses, flagkw...)
+    end
+    p = build()
     u = exact_state(p, case, zero(T))
     low_walls!(p, u, zero(T))                         # AMR-8's workaround
+    totals0 = conserved_totals(p, u)
+    maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
     nchunks = chunk_count(t_end, chunk)
     t = zero(T)
     total = 0
+    nregrids = 0
     integ = nothing
     chunks = []
     for c in 1:nchunks
         t1 = c == nchunks ? t_end : c * chunk
         clear_tally!(p)
+        if maxlevel > 0 && c > 1
+            update_primitives!(p, u, t)
+            r = regrid_state!(p, u, t; flags=mhd_flags(p; flagkw...), buffer=buffer)
+            if r.moved
+                p, u = r.p, r.u
+                integ = nothing                       # the scratch has the old length
+                nregrids += 1
+                after_regrid === nothing || after_regrid(p, u, t)
+            end
+        end
         rate = max_light_rate(p, t)
         nsteps = chunk_count((t1 - t) * D * rate, cfl)
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,
@@ -657,11 +721,91 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                 after_step(p, integ.u, integ.t)
             end
         end
-        push!(chunks, (; t=t1, nsteps, dt=(t1 - t) / nsteps, tally=ohm_tally(p)))
+        push!(chunks, (; t=t1, nsteps, dt=(t1 - t) / nsteps, tally=ohm_tally(p),
+                       nblocks=nblocks(p.f.U)))
         total += nsteps
         t = t1
     end
-    return (; p, u, t, nsteps=total, chunks)
+    return (; p, u, t, nsteps=total, chunks, nregrids, passes, nblocks=nblocks(p.f.U), totals0)
+end
+
+"""
+    default_ξ(case, refined::Bool)
+
+The gauge damping [`evolve!`](@ref) uses unless told otherwise (decided in
+step 8, "Refinement" in `CODE.md`): `16/L`, `L` the shortest side of the
+case's box — the damping of a gauge wave over a sixteenth of a light
+crossing — on a refined mesh, and zero on a uniform one. On a uniform mesh
+the gauge never reaches `𝔅`: `−∇(αΦ − β·A)` is a discrete gradient, whose
+discrete curl vanishes to rounding, so `ξ` changes no physical number and
+the uniform runs keep their bits. Across a coarse-fine face it does reach
+`𝔅`, since the prolongation of a coarse gradient is not a fine one; a pure
+gauge pulse on a two-level unit box left `max |𝔅|` at 5.3e−2 of the pulse
+after two light crossings with `ξ = 0`, 6.6e−3 at `ξ = 4`, 1.4e−3 at 16 and
+3.3e−4 at 64, while the oblique Alfvén wave's errors moved in the fifth
+digit at most (measured in step 8, `bin/gauge_damping.jl`).
+"""
+default_ξ(case::MHDCase{T,D}, refined::Bool) where {T,D} =
+    refined ? 16 / minimum(e -> case.extents[e][2] - case.extents[e][1], 1:D) : zero(T)
+
+# `evolve!`'s `ξ`: the default, or the caller's in the case's type.
+resolve_ξ(::Type{T}, ξ, case, refined) where {T} =
+    ξ === nothing ? T(default_ξ(case, refined)) : T(ξ)
+
+"""
+    default_ops_U(), default_ops_A()
+
+The operators [`evolve!`](@ref) gives the matter set and the potentials
+unless told otherwise ("Field sets" and "Refinement" in `CODE.md`).
+"""
+default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
+default_ops_A() = Operators(; prolongation=4, restriction=4)
+
+"""
+    adapt_case!(f::MHDFields, case, build; ops_U, ops_A, refine_tol, coarsen_tol,
+                maxlevel, ε, ε_g, buffer, maxpasses) -> passes
+
+The initial adaptation of every field set of `f` to `case`'s data at
+`t = 0` (AMR-3, TreeAMR's several-set `adapt_to_initial_data!`): each pass
+fills the evolved sets from the case — the conserved state *at* each cell's
+centre, a point value standing in for the cell average while the mesh is
+being chosen, and the potentials at their points — fills their ghosts with
+their own hooks, recovers `P` and flags by [`mhd_flags`](@ref), and regrids
+with `transfer = false`; the scratch sets are resized. On the converged mesh
+the driver then writes the exact initial data ([`exact_state`](@ref)).
+`build()` makes the problem over `f` as the forest stands. Throws if the
+cycle has not converged within `maxpasses`.
+"""
+function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, refine_tol,
+                     coarsen_tol, maxlevel, ε, ε_g, buffer, maxpasses) where {T,D}
+    hooks = case_boundary(case)
+    hook(i) = hooks === nothing ? nothing : boundary_at(hooks[i], zero(T))
+    fl, pt, eos, prov = case.fields, case.potential, case.eos, case.provider
+    initU = AllVariables(x -> case_cons(fl, eos, prov, point3(x), zero(T)))
+    initA(R) = AllVariables(x -> (let (A, Φ̃) = pt(point3(x), zero(T))
+                                      R ≤ 3 ? A[R] : Φ̃
+                                  end,))
+    ev = evolved_sets(f)
+    ops = (ops_U, ops_A, ops_A, ops_A, ops_A)
+    evolved = ntuple(i -> ev[i] => (ops[i], hook(i)), 5)
+    scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
+               map(s -> s => nothing, f.EMF)..., f.X => nothing)
+    nscratch = length(scratch)
+    initial = (initU, initA(1), initA(2), initA(3), initA(4), ntuple(_ -> nothing, nscratch)...)
+    criterion(sets) = begin
+        p = build()
+        primitives_from_sets!(p, zero(T))
+        mhd_flags(p; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
+    end
+    _, passes, converged = adapt_to_initial_data!((evolved..., scratch...); initial=initial,
+                                                  flags=criterion, buffer=buffer,
+                                                  maxpasses=maxpasses)
+    converged || throw(ErrorException(
+        "the initial adaptation had not converged after $passes passes: the criterion " *
+        "kept asking for a different mesh. Each pass re-evaluates the case on the new " *
+        "mesh, so it stops when nothing new is asked — a refine_tol below what the data " *
+        "can reach, or too high a maxlevel for a discontinuity, keeps it going."))
+    return passes
 end
 
 evolve!(case::MHDCase{T}, valD::Val; kwargs...) where {T} = evolve!(T, case, valD; kwargs...)

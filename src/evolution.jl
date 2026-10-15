@@ -85,7 +85,8 @@ const MHD_SOLVERS = (:llf, :hlle)
 """
     MHDProblem(f::MHDFields; eos, opts, pol, model, provider = Flat(), 𝔅̄ = 0,
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
-               ops_U = Operators(prolongation=3, restriction=2, family=Conservative),
+               ops_U = Operators(prolongation=3, restriction=2, family=Conservative,
+                                 bounded=true),
                ops_A = Operators(prolongation=4, restriction=4),
                boundary = nothing, fixup = true)
 
@@ -102,7 +103,8 @@ origins and spacings on the sets' backend, and the physics:
 - `provider`: the metric ([`Flat`](@ref), [`Analytic`](@ref));
 - `𝔅̄`: the constant densitized background field, an `SVector{3}`
   (`src/curl.jl`);
-- `ξ`: the gauge damping (open; step 8 decides it);
+- `ξ`: the gauge damping, `−ξαΦ̃` in the gauge equation (zero by default
+  here; [`evolve!`](@ref) chooses it, "Refinement" in `CODE.md`);
 - `stage`: the stage solve's [`OhmStageOptions`](@ref).
 
 **`limiter` has no default**, as in TreeHydro: it changes what is measured.
@@ -111,10 +113,12 @@ slope limiter `:none`, `:minmod` or `:mc` (step 5), or `:ppm`, `:wenoz`,
 `:mp5` (step 7), which need `G ≥ 3`. `riemann` is `:hlle` (the light-cone HLL, whose
 dissipation on `𝔈` matches the UCT EMF's on `𝔅`) or `:llf`.
 
-`ops_U` and `ops_A` are the operators of the matter set and of `A`, `Φ̃`
-(proposed in step 5: Conservative width 3 for the matter, PointValue width 4
-for the potentials, which `CODE.md` leaves (open) until step 8 measures it;
-nothing in step 5 refines, so they only have to pass TreeAMR's checks).
+`ops_U` and `ops_A` are the operators of the matter set and of `A`, `Φ̃`:
+Conservative width 3 for the matter, **bounded** (TreeAMR's MC-bounded
+prolongation, AMR-4) in its ghost fill and its regrid alike, and PointValue
+width 4 for the potentials (proposed in step 5; decided in step 8 by the
+interface-order table, and the matter's bound by the atmosphere across a
+coarse-fine face — "Refinement" in `CODE.md`).
 `boundary` is `nothing` for a periodic domain, or one hook per evolved set in
 the order of [`evolved_sets`](@ref) (AMR-2 having landed, each set takes its
 own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
@@ -122,10 +126,12 @@ own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
 """
-struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
+    ops_U::OU                    # the matter's operators
+    ops_A::OA                    # the potentials' operators
     ischeds_F::ISF               # NTuple{D,InterfaceSchedule}
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
@@ -151,7 +157,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                     𝔅̄=nothing, ξ=0, stage=nothing, limiter::Union{Symbol,Nothing}=nothing,
                     riemann::Symbol=:hlle,
                     ops_U::Operators=Operators(; prolongation=3, restriction=2,
-                                               family=Conservative),
+                                               family=Conservative, bounded=true),
                     ops_A::Operators=Operators(; prolongation=4, restriction=4),
                     boundary=nothing, fixup::Bool=true) where {D}
     T = eltype(f.U.work)
@@ -211,13 +217,34 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     outer = to_backend(backend, of_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
-    return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ischeds_F),
+    return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
+                      typeof(ops_A),typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(outer),
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ischeds_F, ischeds_EMF, origins, spacings, outer, hasouter, eos,
-        opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter), Val(riemann))
+        f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, outer,
+        hasouter,
+        eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
+        Val(riemann))
 end
+
+"""
+    rebuild(p::MHDProblem; kwargs...) -> MHDProblem
+
+The same problem over the same field sets, its schedules, interface
+schedules, per-block geometry and outer faces rebuilt from the forest as it
+is now: what a [`regrid!`](@ref) leaves stale (it replaces every set's
+storage in place, so `p.f` still names the sets). A keyword of
+[`MHDProblem`](@ref) given here replaces `p`'s (`fixup = false`, the
+negative control). Added in step 8.
+"""
+rebuild(p::MHDProblem; kwargs...) =
+    MHDProblem(p.f; eos=p.eos, opts=p.opts, pol=p.pol, model=p.model, provider=p.provider,
+               𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
+               riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, boundary=p.boundary,
+               fixup=p.fixup, kwargs...)
+
+unval(::Val{X}) where {X} = X
 
 """
     boundary_at(hook, t)
@@ -689,11 +716,17 @@ evolved set and fill their ghosts, compute `𝔅` on every stored face, recover
 set `P`.
 """
 function update_primitives!(p::MHDProblem{T,D}, u, t) where {T,D}
-    f = p.f
     scatter!(p.sets, u)
     for i in eachindex(p.sets)
         fill_set!(p, i, t)
     end
+    return primitives_from_sets!(p, t)
+end
+
+# Steps 2 to 4 of the right-hand side on sets whose ghosts are filled already:
+# `𝔅` on every stored face, `P` in every stored cell, `q` at the owned cells.
+function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
+    f = p.f
     curl_A!(f, p.𝔅̄, p.spacings)
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.U.work, f.B[1].work, f.B[2].work,
                 f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.pol,

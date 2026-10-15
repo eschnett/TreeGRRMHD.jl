@@ -311,6 +311,31 @@ end
                   "`low_walls!` (wanted, no step blocked)")
 end
 
+@testset "AMR-9: a flux-conservative transfer of the potentials (when landed)" begin
+    # Guards the magnetic flux across levels (added in step 8): until TreeAMR
+    # transfers an edge set conservatively along its cell-like direction (the
+    # mean of the fine edges, not their interpolation), the flux through a
+    # coarse face equals the sum through its fine faces only to the
+    # potentials' interpolation error, and `Σ hᴰ 𝔅ᶻ` drifts across a level
+    # (`refinement_tests.jl`). Detected by the operators an edge set accepts,
+    # never by a version: today `Conservative` is refused along a vertex-like
+    # dimension, and `vertex_prolongation` is no keyword.
+    forest = prereq_forest(Val(2))
+    fs = FieldSet{Float64}(forest, 1; G=3, centering=edgecentered(2, 1))
+    landed = try
+        GhostSchedule(fs, Operators(; prolongation=3, restriction=2, family=Conservative,
+                                    vertex_prolongation=4))
+        true
+    catch err
+        err isa ArgumentError || err isa MethodError || rethrow()
+        false
+    end
+    prereq_report("AMR-9", landed,
+                  landed ? "edge sets take a conservative transfer along their own direction" :
+                  "no conservative transfer of edge sets; the flux across levels holds " *
+                  "to the potentials' interpolation error (wanted)")
+end
+
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
     # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
     # way — but says whether the URL workaround can go. Read from the

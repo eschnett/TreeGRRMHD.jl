@@ -34,9 +34,6 @@ using TreeGRRMHD
     # landed: before any physics, so that a release that lost a name is
     # found here rather than by a `MethodError` in the middle of a step.
     include("prerequisite_tests.jl")
-    # What this package relies on from upstream items that have landed and
-    # are not yet exercised through its own code.
-    include("upstream_behaviour_tests.jl")
     # Step 1: the units, the variables and the 3+1 primitive recovery.
     include("units_tests.jl")
     include("recovery_tests.jl")
@@ -58,4 +55,8 @@ using TreeGRRMHD
     include("reconstruction_tests.jl")
     include("multid_tests.jl")
     include("multid_cases_tests.jl")
+    # Step 8: coarse-fine faces and regridding (both use `multid_tests.jl`'s
+    # `md_run`; the second the first's meshes).
+    include("refinement_tests.jl")
+    include("refinement_cases_tests.jl")
 end

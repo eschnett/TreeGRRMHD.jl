@@ -41,8 +41,10 @@ function md_run(case, ::Val{D}; N, t_end, limiter, kw...) where {D}
     @test length(divs) == r.nsteps
     @test maximum(divs) ≤ MD_DIVB
     u0 = exact_state(r.p, case, 0.0)
+    # The initial totals on the initial mesh, which differ from those of the
+    # initial data on a regridded run's final mesh (step 8).
     return (; r, case, divb=maximum(divs), u0,
-            drift=conserved_totals(r.p, r.u) .- conserved_totals(r.p, u0),
+            drift=conserved_totals(r.p, r.u) .- r.totals0,
             scales=max.(conserved_scales(r.p, u0), conserved_scales(r.p, r.u)),
             tally=(; bits=sum(c -> collect(c.tally.bits), r.chunks),
                    policy=sum(c -> c.tally.policy, r.chunks),

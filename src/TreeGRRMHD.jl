@@ -23,9 +23,9 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 to 3 and 5 to 7 of `PLAN.md`: the pointwise layers, and the
+*Status: steps 1 to 3 and 5 to 8 of `PLAN.md`: the pointwise layers, and the
 staggered scheme on the mesh with its evolutions in 1D, smooth and
-discontinuous, and in 2D and 3D on a uniform mesh.* Step 1: geometric units and the EOS adapter
+discontinuous, and in 2D and 3D, on uniform and refined meshes.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
 [`prim2con`](@ref) with the electromagnetic parts, and the 3+1 primitive
@@ -55,7 +55,11 @@ made from others by a change of geometry ([`extruded_case`](@ref),
 cases — the cylindrical explosion, the magnetic rotor, the Orszag–Tang vortex
 and the field loop ([`cylindrical_explosion_case`](@ref),
 [`magnetic_rotor_case`](@ref), [`orszag_tang_case`](@ref),
-[`field_loop_case`](@ref)).
+[`field_loop_case`](@ref)). Step 8: both walls of a closed box prescribed
+alike ([`low_walls!`](@ref)), the refinement criterion ([`mhd_flags`](@ref)),
+the regrid of every field set ([`regrid_state!`](@ref)), static and adaptive
+meshes in [`evolve!`](@ref), and a pure gauge pulse
+([`gauge_pulse_case`](@ref)).
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.
@@ -109,6 +113,8 @@ export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scal
 # The driver and the cases
 export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
        profile_1d, low_walls!
+# Refinement
+export mhd_flags, indicator_scales, regrid_state!
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -117,7 +123,7 @@ export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA
 export turned_case, extruded_case, oblique_case, TurnedFields, TurnedPotential, ObliqueFields,
        ObliquePotential
 export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_loop_case,
-       explosion_gas
+       explosion_gas, gauge_pulse_case
 
 include("precision.jl")
 include("device.jl")
@@ -139,10 +145,12 @@ include("curl.jl")
 include("reconstruction.jl")
 include("evolution.jl")
 include("driver.jl")
+include("refinement.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")
 include("cases/shocktubes.jl")
 include("cases/geometry.jl")
 include("cases/multid.jl")
+include("cases/gauge.jl")
 
 end # module TreeGRRMHD
