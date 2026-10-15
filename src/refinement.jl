@@ -135,14 +135,21 @@ end
 
 Every field set of `p.f` as `regrid!` takes them ("Field sets" in
 `CODE.md`): the five evolved sets `=> (schedule, hook)`, each with its own
-boundary hook at time `t` (AMR-2; `nothing` on a periodic domain), and `P`,
+boundary hook at time `t` (AMR-2; `nothing` on a periodic domain) — but a
+potential with the case's Dirichlet hook with none, so that `regrid!`'s fill
+keeps the complete condition [`regrid_state!`](@ref) wrote — and `P`,
 `B_d`, `F_d`, `EMF_d` and `X` `=> nothing` — resized and never transferred,
 since every one of them is recomputed from the state before it is read. `B`
 in particular is never state: the regrid moves `A`, and `B` is its curl.
 """
 function regrid_pairs(p::MHDProblem, t)
     f = p.f
-    hook(i) = p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t)
+    # The matter's hook is a function of position alone and complete; a
+    # potential's relative hook is not (AMR-7), so a potential with the
+    # case's hook goes in without one, its outer points already complete.
+    hook(i) = p.boundary === nothing ? nothing :
+              i != SEG_U && p.boundary[i] isa DirichletBoundary ? nothing :
+              boundary_at(p.boundary[i], t)
     evolved = ntuple(i -> p.sets[i] => (p.schedules[i], hook(i)), length(p.sets))
     scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
@@ -153,9 +160,10 @@ end
     regrid_state!(p::MHDProblem, u, t; flags, buffer = 0) -> (; moved, p, u)
 
 Regrid every field set of `p` as `flags` asks, at time `t`: scatter the
-state `u` into the evolved sets, `regrid!` them all ([`regrid_pairs`](@ref);
-`regrid!` fills each evolved set's ghosts with its own hook before its
-transfer), and where the mesh moved, [`rebuild`](@ref) the problem, gather
+state `u` into the evolved sets, fill them with the complete outer boundary
+condition (`fill_set!`), `regrid!` them all ([`regrid_pairs`](@ref):
+`regrid!`'s own fill before its transfer then reproduces those ghosts, so the
+transfer reads the complete condition), and where the mesh moved, [`rebuild`](@ref) the problem, gather
 the state into a new vector, prescribe the potentials' low walls (AMR-8's
 workaround), and run the reset once as the step limiter
 ([`reset_step!`](@ref)) — so that a newly prolongated conserved state the
@@ -166,6 +174,14 @@ from now on; the ones handed in when nothing moved.
 """
 function regrid_state!(p::MHDProblem{T}, u, t; flags, buffer::Integer=0) where {T}
     scatter!(p.sets, u)
+    # The complete boundary condition first, every evolved set; `regrid!`'s
+    # own fill then has no hook for the potentials (`regrid_pairs`), which
+    # leaves their outer points as this wrote them and, the mesh being what
+    # this fill saw, recomputes every other ghost bit for bit, so its
+    # transfer reads the complete condition.
+    for i in eachindex(p.sets)
+        fill_set!(p, i, t)
+    end
     moved = regrid!(first(p.sets).forest, regrid_pairs(p, t); flags=flags, buffer=buffer)
     moved || return (; moved, p, u)
     p = rebuild(p)

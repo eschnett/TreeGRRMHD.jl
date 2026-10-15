@@ -138,6 +138,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM
     spacings::SP
     outer::OF                    # per block, its outer faces, low and high (AMR-8)
     hasouter::Bool               # whether the potentials have the case's hooks there
+    multilevel::Bool             # whether the forest has more than one level
     eos::EOS
     opts::OPT
     pol::POL
@@ -223,7 +224,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
         f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, outer,
-        hasouter,
+        hasouter, maxlevel(forest) > 0,
         eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann))
 end
@@ -259,22 +260,42 @@ with the value at that time.
 """
 boundary_at(hook, t) = hook
 
-# The ghost fill of evolved set `i` at time `t`, with its own boundary hook.
-# For a potential with the case's Dirichlet hooks (`src/driver.jl`), around
-# it: before, the owned low walls at the outer faces are prescribed in the
-# set's working array by the rule the hook applies to the high walls (AMR-8's
-# workaround), so that a prolongation inside the fill reads them as they will
-# be; after, every point beyond an outer face is refilled by that rule from
-# the nearest evolved point *now that every ghost is filled*, which the hook,
-# running before the prolongations, cannot do where a wall meets another
-# block (`outer_points!`; added in step 8). So every fill — a right-hand
-# side's, a stage's, a reset's — sees both walls of a box filled alike at its
-# own time.
+# The ghost fill of evolved set `i` at time `t`, with its own boundary hook,
+# leaving the set in the state the *complete* outer boundary condition
+# defines (decided by Erik 2026-10-15: "an outer boundary condition needs to
+# be applied always"). For a potential with the case's Dirichlet hooks
+# (`src/driver.jl`):
+#
+#   1. the owned low walls at the outer faces are prescribed in the working
+#      array by the rule the hook applies to the high walls (AMR-8's
+#      workaround);
+#   2. TreeAMR's fill, with the hook;
+#   3. every point beyond an outer face is refilled by that rule from the
+#      nearest evolved point now that every ghost is filled
+#      (`outer_points!`), which the hook, running before the prolongations,
+#      cannot do where a wall meets another block (AMR-7, amended in step 8);
+#   4. on a mesh with more than one level, TreeAMR's fill once more with no
+#      hook — which leaves every point beyond an outer face as step 3 wrote
+#      it — so that the prolongations read the corrected points, and step 3
+#      again for the points that read those prolongated ghosts. Each step
+#      depends only on what the one before fixed (a coarse block's corner row
+#      on a restriction of fine owned points, a fine ghost on that row, a
+#      fine corner row on that ghost), so after it a further fill and
+#      refill change nothing, bit for bit (a test); on a uniform mesh there
+#      is no prolongation and one pass is already that fixed point.
+#
+# So every fill — a right-hand side's, a stage's, a reset's, a regrid's
+# (`regrid_state!`), the initial adaptation's — sees both walls of a box
+# filled alike, at its own time, by the whole condition.
 function fill_set!(p::MHDProblem, i::Int, t)
-    i == SEG_U || low_walls!(p, i, p.sets[i].work, Val(p.sets[i].G), t)
-    fill_ghosts!(p.sets[i], p.schedules[i];
+    s, sched = p.sets[i], p.schedules[i]
+    i == SEG_U || low_walls!(p, i, s.work, Val(s.G), t)
+    fill_ghosts!(s, sched;
                  boundary=p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t))
-    i == SEG_U || outer_points!(p, i, t)
+    if i != SEG_U && outer_points!(p, i, t) && p.multilevel
+        fill_ghosts!(s, sched; boundary=nothing)
+        outer_points!(p, i, t)
+    end
     return nothing
 end
 

@@ -1614,8 +1614,44 @@ each fill (`outer_points!`, `src/driver.jl`): from the nearest evolved
 point, clamped only along the dimensions the point leaves the domain
 through and read from the now-filled ghosts along the others (amended
 AMR-7 in `PLAN.md`, which asks for that of a device-capable relative hook).
-The hook's own values remain only as what a prolongation inside the fill
-reads.
+
+*(Amended in step 8, decided by Erik 2026-10-15: "an outer boundary
+condition needs to be applied always".)* **Every fill leaves the potentials
+in the state the complete condition defines** — the prescribed low walls,
+and every point beyond an outer face the nearest evolved point plus the
+case's difference, the wall's rows next to another block included — and
+nothing reads a ghost before that:
+- `fill_set!` (the right-hand side's, the stage's, the reset's,
+  `update_fields!`'s fills): the low walls, TreeAMR's fill with the hook,
+  `outer_points!`; and on a mesh with more than one level a hookless fill
+  (TreeAMR then leaves every point beyond an outer face as it is) and
+  `outer_points!` once more, because a fine ghost prolongated next to a
+  wall reads a coarse block's corner row, which the first `outer_points!`
+  corrected, and a fine corner row reads that ghost. After it a further
+  fill and refill change nothing, bit for bit (`test/refinement_tests.jl`):
+  the fill is the condition's fixed point. On a single level there is no
+  prolongation and the first pass is it. A low wall's row in a ghost column
+  across another block's face is TreeAMR's: the exchange copies it from the
+  neighbour's own prescribed wall (rewriting it from this block's clamped
+  point, as a first form of `outer_points!` did, disagreed with the
+  exchange across a coarse-fine face, where the two levels' nearest evolved
+  points differ).
+- `regrid_state!`: the complete fill of every evolved set, then `regrid!`
+  with no hook for a potential that has the case's — its pre-transfer fill
+  recomputes every other ghost bit for bit from the same data and leaves
+  the outer points, so the transfer reads the complete condition. Before
+  this (step 8's first form, `regrid!` filling with the hook alone), a
+  regrid refining a wall root next to coarse ones in the closed `[−2, 2]²`
+  explosion transferred potentials 1.8e−10 off (of 1.2e−2); now exactly
+  what a complete fill gives (a test).
+- `adapt_case!`: the cycle fills with the hooks, and the criterion fills the
+  potentials completely before it reads them; with `transfer = false`
+  nothing else reads them.
+
+No ghost TreeAMR reads internally is left with the hook's partial values.
+What remains upstream is that the hook cannot express the condition itself
+(AMR-7, amended in step 8), so an application must do the above, and pays
+a second fill of each potential on a multilevel mesh.
 
 *Measured in step 8:* the explosion in a box its precursors reach — `[−2,
 2]²` at 32², minmod, `t = 1/4` — was 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`,
@@ -1687,11 +1723,10 @@ proposed in step 8 unless marked otherwise):
   conserved state the recovery would repair is repaired in the state and
   its injection counted with the step limiter's (TreeHydro's post-regrid
   reset). The integrator's scratch is dropped when the mesh moved.
-  TreeAMR's `regrid!` fills each evolved set's ghosts before its transfer
-  with the hook alone, without `outer_points!`; a new fine block next to a
-  wall and another block can therefore be prolongated from the hook's
-  clamped corner values (see "Boundaries"), which the next fill and the
-  limiters then overwrite wherever they are not owned.
+  Before `regrid!`, every evolved set is filled with the complete outer
+  boundary condition, and `regrid!` gets no hook for a potential, so its
+  own pre-transfer fill keeps that condition bit for bit (amended in step
+  8, decided by Erik 2026-10-15; see "Boundaries").
 - **The initial mesh** (`adapt_case!`): TreeAMR's several-set
   `adapt_to_initial_data!` (AMR-3) over every field set, the evolved ones
   filled each pass from the case — the conserved state *at* each cell's

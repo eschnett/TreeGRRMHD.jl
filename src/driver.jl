@@ -355,21 +355,27 @@ end
 end
 
 # Every stored point of one potential beyond an outer face of block `b` —
-# the ghosts, the high wall plane of a vertex-like dimension, and the low
-# wall `G+1` of one (AMR-8) — from the nearest evolved point plus the case's
-# difference, after the ghost fill. The evolved range along a dimension is
-# `G+1 … G+N`, starting at `G+2` along a vertex-like one at a low outer face;
-# `r` is the point clamped into it along every dimension in which the point
-# lies beyond an outer face, and left where it is along the others — where
-# it may be a ghost across another block's face, which the fill has written
-# by now. The hook itself, which runs before the prolongations and may read
-# only the block's own owned points, clamps along every outward direction,
-# and so takes a point where a wall meets another block (the wall's row in a
-# corner region) from the block's own last column rather than from the
-# neighbour's — a block-dependent value at a point two blocks share, which
-# broke a closed box's mirror symmetry (found in step 8). Writes only points
-# beyond an outer face, reads only points within the evolved range along
-# every outer dimension: no race.
+# its ghosts there and the high wall plane of a vertex-like dimension, the
+# points TreeAMR leaves to the hook — from the nearest evolved point plus the
+# case's difference, after the ghost fill. The evolved range along a
+# dimension at an outer face is `G+1 … G+N`, starting at `G+2` along a
+# vertex-like one at a low outer face (its wall `G+1` is prescribed:
+# AMR-8); `r` is the point clamped into it along every dimension in which the
+# block has an outer face, and left where it is along the others — where it
+# may be a ghost across another block's face, which the fill has written by
+# now. The hook itself, which runs before the prolongations and may read only
+# the block's own owned points, clamps along every outward direction, and so
+# takes a point where a wall meets another block (the wall's row in a corner
+# region) from the block's own last column rather than from the neighbour's
+# — a block-dependent value at a point two blocks share, which broke a closed
+# box's mirror symmetry (found in step 8). A low wall's row in a ghost column
+# across another block's face is not the hook's: TreeAMR's exchange copies,
+# restricts or prolongates it from the neighbour's own (prescribed) wall, and
+# it stays so (amended in step 8: rewriting it from this block's clamped
+# point disagreed with the exchange across a coarse-fine face, where the two
+# levels' nearest evolved points differ). Writes only points beyond an outer
+# face, reads only points within the evolved range along every outer
+# dimension: no race.
 @kernel function outer_point_kernel!(w, hook, t, @Const(origins), @Const(spacings),
                                      @Const(outer), N, ::Val{D}, ::Val{C},
                                      ::Val{G}) where {D,C,G}
@@ -379,9 +385,10 @@ end
     lw, hw = @inbounds outer[b]
     lo = ntuple(e -> G[e] + 1 + (C[e] == 1 && lw[e] ? 1 : 0), Val(D))
     hi = ntuple(e -> G[e] + N, Val(D))
-    beyond = ntuple(e -> (lw[e] && g[e] < lo[e]) || (hw[e] && g[e] > hi[e]), Val(D))
+    beyond = ntuple(e -> (lw[e] && g[e] ≤ G[e]) || (hw[e] && g[e] > hi[e]), Val(D))
     if any(beyond)
-        r = ntuple(e -> beyond[e] ? clamp(g[e], lo[e], hi[e]) : g[e], Val(D))
+        r = ntuple(e -> lw[e] && g[e] < lo[e] ? lo[e] : hw[e] && g[e] > hi[e] ? hi[e] : g[e],
+                   Val(D))
         h = @inbounds spacings[b]
         o = @inbounds origins[b]
         n = ntuple(e -> g[e] - G[e], Val(D))
@@ -445,18 +452,20 @@ Dirichlet hook ([`DirichletBoundary`](@ref)), refill every point beyond an
 outer face — the ghosts, the high wall, and the low wall (AMR-8) — from the
 nearest evolved point plus the case's difference at time `t`, with the
 nearest point taken across another block's face where the point lies in a
-wall's plane alongside it (see `outer_point_kernel!`; added in step 8). The
-hook's own values, which a prolongation inside the fill reads, stay what
-they were only for that read. A `map_blocks!` kernel over the stored points.
+wall's plane alongside it (see `outer_point_kernel!`; added in step 8). A
+`map_blocks!` kernel over the stored points; returns whether it ran (the
+set has the case's hook). `fill_set!` runs it, and on a mesh with more than
+one level a hookless fill and it once more, so that the prolongations read
+the corrected points too.
 """
 function outer_points!(p::MHDProblem{T,D}, i::Integer, t) where {T,D}
-    p.hasouter || return nothing
+    p.hasouter || return false
     hook = p.boundary[i]
-    hook isa DirichletBoundary || return nothing
+    hook isa DirichletBoundary || return false
     s = p.sets[i]
     map_blocks!(outer_point_kernel!, s, s.work, hook, T(t), p.origins, p.spacings, p.outer,
                 s.forest.N, Val(D), Val(staggers(s)), Val(s.G); stored=true)
-    return nothing
+    return true
 end
 
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
@@ -798,6 +807,11 @@ function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, r
     initial = (initU, initA(1), initA(2), initA(3), initA(4), ntuple(_ -> nothing, nscratch)...)
     criterion(sets) = begin
         p = build()
+        # The cycle filled the sets with the hooks alone; the criterion reads
+        # them after the complete boundary condition (Erik, 2026-10-15).
+        for i in SEG_A:SEG_Φ
+            fill_set!(p, i, zero(T))
+        end
         primitives_from_sets!(p, zero(T))
         mhd_flags(p; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     end

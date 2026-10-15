@@ -332,3 +332,67 @@ end
     @test drifts[2] ≤ 1e-2
 end
 
+
+@testset "Every fill applies the complete outer boundary condition, and regrid!'s own fill keeps it bit for bit" begin
+    # Guards Erik's decision of 2026-10-15 ("an outer boundary condition
+    # needs to be applied always"): a potential's outer points are the
+    # nearest evolved point plus the case's difference, the wall's row next
+    # to another block included, which TreeAMR's hook — running before the
+    # prolongations, reading only its own block — cannot write (AMR-7). So
+    # `fill_set!` follows the hook with `outer_points!`, and on a multilevel
+    # mesh with a hookless fill and `outer_points!` once more; and
+    # `regrid_state!` fills completely and gives `regrid!` no hook for the
+    # potentials, whose own pre-transfer fill then reproduces every ghost.
+    # The explosion in its closed box, `[−2, 2]²`, the root on the low `y`
+    # wall between two coarse roots refined, to `t = 1/4`: (1) after a
+    # complete fill, a further hookless fill and refill change nothing, bit
+    # for bit — the fill is the condition's fixed point; (2) a hookless fill,
+    # which is what `regrid!` does, leaves it bit for bit; (3) a regrid that
+    # refines the next wall root through `regrid_state!` against one whose
+    # `regrid!` fills with the hook alone (step 8's first form): measured
+    # 1.8e−10 apart in the potentials (of 1.2e−2), the matter equal — the size
+    # of what the transfer read wrong before.
+    case = cylindrical_explosion_case(Float64; L=2, roots=4)
+    refine_wall!(forest) =
+        (refine!(forest, [k for k in forest.leaves if block_origin(forest, k) == (-1.0, -2.0)]);
+         balance!(forest); forest)
+    flags(p) = [block_origin(p.f.U.forest, blockkey(p.f.U, b)) == (0.0, -2.0) ? Refine : Keep
+                for b in 1:nblocks(p.f.U)]
+    run() = evolve!(case, Val(2); N=8, t_end=1 // 4, limiter=:minmod, refine=refine_wall!)
+    r = run()
+    p, u, t = r.p, r.u, r.t
+    scatter!(p.sets, u)
+    fixed, kept = true, true
+    for i in RF.SEG_A:RF.SEG_Φ
+        s = p.sets[i]
+        RF.fill_set!(p, i, t)
+        full = copy(s.work)
+        fill_ghosts!(s, p.schedules[i]; boundary=nothing)
+        kept &= isequal(s.work, full)
+        RF.outer_points!(p, i, t)
+        fixed &= isequal(s.work, full)
+    end
+    @test p.multilevel && fixed && kept
+    # (3) through `regrid_state!`, and with the hook alone, from the same state.
+    new = regrid_state!(p, u, t; flags=flags(p))
+    r2 = run()
+    q = r2.p
+    scatter!(q.sets, r2.u)
+    old = (ntuple(i -> q.sets[i] => (q.schedules[i], RF.boundary_at(q.boundary[i], t)), 5)...,
+           RF.regrid_pairs(q, t)[6:end]...)
+    regrid!(first(q.sets).forest, old; flags=flags(q))
+    q = RF.rebuild(q)
+    uold = statevector(q.sets)
+    gather!(uold, q.sets)
+    low_walls!(q, uold, t)
+    clear_tally!(q)
+    reset_step!(uold, nothing, q, t)
+    dA = maximum(i -> maximum(abs.(stateview(new.u, new.p.sets, i) .- stateview(uold, q.sets, i))),
+                 RF.SEG_A:RF.SEG_Φ)
+    scale = maximum(i -> maximum(abs, stateview(new.u, new.p.sets, i)), RF.SEG_A:RF.SEG_Φ)
+    @info "Complete boundary condition through a regrid: the hook-only transfer was $dA off " *
+          "in the potentials (of $scale); blocks $(r.nblocks) → $(nblocks(new.p.f.U))"
+    @test new.moved && nblocks(new.p.f.U) == r.nblocks + 3
+    @test isequal(stateview(new.u, new.p.sets, RF.SEG_U), stateview(uold, q.sets, RF.SEG_U))
+    @test 0 < dA ≤ 1e-6 * scale
+end

@@ -147,10 +147,13 @@ This is TreeGH's pattern.
   adapts one set (until AMR-3). The workarounds are in those items. *(Amended in step 8:)* both
   have landed and are used without workarounds: `regrid_pairs` gives each evolved set its own hook,
   `adapt_case!` adapts every set at once.
-- **`regrid!` fills ghosts with the hook alone** before its transfer, without this package's
-  `outer_points!`, so a new fine block next to a wall and another block may be prolongated from
-  the hook's clamped corner values (AMR-7, amended in step 8); the next fill and the limiters
-  overwrite what is not owned. *(Added in step 8.)*
+- **The outer boundary condition is applied in full after every fill** (decided by Erik
+  2026-10-15): `fill_set!` (hook, `outer_points!`, and on a multilevel mesh a hookless fill and
+  `outer_points!` again), `regrid_state!` (a complete fill, then `regrid!` with no hook for the
+  potentials, whose fill then keeps it bit for bit), `adapt_case!` (the criterion fills completely).
+  A new path that fills a potential must go through `fill_set!`; a TreeAMR call that fills with the
+  potentials' hook alone and then reads the ghosts is the gap AMR-7 (amended in step 8) names.
+  *(Amended in step 8; replaces the sharp edge "`regrid!` fills ghosts with the hook alone".)*
 - **A regridded run's initial totals** are `evolve!`'s `totals0`, taken on the initial mesh: the
   case's initial data on the final mesh has other Gauss averages. *(Added in step 8.)*
 - **The IMEX implicit tendency is `(U − u★)/(γΔt)`.** The stage solver must return the `U` it
@@ -431,11 +434,29 @@ workaround made a closed box mirror-symmetric bit for bit:
 - **Under AMR-8** the evolved range along a vertex-like dimension at a low outer face is
   `G+2 … G+N`: the low wall `G+1` is then a boundary point, clamped like the high one.
 
+- **The complete condition, in every fill TreeAMR makes** *(decided by Erik 2026-10-15: "an
+  outer boundary condition needs to be applied always")*. A relative hook must be able to express
+  the whole condition — every point beyond an outer face, the wall's rows next to another block
+  included — in every fill TreeAMR makes, `fill_ghosts!`, `regrid!`'s pre-transfer fill and
+  `adapt_to_initial_data!`'s, so that nothing TreeAMR reads (a prolongation's coarse source next
+  to a wall, a transfer) holds a partial value. The rows next to a coarser neighbour need its
+  prolongated ghosts, so either the hook runs (again) after the prolongations for those points, or
+  TreeAMR runs a second boundary phase after them; and a prolongation that reads a coarse corner
+  row must read the completed one, which today takes a second exchange. **Acceptance:** with a
+  relative hook, one `fill_ghosts!` is the condition's fixed point — a second fill changes nothing
+  bit for bit — on a two-level mesh whose coarse-fine face meets an outer face, in D = 2, 3;
+  `regrid!` with the hook transfers what a complete fill would give.
+
 **Workaround, extended in step 8:** after each fill of a potential, `outer_points!` (a
 `map_blocks!` kernel over the stored points) refills every point beyond an outer face from the
 nearest evolved point, taken across a block face along the dimensions it does not leave the domain
-through, now that every ghost is filled. The hook's own values stay only for the prolongations
-inside the fill that read them. Marked `AMR-7`/`AMR-8` in `src/driver.jl`.
+through, now that every ghost is filled; on a multilevel mesh a hookless `fill_ghosts!` (which
+leaves those points as written) and `outer_points!` follow once more, after which a further fill
+changes nothing. `regrid_state!` fills completely and gives `regrid!` no hook for the potentials;
+`adapt_case!`'s criterion fills completely before reading. Measured before this: a regrid's
+transfer read values 1.8e−10 off (of 1.2e−2) next to a wall and a block face; the single-pass
+fill's ghosts were off by as much. Nothing TreeAMR reads is partial now; the cost is a second fill
+of each potential on a multilevel mesh. Marked `AMR-7`/`AMR-8` in `src/driver.jl`.
 
 ### AMR-8 — Symmetric walls: the owned low wall filled like the high one (wanted; workaround)
 
