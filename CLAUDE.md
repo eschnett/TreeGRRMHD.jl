@@ -118,8 +118,8 @@ helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
 
 TreeHydro's discipline (`TreeHydro/CLAUDE.md`, "Commands"): the whole
 suite at one thread, at four threads, and with `--check-bounds=yes`, at
-the floor version (1.12: `julia +1.12`) and at the current release (plain
-`julia`). `Pkg.test` does not inherit `-t`, so the thread count has to be
+the floor version (1.13: `julia +1.13`) and at the current release (plain
+`julia`; until 1.14 is released, the two are the same). `Pkg.test` does not inherit `-t`, so the thread count has to be
 passed explicitly:
 
 ```bash
@@ -134,6 +134,11 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])'
 ```
 
+At 1.13 `Pkg.test()` runs with bounds checks at `auto`; 1.11 and 1.12
+forced `--check-bounds=yes`, so their plain run was this third one, and
+the 1.11-against-1.13 times recorded below compare the two settings as
+well as the two versions (measured 2026-10-15).
+
 The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR
 and SpacetimeMetrics from the General registry and EntropyEOS and
 IMEXRungeKutta from their remotes through `[sources]` — never from a
@@ -141,7 +146,7 @@ sibling checkout. This is what CI does; run it under the floor too:
 
 ```bash
 d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && \
-  julia +1.12 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+  julia +1.13 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
 A `Manifest.toml` resolved by one Julia version breaks loading under
@@ -198,11 +203,12 @@ packages are read together:
 - Docstrings are prose-first and point at `CODE.md`.
 - **Testset names are claims**, each opening with a comment naming the
   failure mode it guards.
-- **Julia 1.12 is the floor** (`julia = "1.12"` in `[compat]`), raised
-  from 1.11 by Erik's decision on 2026-10-15. The sibling Tree* packages
-  stay at 1.11, which does not constrain this one; `[sources]`, which
-  locates the unregistered dependencies, is a 1.11 key. See `CODE.md`,
-  "Julia version".
+- **Julia 1.13 is the floor** (`julia = "1.13"` in `[compat]`), raised
+  from 1.11 on 2026-10-15 by Erik's rule: the floor goes up when the older
+  version is more than about 20% slower (1.12 compiled the suite 23%
+  longer). The sibling Tree* packages stay at 1.11, which does not
+  constrain this one; `[sources]`, which locates the unregistered
+  dependencies, is a 1.11 key. See `CODE.md`, "Julia version".
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.

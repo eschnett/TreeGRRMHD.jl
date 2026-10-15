@@ -49,11 +49,11 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
 - **Dependencies resolve from releases, never from sibling checkouts.**
   - TreeAMR and SpacetimeMetrics come from the General registry.
   - Unregistered ones are named by URL in `Project.toml`'s `[sources]`, which Julia 1.11 and
-    later read; the floor is 1.12 (CODE.md "Julia version"; amended 2026-10-15: it was 1.11
+    later read; the floor is 1.13 (CODE.md "Julia version"; amended 2026-10-15: it was 1.11
     from 2026-09-25). That covers EntropyEOS until EOS-0 and the IMEX package, and will cover
     TreeGH and its unregistered dependencies until GH-2. CI, the clean-checkout check and a
     developer all resolve them the same way, so CI adds nothing by hand. *(Amended in step 0: this used to be `Pkg.add(url=…)` in CI.)*
-- **Julia 1.12 floor** *(amended 2026-10-15: was 1.11)*. Be generic in `T` and in the backend
+- **Julia 1.13 floor** *(amended 2026-10-15: was 1.11)*. Be generic in `T` and in the backend
   from the first line:
   - `T` is a leading positional argument (default `Float64`); `backend` is a keyword (default
     `CPU()`).
@@ -65,8 +65,8 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
   - Time: under about 60 s per test file, and the whole suite under about 10 min at one thread.
 - Before and after each step, run the full suite at the default thread count, at
   `julia_args = ["--threads=4"]`, and once with `--check-bounds=yes`, each at the floor (Julia
-  1.12) and at the current release, and the clean-checkout check under the floor (`CLAUDE.md`,
-  "Commands"; amended 2026-10-15: the floor was 1.11).
+  1.13) and at the current release (the same until 1.14 is released), and the clean-checkout
+  check under the floor (`CLAUDE.md`, "Commands"; amended 2026-10-15: the floor was 1.11).
 - **Spec-first.**
   - Amend `CODE.md` and say so: "(amended in step N)", "(measured in step N)".
   - Replace each **(predicted)** the step measures, and decide each **(open)** the step owns.
@@ -580,7 +580,7 @@ quantities at vertices must match SpacetimeMetrics:
 - **Julia 1.11.** Settled on 2026-09-25: every Tree* package's floor is 1.11, so TreeGH's pin
   to 1.11 no longer constrains TreeGRRMHD, and TreeGH is an ordinary dependency rather than a
   weak one behind `TreeGRRMHDTreeGHExt` (CODE.md "Julia version"). *(Amended 2026-10-15:)*
-  TreeGRRMHD's floor is now 1.12, above TreeGH's 1.11, which still does not constrain it;
+  TreeGRRMHD's floor is now 1.13, above TreeGH's 1.11, which still does not constrain it;
   nothing is asked of TreeGH.
 - **Workaround until registered:** `[sources]` names TreeGH, TreeIOHDF5 and, if still needed,
   ApparentHorizonFinder by URL (amended in step 0: was "CI adds TreeGH and KorzynskiSpin").

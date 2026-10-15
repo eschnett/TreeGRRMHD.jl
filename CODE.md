@@ -113,7 +113,7 @@ through its own code is in `test/upstream_behaviour_tests.jl`.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
-  requires Julia 1.11, below the floor here, 1.12 — amended 2026-10-15):
+  requires Julia 1.11, below the floor here, 1.13 — amended 2026-10-15):
   **SM-1 has landed in SpacetimeMetrics 1.7.0**, and its workaround is
   gone.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
@@ -1534,35 +1534,68 @@ prolongated conserved state — and record it here.
 
 ## Julia version
 
-`julia = "1.12"` *(amended 2026-10-15: the floor was raised from 1.11 to
-1.12 by Erik's decision)*. Before that it was `julia = "1.11"`, decided
-2026-09-25 (and before that `julia = "1.10"` wherever possible): all the
-Tree* packages — TreeAMR, TreeWave, TreeHydro, TreeGeneralizedHarmonic and
-this one — shared the 1.11 floor, so that an unregistered dependency can be
-located with a `[sources]` entry, a 1.11 key, rather than added by URL.
-That also removed the reason for the weak-dependency split proposed
-earlier: TreeGH's pin to 1.11 (its `LinearAlgebra = "1.11"` compat entry,
-its `[sources]` entries, and ApparentHorizonFinder and KorzynskiSpin, whose
-checkouts both declare 1.11) is satisfied by this package's floor, so TreeGH
-can be an ordinary dependency and `TreeGRRMHDTreeGHExt` is not needed for
-the version's sake. A dependency's own `[sources]` is still ignored when
-this package resolves it, so what it needs from an unregistered package
-must be named in this package's own `[sources]`.
+`julia = "1.13"` *(amended 2026-10-15, twice: Erik raised the floor from
+1.11 to 1.12, and then to 1.13 by his rule that the floor is raised when
+the older version is more than about 20% slower; measurements below)*.
+Before that it was `julia = "1.11"`, decided 2026-09-25 (and before that
+`julia = "1.10"` wherever possible): all the Tree* packages — TreeAMR,
+TreeWave, TreeHydro, TreeGeneralizedHarmonic and this one — shared the
+1.11 floor, so that an unregistered dependency can be located with a
+`[sources]` entry, a 1.11 key, rather than added by URL. That also
+removed the reason for the weak-dependency split proposed earlier: TreeGH's
+pin to 1.11 (its `LinearAlgebra = "1.11"` compat entry, its `[sources]`
+entries, and ApparentHorizonFinder and KorzynskiSpin, whose checkouts both
+declare 1.11) is satisfied by this package's floor, so TreeGH can be an
+ordinary dependency and `TreeGRRMHDTreeGHExt` is not needed for the
+version's sake. A dependency's own `[sources]` is still ignored when this
+package resolves it, so what it needs from an unregistered package must be
+named in this package's own `[sources]`.
 
 The sibling Tree* packages keep their own floor of 1.11. That does not
-constrain this one: a dependency's floor below this package's is
-satisfied by every version this package supports, so this package's floor
-is now higher than theirs and nothing upstream has to change. `[sources]`
-is still what locates the unregistered dependencies; 1.12 reads it as 1.11
-did. What 1.11 needed and 1.12 does not is gone: the suite's allocation
-probe (`rec_allocations` in `test/recovery_tests.jl`) was a
+constrain this one: a dependency's floor below this package's is satisfied
+by every version this package supports, so this package's floor is now
+higher than theirs and nothing upstream has to change. `[sources]` is
+still what locates the unregistered dependencies; 1.13 reads it as 1.11
+did. Every `[compat]` entry resolves to the same releases at 1.12.7 and
+1.13.1.
+
+*(Measured 2026-10-15, the whole suite at one thread, 25293 tests, on an
+Apple M3 Pro shared at a load of about 4–8 on 12 cores, 1.12.7 and 1.13.1
+run back to back and in alternating order, two runs each; `Test Summary`
+time, and the compile time `Base.cumulative_compile_time_ns` counts inside
+the suite:)*
+
+| bounds checks       | 1.12 suite | 1.13 suite | ratio | 1.12 compile | 1.13 compile | ratio |
+|---------------------|-----------:|-----------:|------:|-------------:|-------------:|------:|
+| `auto`              |   5m22s    |   5m05s    | 1.06  |    168 s     |    150 s     | 1.12  |
+| `--check-bounds=yes`|   6m00s    |   5m12s    | 1.16  |    198 s     |    161 s     | 1.23  |
+
+With bounds checks on — what every CI cell runs, and what `Pkg.test()`
+itself does at 1.11 and 1.12, which force `--check-bounds=yes` where 1.13
+does not — 1.12 compiles 23% longer, most of it in the 2D and 3D kernels
+(`multid_tests.jl` 55 s against 42 s, `multid_cases_tests.jl` 38 s against
+30 s); that is over the rule's threshold,
+so the floor is 1.13. Without bounds checks the gap is half that (12% and
+6%), which is the case for keeping 1.12 if the rule is meant for the
+default configuration. 1.11 with bounds checks (the same suite, the same
+afternoon) took 6m05s and 204 s of compiling, close to 1.12's. The
+numbers the suite prints are identical across the change at each version,
+and 1.12 differs from 1.13, at the same flags, only in the last digits of
+six recorded worst cases.
+
+Until 1.14 is released the floor and the current release coincide, and
+CI's floor cell repeats a current-release cell; it diverges again then.
+
+What 1.11 and 1.12 needed and 1.13 does not is gone. The suite's
+allocation probe (`rec_allocations` in `test/recovery_tests.jl`) was a
 `Vararg{Any,N}`-specialized method because 1.11 did not specialize a plain
 `args...` there and boxed the result, 16–672 bytes a call on all 50 of the
-probe's calls, where 1.12 and 1.13 allocate nothing either way (measured
-2026-10-15). The other difference runs the other way: 1.11 refused to
-redefine a `const`, and 1.12 does it silently, so the duplicate-constant
-check at the top of `test/runtests.jl` is now the only thing that finds a
-top-level name two test files share.
+probe's calls, where 1.12 and 1.13 allocate nothing either way. Nothing in
+the package or the suite was there for 1.12 alone. The other difference
+runs the other way: 1.11 refused to redefine a `const`, and 1.12 and later
+do it silently, so the duplicate-constant check at the top of
+`test/runtests.jl` is now the only thing that finds a top-level name two
+test files share.
 
 `Project.toml` names EntropyEOS and IMEXRungeKutta there, by their GitHub
 URLs at `rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,

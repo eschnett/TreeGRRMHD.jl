@@ -29,12 +29,14 @@ jobs:
       # macOS/arm64, and threads.
       matrix:
         include:
-          # Julia 1.12 is the floor (raised from 1.11 on 2026-10-15; see
+          # Julia 1.13 is the floor (raised from 1.11 on 2026-10-15; see
           # "Julia version" in `CODE.md`). It carries the coverage, as the
           # floor always has here: one instrumented cell, and the oldest
           # compiler, where a version-dependent failure is likeliest to be
-          # missed by local runs at the current release.
-          - version: "1.12"
+          # missed by local runs at the current release. Until 1.14 is
+          # released the floor is the current release, so this cell repeats
+          # the macOS one below; it diverges again then.
+          - version: "1.13"
             os: macOS-latest
             coverage: true
           - version: "1"
