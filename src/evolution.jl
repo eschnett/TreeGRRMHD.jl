@@ -115,7 +115,9 @@ for the potentials, which `CODE.md` leaves (open) until step 8 measures it;
 nothing in step 5 refines, so they only have to pass TreeAMR's checks).
 `boundary` is `nothing` for a periodic domain, or one hook per evolved set in
 the order of [`evolved_sets`](@ref) (AMR-2 having landed, each set takes its
-own). `fixup = false` skips `restrict_interfaces!`, the negative control of
+own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
+[`boundary_at`](@ref) turns into such a hook at the time of each fill — the
+case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false` skips `restrict_interfaces!`, the negative control of
 step 8.
 """
 struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
@@ -205,10 +207,23 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
         provider, B̄, T(ξ), st, boundary, fixup, Val(limiter), Val(riemann))
 end
 
-# The ghost fill of evolved set `i`, with its own boundary hook.
-fill_set!(p::MHDProblem, i::Int) =
+"""
+    boundary_at(hook, t)
+
+The hook TreeAMR's `fill_ghosts!` is handed for a fill at time `t`: `hook`
+itself, for a hook that does not depend on time, and the time-`t` Dirichlet
+hook of a [`DirichletBoundary`](@ref). Every fill knows its time — a
+right-hand side's, a stage's, a reset's — and passes it here, so that a
+boundary that moves with the solution (the vector potential of a shock tube
+whose far states carry an electric field grows linearly in time) is filled
+with the value at that time.
+"""
+boundary_at(hook, t) = hook
+
+# The ghost fill of evolved set `i` at time `t`, with its own boundary hook.
+fill_set!(p::MHDProblem, i::Int, t) =
     fill_ghosts!(p.sets[i], p.schedules[i];
-                 boundary=p.boundary === nothing ? nothing : p.boundary[i])
+                 boundary=p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t))
 
 # --- the kernels ------------------------------------------------------------------
 
@@ -527,10 +542,13 @@ end
 
 # The reset at the owned cells: recover, and where the policy repaired the
 # state, write the repaired state's matter variables back — all but `𝔈`,
-# which the reset does not touch. Counted into `X`.
+# which the reset does not touch. Counted into `X`: as the stage limiter
+# (`STEP = false`), the cells written; as the step limiter, the cells
+# written and the change they made to `√γ D` and `√γ τ`, which is what the
+# reset injects into the state (step 6).
 @kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, @Const(origins),
                                @Const(spacings), provider, t, eos, opts, pol, ::Val{D},
-                               ::Val{GB}, ::Val{GX}) where {D,GB,GX}
+                               ::Val{GB}, ::Val{GX}, ::Val{STEP}) where {D,GB,GX,STEP}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -547,7 +565,14 @@ end
         @inbounds for v in 1:(U_E - 1)
             uw[n..., v, b] = c[v]
         end
-        @inbounds Xw[stored(n, GX)..., X_RESETS, b] += one(h)
+        xi = stored(n, GX)
+        @inbounds if STEP
+            Xw[xi..., X_STEP_RESETS, b] += one(h)
+            Xw[xi..., X_INJECTED_D, b] += c[U_D] - cons[U_D]
+            Xw[xi..., X_INJECTED_TAU, b] += c[U_TAU] - cons[U_TAU]
+        else
+            Xw[xi..., X_RESETS, b] += one(h)
+        end
     end
 end
 
@@ -585,7 +610,7 @@ function update_fields!(p::MHDProblem, u, t)
     for j in 1:3
         i = SEG_A + j - 1
         scatter!(p.sets[i], stateview(u, p.sets, i))
-        fill_set!(p, i)
+        fill_set!(p, i, t)
     end
     curl_A!(p.f, p.𝔅̄, p.spacings)
     return p
@@ -603,7 +628,7 @@ function update_primitives!(p::MHDProblem{T,D}, u, t) where {T,D}
     f = p.f
     scatter!(p.sets, u)
     for i in eachindex(p.sets)
-        fill_set!(p, i)
+        fill_set!(p, i, t)
     end
     curl_A!(f, p.𝔅̄, p.spacings)
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.U.work, f.B[1].work, f.B[2].work,
@@ -702,13 +727,28 @@ cells it writes are counted into the diagnostics set.
 *(Proposed in step 5:)* any policy repair is written back, not the
 atmosphere alone: every repaired state is exactly invertible, and is what
 the next right-hand side would recover anyway.
+
+This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
+is the same reset in the step limiter's role.
 """
-function reset_atmosphere!(u, integ, p::MHDProblem{T,D}, t) where {T,D}
+reset_atmosphere!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(false))
+
+"""
+    reset_step!(u, integ, p::MHDProblem, t)
+
+[`reset_atmosphere!`](@ref) as the step limiter: the same writes, counted
+apart, with what they change in `√γ D` and `√γ τ` summed per cell — the rest
+mass and the energy the reset injects into the state, since only the step
+limiter's writes reach `uⁿ⁺¹` ([`ohm_tally`](@ref); added in step 6).
+"""
+reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
+
+function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     f = p.f
     update_fields!(p, u, t)
     map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.pol, Val(D), Val(GB_of(f)), Val(f.X.G))
+                p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)
     return nothing
 end
 
@@ -735,12 +775,17 @@ flagged, counted, and reduced per chunk):
   repaired, and the `|` of their policy flags;
 - `recoveries`, `max_recoveries`: the recoveries the stages made, and the
   most one stage made;
-- `resets`: the cells the reset wrote back.
+- `resets`: the cells the reset wrote back as the stage limiter;
+- `step_resets`: the cells it wrote back as the step limiter (added in step
+  6);
+- `injected_D`, `injected_τ`: the volume integrals `Σ hᴰ Δ(√γ D)` and
+  `Σ hᴰ Δ(√γ τ)` of those step-limiter writes — the rest mass and the
+  energy the reset put into the state (negative where it took some out).
 
 The counts are integers carried in the set's float type, exact below `2^24`
 in `Float32`.
 """
-function ohm_tally(p::MHDProblem{T}) where {T}
+function ohm_tally(p::MHDProblem{T,D}) where {T,D}
     X = p.f.X
     count(v) = roundint(mesh_mapreduce(identity, +, zero(T), X; vars=v))
     bits = ntuple(k -> count(X_OHM + k - 1), N_OHM_BITS)
@@ -750,11 +795,15 @@ function ohm_tally(p::MHDProblem{T}) where {T}
     end
     policy_flags = mesh_mapreduce(x -> unsafe_trunc(UInt32, x), |, UInt32(0), X;
                                   vars=X_POLICY_OR)
+    forest = X.forest
+    volume(v) = mesh_mapreduce(identity, +, zero(T), X; vars=v,
+                               weight=key -> spacing(T, forest, key)^D)
     return (; bits, flags, policy=count(X_POLICY), policy_flags,
             recoveries=count(X_RECOVERIES),
             max_recoveries=roundint(mesh_mapreduce(identity, max, zero(T), X;
                                                    vars=X_MAX_RECOVERIES)),
-            resets=count(X_RESETS))
+            resets=count(X_RESETS), step_resets=count(X_STEP_RESETS),
+            injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU))
 end
 
 """

@@ -52,15 +52,19 @@ are cell-centered).
 face_centering(::Val{D}, d::Integer) where {D} = ntuple(e -> e == d ? :vertex : :cell, D)
 
 """Number of slots of the diagnostics set `X`: see [`MHDFields`](@ref)."""
-const NX = 15
+const NX = 18
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
 # number below 2¹⁶, exact in any float), the recoveries the stages made and
-# the most any one stage made, the cells the reset limiter wrote back, and the
-# cell's light speed, for the time step. Counts accumulate per cell over a
-# chunk and are reduced once at its end ("The implicit stage solve" in
-# `CODE.md`: "reduced per chunk").
+# the most any one stage made, the cells the reset wrote back as the stage
+# limiter, and the cell's light speed, for the time step. *(Added in step 6:)*
+# the cells the reset wrote back as the step limiter, and what those writes
+# changed in `√γ D` and `√γ τ` — the rest mass and the energy the reset
+# injects into the state, since only the step limiter's writes reach it
+# ("Floors, the atmosphere and the magnetosphere" in `CODE.md`). Counts and
+# sums accumulate per cell over a chunk and are reduced once at its end ("The
+# implicit stage solve" in `CODE.md`: "reduced per chunk").
 const X_OHM = 1
 const X_POLICY = 10
 const X_POLICY_OR = 11
@@ -68,6 +72,9 @@ const X_RECOVERIES = 12
 const X_MAX_RECOVERIES = 13
 const X_RESETS = 14
 const X_LIGHT = 15
+const X_STEP_RESETS = 16
+const X_INJECTED_D = 17
+const X_INJECTED_TAU = 18
 const N_OHM_BITS = 9
 
 """
@@ -84,7 +91,7 @@ Every field set the scheme uses on one forest ("Field sets" in `CODE.md`):
 | `B[d]`, `d = 1:3` | face normal to `d` | 1 | 3 | scratch: `𝔅ᵈ = curl A + 𝔅̄`, every RHS |
 | `F[d]`, `d = 1:D` | face normal to `d` | 10 | 0 | scratch: the matter fluxes |
 | `EMF[j]`, `j = 1:3` | edge along `j` | 1 | 0 | scratch: the electromotive force |
-| `X` | cell | `NX` | 0 | scratch: per-cell tallies and the light speed |
+| `X` | cell | `NX` | 0 | scratch: per-cell tallies, the reset's injection, the light speed |
 
 The state vector is over [`evolved_sets`](@ref)`(f) = (U, A[1], A[2], A[3],
 Φ)`, in that order (AMR-1, TreeAMR 0.2.1). Build it with

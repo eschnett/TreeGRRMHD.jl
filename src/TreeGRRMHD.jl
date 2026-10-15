@@ -23,8 +23,9 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 to 3 and 5 of `PLAN.md`: the pointwise layers, and the
-staggered scheme on the mesh with its first evolutions in 1D.* Step 1: geometric units and the EOS adapter
+*Status: steps 1 to 3, 5 and 6 of `PLAN.md`: the pointwise layers, and the
+staggered scheme on the mesh with its first evolutions in 1D, smooth and
+discontinuous.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
 [`prim2con`](@ref) with the electromagnetic parts, and the 3+1 primitive
@@ -40,7 +41,14 @@ the right-hand side ([`mhd_rhs!`](@ref)), the implicit stage over the mesh
 ([`ohm_solve!`](@ref)) and the reset ([`reset_atmosphere!`](@ref)) of
 [`MHDProblem`](@ref), the chunked driver [`evolve!`](@ref) of an
 [`MHDCase`](@ref), and the vacuum EM wave and the circularly polarized
-Alfvén wave ([`em_wave_case`](@ref), [`alfven_wave_case`](@ref)).
+Alfvén wave ([`em_wave_case`](@ref), [`alfven_wave_case`](@ref)). Step 6:
+Dirichlet boundaries from a case's own solution ([`DirichletBoundary`](@ref)),
+the reset's injection accounted as the step limiter ([`reset_step!`](@ref)),
+and the discontinuous cases — Balsara's five shock tubes with Giacomazzo &
+Rezzolla's exact plateaus ([`balsara_case`](@ref), [`BALSARA_EXACT`](@ref)),
+the resistive tube ([`resistive_tube_case`](@ref)), Komissarov's current
+sheet ([`current_sheet_case`](@ref)) and a blast into the atmosphere
+([`atmosphere_tube_case`](@ref)).
 
 See `CODE.md` in the package root for the design document — what each piece
 is for and why it is that way — and `PLAN.md` for the steps.
@@ -88,11 +96,17 @@ export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM
        OHM_BACKTRACKED, OHM_SWITCHED, OHM_REPAIRED
 # The field sets and the scheme
 export MHDFields, mhd_fields, evolved_sets, edge_centering, face_centering, curl_A!
-export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, update_primitives!, update_fields!
+export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_primitives!,
+       update_fields!, boundary_at
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales
 # The driver and the cases
-export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!
+export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
+       profile_1d
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
+export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
+       plateau_state,
+       plateau_error, resistive_tube_case,
+       current_sheet_case, atmosphere_tube_case
 
 include("precision.jl")
 include("device.jl")
@@ -116,5 +130,6 @@ include("evolution.jl")
 include("driver.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")
+include("cases/shocktubes.jl")
 
 end # module TreeGRRMHD

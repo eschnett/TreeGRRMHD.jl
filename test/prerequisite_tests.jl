@@ -286,6 +286,18 @@ function prereq_report(id, landed::Bool, what)
     return landed
 end
 
+@testset "AMR-7: a device-capable boundary hook relative to the owned point (when landed)" begin
+    # Guards the non-periodic cases on a device (step 14): until TreeAMR has
+    # a per-cell hook that receives the nearest owned point, the potentials'
+    # Dirichlet-in-the-field hook is TreeAMR's region form, CPU-only (added
+    # in step 6).
+    landed = isdefined(TreeAMR, :Relative)
+    prereq_report("AMR-7", landed,
+                  landed ? "`Relative` exists; the region-form hook can become a kernel" :
+                  "no per-cell hook relative to the owned point; non-periodic cases " *
+                  "run on the CPU only (wanted by step 14)")
+end
+
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
     # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
     # way — but says whether the URL workaround can go. Read from the

@@ -108,8 +108,16 @@ Within an implicit stage both are fixed — `B` is explicit and the stage
 moves no rest mass — so a conductivity that depends on `μ` adds nothing to
 the stage's nonlinearity (proposed in step 3). It bounds the fluid frame's
 magnetization: `μ/W ≤ b²/ρ ≤ W μ`.
+
+Where `D ≤ 0` it is `+∞` (proposed in step 6): a stage's predictor `u★` has
+seen no limiter, and next to a near vacuum its `D` can be zero or negative.
+No rest mass carries no conductor, and the limit `D → 0⁺` is `μ → ∞`, so the
+taper takes σ to zero there; `B²/D` itself would hand the taper's logarithm a
+negative number (step 6's atmosphere tube threw a `DomainError` that way).
 """
-@inline magnetization(m::Metric3{T}, B::SVector{3,T}, D::T) where {T} = dot_up(m, B, B) / D
+@inline function magnetization(m::Metric3{T}, B::SVector{3,T}, D::T) where {T}
+    return D > zero(T) ? dot_up(m, B, B) / D : D <= zero(T) ? T(Inf) : T(NaN)
+end
 
 """
     MagnetizationCutoff(model, μ_max)
