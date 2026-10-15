@@ -177,6 +177,12 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   value (zero-gradient, first order at the face), on every backend and
   across ranks. A nonlinear condition, such as forbidding inflow, stays
   with the application.
+- **AMR-8 (wanted, no step blocked) Symmetric walls** *(added in step 8)*:
+  an opt-in per field set under which `fill_ghosts!` fills the owned low
+  wall of a vertex-like dimension by the rule of the high one — the hook,
+  the reflecting derivation, the outflow clamp — so that a closed box is
+  mirror-symmetric. Workaround: `low_walls!` and `outer_points!`, this
+  package's kernels ("Boundaries").
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -1510,6 +1516,62 @@ in a 16³ box, whose precursors reach the faces within a step, came out
 periodic. Whichever later rung needs a symmetric closed box must fill the
 high boundary vertex from the evolved side, or evolve it.
 
+*(Amended in step 8; decided by Erik 2026-10-15, "option 1":)* **both walls
+are prescribed.** At every outer face of a case with Dirichlet hooks, the
+owned low wall of each potential (`A_j`, `Φ̃`; a vertex-like dimension's
+first owned point `G+1`) is set by the mirror of the hook's high-wall rule —
+the nearest evolved point (`G+2`) plus the case's difference between the
+two points, at the time of the fill — by a `map_blocks!` kernel of this
+package, `low_walls!` (`src/driver.jl`), which runs on every backend and
+reads only in-block points. It runs in the state vector inside the limiter
+passed as both `stage_limiter` and `step_limiter`, beside the atmosphere
+reset, so the walls persist in the state; and in each potential's working
+array before every ghost fill, so every fill — a right-hand side's, a
+stage's, a reset's, at its own time — sees both walls alike. It is the
+workaround of **AMR-8** (`PLAN.md`), which asks TreeAMR for an opt-in under
+which `fill_ghosts!` fills the owned low wall of every vertex-like
+dimension by the high wall's rule for every face kind; once it lands the
+kernel is deleted. Periodic faces have no walls, and reflecting and
+outflow faces are TreeAMR's machinery and are not touched. The face kinds
+come from exported API (the block's origin against the extent, the
+forest's `periodic`, `reflecting` and `outflow` properties).
+
+Making the box symmetric bit for bit found a second, older asymmetry in the
+hook itself: TreeAMR's region form clamps the nearest evolved point along
+every *outward* direction, and a corner region that leaves the domain
+through one face and crosses into the next block through another (the
+wall's row beside a block face) was filled from the block's own last
+column rather than from its neighbour's — so the point two blocks share
+held a different value in each, the cell next to it had a block-dependent
+`𝔅`, and the two blocks computed different fluxes at their common face next
+to the wall. The hook runs before the prolongations and may read only its
+own block, so this package refills every point beyond an outer face after
+each fill (`outer_points!`, `src/driver.jl`): from the nearest evolved
+point, clamped only along the dimensions the point leaves the domain
+through and read from the now-filled ghosts along the others (amended
+AMR-7 in `PLAN.md`, which asks for that of a device-capable relative hook).
+The hook's own values remain only as what a prolongation inside the fill
+reads.
+
+*Measured in step 8:* the explosion in a box its precursors reach — `[−2,
+2]²` at 32², minmod, `t = 1/4` — was 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`,
+fields reversed) of a variable's scale from its mirror image before, and
+the spherical blast in the closed 16³ box 1.3e−2 and 1.0e−1; with both
+fixes both are their own mirror images bit for bit, every evolved set on
+the closed range with both walls, but for the sign of an exact zero (a
+parity of −1 turns `+0` into `−0`; stated with `==`, as step 7 stated
+transposition). The 3D smoke test now runs in the closed box
+(`test/multid_cases_tests.jl`). The 2D explosion at 64² on `[−6, 6]²` and
+the rotor, symmetric to 2.5e−17 and 2.6e−27 in step 7, are now exactly
+symmetric too. Every other number the suite prints moved in its last
+digits at most — the shock tubes' L1 errors and boundary budgets, the
+uniform flows through the faces (1.33e−12 → 1.24e−12 of a variable's scale
+at most), the current sheet's rates — since their faces see nothing but
+precursors before `t_end`; the one exception is the current sheet run on to
+`t = 9`, whose field has diffused to the faces by then: its L1 distance to
+the erf profile went from 9.30e−4 to 9.56e−4 of `B₀`, the low face's `𝔅`
+now the profile's as the high one's was.
+
 ## Refinement
 
 A Löhner indicator on `ρ`, optionally on `|B|` and `|E|`, following
@@ -1796,7 +1858,8 @@ named as claims.
      8.2e−4, 1.06e−3, 1.14e−3 at 50 … 400 cells over `t = 1 → 2`). The
      order is therefore measured against the next finer run (amended in
      step 6): 2.53 and 2.58 over 50 … 400 cells. At Komissarov's 200 cells
-     and `t = 9` the distance to the profile is 9.3e−4 — "indistinguishable"
+     and `t = 9` the distance to the profile is 9.3e−4 (9.6e−4 since step 8
+     prescribed the potentials' low walls) — "indistinguishable"
      to 0.1% — and at `B₀ = 1/10`, where the fluid's response (quadratic in
      `B₀`) drops out, it is five times smaller relative to `B₀`. Every stage
      is a fixed point (1,068,800 of them to `t = 9`), at most 4 recoveries.
@@ -1894,6 +1957,9 @@ named as claims.
      runs with no repair and no reset,
      and is symmetric under its three reflections exactly (0.0). In a closed
      box it is not, at the faces (see "Boundaries", measured in step 7).
+     *(Amended in step 8:)* with both walls prescribed (AMR-8's workaround,
+     "Boundaries") it is, bit for bit, in the closed box, where the suite
+     now runs it; so is the explosion on `[−2, 2]²` at 32².
    - **Higher order in 1D** (the Alfvén wave of rung 1a, one period, 50 …
      400 cells): L1 rates of `S_y`, `A_y`, the ideal projection of `𝔈ʸ` and
      the state's own `𝔈ʸ` of 2.09, 2.10, 2.10, 0.85 (MC), 2.67, 2.47, 2.68,

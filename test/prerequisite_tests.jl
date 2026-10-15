@@ -298,6 +298,19 @@ end
                   "run on the CPU only (wanted by step 14)")
 end
 
+@testset "AMR-8: symmetric walls, the owned low wall filled like the high one (when landed)" begin
+    # Guards the mirror symmetry of a closed box (added in step 8; decided by
+    # Erik 2026-10-15): until TreeAMR fills the owned low wall of a vertex-like
+    # dimension by the rule of the high one, this package prescribes it itself
+    # (`low_walls!`, `outer_points!` in `src/driver.jl`, marked AMR-8).
+    # Detected by the keyword, never by a version.
+    landed = hasmethod(FieldSet{Float64}, Tuple{Forest,Int}, (:walls,))
+    prereq_report("AMR-8", landed,
+                  landed ? "`FieldSet(…; walls = :symmetric)` exists; `low_walls!` can go" :
+                  "no symmetric walls; the potentials' low walls are prescribed by " *
+                  "`low_walls!` (wanted, no step blocked)")
+end
+
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
     # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
     # way — but says whether the URL workaround can go. Read from the

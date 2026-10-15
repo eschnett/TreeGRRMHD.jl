@@ -68,7 +68,7 @@ end
     # to `t = 0.1`; the fast waves have not reached the faces, so the totals
     # change only by the light-cone fluxes' exponentially small precursors
     # (`shocktube_tests.jl`'s bound, 10⁻¹⁰ of the scale). Measured asymmetry
-    # 2.6e−27.
+    # 2.6e−27 in step 7, 0.0 since step 8's walls.
     run = md_run(magnetic_rotor_case(Float64; roots=4), Val(2); N=16, t_end=1 // 10,
                  limiter=:mc)
     e = md_mirror_error(run.r.p, run.r.u, (1, 2), -1)
@@ -137,25 +137,56 @@ end
     @test Bz ≤ 1e-2 * Bxy
 end
 
-@testset "A spherical blast in 3D runs, symmetric, with ∇·𝔅 at rounding" begin
+@testset "A closed box is mirror-symmetric bit for bit: the explosion in 2D" begin
+    # Guards AMR-8's workaround (step 8; decided by Erik 2026-10-15): TreeAMR
+    # fills the high wall plane of a vertex-like dimension at an outer face as a
+    # ghost and leaves the low one owned and evolved, so without the
+    # prescription of the low walls (`low_walls!`) `𝔅` on a box's high boundary
+    # face is the case's and on its low one the evolution's; and the hook,
+    # which runs before the prolongations, took a point where a wall meets
+    # another block from the block's own last column (`outer_points!`). The
+    # explosion in a box small enough that its light-cone precursors reach the
+    # faces within a step — `[−2, 2]²` at 32², minmod, to `t = 1/4` (10 steps):
+    # 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`, fields reversed) of a variable's
+    # scale apart before the fix (measured in step 8), and now the mirror image
+    # of itself, every evolved set on the closed range, both walls included,
+    # bit for bit but the sign of a zero; and the state holds the prescribed
+    # low walls.
+    run = md_run(cylindrical_explosion_case(Float64; L=2, roots=4), Val(2); N=8, t_end=1 // 4,
+                 limiter=:minmod)
+    ex = md_mirror_equal(run.r.p, run.r.u, run.r.t, (1,), 1)
+    ey = md_mirror_equal(run.r.p, run.r.u, run.r.t, (2,), -1)
+    @info "Explosion in a closed box, 32², t = 1/4: mirror-symmetric x → −x $(ex.mirrored), " *
+          "y → −y $(ey.mirrored); ∇·𝔅 $(run.divb); $(run.r.nsteps) steps"
+    @test run.r.nsteps == 10
+    @test ex.mirrored && ey.mirrored && ex.persisted
+    @test run.tally.policy == 0 && run.tally.resets == 0
+    # The faces were reached: the cells along them changed.
+    q, q0 = md_global(run.r.p, run.r.u, 1), md_global(run.r.p, run.u0, 1)
+    @test q[1, :, :] != q0[1, :, :] && q[:, 1, :] != q0[:, 1, :]
+end
+
+@testset "A spherical blast in 3D runs in a closed box, mirror-symmetric bit for bit, with ∇·𝔅 at rounding" begin
     # The 3D smoke test (PLAN.md, step 7): the explosion with `r` the distance
-    # from the origin, on the periodic `[−2, 2]³` at 16³ (two roots of `N = 8`
-    # a dimension), minmod, to `t = 1/4` — every kernel along every direction,
-    # the twelve-edge curl, and the field's three reflections (`x → −x` alone,
-    # `y → −y` and `z → −z` with the fields reversed) to rounding. Periodic,
-    # because the potentials' Dirichlet hooks are not mirror-symmetric: they
-    # evolve the low boundary vertex and fill the high one, and the light-cone
-    # fluxes' precursors, which reach every face of so small a box within a
-    # step or two, came out 1.3e−4 asymmetric there (measured in step 7; the
-    # 2D explosion's faces are 30 cells from the blast, and its precursors
-    # are below rounding).
-    run = md_run(cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true,
-                                            periodic=true),
+    # from the origin, on `[−2, 2]³` at 16³ (two roots of `N = 8` a dimension),
+    # minmod, to `t = 1/4` — every kernel along every direction, the
+    # twelve-edge curl, and the field's three reflections (`x → −x` alone,
+    # `y → −y` and `z → −z` with the fields reversed). In a closed box since
+    # step 8 (AMR-8's workaround; step 7 had to run it periodic): the
+    # light-cone precursors reach every face of so small a box within a step
+    # or two, and with the low walls evolved the box was 1.3e−2 (`x → −x`) and
+    # 1.0e−1 (`y`, `z`) of a variable's scale away from its mirror image at
+    # `t = 1/4` (measured in step 8; 1.3e−4 in step 7's measurement after
+    # three steps). Now bit for bit but the sign of a zero, every evolved set
+    # on the closed range.
+    run = md_run(cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true),
                  Val(3); N=8, t_end=1 // 4, limiter=:minmod)
-    e = (md_mirror_error(run.r.p, run.r.u, (1,), 1), md_mirror_error(run.r.p, run.r.u, (2,), -1),
-         md_mirror_error(run.r.p, run.r.u, (3,), -1))
-    @info "Spherical blast, 16³, t = 1/4: asymmetries $e; ∇·𝔅 $(run.divb); $(run.r.nsteps) steps"
-    @test all(≤(1e-12), e)
+    e = (md_mirror_equal(run.r.p, run.r.u, run.r.t, (1,), 1),
+         md_mirror_equal(run.r.p, run.r.u, run.r.t, (2,), -1),
+         md_mirror_equal(run.r.p, run.r.u, run.r.t, (3,), -1))
+    @info "Spherical blast in a closed box, 16³, t = 1/4: mirror-symmetric " *
+          "$(map(x -> x.mirrored, e)); ∇·𝔅 $(run.divb); $(run.r.nsteps) steps"
+    @test all(x -> x.mirrored, e) && e[1].persisted
     @test all(isfinite, run.r.u)
     @test run.tally.policy == 0 && run.tally.resets == 0
 end

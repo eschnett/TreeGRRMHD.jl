@@ -156,7 +156,10 @@ This is TreeGH's pattern.
   Only the explicit part moves `A`, so a boundary or source that depends on `t` through `A`
   is wrong in the stage solve unless it is written so that `t` drops out — hence the
   potentials' Dirichlet data in the field (added in step 6).
-- **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells.
+- **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells — and *(amended in
+  step 8)* the potentials' owned low walls at the outer faces of a case with Dirichlet hooks
+  (AMR-8's workaround, `low_walls!`): with the reset, both limiters prescribe them, so that a
+  closed box is mirror-symmetric.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
   monitor.
@@ -201,6 +204,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
 | AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
 | AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | waiting |
+| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -400,6 +404,89 @@ ghosts in D = 1, 2, 3, on every centering.
 
 **Workaround until then:** the region form, `DirichletAt` for the potentials in
 `src/driver.jl`, marked `AMR-7`. Every non-periodic case therefore runs on the CPU only.
+
+*(Amended in step 8.)* Two more things a relative hook must do, found when AMR-8's
+workaround made a closed box mirror-symmetric bit for bit:
+- **A point beyond an outer face alongside another block** — the wall's row in a corner region
+  whose direction crosses a block face along one dimension and the outer face along another — must
+  take `r` from the neighbour's data along the first (the block's own ghost there), not clamp it
+  to the block's last owned column. The region form clamps along every outward direction, so the
+  point two blocks share (the wall's row on the shared plane) came out block-dependent, which broke
+  the mirror symmetry of a closed box (7.1e−6 in a 32² explosion) and made two blocks compute
+  different fluxes at their common face next to the wall. The neighbour's ghost is filled by then
+  only for a same-level or finer neighbour (copies and restrictions run before the hooks, the
+  prolongations after), so the per-cell form should run, for those points, after the
+  prolongations.
+- **Under AMR-8** the evolved range along a vertex-like dimension at a low outer face is
+  `G+2 … G+N`: the low wall `G+1` is then a boundary point, clamped like the high one.
+
+**Workaround, extended in step 8:** after each fill of a potential, `outer_points!` (a
+`map_blocks!` kernel over the stored points) refills every point beyond an outer face from the
+nearest evolved point, taken across a block face along the dimensions it does not leave the domain
+through, now that every ghost is filled. The hook's own values stay only for the prolongations
+inside the fill that read them. Marked `AMR-7`/`AMR-8` in `src/driver.jl`.
+
+### AMR-8 — Symmetric walls: the owned low wall filled like the high one (wanted; workaround)
+
+*(Added in step 8; decided by Erik 2026-10-15, "option 1".)* **Why.** TreeAMR's ownership is
+half-open: along a vertex-like dimension a block owns `G+1 … G+N`, so at a non-periodic face the
+domain's high wall plane `G+N+1` belongs to nobody and is filled like a ghost — by the hook at an
+outer face, by the derivation at a reflecting one, by the clamp at an outflow one — while the low
+wall `G+1` is owned and evolved (TreeAMR's `CODE.md`, "Centerings", documents and accepts this).
+So `𝔅` on a box's high boundary face is the case's and on its low one the evolution's, and a closed
+box is not mirror-symmetric: 1.3e−4 in a 16³ blast after three steps (measured in step 7), 1.0e−1
+of a variable's scale at `t = 1/4` (step 8). The same asymmetry is in every vertex-like set of every
+application with walls.
+
+**API.** An opt-in per field set, since it writes owned points:
+```julia
+FieldSet{T}(forest, nvars; G, centering, walls = :half_open)   # today's behaviour, the default
+FieldSet{T}(forest, nvars; G, centering, walls = :symmetric)
+```
+
+**Semantics.** Under `walls = :symmetric`, `fill_ghosts!` also fills the owned low wall `G+1` of
+every vertex-like dimension at a non-periodic low face by the same rule as the high wall at the
+high face of that kind:
+- an **outer** face: the hook, which is handed the wall plane as the first plane of its region
+  (the low region becomes `1 … G+1`);
+- a **reflecting** face: the derivation — `0` for a variable odd in that dimension, the one-sided
+  fold for an even one — exactly as the high wall is derived;
+- an **outflow** face: the clamp, from the nearest evolved point `G+2`.
+
+Every ghost beyond the low wall, and every point the hook or the schedule fills relative to the
+nearest evolved point, then reads `G+2` along that dimension, as the high side reads `G+N`. On every
+backend, in the phases the high wall is filled in today, and across ranks. The state vector is
+unchanged — the wall stays an owned point; an application that wants the filled wall in its state
+gathers it after the fill. A cell-like dimension has no wall and is unaffected; `:half_open` stays
+bit-identical to today.
+
+**Upstream acceptance.** In D = 1, 2, 3 and every centering with a vertex-like dimension, on a
+forest closed in every dimension by each face kind, under a reflection of the domain: data
+symmetric under the reflection fill symmetrically, bit for bit, both walls included; a linear field
+with a constant-difference hook is reproduced on both walls; `:half_open` writes exactly what it
+writes today; a device fill matches the CPU's.
+
+**Downstream check.** `test/prerequisite_tests.jl`, "AMR-8", detects the keyword
+(`hasmethod(FieldSet{Float64}, Tuple{Forest,Int}, (:walls,))`), never a version; skipped with an
+`@info` until then. When it lands, the potentials are built with `walls = :symmetric`, `low_walls!`
+is deleted, and the closed-box tests of `test/multid_cases_tests.jl` stay bit for bit.
+
+**Relation to AMR-7.** AMR-7 asks for a device-capable relative hook; with AMR-8 the evolved range
+it clamps into starts at `G+2` along a vertex-like dimension at a low outer face, and the low wall
+is one of the points it fills. Both are needed to delete the potentials' CPU-only region form and
+this package's two kernels (`low_walls!`, `outer_points!`).
+
+**Workaround until then** (`low_walls!` and `outer_points!` in `src/driver.jl`, marked `AMR-8`):
+`map_blocks!` kernels, so on every backend, reading only in-block points. The first prescribes the
+owned low walls of `A₁, A₂, A₃, Φ̃` at every outer face by the mirror of the hook's high-wall rule
+(the nearest evolved point plus the case's difference) — in the state vector, inside the limiter
+passed as both `stage_limiter` and `step_limiter` (beside the reset), so it persists, and in each
+potential's working array before every ghost fill, so every fill sees it at its own time. The
+second refills every point beyond an outer face after the fill (AMR-7, above). Only faces with this
+package's Dirichlet hooks; reflecting and outflow faces are TreeAMR's machinery and untouched.
+The face kinds come from exported API: the block's origin against the extent, and the forest's
+`periodic`, `reflecting` and `outflow` properties (TreeAMR's documented `getproperty`); the
+unexported `facekind` is not needed.
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 

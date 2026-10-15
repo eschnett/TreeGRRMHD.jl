@@ -122,7 +122,7 @@ own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
 """
-struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
+struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -130,6 +130,8 @@ struct MHDProblem{T,D,FS,ST,SC,ISF,ISE,OR,SP,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
     spacings::SP
+    outer::OF                    # per block, its outer faces, low and high (AMR-8)
+    hasouter::Bool               # whether the potentials have the case's hooks there
     eos::EOS
     opts::OPT
     pol::POL
@@ -203,14 +205,18 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
+    of_host = outer_faces(forest, T)
+    hasouter = boundary !== nothing && any(o -> any(any, o), of_host) &&
+               any(i -> boundary[i] isa DirichletBoundary, SEG_A:SEG_Φ)
+    outer = to_backend(backend, of_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ischeds_F),
-                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(eos),
-                      typeof(opts),typeof(pol),typeof(model),typeof(provider),
+                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(outer),
+                      typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ischeds_F, ischeds_EMF, origins, spacings, eos, opts, pol, model,
-        provider, B̄, T(ξ), st, boundary, fixup, Val(limiter), Val(riemann))
+        f, sets, schedules, ischeds_F, ischeds_EMF, origins, spacings, outer, hasouter, eos,
+        opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter), Val(riemann))
 end
 
 """
@@ -227,9 +233,23 @@ with the value at that time.
 boundary_at(hook, t) = hook
 
 # The ghost fill of evolved set `i` at time `t`, with its own boundary hook.
-fill_set!(p::MHDProblem, i::Int, t) =
+# For a potential with the case's Dirichlet hooks (`src/driver.jl`), around
+# it: before, the owned low walls at the outer faces are prescribed in the
+# set's working array by the rule the hook applies to the high walls (AMR-8's
+# workaround), so that a prolongation inside the fill reads them as they will
+# be; after, every point beyond an outer face is refilled by that rule from
+# the nearest evolved point *now that every ghost is filled*, which the hook,
+# running before the prolongations, cannot do where a wall meets another
+# block (`outer_points!`; added in step 8). So every fill — a right-hand
+# side's, a stage's, a reset's — sees both walls of a box filled alike at its
+# own time.
+function fill_set!(p::MHDProblem, i::Int, t)
+    i == SEG_U || low_walls!(p, i, p.sets[i].work, Val(p.sets[i].G), t)
     fill_ghosts!(p.sets[i], p.schedules[i];
                  boundary=p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t))
+    i == SEG_U || outer_points!(p, i, t)
+    return nothing
+end
 
 # --- the kernels ------------------------------------------------------------------
 
@@ -772,6 +792,12 @@ cells it writes are counted into the diagnostics set.
 atmosphere alone: every repaired state is exactly invertible, and is what
 the next right-hand side would recover anyway.
 
+*(Added in step 8, AMR-8's workaround:)* it first prescribes the potentials'
+owned low walls at the outer faces of a case with Dirichlet hooks
+([`low_walls!`](@ref)), so that the state holds both walls of a closed box
+by the same rule and a closed box is mirror-symmetric ("Boundaries" in
+`CODE.md`).
+
 This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
 is the same reset in the step limiter's role.
 """
@@ -789,6 +815,7 @@ reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
 
 function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     f = p.f
+    low_walls!(p, u, t)
     update_fields!(p, u, t)
     map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,

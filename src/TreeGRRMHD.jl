@@ -108,7 +108,7 @@ export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B
 # The driver and the cases
 export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
-       profile_1d
+       profile_1d, low_walls!
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,

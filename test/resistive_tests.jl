@@ -97,7 +97,9 @@ end
     komissarov = rs_sheet(200, 8.0)
     d = erf_dist(komissarov)
     @info "Current sheet, 200 cells, t = 1 → 9: L1 distance to the erf profile $d of B₀"
-    # Measured 9.30e-4: Komissarov's "indistinguishable" holds to 0.1%.
+    # Measured 9.30e-4: Komissarov's "indistinguishable" holds to 0.1%. (9.56e-4
+    # since step 8 prescribes the potentials' low walls as the high ones are:
+    # by t = 9 the field has diffused to the faces.)
     @test d ≤ 2e-3
     bits = sum(c -> collect(c.tally.bits), komissarov.r.chunks)
     stages = 4 * 200 * komissarov.r.nsteps

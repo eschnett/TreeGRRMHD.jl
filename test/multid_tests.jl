@@ -148,6 +148,67 @@ function md_mirror_error(p, u, axes, c)
     return worst
 end
 
+# The evolved set `i` over the whole uniform mesh from its ghost-filled working
+# array, on the closed range: every owned point and, along a vertex-like
+# dimension, the box's high boundary plane too, which no block owns and the
+# hook fills (`(M₁ + c₁, …, nvars)`). Where two blocks share a plane, the
+# later one's copy is the one kept; after a fill the two are equal.
+function md_closed_global(p, i)
+    s = p.sets[i]
+    forest = s.forest
+    D = length(forest.roots)
+    N = forest.N
+    st = staggers(s)
+    h = block_spacings(forest)
+    o = block_origins(forest)
+    out = fill(NaN, (forest.roots .* N .+ st)..., s.nvars)
+    for b in 1:nblocks(s)
+        g0 = ntuple(d -> round(Int, (o[b][d] - forest.extents[d][1]) / h[b]), D)
+        for I in CartesianIndices(ntuple(d -> N + st[d], D)), v in 1:(s.nvars)
+            out[(Tuple(I) .+ g0)..., v] = s.work[(Tuple(I) .+ s.G)..., v, b]
+        end
+    end
+    return out
+end
+
+# Bit for bit, the mirror symmetry of a closed box (added in step 8, with
+# AMR-8's workaround): every evolved set of the state `u` at `t`, scattered and
+# ghost-filled, on the closed range — both boundary planes of a vertex-like
+# dimension, the low one owned and prescribed, the high one the hook's — is
+# its own reflection along `axes`, with the parities of `md_mirror_error`. A
+# cell `g` mirrors to `M + 1 − g`, a vertex-like point to `M + 2 − g`, and now
+# every point has its mirror. Compared with `==`: bit identity for every
+# nonzero value, and the sign of a zero free, as for `md_turned_equal` (a
+# parity of −1 turns `+0` into `−0`, and `0 − 0` is `+0` whichever side it was
+# computed on). Also returns whether the state itself holds what the fill
+# holds on the owned points — that the prescribed low walls persist in it.
+function md_mirror_equal(p, u, t, axes, c)
+    update_primitives!(p, u, t)
+    pol(j) = prod(k -> k == j ? -1 : 1, axes; init=1)
+    function parity(i, v)
+        i == 1 && v in 2:4 && return pol(v - 1)
+        i == 1 && v in 8:10 && return c * pol(v - 7)
+        i == 1 && return 1
+        return i ≤ 4 ? c * pol(i - 1) : c
+    end
+    mirrored = all(1:5) do i
+        q = md_closed_global(p, i)
+        D = ndims(q) - 1
+        M = size(q)[1:D]
+        all(Iterators.product(CartesianIndices(M), 1:size(q, D + 1))) do (I, v)
+            g = Tuple(I)
+            gm = ntuple(d -> d in axes ? M[d] + 1 - g[d] : g[d], D)
+            q[g..., v] == parity(i, v) * q[gm..., v]
+        end
+    end
+    persisted = all(1:5) do i
+        q = md_closed_global(p, i)
+        a = md_global(p, u, i)
+        all(I -> isequal(a[I], q[I]), CartesianIndices(a))
+    end
+    return (; mirrored, persisted)
+end
+
 # Every total but `𝔈`'s constant to rounding: TreeHydro's 8 ulp of its scale per
 # step, as `wave_tests.jl` asserts.
 function md_conserved(run)
