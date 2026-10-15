@@ -148,6 +148,9 @@ end
     # prolongation, AMR-4), no ghost is repaired at all and the injection is
     # the uniform mesh's (−8.4e−12, `atmosphere_tests.jl`). The atmosphere
     # tube on 200 cells with `[0, 0.2)` refined, which the front crosses.
+    # This is the conserved ghost fill that runs until AMR-10: Erik decided
+    # on 2026-10-15 for the primitives with a bounded Lagrange prolongation,
+    # and this testset is re-measured with them when it lands.
     case = atmosphere_tube_case(Float64)
     refine_band!(forest) =
         (refine!(forest, [k for k in copy(forest.leaves)

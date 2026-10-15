@@ -10,7 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9 is next, and waits for nothing.** *(Amended in step
+**Steps 0 to 3 and 5 to 7 are done, and step 8 but for the re-measurement of the matter's ghost
+fill, which is blocked on AMR-10; step 9 is next, and waits for nothing.** *(Amended in step
 8.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
@@ -217,6 +218,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | waiting |
 | AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | waiting |
 | AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | waiting |
+| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -561,6 +563,57 @@ flux through the plane to rounding across levels.
 
 **Workaround:** none needed for correctness — the flux across levels holds to the potentials'
 interpolation error, and every rate to rounding.
+
+### AMR-10 — Bounded PointValue interpolation (req: step 8's ghost-fill re-measurement; steps 10, 12)
+
+*(Added in step 8; decided by Erik 2026-10-15.)* **Why.** The matter's ghost fill will prolongate
+the *primitives* (`ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ`) and build each conserved ghost by `prim2con`
+with the ghost's own `B` — the curl of the prolongated `A` — so that a ghost is an admissible state
+wherever its neighbours are, and its electromagnetic energy and momentum are its own field's (step
+8 measured, with conserved ghosts bounded, 33 repaired ghost recoveries on a magnetized atmosphere
+across a coarse-fine face against 8 on the uniform mesh, the coarse field's energy landing in the
+fluid's). Primitives are point values, so the fill needs a PointValue prolongation, and one that
+creates no new extremum — `ρ` must stay positive at a stellar surface (ten orders of magnitude),
+`s` and `Yₑ` in their windows. TreeAMR's `bounded = true` is the Conservative family's at order 3
+or 1 only. The regrid stays conservative (Conservative width 3, bounded, on the conserved
+variables), so totals are kept.
+
+**API.**
+```julia
+Operators(; prolongation=w, restriction=r, family=PointValue, bounded=true)
+```
+accepted for every even `w ≥ 2` (`w = 2`, linear, is bounded already, and is accepted so that an
+application switches widths without touching the flag, as Conservative order 1 is today), on every
+centering — cell, vertex, face, edge — in `fill_ghosts!` (the prolongation, and the restriction
+where a PointValue restriction interpolates rather than injects, as along a cell-like dimension,
+whose fine centres do not coincide with the coarse one) and in `regrid!`'s transfer.
+`bounded = false` stays bit-identical to today.
+
+**Semantics**, per variable. Every interpolated value lies within `[m, M]`, the minimum and maximum
+of the `2^D` source points that enclose the target point (the linear stencil's points), so monotone
+data stay monotone and no new extremum is created. A suggested construction (TreeAMR's call):
+`u = u_lin + φ (u_w − u_lin)`, with `u_lin` the multilinear interpolant from those `2^D` points,
+`u_w` the width-`w` Lagrange interpolant, and `φ ∈ [0, 1]` the largest value keeping `u` in
+`[m, M]` (`φ = 1` where `u_w` is in range already). Exact on linear data; of order `w` on smooth
+data wherever no limiting is active; device-capable; across reflecting and outflow faces with their
+parity and clamp rules.
+
+**Upstream acceptance.** `bounded = false` bit-identical; linear data reproduced exactly in
+D = 1, 2, 3 on every centering; no new extrema on step-function and random data; order `w` on a
+smooth function with no extremum in the stencil; positivity: a profile dropping from 1 to 1e−13
+stays positive, in the ghost fill and in the regrid.
+
+**Downstream check.** `test/prerequisite_tests.jl`, "AMR-10": that
+`Operators(; prolongation=4, restriction=4, family=PointValue, bounded=true)` is accepted (detected
+by feature, never by a version; skipped with an `@info` until then — today it throws an
+`ArgumentError`). When it lands: the ghost fill of the primitives on the atmosphere tube across a
+coarse-fine face repairs no ghost — magnetized, against step 8's 33 with conserved ghosts — and step
+8's ghost-fill table in `CODE.md` is re-measured with it.
+
+**Workaround:** none, and none to keep. Until it lands the conserved, bounded ghost fill of step 8
+runs (it is measured, and conservation does not depend on the ghost fill); it is what runs, not a
+workaround, and is replaced when AMR-10 lands. The restructuring that follows is `CODE.md`'s
+("Refinement", the ghost fill of the matter).
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
@@ -1338,7 +1391,11 @@ Accept:
 - **Spurious `B`** at refinement boundaries against the gauge damping `ξ` **decides `ξ`**.
 - **A tracked shock tube** with regrids stays conservative.
 
-*(Done, 2026-10-15, on `claude/step-8-refinement`.)* *(Amended in step 8:)* as built:
+*(Done, 2026-10-15, on `claude/step-8-refinement`, except **the ghost-fill re-measurement, blocked
+on AMR-10**: Erik decided on 2026-10-15 that the matter's ghost fill prolongates the primitives
+with a bounded Lagrange interpolation, which TreeAMR does not offer yet; the conserved, bounded
+ghost fill runs until then, and step 8's atmosphere table is re-measured with the primitives when
+AMR-10 lands.)* *(Amended in step 8:)* as built:
 - **First, Erik's decision of 2026-10-15 ("option 1")**: both walls of a closed box are prescribed
   (AMR-8's workaround, `low_walls!`, and `outer_points!` for the corner rows the region-form hook
   got wrong; `CODE.md`, "Boundaries"), so a closed box is mirror-symmetric bit for bit and the 3D
@@ -1353,8 +1410,9 @@ Accept:
   `bin/gauge_damping.jl`, `bin/field_loop_refined.jl`.
 - **Decided by measurement** (`CODE.md`, "Refinement"): the potentials' width 4; the matter's
   width 3 *bounded*, in the ghost fill and the regrid; `ξ = 16/L` on every mesh (`default_ξ`, `L`
-  the box's longest side; amended, decided by Erik 2026-10-15 — first 0 on uniform meshes); the ghost fill stays in conserved variables, against TreeAMR's expectation,
-  with primitives (open) until steps 10 and 12.
+  the box's longest side; amended, decided by Erik 2026-10-15 — first 0 on uniform meshes); the ghost fill in conserved variables, bounded, measured — and
+  *(decided by Erik 2026-10-15)* to become primitives with a bounded Lagrange prolongation and
+  the conserved ghosts by `prim2con`, once AMR-10 lands; the regrid stays conservative.
 - Tests: `test/refinement_tests.jl` (the AMR-4 surface moved here, conservation, the magnetic flux,
   the tracked tube, `∇·𝔅` through regrids, the flux through the plane) and
   `test/refinement_cases_tests.jl` (the field loop, the interface order, the gauge pulse, the

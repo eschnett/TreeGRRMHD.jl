@@ -336,6 +336,28 @@ end
                   "to the potentials' interpolation error (wanted)")
 end
 
+@testset "AMR-10: bounded PointValue interpolation (when landed)" begin
+    # Guards the matter's ghost fill of the primitives (decided by Erik
+    # 2026-10-15; added in step 8): `ρ`, `s`, `Yₑ`, `uⁱ`, `Eⁱ` prolongated by a
+    # Lagrange interpolation that creates no new extremum, the conserved
+    # ghosts by `prim2con`. Until TreeAMR accepts `bounded` with the
+    # PointValue family, the conserved, bounded ghost fill of step 8 runs and
+    # step 8's ghost-fill re-measurement waits. Detected by the operators
+    # being accepted (today an `ArgumentError`), never by a version.
+    landed = try
+        Operators(; prolongation=4, restriction=4, family=PointValue, bounded=true)
+        true
+    catch err
+        err isa ArgumentError || err isa MethodError || rethrow()
+        false
+    end
+    prereq_report("AMR-10", landed,
+                  landed ? "bounded PointValue operators exist; the matter's ghost fill " *
+                  "can take the primitives" :
+                  "no bounded PointValue interpolation; blocks step 8's ghost-fill " *
+                  "re-measurement (and steps 10, 12)")
+end
+
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
     # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
     # way — but says whether the URL workaround can go. Read from the

@@ -44,7 +44,8 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b) are done; step 9 (analytic curved backgrounds) is next
+regridding, rung 2b — but for the re-measurement of the matter's ghost fill,
+blocked on AMR-10) are done; step 9 (analytic curved backgrounds) is next
 and waits for nothing (2026-10-15).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
@@ -121,8 +122,11 @@ bit; `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
 `buffer`; `adapt_case!` over every set, AMR-3). Decided by measurement
 (`CODE.md`, "Refinement"): the matter's operators Conservative width 3
 **bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on every mesh
-(`L` the longest side; Erik's decision, 2026-10-15), and the ghost fill in conserved variables
-(primitives open until steps 10 and 12). AMR-9 (a flux-conservative
+(`L` the longest side; Erik's decision, 2026-10-15), and the ghost fill in conserved variables, bounded — until AMR-10 (a
+bounded PointValue interpolation, waiting) lets it prolongate the
+primitives, as Erik decided on 2026-10-15, with the conserved ghosts by
+`prim2con` and the regrid conservative. Every fill applies the complete
+outer boundary condition (`fill_set!`, `regrid_state!`; Erik, 2026-10-15). AMR-9 (a flux-conservative
 transfer of edge sets) is new and waiting: the magnetic flux across levels
 holds to rounding as a rate, not as a state. `bin/interface_order.jl`,
 `bin/gauge_damping.jl`, `bin/field_loop_refined.jl` made `CODE.md`'s step-8

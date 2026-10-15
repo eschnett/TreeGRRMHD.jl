@@ -193,6 +193,14 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   not only in its rate ("Conservation at coarse-fine faces"). No
   workaround: until then the state's flux across levels holds to the
   potentials' interpolation error.
+- **AMR-10 (req: step 8's ghost-fill re-measurement; steps 10, 12)
+  Bounded PointValue interpolation** *(added in step 8; decided by Erik
+  2026-10-15)*: `Operators(; prolongation=w, restriction=r,
+  family=PointValue, bounded=true)` for even `w ≥ 2` on every centering, in
+  the ghost fill and the regrid — every value within the range of the `2^D`
+  points that enclose it — for the matter's ghost fill of the primitives
+  ("Refinement"). No workaround: the conserved, bounded ghost fill runs
+  until it lands.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -1794,13 +1802,33 @@ proposed in step 8 unless marked otherwise):
   16Δt/L ≪ 1` at any resolution a box of side `L` is run at, far inside
   the explicit part's stability.
 
-**The ghost fill of the matter** *(decided in step 8, proposed: the design
-point above)*. **The ghost fill prolongates the conserved state, bounded**
-(`Operators(…; bounded = true)`), and so does the regrid; `P` is refilled
-after every fill by the one recovery, in every stored cell, as since step
-5; and the reset after a regrid writes what the recovery repaired. This
-departs from TreeAMR's expectation (primitives in the ghost fill), for
-these reasons:
+**The ghost fill of the matter** *(decided by Erik 2026-10-15)*: **the
+ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ` —
+with a bounded (no new extrema) Lagrange interpolation, and builds each
+conserved ghost by `prim2con` with the ghost's own `B`, the curl of the
+prolongated `A`; **the regrid stays conservative**, Conservative width 3,
+bounded, on the conserved variables. TreeAMR has no bounded PointValue
+operator: that is **AMR-10** (`PLAN.md`; req for step 8's re-measurement
+below, and for steps 10 and 12). It implies a restructuring of the
+right-hand side, done when AMR-10 lands:
+- the recovery runs on the owned cells *before* the exchange, into a
+  primitive field set with its own ghost schedule (PointValue, bounded) and
+  its own Dirichlet hooks — which must apply the complete outer boundary
+  condition, as the potentials' do ("Boundaries", decided by Erik
+  2026-10-15);
+- the conserved ghosts are rebuilt from the prolongated primitives by
+  `prim2con` with the ghost's own `B` and metric, and `P`'s other slots by
+  one EOS evaluation per ghost;
+- steps 1 to 3 of "The right-hand side" change order accordingly (the
+  exchange is no longer in conserved variables, as TreeHydro decided).
+
+Until then the ghost fill below runs: what is measured and runs now, not a
+workaround to keep. *As built in step 8 (proposed in step 8):* **the ghost
+fill prolongates the conserved state, bounded** (`Operators(…; bounded =
+true)`), and so does the regrid; `P` is refilled after every fill by the
+one recovery, in every stored cell, as since step 5; and the reset after a
+regrid writes what the recovery repaired. Its measurements, which AMR-10's
+downstream check re-measures with the primitives:
 
 - Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
   atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; the
@@ -1834,10 +1862,8 @@ these reasons:
   with its own schedule and its own Dirichlet hooks, the recovery before
   the exchange instead of after it (on the owned cells only), and an EOS
   evaluation per ghost to rebuild `P`'s thermodynamic slots — the RHS's
-  order of "The right-hand side" changes. Not for a 33-in-a-run effect in a
-  test atmosphere: **(open)**, to be decided where it matters, on the TOV
-  star's surface (step 10, whose AMR-4 downstream check stands) and its
-  magnetosphere (step 12).
+  order of "The right-hand side" changes. (In step 8 this was left
+  **(open)**; decided by Erik 2026-10-15 for the primitives, above.)
 
 
 ## Julia version
@@ -2301,10 +2327,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - *(Closed in step 8.)* PointValue width for `A` and `Φ̃`: 4; the gauge
   damping: `ξ = 16/L` on every mesh, `L` the box's longest side (amended,
   decided by Erik 2026-10-15; see "Refinement").
-- *(Added in step 8.)* Primitives or the conserved state in the matter's
-  ghost fill (TreeAMR's expectation is the first): the conserved state,
-  bounded, until the TOV surface (step 10) or the magnetosphere (step 12)
-  says otherwise (see "Refinement").
+- *(Added in step 8; closed by Erik 2026-10-15.)* Primitives or the
+  conserved state in the matter's ghost fill: the primitives, with a
+  bounded Lagrange prolongation (AMR-10), the conserved state in the regrid
+  (see "Refinement").
 - TreeGH's CFL factor under the SSP3 explicit tableau.
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
