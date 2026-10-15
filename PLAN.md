@@ -10,8 +10,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3, 5 and 6 are done; step 7 is next, and waits for nothing.** *(Amended in step
-6.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 7 are done; step 8 is next, and waits for nothing** (AMR-2 and AMR-3
+have landed). *(Amended in step 7.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
 (still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
@@ -1091,6 +1091,57 @@ Accept:
 - **Symmetry:** the rotor's and the explosion's symmetries hold to round-off.
 - **Conservation:** `D`, `S_i` and `τ` to round-off.
 - **3D:** a smoke run.
+
+*(Done, 2026-10-15, on `claude/step-7-multid`.)* *(Amended in step 7:)* as built:
+- **The 2D and 3D paths needed no change in the right-hand side.** Step 5's 2.7e−15 between a
+  `y`-invariant 2D run and the 1D run was the initial data alone: the `3^D` Gauss weights
+  multiplied out round a constant. The cell average is now the three-point rule one dimension
+  at a time in difference form (`src/driver.jl`), and the runs agree bit for bit.
+- **Reconstruction** (`src/reconstruction.jl`): `limiter` gains `:ppm`, `:wenoz`, `:mp5`
+  (`G ≥ 3`, checked); every method an offset in the differences `q_k − q₀`, so a constant is
+  reconstructed exactly and the offsets are odd and mirror-symmetric bit for bit. The EMF's
+  corner `E` is `E₀ + δ_a + δ_b` with the method's offsets. MP5 runs at `cfl = 1/5`
+  (`default_cfl`), its bound `1/(1 + α)`; at 2/5 it blew up Balsara 3.
+- `max_div_B` and `evolve!`'s `after_step` monitor; `extruded_case`, `turned_case`,
+  `oblique_case` (`src/cases/geometry.jl`); `cylindrical_explosion_case`,
+  `magnetic_rotor_case` (GRaM-X), `orszag_tang_case`, `field_loop_case` (Beckwith & Stone
+  2011) in `src/cases/multid.jl`; `bin/reconstruction_comparison.jl`.
+- Tests: `test/reconstruction_tests.jl`, `test/multid_tests.jl` (direction independence),
+  `test/multid_cases_tests.jl` (the diagonal wave and the standard tests); in
+  `test/shocktube_tests.jl` the Balsara convergence testset is renamed to what it asserts, and
+  Balsara 3 under PPM is asserted against PPM's own reference (`test/data/balsara3_ppm.ref`).
+- TreeHydro has no PPM, WENO-Z or MP5 (the brief said it had): they are written here from
+  the papers.
+
+*(Measured in step 7; `CODE.md`, "Validation ladder" 1b and 2a, has the rest:)*
+- **∇·B:** at most 2.4e−16 of `max |𝔅|` after every step of every 2D and 3D run (≤ 1e−12).
+- **Direction independence:** bit for bit (`isequal`) between the 1D Alfvén wave and its
+  extrusions in 2D (MC, PPM, WENO-Z, MP5) and 3D (MC, WENO-Z), and for Balsara 1 with Dirichlet
+  faces; turned runs equal the turned runs with `==` — bit for bit but the sign of an exact
+  zero, which `0 − 0 = +0` fixes whichever way the axes are turned.
+- **Higher order:** Alfvén wave `S_y` rates 2.67 (PPM), 2.00 (WENO-Z, MP5) against MC's 2.09,
+  errors 9× and 17× below MC's at 400 cells; the scheme stays second order (recovery from
+  cell averages). Along the diagonal in 2D: 2.21–2.77 (MC), 1.97–2.05 (WENO-Z).
+- **Symmetry:** explosion 2.5e−17 (minmod, 64²), rotor 2.6e−27 (MC, 64²); Orszag–Tang 1.9e−13,
+  set by the recovery's tolerance of 1e−12 (5.3e−15 with it at 1e−14), asserted ≤ 1e−11; 3D
+  periodic blast exactly symmetric. A closed box is not mirror-symmetric at its faces: the
+  potentials' Dirichlet hook evolves the low boundary vertex and fills the high one (1.3e−4
+  in a 16³ box whose faces the precursors reach; `CODE.md`, "Boundaries").
+- **Conservation:** Orszag–Tang 0.056 ulp of a total's scale a step (0.037 at 1.11), field loop 0.25, the
+  oblique wave 1.6 (asserted ≤ 8).
+- **3D:** the spherical blast, 16³, 8 steps in the suite (15 once), no repair, no reset.
+- **Balsara per reconstruction:** the table in `CODE.md`; PPM converges on Balsara 3
+  (0.49–0.56 against itself), WENO-Z and MP5 do not usefully; WENO-Z and MP5 miss 2% in
+  Balsara 4's `R4`, PPM in Balsara 2's `R5` (2.8%).
+- The suite is 25293 tests: `Test Summary` 5m23s at 1.13 and 6m43s at 1.11 at one thread,
+  7m17s and 8m14s at four, 5m35s with `--check-bounds=yes` (1.13) — on a machine at a load of
+  8–17 on 12 cores, two suites running at once; 24882 tests and 2m42s (1.13, one thread)
+  before the step. The new files, alone at one thread: `multid_tests.jl` 67 s (35 s of it
+  compiling the 2D and 3D kernels), `multid_cases_tests.jl` 60 s, `reconstruction_tests.jl`
+  35 s; `shocktube_tests.jl` grew to 47 s. Every printed number is identical at one and four
+  threads; 1.11 and `--check-bounds=yes` agree with each other exactly and differ from 1.13
+  only in the last one or two digits of L1 errors and conservation drifts (Orszag–Tang's
+  0.056 ulp a step is 0.037 there).
 
 ## Step 8 — Coarse-fine faces and regridding (rung 2b)
 

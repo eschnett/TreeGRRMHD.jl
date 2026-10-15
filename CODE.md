@@ -14,16 +14,18 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3, 5 and 6 of `PLAN.md` are done — the scaffolding;
+*Status: steps 0 to 3 and 5 to 7 of `PLAN.md` are done — the scaffolding;
 the pointwise layer: units, the variable layouts, the point metric,
 `prim2con` and the 3+1 primitive recovery; the pointwise physics a
 right-hand side evaluates; the implicit stage solve; the staggered scheme
 on the mesh, with the vacuum electromagnetic wave and the circularly
 polarized Alfvén wave in 1D (rung 1a); and the shock tubes, the resistive
-tube swept over σ, the current sheet and the atmosphere in 1D (rung 1b) —
-as are steps 4a–4c in IMEXRungeKutta. Step 7, 2D and 3D with higher-order
-reconstruction, is next. The numbers below about the scheme are measured
-where they say so and unmeasured otherwise. (Amended in step 6.)*
+tube swept over σ, the current sheet and the atmosphere in 1D (rung 1b);
+and the scheme in 2D and 3D on a uniform mesh, with PPM, WENO-Z and MP5
+beside PLM (rung 2a) — as are steps 4a–4c in IMEXRungeKutta. Step 8,
+coarse-fine faces and regridding, is next. The numbers below about the
+scheme are measured where they say so and unmeasured otherwise. (Amended in
+step 7.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -703,7 +705,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
-| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)* | cell | 18 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)* | cell | 19 | 0 | `=> nothing` |
 
 `P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
@@ -789,6 +791,52 @@ evaluates at the face (`Flat`, `Analytic`; `GHMetric` will interpolate it,
 step 10). A face's state costs two EOS evaluations, `primitive_state`'s and
 `prim2con`'s.
 
+*As built in step 7* (`src/reconstruction.jl`; proposed in step 7 unless
+marked otherwise). `limiter` names the reconstruction: `:none`, `:minmod`,
+`:mc` (PLM, `G ≥ 2`) or `:ppm`, `:wenoz`, `:mp5` (`G ≥ 3`, which
+`MHDProblem` checks). The keyword keeps its step-5 name rather than becoming
+`reconstruction`, so that no caller changes.
+
+- **Every method is an offset from the cell's value**, `q_face = q₀ + δ`,
+  with `δ` a function of the differences `q_k − q₀` alone. So a stencil of
+  equal values reconstructs to itself exactly, `δ` is odd under `q → −q`
+  exactly, and the lower face is the upper face of the mirrored stencil.
+  That is what makes a direction a solution does not vary in add nothing at
+  all, and the direction-independence claims of rung 2a hold bit for bit
+  (see "Validation ladder" 2a); a method with its weights multiplied out
+  (`(2a − 13b + 47c + 27d − 3e)/60`) rounds a constant. PLM's offset is
+  `slope/2` and computes the step-5 bits unchanged.
+- **PPM** (Colella & Woodward 1984, eqs. 1.6–1.10): the fourth-order
+  interface value with MC-limited slopes, then the monotonicity
+  constraints, without contact steepening or flattening.
+- **WENO-Z** (Borges et al. 2008) of fifth order, with Castro et al.'s
+  power 2 and `ε = floatmin(T)^{1/4}` — below any resolved smoothness
+  indicator, and large enough that `(τ₅/ε)²` cannot overflow into
+  `Inf/Inf` (`1e−40`, the usual choice, is subnormal in `Float32`).
+- **MP5** (Suresh & Huynh 1997, `α = 4`), with the test
+  `(v − q₀)(v − v_MP) ≤ 0` taken without their `ε`. Its bound holds for
+  CFL `≤ 1/(1 + α) = 1/5`, and at the default 2/5 it is unstable: Balsara 3's
+  dense shell grew to `ρ ≈ 600` at 200 cells and the reset fired on Balsara
+  3 and 4 (measured in step 7). So `evolve!`'s `cfl` defaults to
+  `default_cfl(:mp5) = 1/5`, and to 2/5 for every other method.
+- Face values on smooth data (the cell averages of `sin 2πx`, a test)
+  converge at 2.04 (MC), 3.97 (PPM), 4.99 (WENO-Z) and 5.02 (MP5); on
+  monotone stencils PPM's and MP5's face values stay between the face's two
+  cells and WENO-Z's overshoots by at most 5.6% of the stencil's rise.
+- **The scheme stays second order** whatever the faces get: the primitives
+  are recovered pointwise from cell averages and `E = −v × B` is imposed at
+  cell centres, both `O(h²)` from the averages a fifth-order reconstruction
+  would need. The Alfvén wave (`IdealConductor`, one period, 50 … 400 cells;
+  measured in step 7, below) converges at 2.67 (PPM), 2.00 (WENO-Z, MP5) in
+  `S_y`, with 9, 17 and 17 times smaller errors than MC at 400 cells; the
+  higher methods buy the constant, not the order. Converting averages to
+  point values before the recovery (and back for the fluxes) is the known
+  way past it, and is not planned.
+- **The EMF's edge values** use the same offsets: `E` at a corner is
+  `E₀ + δ_a + δ_b`, each offset the method's one-dimensional one along its
+  direction, and the face-normal `𝔅` is reconstructed along the transverse
+  direction by the method (see "The electromotive force for `A`").
+
 ### Riemann solver
 
 `riemann_flux(::Val{:llf | :hlle}, …)` on the ten matter-plus-`𝔈`
@@ -853,6 +901,16 @@ at truncation order otherwise, which rung 3 will see if it matters. In 1D
 the EMF along `x` is the cell's own `αE_x + (β × B)_x` (no transverse
 direction to reconstruct along), and those along `y`, `z` are the 1D HLL
 fluxes of `𝔅ᶻ` and `𝔅ʸ`.
+
+*(Step 7:)* under every reconstruction the corner value of `E` is
+additive, `E₀ + δ_a + δ_b` with the method's one-dimensional offsets — for
+PLM exactly step 5's `E + σₐ slopeₐ/2 + σ_b slope_b/2` — and not a tensor
+product (reconstruct along `a`, then those values along `b`), which would
+read 25 cells instead of 9 for a cross term that is `O(h²)`, the scheme's
+order in more than one dimension anyway (proposed in step 7). Measured on
+the Alfvén wave along the diagonal of a 2D box: `A_z`, whose EMF is the
+one with two transverse directions, converges at 2.31 (MC) and 2.01
+(WENO-Z).
 
 ### Sources
 
@@ -1037,6 +1095,18 @@ arithmetic is split evenly over the threads (`partition = :even`) for a CPU
 state; the block-owner partition, which needs TreeAMR's unexported
 `threadchunks`, is step 14's. A run in one chunk and the same run in four
 chunks of whole steps of the same `Δt` are bit-identical (a test).
+
+*(Step 7:)* `cfl` defaults to `default_cfl(limiter)`: 2/5, and 1/5 for MP5
+(see "Reconstruction"). `after_step(p, u, t)` is called after every step
+when given — rung 2a's `∇·𝔅` monitor (`max_div_B`). The initial data's
+cell averages are the three-point Gauss rule applied one dimension at a
+time, each average written as the middle sample plus a correction in the
+differences, `f₀ + 5((f₋ − f₀) + (f₊ − f₀))/18` (amended in step 7): three
+equal samples average to themselves bit for bit, so a direction the case
+does not vary in leaves the data exactly the 1D data. The step-5 form,
+`Σ w_q f_q` over the `3^D` nodes with the weights multiplied out, rounded a
+constant to a neighbouring float, and was the whole of the 2.7e−15 by which
+step 5's 2D check missed the 1D run (see "The right-hand side").
 
 ### The implicit stage solve
 
@@ -1371,7 +1441,11 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   (and `z`) agreed with the 1D run to 2.7e−15 after seven steps, in a check
   made while writing the kernels and not in the suite — compiling the 2D and
   3D paths costs about 30 s, and their validation, bit for bit, is step
-  7's.
+  7's. *(Step 7:)* the whole difference was the initial data's Gauss
+  weights (see the driver in "The partition"); with the average in
+  difference form the 2D and 3D runs are the 1D run bit for bit, under every
+  reconstruction, and nothing in the right-hand side changed (measured in
+  step 7, "Validation ladder" 2a).
 
 ## Conservation at coarse-fine faces
 
@@ -1421,6 +1495,19 @@ a stage's, a reset's — knows its time):
   cell every step (measured in step 6); with the field's Dirichlet data it
   stays uniform to 3.3e−13 under either tableau (a test). This hook reads
   the interior, TreeAMR's region form, CPU-only: AMR-7 in `PLAN.md`.
+
+*(Measured in step 7:)* the potentials' hooks are not mirror-symmetric. The
+box's low boundary vertex is a block's first owned point and is evolved,
+while its high boundary vertex is the last block's shared plane, which no
+block owns and the hook fills from the vertex before it — so `𝔅` on the
+high boundary face is the case's, and on the low one the evolution's. As
+long as nothing but the light-cone fluxes' exponentially small precursors
+reaches the faces the difference is that small: a 2D explosion 30 cells
+from its faces kept its mirror symmetries to 2.5e−17, but a spherical blast
+in a 16³ box, whose precursors reach the faces within a step, came out
+1.3e−4 asymmetric there after three steps, and the 3D smoke test runs
+periodic. Whichever later rung needs a symmetric closed box must fill the
+high boundary vertex from the evolved side, or evolve it.
 
 ## Refinement
 
@@ -1581,6 +1668,37 @@ named as claims.
      at 800, and its missing mass is the error of `D`, `S_x` and `τ` (`D`:
      0.37, 0.34, 0.38, 0.30, 0.15 at 100 … 1600 cells). The test asserts
      those measured rates with tolerances.
+
+     *Per reconstruction (measured in step 7,* `bin/reconstruction_comparison.jl`*;
+     the same runs, 100–400 cells, each method against its own 3200-cell run,
+     MP5 at its `cfl = 1/5`):* L1 rates of `D`, `S_x`, `τ`, `𝔅ʸ`, and the worst
+     plateau error at 400 cells (region in brackets).
+
+     | test | MC | PPM | WENO-Z | MP5 |
+     |---|---|---|---|---|
+     | 1 | 0.78, 0.85, 0.77, 0.85; 1.26% (R5) | 0.82, 0.85, 0.83, 0.84; 1.43% (R5) | 0.78, 0.82, 0.82, 0.75; 1.55% (R5) | 0.77, 0.91, 0.87, 0.86; 0.84% (R5) |
+     | 2 | 0.66, 0.67, 0.74, 0.81; 1.91% (R5) | 0.65, 0.70, 0.76, 0.80; **2.78%** (R5) | 0.73, 0.79, 0.84, 0.91; 1.47% (R5) | 0.87, 0.79, 0.82, 0.90; 0.79% (R5) |
+     | 3 | −0.02, 0.14, 0.17, 0.53; **4.69%** (R4) | 0.49, 0.51, 0.53, 0.56; 0.23% (R4) | 0.16, 0.30, 0.31, 0.54; **12.6%** (R4) | 0.45, 0.16, 0.18, 0.54; 0.17% (R4) |
+     | 4 | 0.95, 1.04, 0.94, 0.93; 0.64% (R4) | 0.98, 0.87, 0.97, 1.09; 0.24% (R4) | 0.61, 0.89, 0.82, 0.89; **3.73%** (R4) | 0.82, 1.04, 1.01, 1.09; **4.53%** (R4) |
+     | 5 | 0.90, 0.75, 0.78, 0.97; 0.63% (R2) | 0.95, 1.00, 0.77, 1.03; 0.49% (R2) | 0.81, 0.77, 0.78, 1.01; 0.34% (R2) | 0.99, 0.81, 0.88, 1.06; 0.09% (R5) |
+
+     Against the stored MC reference instead (which the suite reads), PPM's
+     Balsara 3 rates are 0.54, 0.76, 0.77, 0.61. Balsara 3's largest density
+     at 400 cells is 8.35 (MC), 8.22 (PPM), 7.39 (WENO-Z), 8.06 (MP5), of the
+     exact shell's 10.1. Every stage of every run ideal and unrepaired; no
+     reset fires but MP5's in Balsara 4, which writes one cell as the step
+     limiter in the first steps at each resolution (0.033 of energy at 100
+     cells). So: **PPM makes Balsara 3 converge** at the tested resolutions —
+     every error falls, and `R4` comes within 0.23% — and the suite now
+     asserts it for PPM against PPM's own 3200-cell reference
+     (`test/data/balsara3_ppm.ref`, rates ≥ 0.4, every plateau within 2%;
+     added in step 7); MC keeps its pinned values. WENO-Z is the worst of the
+     four at the shell (its overshoot at the contact smears `R4` by 12.6%)
+     and MP5 converges in `D` and `𝔅ʸ` but barely in `S_x` and `τ`; neither is
+     asserted. The MC references in `test/data/` were not regenerated: rerun,
+     four of them are identical byte for byte, and Balsara 1's differs in 314
+     of 4800 `Float32` values by one rounding (1.9e−9 at most), the change of
+     the initial data's Gauss average (step 7) in the last bit of a `Float64`.
    - **The plateaus** against Giacomazzo & Rezzolla's exact solution
      (2006, Tables 7–11; `BALSARA_EXACT`, whose `p` is the total pressure),
      averaged at 400 cells over each region's window (`BALSARA_PLATEAUS`,
@@ -1657,6 +1775,79 @@ named as claims.
    magnetic rotor, Orszag–Tang, field-loop advection across coarse-fine
    faces — `∇·B` at round-off, rest mass and magnetic flux conserved
    across levels to round-off, regrids included.
+
+   *Rung 2a, measured in step 7* (`test/multid_tests.jl`,
+   `test/reconstruction_tests.jl`; uniform meshes, HLLE, SSP3(4,3,3), `cfl`
+   2/5 — 1/5 under MP5 — over `D` in `Δt = cfl/(D max λ/h)`; the cases in
+   `src/cases/multid.jl` and `src/cases/geometry.jl`, every published number
+   copied with its citation; Julia 1.11 and 1.13, one and four threads —
+   identical at one and four threads, and between 1.13 and 1.11 (or
+   `--check-bounds=yes`) the same to the digits recorded but the
+   conservation drifts' last digit):
+   - **`∇·𝔅`** after every step of every 2D and 3D run of the suite
+     (`max_div_B` as the driver's `after_step`): at most 2.4e−16 of
+     `max |𝔅|` (asserted ≤ 1e−12, PLAN.md's bound).
+   - **Translation invariance**: the Alfvén wave extruded along `y`
+     (`extruded_case`) is the 1D run bit for bit (`isequal`, every evolved
+     set, every point) under MC, PPM, WENO-Z and MP5, and extruded along `y`
+     and `z` in 3D under MC and WENO-Z; Balsara 1, with its Dirichlet faces,
+     likewise in 2D. Step 5's 2.7e−15 was the initial data's Gauss weights
+     (amended in step 7: "The partition", the driver).
+   - **Turning**: the same runs turned by `R(x, y, z) = (y, x, −z)`
+     (`turned_case`; a rotation, so that `B = curl A` turns as a vector) are
+     the turned runs, every value `==` and every nonzero value bit for bit.
+     The sign of a zero is the one freedom: Balsara 1's identically zero
+     `S_z` and `𝔈ᶻ` are `+0` in both runs where the turn predicts `−0`
+     (`0 − 0 = +0` either way), so `isequal` would fail on them and nothing
+     else (decided in step 7: the claim is stated with `==`).
+   - **The Alfvén wave along the diagonal** (`oblique_case`, `(1, 1)/√2`
+     on the periodic `[0, √2]²`, an eighth of a period at 16², 32², 64²; a
+     quarter in parentheses, measured once): L1 rates `S_x`, `S_z`, `A_x`,
+     `A_z` of 2.21, 2.23, 2.77, 2.31 (2.28, 2.36, 2.66, 2.51) under MC and
+     1.97, 1.98, 2.05, 2.01 (2.03, 1.92, 2.06, 2.04) under WENO-Z — the whole
+     2D path, both fluxes, the curl and the EMF with two transverse
+     reconstructions, at second order. The totals drift at most 1.6 ulp of
+     their scale per step.
+   - **The cylindrical explosion** (GRaM-X §V B; 64² on `[−6, 6]²`, minmod as
+     GRaM-X runs it, `t = 1`, 27 steps): symmetric under `x → −x` to 1.6e−18
+     and under `y → −y` with the fields reversed to 2.5e−17 of each
+     variable's scale (asserted ≤ 1e−12); no repair, no reset. Under MC at
+     64² and 128² the reset floors the entropy of a few cells behind the
+     front (`FLAG_POL_S_FLOORED`; 216 cells written as the stage limiter and
+     96 as the step limiter to `t = 1` at 64², injecting `7·10⁻⁵` of energy);
+     minmod writes none.
+   - **The rotor** (GRaM-X §V C; 64², MC, `t = 1/10`): symmetric under the
+     rotation by π with the fields reversed to 2.6e−27; the totals change by
+     2.9e−16 of their scale (the precursors at the faces); every stage ideal,
+     no repair, no reset.
+   - **Orszag–Tang** (Beckwith & Stone §4.4; 64², MC, `t = 1/8`, 40 steps):
+     every total but `𝔈`'s constant to 0.056 ulp of its scale per step
+     (asserted ≤ 8); symmetric under the rotation by π about the centre to
+     1.9e−13 — not to the last bit, but to the recovery's tolerance
+     (EntropyEOS's `1e−12`): mirrored states that differ in the last bit stop
+     at different iterates. The asymmetry is 9.3e−16 in the initial data,
+     1.2e−13, 2.5e−13, 1.9e−13 and 1.6e−14 at `t` = 1/32 … 1/4, and 5.3e−15 at
+     1/16 with the tolerance set to `1e−14` (asserted ≤ 1e−11; decided in
+     step 7: "to round-off" means to the recovery's tolerance where the
+     recovery iterates).
+   - **The field loop** (Beckwith & Stone §4.2; 64 × 32, MC, `t = 1/2`, a
+     fiftieth of a crossing): the totals constant to 0.21 ulp (0.25 with
+     `vᶻ`) a step; with `vᶻ = 0`, `Eˣ`, `Eʸ`, `A_x`, `A_y` and so `𝔅ᶻ` stay
+     exactly zero, as Beckwith & Stone found; with `vᶻ = 0.1/√6` the
+     in-plane EMFs `vᶻB` give `max |𝔅ᶻ|` 4.6e−4 of the in-plane field at
+     `t = 1/2` (3.4e−4 at `t = 1`).
+   - **3D**: a spherical blast (the explosion with `r = |x|`, periodic
+     `[−2, 2]³` at 16³, minmod, to `t = 1/4` in the suite and `1/2` once)
+     runs with no repair and no reset,
+     and is symmetric under its three reflections exactly (0.0). In a closed
+     box it is not, at the faces (see "Boundaries", measured in step 7).
+   - **Higher order in 1D** (the Alfvén wave of rung 1a, one period, 50 …
+     400 cells): L1 rates of `S_y`, `A_y`, the ideal projection of `𝔈ʸ` and
+     the state's own `𝔈ʸ` of 2.09, 2.10, 2.10, 0.85 (MC), 2.67, 2.47, 2.68,
+     0.97 (PPM), 2.00, 2.00, 2.00, 0.99 (WENO-Z), 2.00, 2.00, 2.00, 0.98
+     (MP5); `S_y` errors at 400 cells 2.3e−4, 2.6e−5, 1.3e−5, 1.3e−5. `D`,
+     `S_x`, `τ` converge at 2.8–2.9 under MC and PPM and 5.6–5.7 under WENO-Z,
+     and are at rounding (1e−15) under MP5. Every stage ideal, no reset.
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
@@ -1700,6 +1891,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   and as the step limiter alone. TreeHydro named this case as the one
   where a per-stage reset could matter, and no code in IMEXRungeKutta's
   survey measured it (amended 2026-09-25).
+- The reconstruction the stars run with (added in step 7): MC, the
+  plan's and GRaM-X's choice, or PPM, which alone of the four resolved
+  Balsara 3's dense shell and held every Balsara plateau but test 2's `R5`
+  (2.8%) within 2% (see "Validation ladder" 1b); WENO-Z smeared the shell
+  worst, and MP5 costs twice the steps. Decided on the TOV star (rung 4).
 - *(Closed in step 6.)* SSP3(4,3,3) or ARS(4,4,3) as the default tableau:
   SSP3(4,3,3), whose explicit part is SSP; ARS(4,4,3) undershoots into a
   near vacuum, fires the reset on Balsara 3 and 4, and floods a magnetized
@@ -1730,3 +1926,8 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   below the threshold a case states. Rung 1 sees how often an evolution
   meets the taper.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
+- *(Measured in step 7:)* MC floors the entropy of a few cells behind
+  the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
+  choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A
+  strong blast into a light medium is where the reconstruction's
+  overshoots reach the recovery.
