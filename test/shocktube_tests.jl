@@ -16,10 +16,13 @@ const ST_MS = (100, 200, 400)
 
 # The stored reference of test `k`: 400 cells × 12 columns (the ten evolved
 # cell variables, then `𝔅ʸ`, `𝔅ᶻ`), little-endian `Float32`; see
-# `bin/shocktube_reference.jl` for how it was made.
-function st_reference(k)
-    bytes = read(joinpath(@__DIR__, "data", "balsara$k.ref"))
-    length(bytes) == 400 * 12 * 4 || error("balsara$k.ref has $(length(bytes)) bytes")
+# `bin/shocktube_reference.jl` for how it was made. With a `suffix`, another
+# method's own reference (`balsara3_ppm.ref`, made by
+# `bin/reconstruction_comparison.jl` in step 7, the same way).
+function st_reference(k, suffix="")
+    name = "balsara$k$suffix.ref"
+    bytes = read(joinpath(@__DIR__, "data", name))
+    length(bytes) == 400 * 12 * 4 || error("$name has $(length(bytes)) bytes")
     return reshape(Float64.(ltoh.(reinterpret(Float32, bytes))), 400, 12)
 end
 
@@ -28,11 +31,11 @@ st_restrict(a, f) = [sum(a[(f * (i - 1) + 1):(f * i), c]) / f for i in 1:(size(a
                      c in 1:size(a, 2)]
 
 # One run of test `k` at `M` cells, with what the claims read.
-function st_run(k, M; tableau=nothing)
+function st_run(k, M; tableau=nothing, limiter=:mc)
     t_end = Float64(BALSARA[k].t_end)
     case = balsara_case(Float64, k; roots=M ÷ 10)
     kw = tableau === nothing ? (;) : (; tableau)
-    r = evolve!(case, Val(1); N=10, t_end=t_end, chunk=t_end / 4, limiter=:mc, kw...)
+    r = evolve!(case, Val(1); N=10, t_end=t_end, chunk=t_end / 4, limiter=limiter, kw...)
     pr = profile_1d(r.p, r.u, r.t)
     u0 = exact_state(r.p, case, 0.0)
     return (; k, M, case, r, pr, nsteps=r.nsteps, tallies=[c.tally for c in r.chunks],
@@ -90,14 +93,17 @@ const ST_RATES = Dict((2, "D") => (0.6, Inf), (2, "S_x") => (0.6, Inf),
                       (3, "D") => (-0.3, 0.3), (3, "S_x") => (0.05, 0.4),
                       (3, "τ") => (0.05, 0.4), (3, "𝔅ʸ") => (0.45, Inf))
 
-@testset "Balsara $k converges to the 3200-cell reference at L1 rate ≥ 0.7" for k in 1:5
+@testset "Balsara $k converges to the 3200-cell reference at L1 rate ≥ 0.7, or at the measured rate of ST_RATES where a contact or the unresolved shell sets it" for k in 1:5
     # Guards the scheme on discontinuities ("Reconstruction", "Riemann
     # solver", "The electromotive force for `A`"): MC-limited PLM, the
     # light-cone HLLE fluxes and the UCT EMF, with every implicit stage the
     # ideal recovery. A solution with shocks converges at first order at best,
     # and contacts and slow waves that the light-cone fluxes smear converge
     # slower; PLAN.md predicted ≥ 0.7, which `ST_RATES` amends where it
-    # failed. The reference is a run of the same code at 3200 cells
+    # failed — test 2's `D` and `S_x` (≥ 0.6, a contact) and test 3 (its
+    # shell: `D` within ±0.3, `S_x` and `τ` in [0.05, 0.4], `𝔅ʸ` ≥ 0.45), as
+    # the testset's name says (renamed in step 7: it used to claim ≥ 0.7
+    # for every tube). The reference is a run of the same code at 3200 cells
     # (`bin/shocktube_reference.jl`), restricted to each mesh.
     runs = ST_RUNS[k]
     R = st_reference(k)
@@ -113,6 +119,47 @@ const ST_RATES = Dict((2, "D") => (0.6, Inf), (2, "S_x") => (0.6, Inf),
         @test lo ≤ rate ≤ hi
         # Balsara 3's `D` is the one error that does not fall over these meshes.
         (k, name) == (3, "D") || @test issorted(errs; rev=true)
+    end
+end
+
+# Balsara 3 under PPM, the one higher-order method that resolves its shell
+# better (measured in step 7, `bin/reconstruction_comparison.jl`; the table is
+# in `CODE.md`, "Validation ladder" 1b).
+const ST_PPM3 = [st_run(3, M; limiter=:ppm) for M in ST_MS]
+
+@testset "Balsara 3 under PPM converges to its own 3200-cell reference at L1 rate ≥ 0.4, and every plateau is within 2%" begin
+    # Guards what step 7 tightened for one method (the reviewer's request):
+    # under MC Balsara 3 does not converge at 100–400 cells (`ST_RATES`: `D`
+    # −0.02), because the dense shell between the contact and the slow shock
+    # is a few cells wide and its missing mass is the error. PPM holds more of
+    # it — `R4`, next to the shell, is within 0.23% at 400 cells where MC is
+    # 4.7% off — and its errors fall at every refinement: L1 rates 0.49, 0.51,
+    # 0.53, 0.56 of `D`, `S_x`, `τ`, `𝔅ʸ` against PPM's own 3200-cell run
+    # (0.54, 0.76, 0.77, 0.61 against MC's). Not yet 0.7 — the shell is still
+    # the error — so the rates are asserted at their measured values less
+    # 0.1. WENO-Z and MP5 do not converge here either (the table).
+    R = st_reference(3, "_ppm")
+    for (name, col, field) in (("D", 1, pr -> pr.U[:, SHK.U_D]), ("S_x", 2, pr -> pr.U[:, SHK.U_S]),
+                             ("τ", 5, pr -> pr.U[:, SHK.U_TAU]), ("𝔅ʸ", 11, pr -> pr.B[:, 2]))
+        errs = map(ST_PPM3) do run
+            ref = st_restrict(R, 400 ÷ run.M)[:, col]
+            sum(abs, field(run.pr) .- ref) / run.M
+        end
+        rate = SHK.convergence_rate(1 ./ collect(ST_MS), errs)
+        @info "Balsara 3, PPM: $name L1 errors $(errs), rate $(round(rate, digits=3))"
+        @test rate ≥ 0.4
+        @test issorted(errs; rev=true)
+    end
+    pr = last(ST_PPM3).pr
+    for (region, lo, hi) in BALSARA_PLATEAUS[3]
+        cells = findall(x -> lo ≤ x ≤ hi, pr.x)
+        mean = ntuple(j -> sum(c -> plateau_state(pr, c)[j], cells) / length(cells), 7)
+        err = plateau_error(3, region, mean)
+        @info "Balsara 3, PPM, R$region: worst error $(round(maximum(err), sigdigits=3))"
+        @test maximum(err) ≤ 0.02
+    end
+    for run in ST_PPM3
+        @test all(t -> t.policy == 0 && t.resets == 0 && t.step_resets == 0, run.tallies)
     end
 end
 

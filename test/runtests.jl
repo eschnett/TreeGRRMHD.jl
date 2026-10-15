@@ -57,4 +57,5 @@ using TreeGRRMHD
     # study), and the scheme in two and three dimensions.
     include("reconstruction_tests.jl")
     include("multid_tests.jl")
+    include("multid_cases_tests.jl")
 end
