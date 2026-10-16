@@ -136,7 +136,7 @@ the hook of `W`, by default derived from the matter's
 skips `restrict_interfaces!`, the negative control of step 8.
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,
-                  RS}
+                  RS,GV}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -164,6 +164,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,M
     fixup::Bool
     limiter::Val{LIM}
     solver::Val{RS}
+    ghost_vars::Val{GV}          # `W`'s thermodynamic slots: :density or :specific (experiment)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
@@ -172,7 +173,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                     riemann::Symbol=:hlle,
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
-                    boundary=nothing, boundary_W=nothing, fixup::Bool=true) where {D}
+                    boundary=nothing, boundary_W=nothing, fixup::Bool=true,
+                    ghost_vars::Symbol=:density) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -216,7 +218,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                                                    ops_A), length(sets))
     schedule_W = GhostSchedule(f.W, ops_W)
     bW = boundary === nothing ? nothing :
-         boundary_W === nothing ? primitive_boundary(boundary[SEG_U]) : boundary_W
+         boundary_W === nothing ? primitive_boundary(boundary[SEG_U], Val(ghost_vars)) :
+         boundary_W
+    ghost_vars in (:density, :specific, :mass) || throw(ArgumentError(
+        "ghost_vars must be :density (W holds ρ★s, ρ★Yₑ), :specific (s, Yₑ) or :mass " *
+        "(ρ★s, ρ★Yₑ, ρ★uⁱ), got :$ghost_vars."))
     ischeds_F = ntuple(d -> InterfaceSchedule(f.F[d]), D)
     # An EMF set with no vertex-like dimension (in 1D, the one along x) has no
     # coarse-fine face to restrict, and TreeAMR refuses to build a schedule
@@ -237,11 +243,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                       typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
-                      typeof(boundary),limiter,riemann}(
+                      typeof(boundary),limiter,riemann,ghost_vars}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann))
+        Val(riemann), Val(ghost_vars))
 end
 
 """
@@ -259,6 +265,7 @@ rebuild(p::MHDProblem; kwargs...) =
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
                ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W,
+               ghost_vars=unval(p.ghost_vars),
                fixup=p.fixup, kwargs...)
 
 unval(::Val{X}) where {X} = X
@@ -304,10 +311,17 @@ end
 # so that where a ghost is a copy of its owner (a uniform mesh, a same-level
 # neighbour) the two blocks hold the same `P` bit for bit and compute the
 # same flux at their common face. `q` is written by `charge_kernel!`.
-@inline function P_from_W(eos, m::Metric3{T}, wv::NTuple{NW,T}, B::SVector{3,T},
-                          flags::UInt32) where {T}
-    ρ, s, Yₑ = wv[W_RHO], wv[W_S], wv[W_YE]
-    u = vec3(wv, W_U)
+#
+# *(Experiment, branch `claude/step-8-ghost-entropy-density`:)* `W`'s second
+# and third slots hold the densities `ρ★ s` and `ρ★ Yₑ` (`Val(:density)`, the
+# default here) or the specific `s` and `Yₑ` (`Val(:specific)`, step 8's
+# fill). With common interpolation weights `wᵢ` the density form gives
+# `s = Σ wᵢ ρᵢ sᵢ / Σ wᵢ ρᵢ`, a mass-weighted, convex combination of the
+# neighbours' entropies. A non-positive or non-finite `ρ★` (only an unbounded
+# fill makes one) takes the policy's atmosphere — a branch, not a mask.
+@inline function P_from_W(eos, pol, m::Metric3{T}, wv::NTuple{NW,T}, B::SVector{3,T},
+                          flags::UInt32, ::Val{GV}) where {T,GV}
+    ρ, s, Yₑ, u = W_thermo(eos, pol, wv, Val(GV))
     E = vec3(wv, W_E)
     u² = dot_up(m, u, u)
     u² = u² > zero(T) ? u² : zero(T)
@@ -318,6 +332,27 @@ end
     return pack_P(prim, flags, E, B, zero(T), m)
 end
 
+# `:mass` (a second experiment) also mass-weights the velocity: `W_U` holds
+# `ρ★ uⁱ`, and `uⁱ = (ρ★u)ⁱ/ρ★` in the ghost.
+@inline W_thermo(eos, pol, wv::NTuple{NW,T}, ::Val{:specific}) where {T} =
+    (wv[W_RHO], wv[W_S], wv[W_YE], vec3(wv, W_U))
+@inline function W_thermo(eos, pol, wv::NTuple{NW,T}, ::Val{GV}) where {T,GV}
+    ρ = wv[W_RHO]
+    if ρ > zero(T) && isfinite(ρ)
+        u = GV === :mass ? vec3(wv, W_U) / ρ : vec3(wv, W_U)
+        return (ρ, wv[W_S] / ρ, wv[W_YE] / ρ, u)
+    else
+        a = EntropyEOS.policy_atmosphere(eos, pol, T(NaN))
+        return (a.ρ, a.s, a.ye, zero(SVector{3,T}))
+    end
+end
+
+# The slots `W` stores for the thermodynamic state `ρ, s, Yₑ` and `uⁱ`.
+@inline W_store(ρ, s, Yₑ, u, ::Val{:specific}) = (ρ, s, Yₑ, u[1], u[2], u[3])
+@inline W_store(ρ, s, Yₑ, u, ::Val{:density}) = (ρ, ρ * s, ρ * Yₑ, u[1], u[2], u[3])
+@inline W_store(ρ, s, Yₑ, u, ::Val{:mass}) =
+    (ρ, ρ * s, ρ * Yₑ, ρ * u[1], ρ * u[2], ρ * u[3])
+
 # Step 3, at the owned cells: the metric at the cell, `B` averaged to it, the
 # hydrodynamic recovery of `U`, and from it the primitives the ghost fill
 # carries into `W` and all of `P` (through `P_from_W`, as a ghost's).
@@ -326,7 +361,7 @@ end
 @kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                    @Const(origins), @Const(spacings), provider, t, eos, opts,
                                    pol, ::Val{D}, ::Val{GP}, ::Val{GU},
-                                   ::Val{GB}) where {D,GP,GU,GB}
+                                   ::Val{GB}, gv::Val) where {D,GP,GU,GB}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -339,8 +374,9 @@ end
     E = cons_𝔈(cons) / m.sqrtγ
     prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
     u = prim_W(prim) * prim_v(prim)
-    wv = (prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u[1], u[2], u[3], E[1], E[2], E[3])
-    Pc = P_from_W(eos, m, wv, B, flags)
+    th = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, gv)
+    wv = (th[1], th[2], th[3], th[4], th[5], th[6], E[1], E[2], E[3])
+    Pc = P_from_W(eos, pol, m, wv, B, flags, gv)
     sP = stored(n, GP)
     @inbounds for v in 1:NW
         Ww[sP..., v, b] = wv[v]
@@ -357,9 +393,9 @@ end
 # with that `B`, so that its electromagnetic energy and momentum are its own
 # field's. Owned cells are skipped: `stored = true` hands every stored cell.
 @kernel function ghost_kernel!(Pw, Uw, @Const(Ww), @Const(B1), @Const(B2), @Const(B3),
-                               @Const(origins), @Const(spacings), provider, t, eos, N,
+                               @Const(origins), @Const(spacings), provider, t, eos, pol, N,
                                ::Val{D}, ::Val{GP}, ::Val{GU}, ::Val{GW},
-                               ::Val{GB}) where {D,GP,GU,GW,GB}
+                               ::Val{GB}, gv::Val) where {D,GP,GU,GW,GB}
     I = @index(Global, NTuple)                       # stored: `stored = true`
     b = I[D + 1]
     sP = ntuple(e -> I[e], Val(D))
@@ -370,7 +406,7 @@ end
         m = point_metric(provider, oftype(h, t), x)
         wv = read_vars(Ww, stored(n, GW), b, Val(NW))
         B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) / m.sqrtγ
-        Pc = P_from_W(eos, m, wv, B, zero(UInt32))
+        Pc = P_from_W(eos, pol, m, wv, B, zero(UInt32), gv)
         @inbounds for v in 1:NP
             Pw[sP..., v, b] = Pc[v]
         end
@@ -828,12 +864,12 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     GB = Val(GB_of(f))
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
                 f.B[2].work, f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB)
+                p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB, p.ghost_vars)
     fill_ghosts!(f.W, p.schedule_W;
                  boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
     map_blocks!(ghost_kernel!, f.P, f.P.work, f.U.work, f.W.work, f.B[1].work, f.B[2].work,
-                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, f.P.forest.N,
-                Val(D), Val(f.P.G), Val(f.U.G), Val(f.W.G), GB; stored=true)
+                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.pol, f.P.forest.N,
+                Val(D), Val(f.P.G), Val(f.U.G), Val(f.W.G), GB, p.ghost_vars; stored=true)
     map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
     return f.P
 end

@@ -205,5 +205,8 @@ end
     @test abs(two.D) ≤ 1e-7 && abs(two.τ) ≤ 1e-7
     @test abs(magnetized.D) ≤ 1e-6
     @test four.τ ≥ 1e-5
-    @test unbounded.acc.below > 0 && !isfinite(unbounded.τ)
+    # *(Experiment branch: with `W` holding `ρ★ s`, `ρ★ Yₑ`, a ghost with
+    # `ρ★ ≤ 0` takes the policy's atmosphere, so the unbounded control's
+    # energy is absurd (−1.1e15) rather than non-finite.)*
+    @test unbounded.acc.below > 0 && !(abs(unbounded.τ) < 1)
 end

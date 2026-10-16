@@ -2025,6 +2025,20 @@ an argument for prolongating the pressure instead of the entropy, which
 needs the entropy from `(ρ, p)` (EOS-3), or for keeping width 2. The fill
 runs as Erik decided, at width 2, until that is settled.
 
+*Experiment (branch `claude/step-8-ghost-entropy-density`, not decided):*
+`W` holding the densities `ρ★ s`, `ρ★ Yₑ` (`ghost_vars = :density`, the
+default on that branch), and also `ρ★ uⁱ` (`:mass`), so that with common
+weights the ghost's entropy is mass-weighted; `bin/ghost_entropy.jl` has the
+measurements, reported to Erik. In short: at width 2 every ghost's pressure
+and entropy stay within their neighbours' range and the magnetized tube
+never blew up in twelve perturbed runs (the specific-`s` fill did, twice),
+but the hydrodynamic tube injects 1.6e−8 of rest mass, more than
+the specific fill — the injection is not the entropy's but any point-value
+fill's: a fine ghost inside a coarse cell at a front holds mass the coarse
+cell does not (2.96e−6 against 1e−8), which the light-cone HLLE flux draws
+out of the coarse cell through the coarse-fine face. Widths 4 and 6 are not
+robust in either form.
+
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
 `S_x` L1 / L∞ rates:
