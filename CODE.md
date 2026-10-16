@@ -98,17 +98,20 @@ suite against the new releases), as `[compat]` guarantees it for what has
 landed, as `test/prerequisite_tests.jl` reports it for what is waiting,
 and, for TreeGH, as its `main` reads. A landed item whose release the
 compat floor requires has no probe any more (decided by Erik 2026-10-14;
-the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-6,
-EOS-1, EOS-2 and SM-1. Their names are in the prerequisite test's name
+the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-10,
+EOS-1, EOS-2 and SM-1 (AMR-7 to AMR-10 since step 8, TreeAMR 0.2.2). Their names are in the prerequisite test's name
 lists; what this package relies on from them and does not yet exercise
 through its own code is in `test/upstream_behaviour_tests.jl` (empty, and
 removed, since step 8 took the bounded prolongation into its refinement
 tests; it returns when a landed item needs it).
 
-- TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
-  so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
-  landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a different form (below).
-  Step 5, which needed AMR-1, is done on it (amended in step 5).
+- TreeAMR **0.2.2**, registered, and the compat floor (`TreeAMR = "0.2.2"`,
+  amended in step 8; 0.2.3, which only raises its floor to Julia 1.13, is
+  released upstream and admitted by it) so that what landed is guaranteed:
+  **AMR-1, AMR-2, AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and
+  AMR-6 in a different form (below), and **AMR-7 to AMR-10 in TreeAMR
+  0.2.2** (commit 624c99a). Step 5, which needed AMR-1, is done on it
+  (amended in step 5).
 - EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
   **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0** (`EntropyEOS =
   "1"`); EOS-3 and EOS-4 have not.
@@ -180,19 +183,28 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   value (zero-gradient, first order at the face), on every backend and
   across ranks. A nonlinear condition, such as forbidding inflow, stays
   with the application.
+- **AMR-7 (later, step 14) A device-capable boundary hook relative to the
+  nearest evolved point** *(added in step 6)*, for the potentials'
+  Dirichlet data in the field ("Boundaries"). *(Landed in TreeAMR 0.2.2 as
+  `CellBoundary(Relative(f))`, which also applies the complete condition in
+  every fill; the region-form workaround and `outer_points!` are gone since
+  step 8.)*
 - **AMR-8 (wanted, no step blocked) Symmetric walls** *(added in step 8)*:
   an opt-in per field set under which `fill_ghosts!` fills the owned low
   wall of a vertex-like dimension by the rule of the high one — the hook,
   the reflecting derivation, the outflow clamp — so that a closed box is
   mirror-symmetric. Workaround: `low_walls!` and `outer_points!`, this
-  package's kernels ("Boundaries").
+  package's kernels ("Boundaries"). *(Landed in TreeAMR 0.2.2 as
+  `FieldSet(…; walls = :symmetric)`; the workaround is gone since step 8.)*
 - **AMR-9 (wanted, no step blocked) A flux-conservative transfer of edge
   sets** *(added in step 8)*: conservative along an edge's own (cell-like)
   direction, point-value along the others, so that the magnetic flux
   through a coarse face is the sum through its fine faces in the state,
   not only in its rate ("Conservation at coarse-fine faces"). No
   workaround: until then the state's flux across levels holds to the
-  potentials' interpolation error.
+  potentials' interpolation error. *(Landed in TreeAMR 0.2.2 as
+  `Operators(…; family = Conservative, vertex_prolongation = w)`; the
+  potentials take it since step 8.)*
 - **AMR-10 (req: step 8's ghost-fill re-measurement; steps 10, 12)
   Bounded PointValue interpolation** *(added in step 8; decided by Erik
   2026-10-15)*: `Operators(; prolongation=w, restriction=r,
@@ -200,7 +212,9 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   the ghost fill and the regrid — every value within the range of the `2^D`
   points that enclose it — for the matter's ghost fill of the primitives
   ("Refinement"). No workaround: the conserved, bounded ghost fill runs
-  until it lands.
+  until it lands. *(Landed in TreeAMR 0.2.2, `bounded = true` with
+  `PointValue` at every even width; the matter's ghost fill takes the
+  primitives with it since step 8.)*
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -208,7 +222,8 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
 This is a **physics package** in TreeAMR's sense (its `CODE.md`,
 "Companion interface", 2026-10-08): it uses TreeAMR's exports only, and
 bounds TreeAMR by a minor series, `TreeAMR = "0.2"` (since 2026-10-14
-`"0.2.1"`, the release the landed items are in). The prerequisite
+`"0.2.1"`, since step 8 `"0.2.2"`, the releases the landed items are
+in). The prerequisite
 tests check the names it calls against the exports, and `src/device.jl`
 uploads its own metadata with `KernelAbstractions.allocate` rather than
 reaching for TreeAMR's internal `todevice` (proposed in step 0).

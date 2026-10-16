@@ -203,7 +203,7 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-14 (added in step 0, amended 2026-10-14): for the items still
+The state column is as of 2026-10-16 (added in step 0, amended 2026-10-14 and in step 8): for the items still
 waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
 what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
@@ -215,10 +215,10 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed in TreeAMR 0.2.1, as `bounded = true` |
 | AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
 | AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
-| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | waiting |
-| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | waiting |
-| AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | waiting |
-| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | waiting |
+| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | landed in TreeAMR 0.2.2, as `Relative` (workaround dropped in step 8) |
+| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | landed in TreeAMR 0.2.2, as `walls = :symmetric` (workaround dropped in step 8) |
+| AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | landed in TreeAMR 0.2.2, as `vertex_prolongation` |
+| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | landed in TreeAMR 0.2.2 |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -460,6 +460,15 @@ transfer read values 1.8e−10 off (of 1.2e−2) next to a wall and a block face
 fill's ghosts were off by as much. Nothing TreeAMR reads is partial now; the cost is a second fill
 of each potential on a multilevel mesh. Marked `AMR-7`/`AMR-8` in `src/driver.jl`.
 
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`CellBoundary(Relative(f))` and `CellBoundary(Relative(AllVariables(f)))` set a ghost to
+`f(x_g) + (u(x_r) − f(x_r))`, `x_r` the nearest evolved point (clamped along the components that
+leave the domain through an outer face, `G+2` on the low side under symmetric walls; the block's
+own ghost across a block face along the others), as a kernel on every backend, each hook region
+run after the stage that fills what it reads, so that one fill — `fill_ghosts!`, `regrid!`'s and
+`adapt_to_initial_data!`'s — is the condition's fixed point. `TreeAMR = "0.2.2"` guarantees it;
+the probe is retired and `Relative` joins step 0's name list.
+
 ### AMR-8 — Symmetric walls: the owned low wall filled like the high one (wanted; workaround)
 
 *(Added in step 8; decided by Erik 2026-10-15, "option 1".)* **Why.** TreeAMR's ownership is
@@ -522,6 +531,13 @@ The face kinds come from exported API: the block's origin against the extent, an
 `periodic`, `reflecting` and `outflow` properties (TreeAMR's documented `getproperty`); the
 unexported `facekind` is not needed.
 
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`FieldSet(…; walls = :symmetric)` has the fill write the owned low wall plane of a vertex-like
+dimension at a low domain face by the high wall's rule (hook, mirrored derivation or clamp from
+`G+2`). Upstream records an open item: on a refined mesh a vertex-like set is not
+mirror-symmetric under either kind of wall (4.7e−5 in its test), half-open ownership at
+coarse-fine faces. `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
+
 ### AMR-9 — A flux-conservative transfer of edge sets (wanted)
 
 *(Added in step 8.)* **Why.** With `B = curl A` the magnetic flux through a face is the circulation
@@ -563,6 +579,13 @@ flux through the plane to rounding across levels.
 
 **Workaround:** none needed for correctness — the flux across levels holds to the potentials'
 interpolation error, and every rate to rounding.
+
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As
+`Operators(; prolongation=p, restriction=2, family=Conservative, vertex_prolongation=w)`:
+conservative along the cell-like dimensions, point values of even width `w` along the
+vertex-like ones (required wherever a conservative set has one); a coarse edge's line integral is
+the sum of its fine edges' after every fill and regrid. `bounded` with it is refused (not
+implemented). `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
 
 ### AMR-10 — Bounded PointValue interpolation (req: step 8's ghost-fill re-measurement; steps 10, 12)
 
@@ -614,6 +637,13 @@ coarse-fine face repairs no ghost — magnetized, against step 8's 33 with conse
 runs (it is measured, and conservation does not depend on the ghost fill); it is what runs, not a
 workaround, and is replaced when AMR-10 lands. The restructuring that follows is `CODE.md`'s
 ("Refinement", the ghost fill of the matter).
+
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`Operators(; prolongation=w, restriction=r, family=PointValue, bounded=true)` at every even `w`,
+on every centering, in the fill (prolongation, interpolating restriction, a reflecting wall's
+derived row) and the regrid: the order-`w` value clamped to the range of its bracket, the `2^D`
+points multilinear interpolation reads — bit for bit the unbounded value where no clamp acts.
+Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 

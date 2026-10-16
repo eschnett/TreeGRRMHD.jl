@@ -18,10 +18,14 @@
 # that contains it, its probe is retired: the testset is deleted, the item
 # is marked "landed in <package> <version>" in `PLAN.md`, and its names
 # join the lists below (decided by Erik 2026-10-14). That retired AMR-1 to
-# AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0) and SM-1
-# (SpacetimeMetrics 1.7.0); the behaviour this package relies on from them
-# is tested where it is used (`test/upstream_behaviour_tests.jl` for the
-# bounded prolongation, `test/pointwise_tests.jl` for `K_ij`).
+# AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0), SM-1
+# (SpacetimeMetrics 1.7.0) and AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8);
+# the behaviour this package relies on from them is tested where it is used
+# (`test/refinement_tests.jl` for the bounded prolongations, the relative
+# hook's fixed point and the conservative transfer of the potentials,
+# `test/multid_cases_tests.jl` for the symmetric walls,
+# `test/refinement_cases_tests.jl` for the primitives' bounded ghost fill,
+# `test/pointwise_tests.jl` for `K_ij`).
 #
 # Nothing here is magnetohydrodynamics. These are claims about the mesh, the
 # equation of state, the analytic metrics, the integrator, and the two
@@ -66,7 +70,7 @@ prereq_values(nvars, tag) =
                  :block_origins,
                  :FieldSet, :cellcentered, :vertexcentered, :facecentered, :edgecentered,
                  :staggers, :nblocks, :blockview, :interiorview, :coordinates,
-                 :fill_by_coordinates!, :AllVariables,
+                 :fill_by_coordinates!, :AllVariables, :Relative,
                  :Operators, :PointValue, :Conservative, :GhostSchedule, :fill_ghosts!,
                  :CellBoundary, :boundary_by_coordinates,
                  :statelength, :statevector, :statearray, :scatter!, :gather!,
@@ -284,78 +288,6 @@ function prereq_report(id, landed::Bool, what)
         @info "$id waiting: $what"
     end
     return landed
-end
-
-@testset "AMR-7: a device-capable boundary hook relative to the owned point (when landed)" begin
-    # Guards the non-periodic cases on a device (step 14): until TreeAMR has
-    # a per-cell hook that receives the nearest owned point, the potentials'
-    # Dirichlet-in-the-field hook is TreeAMR's region form, CPU-only (added
-    # in step 6).
-    landed = isdefined(TreeAMR, :Relative)
-    prereq_report("AMR-7", landed,
-                  landed ? "`Relative` exists; the region-form hook can become a kernel" :
-                  "no per-cell hook relative to the owned point; non-periodic cases " *
-                  "run on the CPU only (wanted by step 14)")
-end
-
-@testset "AMR-8: symmetric walls, the owned low wall filled like the high one (when landed)" begin
-    # Guards the mirror symmetry of a closed box (added in step 8; decided by
-    # Erik 2026-10-15): until TreeAMR fills the owned low wall of a vertex-like
-    # dimension by the rule of the high one, this package prescribes it itself
-    # (`low_walls!`, `outer_points!` in `src/driver.jl`, marked AMR-8).
-    # Detected by the keyword, never by a version.
-    landed = hasmethod(FieldSet{Float64}, Tuple{Forest,Int}, (:walls,))
-    prereq_report("AMR-8", landed,
-                  landed ? "`FieldSet(…; walls = :symmetric)` exists; `low_walls!` can go" :
-                  "no symmetric walls; the potentials' low walls are prescribed by " *
-                  "`low_walls!` (wanted, no step blocked)")
-end
-
-@testset "AMR-9: a flux-conservative transfer of the potentials (when landed)" begin
-    # Guards the magnetic flux across levels (added in step 8): until TreeAMR
-    # transfers an edge set conservatively along its cell-like direction (the
-    # mean of the fine edges, not their interpolation), the flux through a
-    # coarse face equals the sum through its fine faces only to the
-    # potentials' interpolation error, and `Σ hᴰ 𝔅ᶻ` drifts across a level
-    # (`refinement_tests.jl`). Detected by the operators an edge set accepts,
-    # never by a version: today `Conservative` is refused along a vertex-like
-    # dimension, and `vertex_prolongation` is no keyword.
-    forest = prereq_forest(Val(2))
-    fs = FieldSet{Float64}(forest, 1; G=3, centering=edgecentered(2, 1))
-    landed = try
-        GhostSchedule(fs, Operators(; prolongation=3, restriction=2, family=Conservative,
-                                    vertex_prolongation=4))
-        true
-    catch err
-        err isa ArgumentError || err isa MethodError || rethrow()
-        false
-    end
-    prereq_report("AMR-9", landed,
-                  landed ? "edge sets take a conservative transfer along their own direction" :
-                  "no conservative transfer of edge sets; the flux across levels holds " *
-                  "to the potentials' interpolation error (wanted)")
-end
-
-@testset "AMR-10: bounded PointValue interpolation (when landed)" begin
-    # Guards the matter's ghost fill of the primitives (decided by Erik
-    # 2026-10-15; added in step 8): `ρ`, `s`, `Yₑ`, `uⁱ`, `Eⁱ` prolongated by a
-    # Lagrange interpolation that creates no new extremum, the conserved
-    # ghosts by `prim2con`. Until TreeAMR accepts `bounded` with the
-    # PointValue family, the conserved, bounded ghost fill of step 8 runs and
-    # step 8's ghost-fill re-measurement waits. Detected by the operators
-    # being accepted (today an `ArgumentError`), never by a version.
-    landed = try
-        Operators(; prolongation=4, restriction=4, family=PointValue, bounded=true)
-        true
-    catch err
-        err isa ArgumentError || err isa MethodError || rethrow()
-        false
-    end
-    prereq_report("AMR-10", landed,
-                  landed ? "bounded PointValue operators exist; the matter's ghost fill " *
-                  "can take the primitives" :
-                  "no bounded PointValue interpolation; blocks step 8's ghost-fill " *
-                  "re-measurement (and steps 10, 12)")
 end
 
 @testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
