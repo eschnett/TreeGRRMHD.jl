@@ -453,7 +453,7 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
 """
     evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
             riemann = :hlle, ξ = default_ξ(case), stage = nothing, tableau = IMEXSSP3433(), G = 3,
-            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A,
+            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
             after_regrid = nothing) -> NamedTuple
@@ -496,8 +496,8 @@ MP5 ([`default_cfl`](@ref), step 7).
   `coarsen_tol` have no default; `buffer` is the margin in cells `regrid!`
   dilates the firing cells by, the case's (feature speed × `chunk`), and
   `ε`, `ε_g` the indicator's floors.
-- `ops_U`, `ops_A` are the operators of the matter and of the potentials
-  ([`MHDProblem`](@ref)), `fixup = false` skips `restrict_interfaces!` (the
+- `ops_U`, `ops_A`, `ops_Φ` are the operators of the matter, of `A_j` and of
+  `Φ̃` ([`MHDProblem`](@ref)), `fixup = false` skips `restrict_interfaces!` (the
   negative control).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,
@@ -505,6 +505,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  stage=nothing, tableau=IRK.IMEXSSP3433(), G::Integer=3,
                  backend=CPU(), after_step=nothing, roots=case.roots,
                  ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
+                 ops_Φ::Operators=default_ops_Φ(),
                  fixup::Bool=true, refine=nothing, maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing) where {T,D}
@@ -530,12 +531,13 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     f = mhd_fields(T, forest; G=G, backend=backend)
     build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
                          provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
-                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A,
+                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
                          fixup=fixup, boundary=case_boundary(case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
-        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, buffer=buffer,
+        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
+                             buffer=buffer,
                              maxpasses=maxpasses, flagkw...)
     end
     p = build()
@@ -611,16 +613,32 @@ default_ξ(case::MHDCase{T,D}) where {T,D} =
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)
 
 """
-    default_ops_U(), default_ops_A()
+    default_ops_U(), default_ops_A(), default_ops_Φ()
 
-The operators [`evolve!`](@ref) gives the matter set and the potentials
-unless told otherwise ("Field sets" and "Refinement" in `CODE.md`).
+The operators [`MHDProblem`](@ref) and [`evolve!`](@ref) give the matter set,
+the three `A_j` and `Φ̃` unless told otherwise ("Field sets" and
+"Refinement" in `CODE.md`):
+
+- the matter: Conservative width 3, **bounded** (decided in step 8);
+- `A_j`: the conservative family on a staggered set (AMR-9, TreeAMR 0.2.2)
+  — along the edge's own (cell-like) direction the conservative width-3
+  operators, whose restriction is the two-edge mean and whose prolongation's
+  two children average to the parent, so a coarse edge's line integral is
+  the sum of its fine edges' after every fill and regrid, and with it the
+  magnetic flux through a coarse face the sum through its fine faces; across
+  it (vertex-like) point values of width 4 (decided in step 8 by the
+  interface-order table, re-measured under this family);
+- `Φ̃`: PointValue width 4. A vertex set has no cell-like dimension, so the
+  conservative family would be this very operator (injection and width-4
+  Lagrange); it stays PointValue (decided in step 8).
 """
 default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
-default_ops_A() = Operators(; prolongation=4, restriction=4)
+default_ops_A() = Operators(; prolongation=3, restriction=2, family=Conservative,
+                            vertex_prolongation=4)
+default_ops_Φ() = Operators(; prolongation=4, restriction=4)
 
 """
-    adapt_case!(f::MHDFields, case, build; ops_U, ops_A, refine_tol, coarsen_tol,
+    adapt_case!(f::MHDFields, case, build; ops_U, ops_A, ops_Φ, refine_tol, coarsen_tol,
                 maxlevel, ε, ε_g, buffer, maxpasses) -> passes
 
 The initial adaptation of every field set of `f` to `case`'s data at
@@ -634,8 +652,9 @@ the driver then writes the exact initial data ([`exact_state`](@ref)).
 `build()` makes the problem over `f` as the forest stands. Throws if the
 cycle has not converged within `maxpasses`.
 """
-function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, refine_tol,
-                     coarsen_tol, maxlevel, ε, ε_g, buffer, maxpasses) where {T,D}
+function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, ops_Φ,
+                     refine_tol, coarsen_tol, maxlevel, ε, ε_g, buffer,
+                     maxpasses) where {T,D}
     hooks = case_boundary(case)
     hook(i) = hooks === nothing ? nothing : boundary_at(hooks[i], zero(T))
     fl, pt, eos, prov = case.fields, case.potential, case.eos, case.provider
@@ -644,7 +663,7 @@ function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, r
                                       R ≤ 3 ? A[R] : Φ̃
                                   end,))
     ev = evolved_sets(f)
-    ops = (ops_U, ops_A, ops_A, ops_A, ops_A)
+    ops = (ops_U, ops_A, ops_A, ops_A, ops_Φ)
     evolved = ntuple(i -> ev[i] => (ops[i], hook(i)), 5)
     scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)

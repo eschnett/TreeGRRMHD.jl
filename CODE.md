@@ -215,6 +215,12 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   until it lands. *(Landed in TreeAMR 0.2.2, `bounded = true` with
   `PointValue` at every even width; the matter's ghost fill takes the
   primitives with it since step 8.)*
+- **AMR-11 (wanted, no step blocked) The relative hook consistent across
+  levels where an outer face meets a coarse-fine face** *(added in step
+  8)*: there each level's hook writes its own wall edges, so the magnetic
+  flux through a coarse face touching an outer face is its fine faces' sum
+  only to 7.3e−6 of the largest flux, where everywhere else it is to
+  rounding ("Conservation at coarse-fine faces"). No workaround needed.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -738,8 +744,8 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 |---|---|---|---|---|
 | GH `U` (TreeGH) | vertex | 20 | 3 | PointValue width 6 / `=> schedule` |
 | matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8) / `=> schedule` |
-| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
-| `Φ̃` | vertex | 1 | 3 | PointValue, width as `A` / `=> schedule` |
+| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | Conservative width 3 along the edge, point values of width 4 across it (AMR-9; decided in step 8) / `=> schedule` |
+| `Φ̃` | vertex | 1 | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
@@ -797,7 +803,16 @@ write and a read; the source kernel asks the provider for them
   checks; they are `MHDProblem`'s `ops_U` and `ops_A`. *(Decided in step
   8:)* width 4 for `A` and `Φ̃` by the interface-order table, and the
   matter's width 3 **bounded** (TreeAMR's MC-bounded prolongation) in the
-  ghost fill and the regrid — see "Refinement".
+  ghost fill and the regrid — see "Refinement". *(Amended in step 8, when
+  TreeAMR 0.2.2 landed AMR-9:)* `A_j` take the conservative family on a
+  staggered set, `Operators(; prolongation=3, restriction=2, family =
+  Conservative, vertex_prolongation=4)` — the two-edge mean and a width-3
+  conservative prolongation along the edge's own (cell-like) direction,
+  point values of width 4 across it — so that the magnetic flux through a
+  coarse face is the sum through its fine faces as a state; `Φ̃`, a vertex
+  set with no cell-like dimension, would get the very same operators from
+  that family and stays PointValue width 4 (`ops_Φ`, its own keyword since
+  step 8). The width 4 was re-measured under the new family (unchanged).
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -1534,25 +1549,50 @@ static two-level meshes and adaptive ones):
   fluxes on either side are the same numbers, and `∇·𝔅 = 0` is structural;
   it is the one place a coarse estimate of the EMF drives a value on a
   coarse-fine face (proposed in step 8: accepted, not corrected).
-- **The magnetic flux, as a state** — not to rounding. In 2D the flux
-  through a face on the coarse-fine face is a difference of `A_z` at two
-  vertices the levels share, which the exchange copies, so the two sides
-  agree exactly. But the flux through the plane, `Σ hᴰ 𝔅ᶻ = ∮ A · dl`
-  around the periodic box, telescopes across a coarse-fine face only if
-  the coarse `A_y` on it is the mean of the fine ones beside it, and the
-  PointValue operators interpolate along an edge's own direction where a
-  conservative transfer would average: on the oblique Alfvén wave it drifts
-  5.8e−4 of its scale over an eighth of a period (5.1e−17 on the uniform
-  mesh), with the EMF correction or without (7.1e−4 and 7.2e−4 absolute at
-  `ξ = 0`), 1.4e−3 at width 2 — the operators', not the EMFs'. In 3D the
-  flux through a face on a coarse-fine face is the circulation of `A_y`,
-  `A_z` in its plane and inherits the same interpolation. A transfer that
-  is conservative along an edge's cell-like direction and point-value
-  along its vertex-like ones makes both exact; TreeAMR refuses
-  `Conservative` along a vertex-like dimension, so that is **AMR-9** in
-  `PLAN.md` (added in step 8; wanted, no step blocked). Rung 2's "magnetic
-  flux conserved across levels to round-off" holds for the rate, and waits
-  for AMR-9 for the state.
+- **The magnetic flux, as a state** — not to rounding under the PointValue
+  operators step 8 began with. In 2D the flux through a face on the
+  coarse-fine face is a difference of `A_z` at two vertices the levels
+  share, which the exchange copies, so the two sides agree exactly. But the
+  flux through the plane, `Σ hᴰ 𝔅ᶻ = ∮ A · dl` around the periodic box,
+  telescopes across a coarse-fine face only if the coarse `A_y` on it is
+  the mean of the fine ones beside it, and the PointValue operators
+  interpolate along an edge's own direction where a conservative transfer
+  would average: on the oblique Alfvén wave it drifted 5.8e−4 of its scale
+  over an eighth of a period (5.1e−17 on the uniform mesh), with the EMF
+  correction or without, 1.4e−3 at width 2 — the operators', not the EMFs'.
+  In 3D the flux through a face on a coarse-fine face is the circulation of
+  `A_y`, `A_z` in its plane and inherited the same interpolation. That was
+  **AMR-9**, which landed in TreeAMR 0.2.2.
+
+  *(Measured in step 8, with the potentials' conservative transfer, AMR-9;
+  `test/refinement_tests.jl`:)* **the flux holds as a state, to rounding,
+  after every fill and every regrid.** The flux through the plane of the
+  oblique wave on the two-level box drifts 1.5e−17 of its scale (5.8e−4
+  with the PointValue operators), and the same after a regrid that coarsens
+  the refined root and refines the opposite one (5.9e−4 with PointValue). In 3D, on every face of a coarse block on a coarse-fine face
+  of the periodic spherical blast (192 faces, then 384 after a regrid), the
+  flux from the coarse block's own `𝔅` equals the sum through the fine faces
+  covering it to 1.4e−16 of the largest flux (2.2e−3 with PointValue). That
+  is the transfer's property, not the EMF correction's: without the
+  correction it holds to 2.7e−16 too, since after every fill the edges the
+  non-owning level holds are derived from the owner's (the restriction's
+  mean, or a prolongation whose two children average to the parent). So
+  PLAN.md's negative control "and does not without [the EMF correction]"
+  applies to the rate, where it is asserted (above), and the state's
+  negative control is the PointValue family (proposed in step 8).
+
+  **Not at an outer face** *(measured in step 8; proposed: accepted,
+  recorded)*. In the same blast's closed box the 147 faces away from the
+  walls agree to rounding, but the 45 whose perimeter lies on an outer face
+  miss by 7.3e−6 of the largest flux (2.7e−5 after the regrid): there each
+  level's relative hook writes its own wall edges, the nearest evolved point
+  of that level plus the case's difference, so a coarse wall edge is not
+  the sum of the fine ones beside it. The flux through a face at a Dirichlet
+  boundary is the boundary condition's, not conserved by anything, so
+  nothing in this package relies on it; a relative hook that fills a point
+  on both an outer face and a coarse-fine face from the level that owns it
+  (a transfer, not the hook) would make it exact — **AMR-11** in `PLAN.md`
+  (added in step 8; wanted, no step blocked).
 
 ## Boundaries
 
@@ -1800,6 +1840,17 @@ proposed in step 8 unless marked otherwise):
   to three digits, as a second-order scheme makes it. The two-level errors
   lie between the uniform coarse and fine ones (1D at 256 cells: L1 3.6e−4
   against 5.8e−4 and 1.4e−4). The matter's bound changed no rate.
+
+  *(Re-measured in step 8 with `A_j` in the conservative family, AMR-9 —
+  width 3 along the edge, the table's `w` across it — and `Φ̃` PointValue
+  width `w`; `bin/interface_order.jl`:)* the 1D rows are the same to every
+  digit printed — in 1D `A_y`, `A_z` are vertex sets, for which the two
+  families are the same operators, and `A_x` is a constant — and in 2D
+  width 2 gives 1.49 / **0.33**, width 4 2.14 / 2.02 and width 6 2.14 /
+  2.01 (L1 errors at 32² 1.71e−3 at width 4 and 6, against 1.85e−3 and
+  3.10e−4 uniform). **The width stays 4** (decided in step 8 again): the
+  conservative direction changes nothing the reconstruction at the face
+  sees to three digits, and width 2 still loses the order across it.
 - **The gauge damping** *(decided in step 8; amended in step 8, decided
   by Erik 2026-10-15: "choose the same ξ on all meshes")*: `evolve!` uses
   `ξ = 16/L` on every mesh, uniform or refined, `L` the longest side of the
@@ -1815,7 +1866,8 @@ proposed in step 8 unless marked otherwise):
   prolongation of a coarse gradient is not a fine one. A pure gauge pulse
   (`gauge_pulse_case`: `A = 0`, `Φ̃` a Gaussian, nothing else;
   `bin/gauge_damping.jl`) on the periodic unit box, 2 × 2 roots of 16² with
-  one refined, to `t = 2`:
+  one refined, to `t = 2` (measured with the PointValue potentials of step
+  8's first form; below the table, with AMR-9's):
 
   | `ξ` | 0 | 1 | 4 | 16 | 64 |
   |---|---|---|---|---|---|
@@ -1836,6 +1888,24 @@ proposed in step 8 unless marked otherwise):
   remainder is smaller but five times more `Φ̃` is left at `t = 2`. And `ξΔt =
   16Δt/L ≪ 1` at any resolution a box of side `L` is run at, far inside
   the explicit part's stability.
+
+  *(Re-measured in step 8 with the potentials' conservative transfer,
+  AMR-9:)* the spurious field is much smaller, since a coarse edge's mean is
+  what the fine edges along it carry and the prolongated gradient is closer
+  to a fine one:
+
+  | `ξ` | 0 | 1 | 4 | 16 | 64 |
+  |---|---|---|---|---|---|
+  | `max |𝔅|` over the run | 3.6e−2 | 1.6e−2 | 4.7e−3 | 3.7e−4 | 1.9e−5 |
+  | `max |𝔅|` at `t = 2` | 1.6e−2 | 6.2e−3 | 3.6e−4 | 7.3e−6 | 5.5e−6 |
+  | `max |Φ̃|` at `t = 2` | 0.25 | 8.4e−2 | 4.0e−3 | 8.0e−5 | 5.3e−4 |
+
+  (uniform: at most 5.3e−15). The oblique wave's L1 errors again move in
+  the fifth digit at most. At `ξ = 16` the remainder falls by 2200 within
+  two light crossings and `Φ̃` by 3100; beyond it `Φ̃` is overdamped as
+  before. `ξ = 16/L` stands (Erik's decision of one `ξ` on every mesh, and
+  this table agrees). In the suite's 8² version the undamped field at
+  `t = 2` went from 0.18 to 0.044 and the damped one from 1.2e−3 to 1.9e−5.
 
 **The ghost fill of the matter** *(decided by Erik 2026-10-15)*: **the
 ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ` —
@@ -2300,7 +2370,14 @@ named as claims.
      face equals the fine faces' sum to 1.7e−18 (2D) and 8.7e−19 (3D) of the
      largest rate with the EMF correction, 0.85 and 0.48 of it without. As a
      state, the flux through the plane drifts 5.8e−4 of its scale across a
-     level — the potentials' operators, AMR-9.
+     level — the potentials' operators, AMR-9. *(Amended in step 8, AMR-9
+     landed:)* with `A_j` conservative along the edge the state holds too —
+     the plane's flux to 1.5e−17 through the run and a regrid, and in 3D every
+     coarse face on a coarse-fine face its fine faces' sum to 1.4e−16 of the
+     largest flux after steps and after a regrid (2.2e−3 with PointValue),
+     with or without the EMF correction (the transfer's property); at an
+     outer face only to 7.3e−6 (each level's hook, AMR-11). The rate's
+     mismatch in 3D is now 8.7e−19 of 7.7e−3 (0.0035 of 0.0077 without).
    - **`∇·𝔅`**: at most 2.0e−16 of `max |𝔅|` after every step on every
      level and right after every regrid (the adaptive rotor), as in rung 2a.
    - **The field loop across a coarse-fine face** (`x ≥ 0` refined, the face

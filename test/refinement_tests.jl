@@ -308,34 +308,165 @@ function rf_total_Bz(p, u, t)
            mesh_mapreduce(abs, +, 0.0, B; vars=1, weight=k -> spacing(Float64, B.forest, k)^2)
 end
 
-@testset "The magnetic flux through the plane drifts at the potentials' interpolation error across levels (AMR-9)" begin
-    # Records what the EMF correction does not give (`CODE.md`,
-    # "Conservation at coarse-fine faces"; AMR-9 in `PLAN.md`): on a periodic
-    # 2D box `Σ hᴰ 𝔅ᶻ` is `∮ A · dl` around the box, constant to rounding on
-    # a uniform mesh, but across a coarse-fine face it telescopes only if the
-    # coarse `A_y` on the face is the mean of the fine ones beside it — and
-    # PointValue operators interpolate along an edge's own direction, where
-    # a conservative transfer would average. The oblique Alfvén wave (whose
-    # field has a `z` component) on 2 × 2 roots of 8², one refined, an eighth
-    # of a period: measured 7.1e−4 of the flux's scale 1.25 with the
-    # correction and 7.2e−4 without at width 4, 1.4e−3 at width 2, and
-    # 1.5e−16 on the uniform mesh — the operators', not the EMFs'. Bounded
-    # here, and to be asserted to rounding when AMR-9 lands.
+const RF_PV = Operators(; prolongation=4, restriction=4)   # the potentials before AMR-9
+
+@testset "The magnetic flux through the plane is constant to rounding across levels and through a regrid (AMR-9)" begin
+    # Guards the potentials' conservative transfer (AMR-9, TreeAMR 0.2.2;
+    # `CODE.md`, "Conservation at coarse-fine faces"): on a periodic 2D box
+    # `Σ hᴰ 𝔅ᶻ` is `∮ A · dl` around the box, and across a coarse-fine face
+    # it telescopes only if the coarse `A_y` on the face is the mean of the
+    # fine ones beside it — which the conservative family along an edge's
+    # own direction makes it, after every fill and every regrid, and the
+    # PointValue family, which interpolates there, does not. The oblique
+    # Alfvén wave (whose field has a `z` component) on 2 × 2 roots of 8², one
+    # refined, an eighth of a period, then a regrid that coarsens the refined
+    # root and refines the opposite one. Measured: on the uniform mesh 5.1e−17
+    # of the flux's scale; two-level 5.1e−17 after the run and the same after
+    # the regrid; with the PointValue operators of step 8 5.8e−4 (and the
+    # regrid moves it further).
     c1 = alfven_wave_case(Float64; roots=1)
     case = oblique_case(c1; N=8, roots=2)
-    drifts = map((nothing, rf_refine_first!)) do refine
-        r = evolve!(case, Val(2); N=8, t_end=alfven_period(c1) / 8, limiter=:mc, refine=refine)
-        u0 = exact_state(r.p, case, 0.0)
-        b0, _ = rf_total_Bz(r.p, u0, 0.0)
+    function drift(refine, ops_A)
+        r = evolve!(case, Val(2); N=8, t_end=alfven_period(c1) / 8, limiter=:mc, refine=refine,
+                    ops_A=ops_A)
+        b0, _ = rf_total_Bz(r.p, exact_state(r.p, case, 0.0), 0.0)
         b1, scale = rf_total_Bz(r.p, r.u, r.t)
-        abs(b1 - b0) / scale
+        refine === nothing && return (abs(b1 - b0) / scale, NaN)
+        p = r.p
+        flags = [level(blockkey(p.f.U, b)) == 1 ? Coarsen :
+                 blockkey(p.f.U, b) == last(p.f.U.forest.leaves) ? Refine : Keep
+                 for b in 1:nblocks(p.f.U)]
+        g = regrid_state!(p, r.u, r.t; flags=flags)
+        @test g.moved && max_div_B(g.p, g.u, r.t) ≤ MD_DIVB
+        b2, _ = rf_total_Bz(g.p, g.u, r.t)
+        return (abs(b1 - b0) / scale, abs(b2 - b0) / scale)
     end
-    @info "Flux of 𝔅ᶻ through the plane, oblique Alfvén wave: drift $(drifts[1]) of its " *
-          "scale on the uniform mesh, $(drifts[2]) on the two-level mesh"
-    @test drifts[1] ≤ 1e-14
-    @test drifts[2] ≤ 1e-2
+    uniform = drift(nothing, RF.default_ops_A())
+    cons = drift(rf_refine_first!, RF.default_ops_A())
+    pv = drift(rf_refine_first!, RF_PV)
+    @info "Flux of 𝔅ᶻ through the plane, oblique Alfvén wave: drift $(uniform[1]) of its " *
+          "scale on the uniform mesh; two-level $(cons[1]), after a regrid $(cons[2]) " *
+          "(PointValue potentials: $(pv[1]), $(pv[2]))"
+    @test uniform[1] ≤ 1e-14
+    @test cons[1] ≤ 1e-14 && cons[2] ≤ 1e-14
+    @test pv[1] ≥ 1e-4 && pv[2] ≥ 1e-4
 end
 
+# The face sets' `𝔅` on their closed ranges, keyed by `(d, level, position)`
+# with the position in half-spacings of that level from the domain's low
+# corner; from block `only` alone, if given.
+function rf_B_table(p; only=nothing)
+    f = p.f
+    forest = f.U.forest
+    D = length(forest.roots)
+    N = forest.N
+    tab = Dict{Tuple{Int,Int,NTuple{D,Int}},Float64}()
+    for d in 1:D
+        s = f.B[d]
+        st = staggers(s)
+        for b in (only === nothing ? (1:nblocks(s)) : (only:only))
+            k = blockkey(s, b)
+            h = spacing(forest, k)
+            o = block_origin(forest, k)
+            g0 = ntuple(e -> round(Int, (o[e] - forest.extents[e][1]) / h), D)
+            for I in CartesianIndices(ntuple(e -> N + st[e], D))
+                n = Tuple(I)
+                pos = ntuple(e -> 2 * (g0[e] + n[e] - 1) + (st[e] == 1 ? 0 : 1), D)
+                tab[(d, level(k), pos)] = s.work[(n .+ s.G)..., 1, b]
+            end
+        end
+    end
+    return tab
+end
+
+# Over every face of a level-0 block on a coarse-fine face: the magnetic flux
+# through it from that block's own (filled) `𝔅`, `𝔅ᵈ H^{D−1}`, against the
+# sum through the `2^{D−1}` fine faces covering it, `Σ 𝔅ᵈ h^{D−1}` — the
+# state, after a fill.
+function rf_flux_state_mismatch(p, u, t)
+    update_fields!(p, u, t)
+    fine = rf_B_table(p)
+    f = p.f
+    forest = f.U.forest
+    D = length(forest.roots)
+    N = forest.N
+    H = spacing(forest, 0)
+    worst, scale, nfaces = 0.0, 0.0, 0
+    for blk in 1:nblocks(f.U)
+        k = blockkey(f.U, blk)
+        level(k) == 0 || continue
+        own = rf_B_table(p; only=blk)
+        o = block_origin(forest, k)
+        g0 = ntuple(e -> round(Int, (o[e] - forest.extents[e][1]) / H), D)
+        for d in 1:D, side in (1, N + 1), I in CartesianIndices(ntuple(e -> e == d ? 1 : N, D))
+            n = ntuple(e -> e == d ? side : I[e], D)
+            c = ntuple(e -> 2 * (g0[e] + n[e] - 1) + (e == d ? 0 : 1), D)
+            offsets = Iterators.product(ntuple(e -> e == d ? (0,) : (-1, 1), D)...)
+            keys = [(d, 1, ntuple(e -> 2 * c[e] + o2[e], D)) for o2 in offsets]
+            all(kk -> haskey(fine, kk), keys) || continue
+            coarse = own[(d, 0, c)] * H^(D - 1)
+            fsum = sum(kk -> fine[kk], keys) * (H / 2)^(D - 1)
+            nfaces += 1
+            worst = max(worst, abs(coarse - fsum))
+            scale = max(scale, abs(coarse))
+        end
+    end
+    return (; worst, scale, nfaces)
+end
+
+@testset "The magnetic flux through a coarse face is the sum through its fine faces, as a state, after steps and a regrid (AMR-9)" begin
+    # Guards PLAN.md's step-8 claim as a state (AMR-9): in 3D the flux through
+    # a face on a coarse-fine face is the circulation of the two in-plane
+    # potentials around it, and the sum through the fine faces covering it is
+    # the circulation around the same perimeter in fine edges — equal when
+    # every coarse edge's line integral is the sum of its two fine edges',
+    # which the conservative family along an edge's own direction keeps
+    # through every fill and regrid. That is the transfer's property, not
+    # the EMFs': the EMF correction makes the *rate* agree (above), and
+    # without it the state still agrees after every fill, the non-owner's
+    # edges being derived from the owner's. The spherical blast on 2 × 2 × 2
+    # roots of 8³, one refined, after two steps, then a regrid refining the
+    # opposite root (every face of a coarse block on a coarse-fine face, 192
+    # and then 384). Measured, in its periodic box: 8.7e−19 of a largest
+    # flux of 6.3e−3 with the correction, 1.7e−18 without, the same after the
+    # regrid; with the PointValue operators of step 8, 1.4e−5. In the closed
+    # box the 147 faces away from the walls agree to 8.7e−19, but the 45
+    # whose perimeter lies on an outer face miss by 4.6e−8 (7e−6 of the
+    # scale; 1.7e−7 after the regrid): there each level's relative hook
+    # writes its own wall edges from its own nearest evolved point, so a
+    # coarse wall edge is not the sum of the fine ones (recorded, `CODE.md`;
+    # AMR-11 in `PLAN.md`).
+    function measure(periodic; kw...)
+        case = cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true,
+                                          periodic=periodic)
+        run = md_run(case, Val(3); N=8, t_end=1 // 32, limiter=:minmod, refine=rf_refine_first!,
+                     kw...)
+        p, u, t = run.r.p, run.r.u, run.r.t
+        before = rf_flux_state_mismatch(p, u, t)
+        flags = [blockkey(p.f.U, b) == last(p.f.U.forest.leaves) ? Refine : Keep
+                 for b in 1:nblocks(p.f.U)]
+        g = regrid_state!(p, u, t; flags=flags)
+        @test g.moved && max_div_B(g.p, g.u, t) ≤ MD_DIVB
+        after = rf_flux_state_mismatch(g.p, g.u, t)
+        return (; before, after)
+    end
+    with = measure(true)
+    without = measure(true; fixup=false)
+    pv = measure(true; ops_A=RF_PV)
+    closed = measure(false)
+    rel(m) = m.worst / m.scale
+    @info "Magnetic flux as a state, 3D: mismatch of a coarse face against its fine faces " *
+          "$(rel(with.before)) of the largest flux ($(with.before.nfaces) faces), after a regrid " *
+          "$(rel(with.after)) ($(with.after.nfaces)); without the EMF correction " *
+          "$(rel(without.before)), $(rel(without.after)); PointValue potentials " *
+          "$(rel(pv.before)), $(rel(pv.after)); closed box $(rel(closed.before)), " *
+          "$(rel(closed.after))"
+    @test with.before.nfaces == 192 && with.after.nfaces == 384
+    @test rel(with.before) ≤ 1e-14 && rel(with.after) ≤ 1e-14
+    @test rel(without.before) ≤ 1e-14 && rel(without.after) ≤ 1e-14
+    @test rel(pv.before) ≥ 1e-4 && rel(pv.after) ≥ 1e-4
+    @test 1e-10 ≤ rel(closed.before) ≤ 1e-4
+end
 
 # The explosion in its closed box, `[−2, 2]²` on 4 × 4 roots of 8², and the
 # root on the low `y` wall between two coarse roots refined.

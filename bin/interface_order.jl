@@ -1,9 +1,13 @@
 # The interface-order table of step 8: the circularly polarized Alfvén wave
-# crossing coarse-fine faces, for the potentials' PointValue widths
-# `w ∈ {2, 4, 6}` (prolongation and restriction), which decides the (open)
-# width of `A` and `Φ̃` ("Field sets" and "Refinement" in `CODE.md`).
+# crossing coarse-fine faces, for the potentials' widths `w ∈ {2, 4, 6}`,
+# which decides the (open) width of `A` and `Φ̃` ("Field sets" and
+# "Refinement" in `CODE.md`). Since TreeAMR 0.2.2 (AMR-9) `A_j` take the
+# conservative family on a staggered set — width 3 along the edge, point
+# values of width `w` across it — and `Φ̃` PointValue width `w`;
+# `potentials=pointvalue` runs step 8's first form, PointValue width `w`
+# (prolongation and restriction) for all four.
 #
-#     julia --project=. bin/interface_order.jl [1d] [2d] [matter=unbounded]
+#     julia --project=. bin/interface_order.jl [1d] [2d] [matter=unbounded] [potentials=pointvalue]
 #
 # 1D: the wave of rung 1a (`alfven_wave_case`, MC, HLLE, SSP3(4,3,3), one
 # period) on a static two-level mesh — `M` coarse cells in blocks of `N = 8`
@@ -55,8 +59,14 @@ end
 ops_U = Operators(; prolongation=3, restriction=2, family=Conservative,
                   bounded=!any(==("matter=unbounded"), ARGS))
 println("matter operators: ", ops_U)
+const POINTVALUE = any(==("potentials=pointvalue"), ARGS)
+ops_A(w) = POINTVALUE ? Operators(; prolongation=w, restriction=w) :
+           Operators(; prolongation=3, restriction=2, family=Conservative, vertex_prolongation=w)
+ops_Φ(w) = Operators(; prolongation=w, restriction=w)
+println("potentials: ", POINTVALUE ? "PointValue" : "A conservative (AMR-9), Φ̃ PointValue")
+args = filter(a -> !occursin('=', a), ARGS)
 
-if isempty(ARGS) || "1d" in ARGS
+if isempty(args) || "1d" in args
     println("1D Alfvén wave, one period, MC; S_y and A_y")
     Ms = (32, 64, 128, 256)
     hs = 1 ./ Ms
@@ -71,7 +81,7 @@ if isempty(ARGS) || "1d" in ARGS
             w = get(kw, :w, 4)
             r = evolve!(c, Val(1); N=8, t_end=alfven_period(c), limiter=:mc,
                         refine=haskey(kw, :w) ? refine_middle! : nothing, ops_U=ops_U,
-                        ops_A=Operators(; prolongation=w, restriction=w))
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w))
             errors(r, c, TG.U_S + 1, 2)
         end
         study(label, runs, hs)
@@ -79,7 +89,7 @@ if isempty(ARGS) || "1d" in ARGS
     end
 end
 
-if isempty(ARGS) || "2d" in ARGS
+if isempty(args) || "2d" in args
     println("2D Alfvén wave along the diagonal, an eighth of a period, MC; S_x and A_z")
     c1 = alfven_wave_case(Float64; roots=1)
     t_end = alfven_period(c1) / 8
@@ -95,7 +105,7 @@ if isempty(ARGS) || "2d" in ARGS
             w = get(kw, :w, 4)
             r = evolve!(c, Val(2); N=N, t_end=t_end, limiter=:mc,
                         refine=haskey(kw, :w) ? refine_first! : nothing, ops_U=ops_U,
-                        ops_A=Operators(; prolongation=w, restriction=w))
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w))
             errors(r, c, TG.U_S, 3)
         end
         study(label, runs, hs)

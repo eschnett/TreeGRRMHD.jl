@@ -85,9 +85,7 @@ const MHD_SOLVERS = (:llf, :hlle)
 """
     MHDProblem(f::MHDFields; eos, opts, pol, model, provider = Flat(), 𝔅̄ = 0,
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
-               ops_U = Operators(prolongation=3, restriction=2, family=Conservative,
-                                 bounded=true),
-               ops_A = Operators(prolongation=4, restriction=4),
+               ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                boundary = nothing, fixup = true)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
@@ -113,10 +111,14 @@ slope limiter `:none`, `:minmod` or `:mc` (step 5), or `:ppm`, `:wenoz`,
 `:mp5` (step 7), which need `G ≥ 3`. `riemann` is `:hlle` (the light-cone HLL, whose
 dissipation on `𝔈` matches the UCT EMF's on `𝔅`) or `:llf`.
 
-`ops_U` and `ops_A` are the operators of the matter set and of `A`, `Φ̃`:
+`ops_U`, `ops_A` and `ops_Φ` are the operators of the matter set, of the
+three `A_j` and of `Φ̃` ([`default_ops_U`](@ref) and its siblings):
 Conservative width 3 for the matter, **bounded** (TreeAMR's MC-bounded
-prolongation, AMR-4) in its ghost fill and its regrid alike, and PointValue
-width 4 for the potentials (proposed in step 5; decided in step 8 by the
+prolongation, AMR-4) in its regrid (and until step 8's AMR-10 its ghost
+fill); for `A_j` the conservative family on a staggered set (AMR-9),
+width 3 along the edge and point values of width 4 across it, so that the
+magnetic flux through a coarse face is the sum through its fine faces; and
+PointValue width 4 for `Φ̃` (proposed in step 5; decided in step 8 by the
 interface-order table, and the matter's bound by the atmosphere across a
 coarse-fine face — "Refinement" in `CODE.md`).
 `boundary` is `nothing` for a periodic domain, or one hook per evolved set in
@@ -126,12 +128,13 @@ own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
 """
-struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
     ops_U::OU                    # the matter's operators
-    ops_A::OA                    # the potentials' operators
+    ops_A::OA                    # the operators of A_j
+    ops_Φ::OΦ                    # the operators of Φ̃
     ischeds_F::ISF               # NTuple{D,InterfaceSchedule}
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
@@ -156,9 +159,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                     model::Conductivity, provider::MetricProvider=Flat(),
                     𝔅̄=nothing, ξ=0, stage=nothing, limiter::Union{Symbol,Nothing}=nothing,
                     riemann::Symbol=:hlle,
-                    ops_U::Operators=Operators(; prolongation=3, restriction=2,
-                                               family=Conservative, bounded=true),
-                    ops_A::Operators=Operators(; prolongation=4, restriction=4),
+                    ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
+                    ops_Φ::Operators=default_ops_Φ(),
                     boundary=nothing, fixup::Bool=true) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
@@ -199,8 +201,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
             "no boundary hooks were given: the ghosts facing outside the domain would " *
             "hold whatever the allocation left."))
     end
-    schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : ops_A),
-                       length(sets))
+    schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : i == SEG_Φ ? ops_Φ :
+                                                   ops_A), length(sets))
     ischeds_F = ntuple(d -> InterfaceSchedule(f.F[d]), D)
     # An EMF set with no vertex-like dimension (in 1D, the one along x) has no
     # coarse-fine face to restrict, and TreeAMR refuses to build a schedule
@@ -217,11 +219,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
-                      typeof(ops_A),typeof(ischeds_F),
+                      typeof(ops_A),typeof(ops_Φ),typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
+        f, sets, schedules, ops_U, ops_A, ops_Φ, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann))
@@ -240,7 +242,8 @@ negative control). Added in step 8.
 rebuild(p::MHDProblem; kwargs...) =
     MHDProblem(p.f; eos=p.eos, opts=p.opts, pol=p.pol, model=p.model, provider=p.provider,
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
-               riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, boundary=p.boundary,
+               riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
+               boundary=p.boundary,
                fixup=p.fixup, kwargs...)
 
 unval(::Val{X}) where {X} = X

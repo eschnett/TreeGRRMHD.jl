@@ -220,6 +220,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | landed in TreeAMR 0.2.2, as `walls = :symmetric` (workaround dropped in step 8) |
 | AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | landed in TreeAMR 0.2.2, as `vertex_prolongation` |
 | AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | landed in TreeAMR 0.2.2 |
+| AMR-11 | TreeAMR | wanted | — | the relative hook consistent across levels where an outer face meets a coarse-fine face (added in step 8) | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -645,6 +646,35 @@ on every centering, in the fill (prolongation, interpolating restriction, a refl
 derived row) and the regrid: the order-`w` value clamped to the range of its bracket, the `2^D`
 points multilinear interpolation reads — bit for bit the unbounded value where no clamp acts.
 Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
+
+### AMR-11 — The relative hook consistent across levels at an outer face (wanted)
+
+*(Added in step 8.)* **Why.** With the potentials' conservative transfer (AMR-9) the magnetic
+flux through a coarse face on a coarse-fine face is the sum through its fine faces to rounding
+(1.4e−16 of the largest flux in a periodic 3D box) — except where the face's perimeter lies on an
+outer face: there each level's relative hook writes its own wall and ghost edges, `f(x_g) +
+(u(x_r) − f(x_r))` with `x_r` that level's nearest evolved point, so a coarse wall edge is not
+the mean of the fine ones beside it (7.3e−6 of the largest flux in the closed 3D blast box, 45 of
+192 faces; 2.7e−5 after a regrid). The same holds for any set with symmetric walls and a
+conservative transfer: at the wall the levels are filled independently.
+
+**API.** None new; a semantic of `CellBoundary(Relative(f))` (or an opt-in): a point that lies
+both beyond (or on the wall of) an outer face and on a coarse-fine face is filled from the level
+that owns that plane by the set's own transfer — restricted from the fine level where the fine
+block owns it, prolongated from the coarse level's hook-filled values where the coarse one does —
+rather than by the hook on each level.
+
+**Upstream acceptance.** On an edge set under `Conservative` with `vertex_prolongation`, symmetric
+walls and a relative hook, on a two-level mesh whose coarse-fine face meets an outer face in
+D = 2, 3: the line integral of every coarse edge on the wall equals the sum of its fine edges'
+after a fill and after a regrid; one fill is still the condition's fixed point.
+
+**Downstream check.** `test/refinement_tests.jl`'s state-flux testset asserts the closed box's
+mismatch to rounding instead of recording it.
+
+**Workaround:** none needed: the flux through a face at a Dirichlet boundary is the boundary
+condition's, which nothing conserves; recorded in `CODE.md` ("Conservation at coarse-fine
+faces").
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 

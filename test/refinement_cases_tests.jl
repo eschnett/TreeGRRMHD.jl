@@ -72,7 +72,10 @@ end
         errs = map((32, 64, 128)) do M
             c = alfven_wave_case(Float64; roots=M ÷ 8)
             r = evolve!(c, Val(1); N=8, t_end=alfven_period(c), limiter=:mc,
-                        refine=rf_refine_middle!, ops_A=Operators(; prolongation=w, restriction=w))
+                        refine=rf_refine_middle!,
+                        ops_A=Operators(; prolongation=3, restriction=2, family=Conservative,
+                                        vertex_prolongation=w),
+                        ops_Φ=Operators(; prolongation=w, restriction=w))
             ex = exact_state(r.p, c, r.t)
             d = r.u .- ex
             (l1_errors(r.p, r.u, ex).U[RF.U_S + 1],
@@ -97,10 +100,12 @@ end
     # Without damping the gauge pulse keeps crossing the faces of the
     # periodic box and the spurious field grows; with `ξ = 16/L` it decays
     # with the pulse. 2 × 2 roots of 8², one refined, to `t = 2`: measured
-    # `max |𝔅|` at the end 0.18 with `ξ = 0` and 1.2e−3 with the default
+    # `max |𝔅|` at the end 0.044 with `ξ = 0` and 1.9e−5 with the default
     # (of a pulse whose `|∇Φ̃|` peaks at 8.6), and on the uniform mesh, with
     # the same default `ξ` (one `ξ` on every mesh, decided by Erik
-    # 2026-10-15), 8.7e−19 (4.4e−16 at `ξ = 0`).
+    # 2026-10-15), 8.7e−19 (4.4e−16 at `ξ = 0`). *(Re-measured in step 8
+    # with the potentials' conservative transfer, AMR-9: it was 0.18 and
+    # 1.2e−3 under the PointValue operators.)*
     gp = gauge_pulse_case(Float64; roots=2)
     maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1), 1:3)
     final(r) = (update_fields!(r.p, r.u, r.t); maxB(r.p))
