@@ -557,7 +557,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  backend=CPU(), after_step=nothing, roots=case.roots,
                  ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                  ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
-                 ghost_vars::Symbol=:density, fixup::Bool=true, refine=nothing, maxlevel::Integer=0, refine_tol=nothing,
+                 ghost_vars::Symbol=:specific, fixup::Bool=true, refine=nothing,
+                 maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
@@ -701,7 +702,10 @@ default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative
 default_ops_A() = Operators(; prolongation=3, restriction=2, family=Conservative,
                             vertex_prolongation=4)
 default_ops_Φ() = Operators(; prolongation=4, restriction=4)
-default_ops_W() = Operators(; prolongation=2, restriction=2, family=PointValue, bounded=true)
+# *(Experiment, `claude/step-8-ghost-athena`:)* the bounded conservative
+# operator on the primitives — a parent-centred, MC-limited linear
+# prolongation (Athena++'s, but MC for minmod); the restriction the 2^D mean.
+default_ops_W() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
 
 """
     adapt_case!(f::MHDFields, case, build; ops_U, ops_A, ops_Φ, refine_tol, coarsen_tol,

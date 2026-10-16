@@ -174,7 +174,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                     boundary=nothing, boundary_W=nothing, fixup::Bool=true,
-                    ghost_vars::Symbol=:density) where {D}
+                    ghost_vars::Symbol=:specific) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *

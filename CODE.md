@@ -2039,6 +2039,20 @@ cell does not (2.96e−6 against 1e−8), which the light-cone HLLE flux draws
 out of the coarse cell through the coarse-fine face. Widths 4 and 6 are not
 robust in either form.
 
+*Second experiment (branch `claude/step-8-ghost-athena`, not decided):*
+`W` filled with TreeAMR's bounded conservative operator, `Operators(;
+prolongation=3, restriction=2, family=Conservative, bounded=true)` — a
+linear reconstruction centred on the parent with MC slopes, scaled to keep
+every child within the parent and its face neighbours: Athena++'s ghost
+prolongation of the primitives (Stone et al. 2020, §2.1.5) but for MC
+against minmod. At the foot of a jump a child takes its parent's value, so
+the dense neighbour no longer leaks into an atmosphere cell's children. On
+the specific `s`, `Yₑ`: the hydrodynamic tube injects −1.6e−11 of rest mass
+(the conserved fill −1.5e−11), nothing is refilled beyond the face, no
+magnetized run of twelve blew up, the interface order is the conserved
+fill's (1D 2.11 / 2.04, 2D 2.14 / 1.98). `bin/ghost_entropy.jl` has the
+table, reported to Erik.
+
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
 `S_x` L1 / L∞ rates:

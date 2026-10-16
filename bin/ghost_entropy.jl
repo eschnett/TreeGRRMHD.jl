@@ -111,6 +111,12 @@ function run(case, kw, pert)
 end
 
 pv(w) = Operators(; prolongation=w, restriction=w, family=PointValue, bounded=true)
+# Athena++'s construction (Stone et al. 2020, §2.1.5) but for MC against minmod:
+# the bounded conservative operator on the primitives — a slope-limited linear
+# reconstruction centred on the parent, scaled to keep every child within the
+# parent and its face neighbours; `cb(1)`: every child the parent. Restriction
+# the 2^D-child mean.
+cb(p) = Operators(; prolongation=p, restriction=2, family=Conservative, bounded=true)
 configs = if DENSITY
     [("uniform", (;)),
      ("specific s, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:specific)),
@@ -119,6 +125,10 @@ configs = if DENSITY
      ("density ρs, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:density)),
      ("density ρs, w = 4", (; refine=refine_band!, ops_W=pv(4), ghost_vars=:density)),
      ("density ρs, w = 6", (; refine=refine_band!, ops_W=pv(6), ghost_vars=:density)),
+     ("specific s, cons3", (; refine=refine_band!, ops_W=cb(3), ghost_vars=:specific)),
+     ("density ρs, cons3", (; refine=refine_band!, ops_W=cb(3), ghost_vars=:density)),
+     ("specific s, cons1", (; refine=refine_band!, ops_W=cb(1), ghost_vars=:specific)),
+     ("density ρs, cons1", (; refine=refine_band!, ops_W=cb(1), ghost_vars=:density)),
      ("mass ρs, ρu, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:mass)),
      ("mass ρs, ρu, w = 4", (; refine=refine_band!, ops_W=pv(4), ghost_vars=:mass)),
      ("mass ρs, ρu, w = 6", (; refine=refine_band!, ops_W=pv(6), ghost_vars=:mass))]

@@ -155,7 +155,15 @@ function rf_ghost_repairs!(acc, p, u, t)
     return acc
 end
 
-@testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face, at width 2 and not at 4" begin
+@testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face with the parent-centred bounded prolongation, and not with PointValue width 4" begin
+    # *(Experiment branch `claude/step-8-ghost-athena`:)* the default fill of
+    # `W` is TreeAMR's bounded conservative operator (width 3, MC slopes
+    # centred on the parent, scaled to keep every child within the parent and
+    # its face neighbours — Athena++'s construction, Stone et al. 2020,
+    # §2.1.5, but for MC against minmod), on the specific `s`, `Yₑ`: measured
+    # injected D −1.6e−11 and τ −2.6e−10 (the conserved fill's −1.5e−11 and
+    # −2.5e−10), and no blow-up in twelve perturbed magnetized runs. The
+    # rest of this comment is the PointValue fill's.
     # Guards the matter's ghost fill (decided by Erik 2026-10-15; the width
     # proposed in step 8, "Refinement" in `CODE.md`): the fill prolongates
     # the primitives `ρ, s, Yₑ, uⁱ, Eⁱ` (PointValue, bounded: AMR-10) and
@@ -199,10 +207,11 @@ end
           "magnetized $(magnetized.acc.repaired), $(magnetized.acc.below), $(magnetized.D), " *
           "$(magnetized.τ); width 4 injected τ $(four.τ); unbounded below ρ_atm " *
           "$(unbounded.acc.below), injected τ $(unbounded.τ)"
-    @test two.r.nblocks == 24 && RF.default_ops_W().prolongation == 2
+    @test two.r.nblocks == 24 && RF.default_ops_W().family == Conservative &&
+          RF.default_ops_W().prolongation == 3
     @test two.acc.repaired == 0 && two.acc.below == 0
     @test magnetized.acc.repaired == 0 && magnetized.acc.below == 0
-    @test abs(two.D) ≤ 1e-7 && abs(two.τ) ≤ 1e-7
+    @test abs(two.D) ≤ 1e-10 && abs(two.τ) ≤ 1e-8
     @test abs(magnetized.D) ≤ 1e-6
     @test four.τ ≥ 1e-5
     # *(Experiment branch: with `W` holding `ρ★ s`, `ρ★ Yₑ`, a ghost with
