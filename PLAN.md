@@ -796,7 +796,8 @@ quantities at vertices must match SpacetimeMetrics:
   to 1.11 no longer constrains TreeGRRMHD, and TreeGH is an ordinary dependency rather than a
   weak one behind `TreeGRRMHDTreeGHExt` (CODE.md "Julia version"). *(Amended 2026-10-15:)*
   TreeGRRMHD's floor is now 1.13, above TreeGH's 1.11, which still does not constrain it;
-  nothing is asked of TreeGH.
+  nothing is asked of TreeGH. *(Amended 2026-10-16:)* every Tree* package's floor is now 1.13
+  (Erik's decision).
 - **Workaround until registered:** `[sources]` names TreeGH, TreeIOHDF5 and, if still needed,
   ApparentHorizonFinder by URL (amended in step 0: was "CI adds TreeGH and KorzynskiSpin").
 

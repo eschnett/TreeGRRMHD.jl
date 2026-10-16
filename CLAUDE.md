@@ -242,9 +242,10 @@ packages are read together:
 - **Julia 1.13 is the floor** (`julia = "1.13"` in `[compat]`), raised
   from 1.11 on 2026-10-15 by Erik's rule: the floor goes up when the older
   version is more than about 20% slower (1.12 compiled the suite 23%
-  longer). The sibling Tree* packages stay at 1.11, which does not
-  constrain this one; `[sources]`, which locates the unregistered
-  dependencies, is a 1.11 key. See `CODE.md`, "Julia version".
+  longer). Since 2026-10-16 every Tree* package has the 1.13 floor, and
+  CI tests only 1.13: Erik's decision, because supporting older versions
+  slows development and is not useful at the moment. Do not add `VERSION`
+  checks or shims for anything older. See `CODE.md`, "Julia version".
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.

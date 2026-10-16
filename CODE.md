@@ -1885,13 +1885,14 @@ version's sake. A dependency's own `[sources]` is still ignored when this
 package resolves it, so what it needs from an unregistered package must be
 named in this package's own `[sources]`.
 
-The sibling Tree* packages keep their own floor of 1.11. That does not
-constrain this one: a dependency's floor below this package's is satisfied
-by every version this package supports, so this package's floor is now
-higher than theirs and nothing upstream has to change. `[sources]` is
-still what locates the unregistered dependencies; 1.13 reads it as 1.11
-did. Every `[compat]` entry resolves to the same releases at 1.12.7 and
-1.13.1.
+Every Tree* package now has the 1.13 floor, and its CI tests only 1.13
+*(amended 2026-10-16: Erik's decision for all of them, because supporting
+the older versions slows development and is not useful at the moment;
+until then the siblings kept 1.11, which did not constrain this package,
+since a dependency's floor below this package's is satisfied by every
+version this package supports)*. `[sources]` is still what locates the
+unregistered dependencies; 1.13 reads it as 1.11 did. Every `[compat]`
+entry resolves to the same releases at 1.12.7 and 1.13.1.
 
 *(Measured 2026-10-15, the whole suite at one thread, 25293 tests, on an
 Apple M3 Pro shared at a load of about 4–8 on 12 cores, 1.12.7 and 1.13.1
@@ -1917,9 +1918,10 @@ numbers the suite prints are identical across the change at each version,
 and 1.12 differs from 1.13, at the same flags, only in the last digits of
 six recorded worst cases.
 
-Until 1.14 is released the floor and the current release coincide, and
-CI's floor cell repeats a current-release cell; it diverges again then.
-That cell carries the coverage, which at 1.13 costs 1.24x (6m27s against
+CI runs three cells, all at 1.13: macOS/arm64, Linux, and Linux at four
+threads *(amended 2026-10-16: there was a fourth, macOS at the current
+release, which repeated the 1.13 macOS cell until 1.14; CI now tests only
+the floor)*. The macOS cell carries the coverage, which at 1.13 costs 1.24x (6m27s against
 5m12s, both with bounds checks; TreeHydro had measured 3.14x at 1.13
 before, against 1.04x at 1.11).
 

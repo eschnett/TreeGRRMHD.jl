@@ -25,32 +25,26 @@ jobs:
     strategy:
       fail-fast: false
       # One cell per axis, spelled out rather than a `version x os`
-      # product, after TreeHydro: the floor version, the current release,
-      # macOS/arm64, and threads.
+      # product, after TreeHydro: macOS/arm64, Linux, and threads, all at
+      # Julia 1.13. It is the floor, and the only version tested: every
+      # Tree* package raised its floor to 1.13 on 2026-10-16, because
+      # supporting older versions slows development and is not useful at
+      # the moment (see "Julia version" in `CODE.md`).
       matrix:
         include:
-          # Julia 1.13 is the floor (raised from 1.11 on 2026-10-15; see
-          # "Julia version" in `CODE.md`). It carries the coverage, as the
-          # floor always has here: one instrumented cell, and the oldest
-          # compiler, where a version-dependent failure is likeliest to be
-          # missed by local runs at the current release. Instrumented at
-          # 1.13 the suite took 1.24x (6m27s against 5m12s, both with bounds
-          # checks, 2026-10-15). Until 1.14 is released the floor is the
-          # current release, so this cell repeats the macOS one below; it
-          # diverges again then.
+          # arm64. It carries the coverage: one instrumented cell.
+          # Instrumented at 1.13 the suite took 1.24x (6m27s against 5m12s,
+          # both with bounds checks, 2026-10-15).
           - version: "1.13"
             os: macOS-latest
             coverage: true
-          - version: "1"
+          - version: "1.13"
             os: ubuntu-latest
-          # arm64 on the current release.
-          - version: "1"
-            os: macOS-latest
           # Threaded. Never instrument this one: a coverage hit is an
           # atomic increment on one counter per line, so threads running
           # the same kernel contend on one cache line -- TreeHydro measured
           # 100x.
-          - version: "1"
+          - version: "1.13"
             os: ubuntu-latest
             threads: 4
     steps:
