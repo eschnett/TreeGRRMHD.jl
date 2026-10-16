@@ -244,12 +244,45 @@ end
     return R ≤ 3 ? A[R] : Φ̃
 end
 
+# The primitives of the matter's ghost fill (step 8): `g(x, δ) -> vals`, the
+# case's `ρ★, s, Yₑ, uⁱ = W vⁱ, Eⁱ` at the ghost cell's center (`W`'s slots).
+@inline function (d::DirichletAt{<:DirichletBoundary{:W}})(x::NTuple{D,T}, δ) where {D,T}
+    h = d.hook
+    return case_prims(h.fields, h.provider, point3(x), T(d.t))
+end
+
+@inline function case_prims(fields, provider, x::SVector{3,T}, t::T) where {T}
+    m = point_metric(provider, t, x)
+    ρ, v, s, Yₑ, E, B = fields(x, t)
+    v3, E3 = SVector{3,T}(v), SVector{3,T}(E)
+    W = inv(sqrt(one(T) - dot_up(m, v3, v3)))
+    u = W * v3
+    return (T(ρ), T(s), T(Yₑ), u[1], u[2], u[3], E3[1], E3[2], E3[3])
+end
+
+"""
+    primitive_boundary(hook) -> DirichletBoundary{:W}
+
+The boundary hook of the primitive set `W` that goes with the matter's hook
+`hook` ([`MHDProblem`](@ref)'s `boundary[1]`): for the case's Dirichlet data
+([`DirichletBoundary`](@ref)`{:U}`) the same case's primitives at each ghost
+cell's center (added in step 8). Any other matter hook has no primitive
+counterpart this package can derive; pass `boundary_W` to `MHDProblem`.
+"""
+primitive_boundary(hook::DirichletBoundary{:U}) =
+    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider)
+primitive_boundary(hook) = throw(ArgumentError(
+    "the matter's boundary hook $(typeof(hook)) has no primitive counterpart: since step 8 " *
+    "the matter's ghost fill prolongates the primitives (CODE.md, \"Refinement\"), so a " *
+    "non-periodic problem needs a hook for the primitive set `W` too — pass `boundary_W`."))
+
 # A potential: `f(x) -> value`, the case's potential `R` at the point `x`, which
 # TreeAMR's relative hook turns into `f(x_g) + (u(x_r) − f(x_r))` (AMR-7).
 @inline (d::DirichletAt{<:DirichletBoundary})(x::NTuple{D,T}) where {D,T} =
     case_potential(d.hook, x, d.t)
 
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
+boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary, t) = CellBoundary(Relative(DirichletAt(hook, t)))
 
 # --- the owned low walls -------------------------------------------------------------
@@ -453,7 +486,7 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
 """
     evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
             riemann = :hlle, ξ = default_ξ(case), stage = nothing, tableau = IMEXSSP3433(), G = 3,
-            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ,
+            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
             after_regrid = nothing) -> NamedTuple
@@ -497,7 +530,8 @@ MP5 ([`default_cfl`](@ref), step 7).
   dilates the firing cells by, the case's (feature speed × `chunk`), and
   `ε`, `ε_g` the indicator's floors.
 - `ops_U`, `ops_A`, `ops_Φ` are the operators of the matter, of `A_j` and of
-  `Φ̃` ([`MHDProblem`](@ref)), `fixup = false` skips `restrict_interfaces!` (the
+  `Φ̃`, and `ops_W` those of the primitives' ghost fill ([`MHDProblem`](@ref)),
+  `fixup = false` skips `restrict_interfaces!` (the
   negative control).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,
@@ -505,7 +539,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  stage=nothing, tableau=IRK.IMEXSSP3433(), G::Integer=3,
                  backend=CPU(), after_step=nothing, roots=case.roots,
                  ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
-                 ops_Φ::Operators=default_ops_Φ(),
+                 ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                  fixup::Bool=true, refine=nothing, maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing) where {T,D}
@@ -532,6 +566,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
                          provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
                          limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
+                         ops_W=ops_W,
                          fixup=fixup, boundary=case_boundary(case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
@@ -613,13 +648,14 @@ default_ξ(case::MHDCase{T,D}) where {T,D} =
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)
 
 """
-    default_ops_U(), default_ops_A(), default_ops_Φ()
+    default_ops_U(), default_ops_A(), default_ops_Φ(), default_ops_W()
 
 The operators [`MHDProblem`](@ref) and [`evolve!`](@ref) give the matter set,
 the three `A_j` and `Φ̃` unless told otherwise ("Field sets" and
 "Refinement" in `CODE.md`):
 
-- the matter: Conservative width 3, **bounded** (decided in step 8);
+- the matter: Conservative width 3, **bounded** (decided in step 8), in the
+  regrid (since AMR-10 its ghost fill is `W`'s);
 - `A_j`: the conservative family on a staggered set (AMR-9, TreeAMR 0.2.2)
   — along the edge's own (cell-like) direction the conservative width-3
   operators, whose restriction is the two-edge mean and whose prolongation's
@@ -631,11 +667,24 @@ the three `A_j` and `Φ̃` unless told otherwise ("Field sets" and
 - `Φ̃`: PointValue width 4. A vertex set has no cell-like dimension, so the
   conservative family would be this very operator (injection and width-4
   Lagrange); it stays PointValue (decided in step 8).
+- `W`, the primitives the matter's ghost fill prolongates: PointValue
+  **width 2**, `bounded = true` (AMR-10, TreeAMR 0.2.2; proposed in step 8 by
+  the ghost-fill and interface-order measurements, "Refinement" in
+  `CODE.md`). Width 2 is the multilinear interpolation, a convex
+  combination of the bracketing points with the same weights for every
+  variable, so a ghost is a mixture of its neighbours' states; at width 4
+  and 6 the bound clamps each variable on its own, and next to a heated
+  atmosphere a ghost took the dense side's density with the atmosphere's
+  entropy — the atmosphere tube across a coarse-fine face then injected
+  5.4e−4 and 1.8e−3 of energy (and the magnetized tube blew up at width 4),
+  where width 2 injects 2.4e−9. The flag is kept so that a width can be
+  tried without touching it (width 2 is bounded already).
 """
 default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
 default_ops_A() = Operators(; prolongation=3, restriction=2, family=Conservative,
                             vertex_prolongation=4)
 default_ops_Φ() = Operators(; prolongation=4, restriction=4)
+default_ops_W() = Operators(; prolongation=2, restriction=2, family=PointValue, bounded=true)
 
 """
     adapt_case!(f::MHDFields, case, build; ops_U, ops_A, ops_Φ, refine_tol, coarsen_tol,
@@ -665,7 +714,8 @@ function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, o
     ev = evolved_sets(f)
     ops = (ops_U, ops_A, ops_A, ops_A, ops_Φ)
     evolved = ntuple(i -> ev[i] => (ops[i], hook(i)), 5)
-    scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
+    scratch = (f.P => nothing, f.W => nothing, map(s -> s => nothing, f.B)...,
+               map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
     nscratch = length(scratch)
     initial = (initU, initA(1), initA(2), initA(3), initA(4), ntuple(_ -> nothing, nscratch)...)

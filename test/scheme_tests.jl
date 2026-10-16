@@ -204,7 +204,7 @@ end
     closed = Forest((2,); N=10, periodic=(false,), extents=((0.0, 1.0),))
     @test_throws "no boundary hooks" MHDProblem(mhd_fields(Float64, closed); kw..., limiter=:mc)
     g = mhd_fields(Float64, forest; G=2)
-    mixed = SC.MHDFields(f.U, g.A, f.Φ, f.P, f.B, f.F, f.EMF, f.X, Val(1))
+    mixed = SC.MHDFields(f.U, g.A, f.Φ, f.P, f.W, f.B, f.F, f.EMF, f.X, Val(1))
     @test_throws "ghost width" MHDProblem(mixed; kw..., limiter=:mc)
 end
 

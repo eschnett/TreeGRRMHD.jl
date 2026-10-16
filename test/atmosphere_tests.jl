@@ -88,7 +88,17 @@ end
         @test all(isfinite, a.r.u)
         @test minimum(a.pr.ρ) ≥ 1e-8 * (1 - 1e-12)
         @test t.step_resets > 0                          # the reset holds the atmosphere
-        @test t.stages[5] == 0                           # no OHM_FALLBACK
+        # No OHM_FALLBACK hydrodynamically. Magnetized, the count is not a
+        # property of the scheme (measured in step 8): the tube is chaotic at
+        # rounding level, and perturbing its initial state by 10⁻¹⁵ gives
+        # anywhere from 0 to 144 fallbacks of its 160,000 cell-stages, in the
+        # tree before step 8's primitive ghost fill as after it; asserted is
+        # the rate, at most 0.2% (twice the worst of twelve perturbed runs).
+        if By == 0
+            @test t.stages[5] == 0
+        else
+            @test t.stages[5] ≤ 2e-3 * 200 * 4 * a.nsteps
+        end
         for (v, inj) in ((AT.U_D, t.injected_D), (AT.U_TAU, t.injected_τ))
             @test abs(a.drift[v] - inj) ≤ 8 * eps() * a.scales[v] * a.nsteps
         end

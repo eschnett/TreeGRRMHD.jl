@@ -4,12 +4,12 @@
 #
 #   * a field loop across a coarse-fine face lies between the uniform coarse
 #     and the uniform fine control, in energy and in shape;
-#   * the potentials' PointValue width 4 keeps the Alfvén wave's order across
+#   * the potentials' width 4 keeps the Alfvén wave's order across
 #     coarse-fine faces, where width 2 loses one in L∞;
 #   * the gauge damping clears the `𝔅` a pure gauge pulse makes at a
 #     refinement boundary;
-#   * the matter's ghost fill, bounded, takes a blast into the atmosphere
-#     across a coarse-fine face without a repaired ghost.
+#   * the matter's ghost fill, in primitives at width 2, takes a blast into
+#     the atmosphere across a coarse-fine face with no inadmissible ghost.
 #
 # Uses `refinement_tests.jl`'s meshes and `multid_tests.jl`'s `md_run` and
 # `md_conserved`, so it is included after both; the split keeps each file
@@ -121,12 +121,15 @@ end
     @test b[3] ≤ b[2] / 30
 end
 
-# Over the run, the recoveries of the interior ghosts — those not beyond the
-# domain's faces — that the policy repaired for anything but the atmosphere,
-# their flags, and the change the step limiter's writes made to `√γ D`.
+# Over the run, the interior ghosts — those not beyond the domain's faces —
+# whose primitives the policy would repair for anything but the atmosphere
+# (EntropyEOS's `check_prim_state` of `(ρ, s, Yₑ, asinh |u|)`: is the ghost an
+# admissible state as it stands), with their flags, and those below the
+# atmosphere's density or non-finite.
 mutable struct RFGhosts
     repaired::Int
     flags::UInt32
+    below::Int
 end
 function rf_ghost_repairs!(acc, p, u, t)
     P = update_primitives!(p, u, t)
@@ -134,7 +137,11 @@ function rf_ghost_repairs!(acc, p, u, t)
     lo, hi = P.forest.extents[1]
     for b in 1:nblocks(P), i in vcat(1:G, (G + N + 1):(N + 2G))
         lo < coordinates(P, b, (i,))[1] < hi || continue
-        fl = unsafe_trunc(UInt32, P.work[i, RF.P_FLAGS, b])
+        ρ = P.work[i, RF.P_RHO, b]
+        (isfinite(ρ) && ρ ≥ (1 - 1e-12) * 1e-8) || (acc.below += 1)
+        ps = RF.EntropyEOS.PrimState{Float64}(ρ, P.work[i, RF.P_S, b], P.work[i, RF.P_YE, b],
+                                              P.work[i, RF.P_W, b])
+        fl = RF.EntropyEOS.check_prim_state(p.eos, ps, p.pol)
         if fl & RF.EntropyEOS.FLAG_POL_ANY & ~RF.EntropyEOS.FLAG_POL_ATMOSPHERE != 0
             acc.repaired += 1
             acc.flags |= fl
@@ -143,40 +150,55 @@ function rf_ghost_repairs!(acc, p, u, t)
     return acc
 end
 
-@testset "The matter's ghost fill, bounded, takes a blast into the atmosphere across a coarse-fine face" begin
-    # Guards the matter's operators (decided in step 8, "Refinement" in
-    # `CODE.md`): the ghost fill prolongates the conserved state, and the
-    # unbounded width-3 operator overshoots the front of a gas expanding
-    # into a 10⁻⁸ atmosphere — fine ghosts with `D < 0`, which the recovery
-    # reports as non-finite and repairs, and a reset that injects 250 times
-    # the rest mass it does on the uniform mesh; bounded (TreeAMR's MC-bounded
-    # prolongation, AMR-4), no ghost is repaired at all and the injection is
-    # the uniform mesh's (−8.4e−12, `atmosphere_tests.jl`). The atmosphere
-    # tube on 200 cells with `[0, 0.2)` refined, which the front crosses.
-    # This is the conserved ghost fill that runs until AMR-10: Erik decided
-    # on 2026-10-15 for the primitives with a bounded Lagrange prolongation,
-    # and this testset is re-measured with them when it lands.
+@testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face, at width 2 and not at 4" begin
+    # Guards the matter's ghost fill (decided by Erik 2026-10-15; the width
+    # proposed in step 8, "Refinement" in `CODE.md`): the fill prolongates
+    # the primitives `ρ, s, Yₑ, uⁱ, Eⁱ` (PointValue, bounded: AMR-10) and
+    # builds each conserved ghost by `prim2con` with the ghost's own `B`.
+    # The atmosphere tube on 200 cells with `[0, 0.2)` refined, which the
+    # front crosses (`bin/ghost_fill.jl` has the whole table). At width 2 —
+    # the multilinear interpolation, every variable with the same weights —
+    # no interior ghost is inadmissible or below the atmosphere, hydro-
+    # dynamically and magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`, where
+    # step 8's conserved ghosts had 33 repaired recoveries), and the reset
+    # injects 5.6e−9 of rest mass and 2.4e−9 of energy (the uniform mesh
+    # −8.4e−12 and −2.2e−10; the conserved fill −1.5e−11 and −2.5e−10). At
+    # width 4 the bound clamps each variable on its own, and where the front
+    # starts on the coarse-fine face a coarse ghost restricted from a dense
+    # and a heated atmosphere cell took the first's density and the second's
+    # entropy — a pressure of 5 beside 0.2 — and the reset injects 5.4e−4 of
+    # energy; unbounded, ghosts fall below the atmosphere and the energy goes
+    # non-finite.
     case = atmosphere_tube_case(Float64)
+    mag = atmosphere_tube_case(Float64; By=1e-3, model=MagnetizationCutoff(Constant(1e3), 10))
     refine_band!(forest) =
         (refine!(forest, [k for k in copy(forest.leaves)
                           if 0 ≤ block_origin(forest, k)[1] < 1 // 5 - 1e-12]);
          balance!(forest); forest)
-    runs = map((true, false)) do bounded
-        acc = RFGhosts(0, 0)
-        ops_U = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=bounded)
-        r = evolve!(case, Val(1); N=10, t_end=2 // 5, chunk=1 // 10, limiter=:mc,
-                    refine=refine_band!, ops_U=ops_U,
+    pv(w; bounded=true) = Operators(; prolongation=w, restriction=w, family=PointValue,
+                                    bounded=bounded)
+    function run(c, ops_W)
+        acc = RFGhosts(0, 0, 0)
+        r = evolve!(c, Val(1); N=10, t_end=2 // 5, chunk=1 // 10, limiter=:mc,
+                    refine=refine_band!, ops_W=ops_W,
                     after_step=(p, u, t) -> rf_ghost_repairs!(acc, p, u, t))
-        (; r, acc, injected=sum(c -> c.tally.injected_D, r.chunks))
+        (; r, acc, D=sum(c -> c.tally.injected_D, r.chunks),
+         τ=sum(c -> c.tally.injected_τ, r.chunks))
     end
-    bounded, unbounded = runs
-    @info "Atmosphere tube across a coarse-fine face: repaired interior ghosts " *
-          "$(bounded.acc.repaired) bounded, $(unbounded.acc.repaired) unbounded (flags " *
-          "$(string(unbounded.acc.flags; base=16))); injected rest mass $(bounded.injected) and " *
-          "$(unbounded.injected)"
-    @test bounded.r.nblocks == 24
-    @test bounded.acc.repaired == 0
-    @test abs(bounded.injected) ≤ 1e-10
-    @test unbounded.acc.flags & RF.EntropyEOS.FLAG_POL_NONFINITE != 0
-    @test unbounded.injected ≥ 1e-9
+    two = run(case, RF.default_ops_W())
+    magnetized = run(mag, RF.default_ops_W())
+    four = run(case, pv(4))
+    unbounded = run(case, pv(4; bounded=false))
+    @info "Atmosphere tube across a coarse-fine face, primitive ghosts: width 2 repaired " *
+          "$(two.acc.repaired), below ρ_atm $(two.acc.below), injected D $(two.D), τ $(two.τ); " *
+          "magnetized $(magnetized.acc.repaired), $(magnetized.acc.below), $(magnetized.D), " *
+          "$(magnetized.τ); width 4 injected τ $(four.τ); unbounded below ρ_atm " *
+          "$(unbounded.acc.below), injected τ $(unbounded.τ)"
+    @test two.r.nblocks == 24 && RF.default_ops_W().prolongation == 2
+    @test two.acc.repaired == 0 && two.acc.below == 0
+    @test magnetized.acc.repaired == 0 && magnetized.acc.below == 0
+    @test abs(two.D) ≤ 1e-7 && abs(two.τ) ≤ 1e-7
+    @test abs(magnetized.D) ≤ 1e-6
+    @test four.τ ≥ 1e-5
+    @test unbounded.acc.below > 0 && !isfinite(unbounded.τ)
 end

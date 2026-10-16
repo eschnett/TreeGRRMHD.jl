@@ -148,7 +148,8 @@ function regrid_pairs(p::MHDProblem, t)
     f = p.f
     hook(i) = p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t)
     evolved = ntuple(i -> p.sets[i] => (p.schedules[i], hook(i)), length(p.sets))
-    scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
+    scratch = (f.P => nothing, f.W => nothing, map(s -> s => nothing, f.B)...,
+               map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
     return (evolved..., scratch...)
 end

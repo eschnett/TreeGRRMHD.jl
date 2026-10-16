@@ -2,10 +2,13 @@
 # write the field sets, and the order they run in ("The right-hand side" in
 # `CODE.md`).
 #
-#   1. `scatter!` the multi-set state; `fill_ghosts!` every evolved set.
+#   1. `scatter!` the multi-set state; `fill_ghosts!` the potentials.
 #   2. `𝔅 = curl A + 𝔅̄` on every stored face (`src/curl.jl`).
-#   3. The metric at every stored cell, `B` averaged to it, and the
-#      hydrodynamic recovery, into `P` (`stored = true`).
+#   3. At the owned cells the metric, `B` averaged to the cell, and the
+#      hydrodynamic recovery, into `P` and the primitive set `W`; `W`'s
+#      ghost fill (PointValue, bounded: AMR-10); at every ghost cell `P` from
+#      `W` by forward EOS evaluation and the conserved state by `prim2con`,
+#      both with the ghost's own `B` (amended in step 8).
 #   4. `q = ∇·E` at the owned cells.
 #   5. (`T_ab` for the spacetime: rung 5.)
 #   6. Reconstruction and the Riemann fluxes into `F_d` over the closed face
@@ -86,7 +89,8 @@ const MHD_SOLVERS = (:llf, :hlle)
     MHDProblem(f::MHDFields; eos, opts, pol, model, provider = Flat(), 𝔅̄ = 0,
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
-               boundary = nothing, fixup = true)
+               ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
+               fixup = true)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
@@ -111,11 +115,12 @@ slope limiter `:none`, `:minmod` or `:mc` (step 5), or `:ppm`, `:wenoz`,
 `:mp5` (step 7), which need `G ≥ 3`. `riemann` is `:hlle` (the light-cone HLL, whose
 dissipation on `𝔈` matches the UCT EMF's on `𝔅`) or `:llf`.
 
-`ops_U`, `ops_A` and `ops_Φ` are the operators of the matter set, of the
-three `A_j` and of `Φ̃` ([`default_ops_U`](@ref) and its siblings):
-Conservative width 3 for the matter, **bounded** (TreeAMR's MC-bounded
-prolongation, AMR-4) in its regrid (and until step 8's AMR-10 its ghost
-fill); for `A_j` the conservative family on a staggered set (AMR-9),
+`ops_U`, `ops_A`, `ops_Φ` and `ops_W` are the operators of the matter set,
+of the three `A_j`, of `Φ̃` and of the primitive set `W` the matter's ghost
+fill prolongates ([`default_ops_U`](@ref) and its siblings): Conservative
+width 3 for the matter, **bounded** (TreeAMR's MC-bounded prolongation,
+AMR-4), which since step 8 acts in its regrid only, and PointValue width 2,
+bounded (AMR-10), for `W` (proposed in step 8); for `A_j` the conservative family on a staggered set (AMR-9),
 width 3 along the edge and point values of width 4 across it, so that the
 magnetic flux through a coarse face is the sum through its fine faces; and
 PointValue width 4 for `Φ̃` (proposed in step 5; decided in step 8 by the
@@ -125,16 +130,22 @@ coarse-fine face — "Refinement" in `CODE.md`).
 the order of [`evolved_sets`](@ref) (AMR-2 having landed, each set takes its
 own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 [`boundary_at`](@ref) turns into such a hook at the time of each fill — the
-case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
+case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `boundary_W` is
+the hook of `W`, by default derived from the matter's
+([`primitive_boundary`](@ref)). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
 """
-struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,
+                  RS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
     ops_U::OU                    # the matter's operators
     ops_A::OA                    # the operators of A_j
     ops_Φ::OΦ                    # the operators of Φ̃
+    schedule_W::SW               # the ghost schedule of the primitive set `W` (step 8)
+    ops_W::OW                    # its operators, PointValue bounded (AMR-10)
+    boundary_W::BW               # its boundary hook, `nothing` on a periodic domain
     ischeds_F::ISF               # NTuple{D,InterfaceSchedule}
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
@@ -160,8 +171,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                     𝔅̄=nothing, ξ=0, stage=nothing, limiter::Union{Symbol,Nothing}=nothing,
                     riemann::Symbol=:hlle,
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
-                    ops_Φ::Operators=default_ops_Φ(),
-                    boundary=nothing, fixup::Bool=true) where {D}
+                    ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
+                    boundary=nothing, boundary_W=nothing, fixup::Bool=true) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -180,7 +191,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
         "riemann must be one of $(MHD_SOLVERS), got :$riemann: `riemann_flux` has a " *
         "method for each of those and no others (CODE.md, \"Riemann solver\")."))
     sets = evolved_sets(f)
-    for s in (sets..., f.P, f.B...)
+    for s in (sets..., f.P, f.W, f.B...)
         s.G == G || throw(ArgumentError(
             "every ghosted set must have the matter set's ghost width G=$G, got " *
             "$(s.G) for a $(s.centering) set: the curl reads the edges of every " *
@@ -203,6 +214,9 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     end
     schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : i == SEG_Φ ? ops_Φ :
                                                    ops_A), length(sets))
+    schedule_W = GhostSchedule(f.W, ops_W)
+    bW = boundary === nothing ? nothing :
+         boundary_W === nothing ? primitive_boundary(boundary[SEG_U]) : boundary_W
     ischeds_F = ntuple(d -> InterfaceSchedule(f.F[d]), D)
     # An EMF set with no vertex-like dimension (in 1D, the one along x) has no
     # coarse-fine face to restrict, and TreeAMR refuses to build a schedule
@@ -219,11 +233,12 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
-                      typeof(ops_A),typeof(ops_Φ),typeof(ischeds_F),
+                      typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
+                      typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ops_U, ops_A, ops_Φ, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
+        f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann))
@@ -243,7 +258,7 @@ rebuild(p::MHDProblem; kwargs...) =
     MHDProblem(p.f; eos=p.eos, opts=p.opts, pol=p.pol, model=p.model, provider=p.provider,
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
-               boundary=p.boundary,
+               ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W,
                fixup=p.fixup, kwargs...)
 
 unval(::Val{X}) where {X} = X
@@ -281,17 +296,40 @@ end
 
 # --- the kernels ------------------------------------------------------------------
 
-# Step 3: the metric at every stored cell, `B` averaged to it, the
-# hydrodynamic recovery, and all of `P`. `q` is written at the owned cells by
-# the next kernel; here it is zero.
-@kernel function primitive_kernel!(Pw, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
+# The full `P` of a cell from the primitives the ghost fill carries (`W`'s
+# slots, `wv`), the cell's `B` and metric, and the recovery's flags: `vⁱ =
+# uⁱ/W` with `W = √(1 + γᵢⱼuⁱuʲ)`, the rapidity `asinh |u|`, and `p`, `h`,
+# `cs²` and the EOS's warm start from one forward evaluation of the EOS — no
+# inversion. Owned and ghost cells alike go through it (proposed in step 8),
+# so that where a ghost is a copy of its owner (a uniform mesh, a same-level
+# neighbour) the two blocks hold the same `P` bit for bit and compute the
+# same flux at their common face. `q` is written by `charge_kernel!`.
+@inline function P_from_W(eos, m::Metric3{T}, wv::NTuple{NW,T}, B::SVector{3,T},
+                          flags::UInt32) where {T}
+    ρ, s, Yₑ = wv[W_RHO], wv[W_S], wv[W_YE]
+    u = vec3(wv, W_U)
+    E = vec3(wv, W_E)
+    u² = dot_up(m, u, u)
+    u² = u² > zero(T) ? u² : zero(T)
+    W = sqrt(one(T) + u²)
+    v = u / W
+    pt = EntropyEOS.evaluate(eos, ρ, s, Yₑ, T(NaN))
+    prim = pack_prim(ρ, v, s, Yₑ, asinh(sqrt(u²)), pt.p, pt.h, pt.cs², pt.u_solved)
+    return pack_P(prim, flags, E, B, zero(T), m)
+end
+
+# Step 3, at the owned cells: the metric at the cell, `B` averaged to it, the
+# hydrodynamic recovery of `U`, and from it the primitives the ghost fill
+# carries into `W` and all of `P` (through `P_from_W`, as a ghost's).
+# *(Amended in step 8: until AMR-10 this ran over every stored cell after a
+# conserved ghost fill.)*
+@kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                    @Const(origins), @Const(spacings), provider, t, eos, opts,
                                    pol, ::Val{D}, ::Val{GP}, ::Val{GU},
                                    ::Val{GB}) where {D,GP,GU,GB}
-    I = @index(Global, NTuple)                       # stored: `stored = true`
+    I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
-    s = ntuple(e -> I[e], Val(D))
-    n = ntuple(e -> s[e] - GP[e], Val(D))
+    n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     m = point_metric(provider, oftype(h, t), x)
@@ -300,24 +338,63 @@ end
     B = 𝔅 / m.sqrtγ
     E = cons_𝔈(cons) / m.sqrtγ
     prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
-    Pc = pack_P(prim, flags, E, B, zero(h), m)
+    u = prim_W(prim) * prim_v(prim)
+    wv = (prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u[1], u[2], u[3], E[1], E[2], E[3])
+    Pc = P_from_W(eos, m, wv, B, flags)
+    sP = stored(n, GP)
+    @inbounds for v in 1:NW
+        Ww[sP..., v, b] = wv[v]
+    end
     @inbounds for v in 1:NP
-        Pw[s..., v, b] = Pc[v]
+        Pw[sP..., v, b] = Pc[v]
     end
 end
 
-# Step 4: `q = ∇·E = (1/√γ) ∂ᵢ𝔈ⁱ` at the owned cells, by centered differences
-# of the ghost-filled cell-centered `𝔈` ("Maxwell" in `CODE.md`: the charge is
-# derived, not evolved).
-@kernel function charge_kernel!(Pw, @Const(Uw), @Const(spacings), ::Val{D}, ::Val{GP},
-                                ::Val{GU}) where {D,GP,GU}
+# Step 3, at every ghost cell, after the fill of `W` (AMR-10; step 8): `P`
+# from the prolongated (or copied, restricted, or the hook's) primitives and
+# the ghost's own `B` — the curl of the filled `A` — by forward EOS
+# evaluation, with no recovery flags; and the conserved ghost by `prim2con`
+# with that `B`, so that its electromagnetic energy and momentum are its own
+# field's. Owned cells are skipped: `stored = true` hands every stored cell.
+@kernel function ghost_kernel!(Pw, Uw, @Const(Ww), @Const(B1), @Const(B2), @Const(B3),
+                               @Const(origins), @Const(spacings), provider, t, eos, N,
+                               ::Val{D}, ::Val{GP}, ::Val{GU}, ::Val{GW},
+                               ::Val{GB}) where {D,GP,GU,GW,GB}
+    I = @index(Global, NTuple)                       # stored: `stored = true`
+    b = I[D + 1]
+    sP = ntuple(e -> I[e], Val(D))
+    n = ntuple(e -> sP[e] - GP[e], Val(D))
+    if !all(ntuple(e -> 1 ≤ n[e] ≤ N, Val(D)))
+        h = @inbounds spacings[b]
+        x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+        m = point_metric(provider, oftype(h, t), x)
+        wv = read_vars(Ww, stored(n, GW), b, Val(NW))
+        B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) / m.sqrtγ
+        Pc = P_from_W(eos, m, wv, B, zero(UInt32))
+        @inbounds for v in 1:NP
+            Pw[sP..., v, b] = Pc[v]
+        end
+        c = prim2con(eos, m, Pc, aux_E(Pc), B)
+        sU = stored(n, GU)
+        @inbounds for v in 1:NU
+            Uw[sU..., v, b] = c[v]
+        end
+    end
+end
+
+# Step 4: `q = ∇·E = (1/√γ) ∂ᵢ(√γ Eⁱ)` at the owned cells, by centered
+# differences of `√γ E` from `P` ("Maxwell" in `CODE.md`: the charge is
+# derived, not evolved). *(Amended in step 8: from `P`, which every stored
+# cell now holds by the same function, rather than from the conserved
+# ghosts; in flat space the same numbers.)*
+@kernel function charge_kernel!(Pw, @Const(spacings), ::Val{D}, ::Val{GP}) where {D,GP}
     I = @index(Global, NTuple)
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
+    𝔈(c, d) = @inbounds Pw[stored(c, GP)..., P_SQRTG, b] * Pw[stored(c, GP)..., P_E + d - 1, b]
     div = sum(ntuple(Val(D)) do d
-        @inbounds (Uw[stored(shift(n, d, 1), GU)..., U_E + d - 1, b] -
-                   Uw[stored(shift(n, d, -1), GU)..., U_E + d - 1, b])
+        𝔈(shift(n, d, 1), d) - 𝔈(shift(n, d, -1), d)
     end) / (2 * h)
     @inbounds Pw[stored(n, GP)..., P_Q, b] = div / Pw[stored(n, GP)..., P_SQRTG, b]
 end
@@ -723,28 +800,41 @@ end
     update_primitives!(p::MHDProblem, u, t) -> P
 
 Steps 1 to 4 of [`mhd_rhs!`](@ref) and no further: scatter `u` into every
-evolved set and fill their ghosts, compute `𝔅` on every stored face, recover
-`P` in every stored cell, and `q` at the owned cells. Returns the primitive
-set `P`.
+evolved set, fill the potentials' ghosts, compute `𝔅` on every stored face,
+recover `P` at the owned cells, fill the primitives' ghosts and build `P`
+and the conserved state in every ghost cell from them, and `q` at the owned
+cells. Returns the primitive set `P`, filled in every stored cell.
 """
 function update_primitives!(p::MHDProblem{T,D}, u, t) where {T,D}
     scatter!(p.sets, u)
-    for i in eachindex(p.sets)
+    for i in SEG_A:SEG_Φ
         fill_set!(p, i, t)
     end
     return primitives_from_sets!(p, t)
 end
 
-# Steps 2 to 4 of the right-hand side on sets whose ghosts are filled already:
-# `𝔅` on every stored face, `P` in every stored cell, `q` at the owned cells.
+# Steps 2 to 4 of the right-hand side on sets whose potentials are filled and
+# whose matter holds the state on its owned cells (ghosts not needed):
+# `𝔅` on every stored face; the recovery at the owned cells into `P` and the
+# primitive set `W`; `W`'s ghost fill — PointValue, bounded (AMR-10), with its
+# own hook, which applies the complete outer boundary condition; `P` and the
+# conserved ghosts at every ghost cell from `W` and the ghost's own `B`; `q` at
+# the owned cells. *(Amended in step 8, decided by Erik 2026-10-15: until then
+# the matter's ghost fill was in conserved variables, and the recovery ran in
+# every stored cell after it.)*
 function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
     curl_A!(f, p.𝔅̄, p.spacings)
-    map_blocks!(primitive_kernel!, f.P, f.P.work, f.U.work, f.B[1].work, f.B[2].work,
-                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.pol,
-                Val(D), Val(f.P.G), Val(f.U.G), Val(GB_of(f)); stored=true)
-    map_blocks!(charge_kernel!, f.P, f.P.work, f.U.work, p.spacings, Val(D), Val(f.P.G),
-                Val(f.U.G))
+    GB = Val(GB_of(f))
+    map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
+                f.B[2].work, f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
+                p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB)
+    fill_ghosts!(f.W, p.schedule_W;
+                 boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
+    map_blocks!(ghost_kernel!, f.P, f.P.work, f.U.work, f.W.work, f.B[1].work, f.B[2].work,
+                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, f.P.forest.N,
+                Val(D), Val(f.P.G), Val(f.U.G), Val(f.W.G), GB; stored=true)
+    map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
     return f.P
 end
 

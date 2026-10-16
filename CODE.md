@@ -743,10 +743,11 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | set | centering | nvars | `G` | operators / at `regrid!` |
 |---|---|---|---|---|
 | GH `U` (TreeGH) | vertex | 20 | 3 | PointValue width 6 / `=> schedule` |
-| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8) / `=> schedule` |
+| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8), in the regrid / `=> schedule` |
 | `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | Conservative width 3 along the edge, point values of width 4 across it (AMR-9; decided in step 8) / `=> schedule` |
 | `Φ̃` | vertex | 1 | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
+| `W` — `ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`, the matter's ghost fill *(added in step 8)* | cell | 9 | 3 | PointValue width 2, bounded (AMR-10; proposed in step 8) / `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
@@ -1444,13 +1445,23 @@ gauge driver (GH-6).
 
 ## The right-hand side
 
-In the order the explicit part of each stage evaluates it (proposed):
+In the order the explicit part of each stage evaluates it (proposed;
+*amended in step 8*, when AMR-10 let the matter's ghost fill take the
+primitives, decided by Erik 2026-10-15):
 
-1. `scatter!` the multi-set state; `fill_ghosts!` every evolved set.
+1. `scatter!` the multi-set state; `fill_ghosts!` the potentials `A_j`, `Φ̃`
+   (each fill applying the complete outer boundary condition). The matter's
+   conserved state is not exchanged.
 2. Metric to cells (into `P`); `B_d = curl A + 𝔅̄` on all stored faces;
    `B` averaged to cells.
-3. `con2prim` over all stored cells, in hydrodynamic mode (the ghost
-   exchange is in conserved variables, as TreeHydro decided).
+3. `con2prim` over the **owned** cells, in hydrodynamic mode, into `P` and
+   the primitive set `W` (`ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`); `fill_ghosts!` on `W`
+   (PointValue, bounded — AMR-10 — with its own Dirichlet hook, the case's
+   primitives); at every ghost cell `P` from `W` by one forward EOS
+   evaluation, no inversion, and the conserved ghost by `prim2con` with the
+   ghost's own `B` and metric. (Until step 8 the exchange was in conserved
+   variables, as TreeHydro decided, and `con2prim` ran over every stored
+   cell.)
 4. `q = ∇·E` at cells.
 5. `T_ab` at cells, averaged to vertices into `Tsrc`; TreeGH's right-hand
    side (if evolved).
@@ -1474,7 +1485,18 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   recovery from `state_guesses` (see "Thermodynamics"), all thirty slots of
   `P`. `q` is a second kernel over the owned cells, by centered differences
   of the ghost-filled `𝔈`, `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h`
-  (proposed in step 5).
+  (proposed in step 5). *(Amended in step 8:)* step 3 is three passes:
+  `primitive_kernel!` over the owned cells (the recovery, `W`, and `P`
+  through `P_from_W`), the fill of `W`, and `ghost_kernel!` over every
+  stored cell that is not owned (`P` through the same `P_from_W` with the
+  ghost's `B`, the conserved ghost by `prim2con`). Owned cells take `P`
+  through `P_from_W` too, rather than straight from the recovery (proposed
+  in step 8): where a ghost is a copy of its owner — every ghost on a
+  uniform mesh — the two blocks then hold the same `P` bit for bit and
+  compute the same flux at their common face, as they did when both
+  recovered the same conserved state; the two differ by rounding only
+  (`v = u/W` from `u = cosh(w) v`, the rapidity `asinh |u|`, one forward EOS
+  call). `q` is taken from `P`'s `√γ E` (the same numbers in flat space).
 - Step 7 for `A_j` is `−EMF_j − (ψ[n + e_j] − ψ[n])/h` with
   `ψ = αΦ − βᵏA_k` evaluated at the two vertices that bound the edge, `A_k`
   averaged to a vertex from the two `k`-edges that meet there; along a
@@ -1912,64 +1934,100 @@ ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `
 with a bounded (no new extrema) Lagrange interpolation, and builds each
 conserved ghost by `prim2con` with the ghost's own `B`, the curl of the
 prolongated `A`; **the regrid stays conservative**, Conservative width 3,
-bounded, on the conserved variables. TreeAMR has no bounded PointValue
-operator: that is **AMR-10** (`PLAN.md`; req for step 8's re-measurement
-below, and for steps 10 and 12). It implies a restructuring of the
-right-hand side, done when AMR-10 lands:
-- the recovery runs on the owned cells *before* the exchange, into a
-  primitive field set with its own ghost schedule (PointValue, bounded) and
-  its own Dirichlet hooks — which must apply the complete outer boundary
-  condition, as the potentials' do ("Boundaries", decided by Erik
-  2026-10-15);
-- the conserved ghosts are rebuilt from the prolongated primitives by
-  `prim2con` with the ghost's own `B` and metric, and `P`'s other slots by
-  one EOS evaluation per ghost;
-- steps 1 to 3 of "The right-hand side" change order accordingly (the
-  exchange is no longer in conserved variables, as TreeHydro decided).
+bounded, on the conserved variables. TreeAMR had no bounded PointValue
+operator: that was **AMR-10**, landed in TreeAMR 0.2.2.
 
-Until then the ghost fill below runs: what is measured and runs now, not a
-workaround to keep. *As built in step 8 (proposed in step 8):* **the ghost
-fill prolongates the conserved state, bounded** (`Operators(…; bounded =
-true)`), and so does the regrid; `P` is refilled after every fill by the
-one recovery, in every stored cell, as since step 5; and the reset after a
-regrid writes what the recovery repaired. Its measurements, which AMR-10's
-downstream check re-measures with the primitives:
+*As built in step 8, when AMR-10 landed* (`primitives_from_sets!`,
+`P_from_W`, `ghost_kernel!` in `src/evolution.jl`; "The right-hand side"):
+- **The set** `W`, cell-centred, 9 variables: `ρ★`, `s`, `Yₑ`, the
+  contravariant `uⁱ = Wvⁱ` and the contravariant, undensitized `Eⁱ` — Erik's
+  list, with `uⁱ` rather than `vⁱ` so that any interpolated value is a
+  subluminal velocity, and `E` undensitized, as a primitive (proposed in
+  step 8). Scratch: resized, never transferred by a regrid.
+- **The recovery runs on the owned cells only**, before the exchange, and
+  writes `W` and `P`; `W`'s fill has its own hook, the case's primitives at
+  each ghost centre (`DirichletBoundary{:W}`, a function of position, so the
+  fill applies the complete condition); at every ghost cell `P` comes from
+  `W` by one forward EOS evaluation, no inversion, with the ghost's own `B`
+  (and no recovery flags), and the conserved ghost from `prim2con`. Owned
+  cells take `P` through the same function, so that a copied ghost is its
+  owner bit for bit (see "The right-hand side").
+- **The width** *(proposed in step 8, by the measurements below)*: **2**,
+  with `bounded = true` (which width 2 does not need: it is the multilinear
+  interpolation, accepted with the flag so that a width can be tried
+  without touching it). Width 2 interpolates every variable with the same
+  convex weights, so a ghost is a mixture of the states that bracket it. At
+  widths 4 and 6 the bound clamps each variable on its own, which keeps
+  every primitive in range but not the *state* consistent: where the
+  atmosphere tube's front starts on a coarse-fine face, a coarse ghost
+  restricted from a dense cell (`ρ = 0.088`, `s = 23.7`) and a heated
+  atmosphere cell (`ρ = 10⁻⁸`, `s = 31.4`) took a density of 0.028 and the
+  bracket's highest entropy, a pressure of 5.1 between neighbours at 0.2
+  and 10⁻¹⁰; the reset then injected 5.4e−4 of energy (width 6: 1.8e−3),
+  and the magnetized tube blew up at width 4. A per-variable bound does
+  not make a thermodynamically admissible state out of a mixture; only
+  common weights do. That costs the smooth interface order a little in L∞
+  in 2D (below).
+- **Conservation does not depend on it**: at a coarse-fine face it is
+  `restrict_interfaces!` on the fluxes; the regrid's bounded transfer of the
+  conserved variables is exactly conservative.
 
-- Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
-  atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; the
-  interior ghosts' recoveries over the run, those the policy repaired for
-  anything but the atmosphere):
+Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
+atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; over the
+run: the interior ghosts the policy would repair for anything but the
+atmosphere — with conserved ghosts the recovery of the ghost's conserved
+state, with primitive ghosts `check_prim_state` of the ghost's primitives —
+and the rest mass and energy the reset injected; `bin/ghost_fill.jl`, the
+conserved rows from the tree before this change, `git archive 7605986`):
 
-  | | uniform | two-level, unbounded | two-level, bounded |
-  |---|---|---|---|
-  | hydrodynamic: repaired ghosts; injected `D`, `τ` | 0; −8.4e−12, −2.2e−10 | 9 (non-finite: `D < 0`); 2.0e−9, 1.5e−8 | 0; −1.5e−11, −2.5e−10 |
-  | magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`) | 8; 2.5e−8, 6.9e−8 | 120 (non-finite); 4.2e−8, 8.6e−7 | 33 (`W` capped, entropy window); 3.5e−8, −6.1e−8 |
+| | hydrodynamic: repaired ghosts; injected `D`, `τ` | magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`) |
+|---|---|---|
+| uniform (conserved fill) | 0; −8.4e−12, −2.2e−10 | 8; 2.5e−8, 6.9e−8 |
+| uniform (primitive fill) | 0; −8.4e−12, −2.2e−10 | 0; 5.0e−8, 1.7e−6 |
+| conserved, unbounded | 9 (non-finite: `D < 0`); 2.0e−9, 1.5e−8 | 120 (non-finite); 4.2e−8, 8.6e−7 |
+| conserved, bounded (step 8's first) | 0; −1.5e−11, −2.5e−10 | 33 (`W` capped, entropy window); 3.5e−8, −6.1e−8 |
+| primitives, width 2 (**chosen**) | 0; 5.6e−9, 2.4e−9 | 0; 5.4e−8, 1.3e−6 |
+| primitives, width 4 | 0; −6.5e−12, **5.4e−4** | 0; **2.5e3, 5.3e12** |
+| primitives, width 6 | 0; 1.9e−12, **1.8e−3** | 0; 4.6e−8, 1.2e−6 |
+| primitives, width 4 unbounded | 71 below `ρ_atm`; −2.4e−6, non-finite | 17 (+ 72 below `ρ_atm`); non-finite |
 
-  Bounded, the hydrodynamic front crosses with no repaired ghost and the
-  uniform mesh's injection; unbounded, the overshoot makes `D < 0` in fine
-  ghosts and injects 250 times the rest mass. So bounded is the default,
-  and the claim is asserted (`test/refinement_cases_tests.jl`).
-- **Conservation does not depend on it.** At a coarse-fine face it is
-  `restrict_interfaces!` on the fluxes, which makes the coarse flux the
-  fine average whatever the ghosts held; the regrid's bounded transfer is
-  exactly conservative. Primitives in the regrid would not be.
-- **`B` is never state, either way** — neither variant prolongates `B`; a
-  fine ghost's `B` is the curl of the prolongated `A`. But a conserved
-  ghost carries the electromagnetic energy and momentum of the *coarse*
-  field in its `τ` and `S`, from which the recovery subtracts those of the
-  ghost's own `B`: where the field dominates (the magnetized atmosphere
-  above), that difference lands in the fluid's energy, and the bounded fill
-  still repairs 33 ghost recoveries where the uniform mesh repairs 8 — no
-  non-finite one, and the uniform mesh's injection. Primitives
-  (`ρ`, `s`, `uⁱ`, `Eⁱ` bounded, then `prim2con` with the ghost's own `B`)
-  would remove that mismatch.
-- **What primitives in the ghost fill would cost**: a primitive field set
-  with its own schedule and its own Dirichlet hooks, the recovery before
-  the exchange instead of after it (on the owned cells only), and an EOS
-  evaluation per ghost to rebuild `P`'s thermodynamic slots — the RHS's
-  order of "The right-hand side" changes. (In step 8 this was left
-  **(open)**; decided by Erik 2026-10-15 for the primitives, above.)
+The magnetized injections are not comparable between rows below 10⁻⁶: the
+magnetized tube is chaotic at that level — perturbing its initial state by
+10⁻¹⁵ moves the uniform run's injected energy between 3.9e−8 and 2.1e−6
+(measured in step 8, on the tree before and after the change alike) — and
+the primitive fill's owned `P` differs from the recovery's by rounding,
+which moved the uniform row. The hydrodynamic tube is not chaotic: its
+uniform row is the same to every digit in both fills.
 
+What the measurements say *(proposed in step 8, for Erik)*: the primitive
+fill keeps every ghost admissible — no ghost the policy would repair, none
+below the atmosphere, magnetized as well (the AMR-10 downstream check,
+against 33 repaired recoveries with conserved ghosts) — but on the
+hydrodynamic tube it injects 5.6e−9 of rest mass where the bounded
+conserved fill injected 1.5e−11 and the uniform mesh 8.4e−12: mixing
+primitives (a coarse ghost restricted from a dense and an atmosphere cell)
+makes more internal energy than mixing the conserved state, which is the
+energy-conserving mixture. Not an error — the reset's injection is a
+correction the scheme accounts — but larger than step 8's first fill, and
+an argument for prolongating the pressure instead of the entropy, which
+needs the entropy from `(ρ, p)` (EOS-3), or for keeping width 2. The fill
+runs as Erik decided, at width 2, until that is settled.
+
+Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
+above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
+`S_x` L1 / L∞ rates:
+
+| matter's ghost fill | 1D, one period | 2D diagonal, an eighth |
+|---|---|---|
+| conserved, width 3 bounded (step 8's first) | 2.11 / 2.04 | 2.14 / 2.02 |
+| primitives, width 2 (**chosen**) | 2.09 / 1.97 | 2.13 / 1.85 |
+| primitives, width 4 | 2.11 / 2.01 | 2.12 / 2.06 |
+| primitives, width 6 | 2.11 / 2.01 | 2.12 / 2.05 |
+
+(L∞ of `S_x` at 32² in 2D: 1.14e−2 at width 2, 8.0e−3 at width 4, against
+7.6e−3 and 2.0e−3 uniform coarse and fine.) Width 2 keeps second order in
+L1 and loses a little in L∞ in 2D — the linear interpolation's error at a
+fine ghost is `O(h²)`, which the reconstruction there differentiates.
 
 ## Julia version
 
@@ -2263,6 +2321,24 @@ named as claims.
      reports as non-finite and repairs inside the stage (the flag appears
      among the stages' policy flags, never in the state); its magnetization
      is `+∞` (see "Ohm's law and the conductivity").
+     *(Amended in step 8:)* **the magnetized tube is chaotic at rounding
+     level**, and its fallbacks, injected energy and largest `W` are not
+     properties of the scheme: perturbing its initial state by 10⁻¹⁵ (twelve
+     runs, on the tree before step 8's primitive ghost fill and after it)
+     gives 0 to 144 fallbacks of its 160,000 cell-stages, an injected energy
+     from 3.9·10⁻⁸ to 2.1·10⁻⁶ and a largest `W` from 4.6 to 90, while every
+     run stays finite, above the atmosphere, and conserves the totals but
+     for exactly what the reset injects. The primitive ghost fill, whose
+     owned `P` differs from the recovery's by rounding, moved the suite's
+     run to 92 fallbacks, `2.5·10⁻⁸` → `5.0·10⁻⁸` of rest mass and
+     `6.9·10⁻⁸` → `1.7·10⁻⁶` of energy, and `W` 4.69 → 6.63; the test now
+     asserts no fallback hydrodynamically and a fallback rate of at most
+     0.2% magnetized (proposed in step 8). The same holds for step 6's
+     tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
+     draw from that spread, and the decision for SSP3(4,3,3) rests on its
+     other rows (the near-vacuum rarefaction, the ideal atmosphere). The
+     hydrodynamic tube is not chaotic: both fills give its numbers to every
+     digit.
    - Cost (Julia 1.13, Apple M3 Pro, one thread, 400 cells): a step of
      Balsara 1 is 6.5 ms, of Balsara 3 15 ms (the recoveries at a pressure
      ratio of 10⁴); the three test files take 45, 37 and 11 s.
@@ -2403,6 +2479,12 @@ named as claims.
    - **The atmosphere across a coarse-fine face**: the bounded ghost fill
      repairs no ghost and injects what the uniform mesh does; unbounded,
      `D < 0` in fine ghosts and 250 times the rest mass (the table in
+     "Refinement"). *(Amended in step 8, AMR-10 landed:)* the ghost fill
+     now prolongates the primitives, width 2 (proposed): no ghost
+     inadmissible or below the atmosphere, hydrodynamically and magnetized
+     (where conserved ghosts had 33 repaired recoveries), but 5.6e−9 of rest
+     mass injected hydrodynamically against the conserved fill's 1.5e−11;
+     at width 4, 5.4e−4 of energy, and a blow-up magnetized (the tables in
      "Refinement").
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow

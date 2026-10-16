@@ -8,6 +8,10 @@
 # (prolongation and restriction) for all four.
 #
 #     julia --project=. bin/interface_order.jl [1d] [2d] [matter=unbounded] [potentials=pointvalue]
+#                                              [ghost=w]
+#
+# `ghost=w` sets the width of the matter's ghost fill in primitives (AMR-10,
+# PointValue bounded; 2 by default, `default_ops_W`).
 #
 # 1D: the wave of rung 1a (`alfven_wave_case`, MC, HLLE, SSP3(4,3,3), one
 # period) on a static two-level mesh — `M` coarse cells in blocks of `N = 8`
@@ -16,8 +20,9 @@
 # solution; the controls are the uniform coarse and uniform fine meshes.
 # 2D: the wave along the diagonal (`oblique_case`, as `multid_cases_tests.jl`
 # runs it, an eighth of a period) on 2 × 2 roots of N = 8, 16, 32 with one
-# root refined. The matter's operators are the default (bounded) unless
-# `matter=unbounded`. Printed: L1 and L∞ errors of `S_y` and `A_y` (1D), of `S_x`
+# root refined. The matter's conserved operators are the default (bounded)
+# unless `matter=unbounded` (since step 8 they act in a regrid only, which
+# these static meshes never make). Printed: L1 and L∞ errors of `S_y` and `A_y` (1D), of `S_x`
 # and `A_z` (2D), and least-squares rates over the resolutions.
 
 using Printf
@@ -65,6 +70,11 @@ ops_A(w) = POINTVALUE ? Operators(; prolongation=w, restriction=w) :
 ops_Φ(w) = Operators(; prolongation=w, restriction=w)
 println("potentials: ", POINTVALUE ? "PointValue" : "A conservative (AMR-9), Φ̃ PointValue")
 args = filter(a -> !occursin('=', a), ARGS)
+ghost = let a = findfirst(s -> startswith(s, "ghost="), ARGS)
+    a === nothing ? 2 : parse(Int, ARGS[a][7:end])
+end
+ops_W = Operators(; prolongation=ghost, restriction=ghost, family=PointValue, bounded=true)
+println("matter's ghost fill: ", ops_W)
 
 if isempty(args) || "1d" in args
     println("1D Alfvén wave, one period, MC; S_y and A_y")
@@ -81,7 +91,7 @@ if isempty(args) || "1d" in args
             w = get(kw, :w, 4)
             r = evolve!(c, Val(1); N=8, t_end=alfven_period(c), limiter=:mc,
                         refine=haskey(kw, :w) ? refine_middle! : nothing, ops_U=ops_U,
-                        ops_A=ops_A(w), ops_Φ=ops_Φ(w))
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W)
             errors(r, c, TG.U_S + 1, 2)
         end
         study(label, runs, hs)
@@ -105,7 +115,7 @@ if isempty(args) || "2d" in args
             w = get(kw, :w, 4)
             r = evolve!(c, Val(2); N=N, t_end=t_end, limiter=:mc,
                         refine=haskey(kw, :w) ? refine_first! : nothing, ops_U=ops_U,
-                        ops_A=ops_A(w), ops_Φ=ops_Φ(w))
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W)
             errors(r, c, TG.U_S, 3)
         end
         study(label, runs, hs)

@@ -80,6 +80,21 @@ const X_INJECTED_TAU = 18
 const X_DIVB = 19
 const N_OHM_BITS = 9
 
+"""Number of slots of the primitive set `W` the matter's ghost fill prolongates."""
+const NW = 9
+# The slots of `W` (added in step 8; decided by Erik 2026-10-15, "Refinement"
+# in `CODE.md`): the rest-mass density `ρ★`, the entropy per baryon `s`, the
+# electron fraction `Yₑ`, the contravariant `uⁱ = W vⁱ` and the contravariant,
+# undensitized `Eⁱ`. Point values at the cell centres, each kept within its
+# neighbours' range by the bounded PointValue fill (AMR-10), so that a ghost
+# built from them is an admissible state wherever its neighbours are: `ρ★ > 0`,
+# `s` and `Yₑ` in their windows, `uⁱ` (unbounded, unlike `vⁱ`) any value.
+const W_RHO = 1
+const W_S = 2
+const W_YE = 3
+const W_U = 4
+const W_E = 7
+
 """
     MHDFields
 
@@ -91,6 +106,7 @@ Every field set the scheme uses on one forest ("Field sets" in `CODE.md`):
 | `A[j]`, `j = 1:3` | edge along `j` | 1 | 3 | evolved: the covariant `A_j` |
 | `Φ` | vertex | 1 | 3 | evolved: the gauge scalar `Φ̃ = √γ Φ` |
 | `P` | cell | 30 | 3 | scratch: the primitives, `E`, `B`, `q`, the cell metric |
+| `W` | cell | `NW` | 3 | scratch: `ρ★, s, Yₑ, uⁱ, Eⁱ`, the matter's ghost fill (step 8) |
 | `B[d]`, `d = 1:3` | face normal to `d` | 1 | 3 | scratch: `𝔅ᵈ = curl A + 𝔅̄`, every RHS |
 | `F[d]`, `d = 1:D` | face normal to `d` | 10 | 0 | scratch: the matter fluxes |
 | `EMF[j]`, `j = 1:3` | edge along `j` | 1 | 0 | scratch: the electromotive force |
@@ -105,6 +121,7 @@ struct MHDFields{D,FU,FA,FΦ,FP,FB,FF,FE,FX}
     A::FA          # NTuple{3,FieldSet}
     Φ::FΦ
     P::FP
+    W::FP          # the primitives the matter's ghost fill prolongates (step 8)
     B::FB          # NTuple{3,FieldSet}
     F::FF          # NTuple{D,FieldSet}
     EMF::FE        # NTuple{3,FieldSet}
@@ -136,12 +153,13 @@ function mhd_fields(::Type{T}, forest::Forest{D}; G::Integer=3,
     A = ntuple(j -> fs(1, G, edge_centering(vD, j); walls=:symmetric), 3)
     Φ = fs(1, G, vertexcentered(D); walls=:symmetric)
     P = fs(NP, G, cellcentered(D))
+    W = fs(NW, G, cellcentered(D))
     B = ntuple(d -> fs(1, G, face_centering(vD, d)), 3)
     F = ntuple(d -> fs(NU, 0, face_centering(vD, d)), D)
     EMF = ntuple(j -> fs(1, 0, edge_centering(vD, j)), 3)
     X = fs(NX, 0, cellcentered(D))
     return MHDFields{D,typeof(U),typeof(A),typeof(Φ),typeof(P),typeof(B),typeof(F),
-                     typeof(EMF),typeof(X)}(U, A, Φ, P, B, F, EMF, X, vD)
+                     typeof(EMF),typeof(X)}(U, A, Φ, P, W, B, F, EMF, X, vD)
 end
 
 """
