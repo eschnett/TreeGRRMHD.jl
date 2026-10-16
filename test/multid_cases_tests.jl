@@ -139,13 +139,15 @@ end
 end
 
 @testset "A closed box is mirror-symmetric bit for bit: the explosion in 2D" begin
-    # Guards AMR-8's workaround (step 8; decided by Erik 2026-10-15): TreeAMR
-    # fills the high wall plane of a vertex-like dimension at an outer face as a
-    # ghost and leaves the low one owned and evolved, so without the
-    # prescription of the low walls (`low_walls!`) `𝔅` on a box's high boundary
-    # face is the case's and on its low one the evolution's; and the hook,
-    # which runs before the prolongations, took a point where a wall meets
-    # another block from the block's own last column (`outer_points!`). The
+    # Guards the symmetric walls (AMR-8; decided by Erik 2026-10-15, step 8's
+    # workaround until TreeAMR 0.2.2): under half-open walls TreeAMR fills the
+    # high wall plane of a vertex-like dimension at an outer face as a ghost
+    # and leaves the low one owned and evolved, so `𝔅` on a box's high
+    # boundary face is the case's and on its low one the evolution's; and a
+    # hook that clamps along every outward direction takes a point where a
+    # wall meets another block from the block's own last column. The
+    # potentials' sets have `walls = :symmetric` and a relative hook (AMR-7)
+    # that reads that point from the neighbour's ghost. The
     # explosion in a box small enough that its light-cone precursors reach the
     # faces within a step — `[−2, 2]²` at 32², minmod, to `t = 1/4` (10 steps):
     # 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`, fields reversed) of a variable's
@@ -173,7 +175,7 @@ end
     # minmod, to `t = 1/4` — every kernel along every direction, the
     # twelve-edge curl, and the field's three reflections (`x → −x` alone,
     # `y → −y` and `z → −z` with the fields reversed). In a closed box since
-    # step 8 (AMR-8's workaround; step 7 had to run it periodic): the
+    # step 8 (symmetric walls, AMR-8; step 7 had to run it periodic): the
     # light-cone precursors reach every face of so small a box within a step
     # or two, and with the low walls evolved the box was 1.3e−2 (`x → −x`) and
     # 1.0e−1 (`y`, `z`) of a variable's scale away from its mirror image at

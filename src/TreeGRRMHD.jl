@@ -56,7 +56,7 @@ cases — the cylindrical explosion, the magnetic rotor, the Orszag–Tang vorte
 and the field loop ([`cylindrical_explosion_case`](@ref),
 [`magnetic_rotor_case`](@ref), [`orszag_tang_case`](@ref),
 [`field_loop_case`](@ref)). Step 8: both walls of a closed box prescribed
-alike ([`low_walls!`](@ref)), the refinement criterion ([`mhd_flags`](@ref)),
+alike (TreeAMR's symmetric walls and relative hook), the refinement criterion ([`mhd_flags`](@ref)),
 the regrid of every field set ([`regrid_state!`](@ref)), static and adaptive
 meshes in [`evolve!`](@ref), and a pure gauge pulse
 ([`gauge_pulse_case`](@ref)).
@@ -112,7 +112,7 @@ export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B
 # The driver and the cases
 export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
-       profile_1d, low_walls!
+       profile_1d, walls_to_state!
 # Refinement
 export mhd_flags, indicator_scales, regrid_state!
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed

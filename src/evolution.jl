@@ -136,9 +136,8 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
     spacings::SP
-    outer::OF                    # per block, its outer faces, low and high (AMR-8)
-    hasouter::Bool               # whether the potentials have the case's hooks there
-    multilevel::Bool             # whether the forest has more than one level
+    lowwall::OF                  # per block, its low domain faces (`low_walls`, AMR-8)
+    haswalls::Bool               # whether any block has one
     eos::EOS
     opts::OPT
     pol::POL
@@ -212,19 +211,18 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
-    of_host = outer_faces(forest, T)
-    hasouter = boundary !== nothing && any(o -> any(any, o), of_host) &&
-               any(i -> boundary[i] isa DirichletBoundary, SEG_A:SEG_Φ)
-    outer = to_backend(backend, of_host)
+    lw_host = low_walls(forest, T)
+    haswalls = any(any, lw_host)
+    lowwall = to_backend(backend, lw_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
                       typeof(ops_A),typeof(ischeds_F),
-                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(outer),
+                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
                       typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, outer,
-        hasouter, maxlevel(forest) > 0,
+        f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
+        haswalls,
         eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann))
 end
@@ -261,41 +259,20 @@ with the value at that time.
 boundary_at(hook, t) = hook
 
 # The ghost fill of evolved set `i` at time `t`, with its own boundary hook,
-# leaving the set in the state the *complete* outer boundary condition
+# which leaves the set in the state the *complete* outer boundary condition
 # defines (decided by Erik 2026-10-15: "an outer boundary condition needs to
-# be applied always"). For a potential with the case's Dirichlet hooks
-# (`src/driver.jl`):
-#
-#   1. the owned low walls at the outer faces are prescribed in the working
-#      array by the rule the hook applies to the high walls (AMR-8's
-#      workaround);
-#   2. TreeAMR's fill, with the hook;
-#   3. every point beyond an outer face is refilled by that rule from the
-#      nearest evolved point now that every ghost is filled
-#      (`outer_points!`), which the hook, running before the prolongations,
-#      cannot do where a wall meets another block (AMR-7, amended in step 8);
-#   4. on a mesh with more than one level, TreeAMR's fill once more with no
-#      hook — which leaves every point beyond an outer face as step 3 wrote
-#      it — so that the prolongations read the corrected points, and step 3
-#      again for the points that read those prolongated ghosts. Each step
-#      depends only on what the one before fixed (a coarse block's corner row
-#      on a restriction of fine owned points, a fine ghost on that row, a
-#      fine corner row on that ghost), so after it a further fill and
-#      refill change nothing, bit for bit (a test); on a uniform mesh there
-#      is no prolongation and one pass is already that fixed point.
-#
-# So every fill — a right-hand side's, a stage's, a reset's, a regrid's
-# (`regrid_state!`), the initial adaptation's — sees both walls of a box
-# filled alike, at its own time, by the whole condition.
+# be applied always"). The matter's hook is a function of position; a
+# potential's is TreeAMR's relative hook (AMR-7), which takes the nearest
+# evolved point across a block face from the block's own filled ghost and
+# runs each region after the stage that fills what it reads, and the
+# potentials' sets have symmetric walls (AMR-8), so the owned low wall at a
+# low outer face is filled by the high wall's rule. One fill is the
+# condition's fixed point (a test). *(Amended in step 8: until TreeAMR 0.2.2
+# this was the low walls, the hook, `outer_points!`, and on a multilevel
+# mesh a hookless fill and `outer_points!` again.)*
 function fill_set!(p::MHDProblem, i::Int, t)
-    s, sched = p.sets[i], p.schedules[i]
-    i == SEG_U || low_walls!(p, i, s.work, Val(s.G), t)
-    fill_ghosts!(s, sched;
+    fill_ghosts!(p.sets[i], p.schedules[i];
                  boundary=p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t))
-    if i != SEG_U && outer_points!(p, i, t) && p.multilevel
-        fill_ghosts!(s, sched; boundary=nothing)
-        outer_points!(p, i, t)
-    end
     return nothing
 end
 
@@ -544,17 +521,21 @@ end
 
 # Step 7, the potential: `∂ₜA_j = −EMF_j − ∂_j(αΦ − βᵏA_k)` at the owned
 # edges along `j`. The edge `n` lies between the vertices `n` and `n + e_j`;
-# along a missing direction there is no gradient.
+# along a missing direction there is no gradient. Zero on an owned low wall
+# (`lowwall`, AMR-8): the wall is prescribed by the fill, not evolved
+# (decided in step 8; a branch, never a multiplication by a mask).
 @kernel function potential_rhs_kernel!(du, @Const(EMFj), @Const(A1), @Const(A2), @Const(A3),
-                                       @Const(Φw), @Const(origins), @Const(spacings), provider,
-                                       t, ::Val{D}, ::Val{j}, ::Val{GE}, ::Val{GA},
-                                       ::Val{GΦ}) where {D,j,GE,GA,GΦ}
+                                       @Const(Φw), @Const(origins), @Const(spacings),
+                                       @Const(lowwall), provider, t, ::Val{D}, ::Val{j},
+                                       ::Val{GE}, ::Val{GA}, ::Val{GΦ}) where {D,j,GE,GA,GΦ}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     e = @inbounds EMFj[stored(n, GE)..., 1, b]
-    if j ≤ D
+    if on_low_wall(n, @inbounds(lowwall[b]), Val(edge_staggers(Val(D), Val(j))))
+        @inbounds du[n..., 1, b] = zero(h)
+    elseif j ≤ D
         o = @inbounds origins[b]
         tt = oftype(h, t)
         A = (A1, A2, A3)
@@ -594,25 +575,32 @@ end
 end
 
 # Step 7, the gauge: `∂ₜΦ̃ = −∂_j(α√γ Aʲ − βʲΦ̃) − ξαΦ̃` at the owned
-# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side.
+# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side; zero
+# on an owned low wall, as for `A_j`.
 @kernel function gauge_rhs_kernel!(du, @Const(A1), @Const(A2), @Const(A3), @Const(Φw),
-                                   @Const(origins), @Const(spacings), provider, t, ξ,
-                                   ::Val{D}, ::Val{GA}, ::Val{GΦ}) where {D,GA,GΦ}
+                                   @Const(origins), @Const(spacings), @Const(lowwall),
+                                   provider, t, ξ, ::Val{D}, ::Val{GA},
+                                   ::Val{GΦ}) where {D,GA,GΦ}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     v = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
-    o = @inbounds origins[b]
-    tt = oftype(h, t)
-    A = (A1, A2, A3)
-    div = sum(ntuple(Val(D)) do j
-        gauge_edge_flux(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt, Val(j)) -
-        gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, Val(GΦ), o, h, provider, tt, Val(j))
-    end)
-    x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
-    m = point_metric(provider, tt, x)
-    Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
-    @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
+    if on_low_wall(v, @inbounds(lowwall[b]), Val(vertex_staggers(Val(D))))
+        @inbounds du[v..., 1, b] = zero(h)
+    else
+        o = @inbounds origins[b]
+        tt = oftype(h, t)
+        A = (A1, A2, A3)
+        div = sum(ntuple(Val(D)) do j
+            gauge_edge_flux(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt, Val(j)) -
+            gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, Val(GΦ), o, h, provider, tt,
+                            Val(j))
+        end)
+        x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
+        m = point_metric(provider, tt, x)
+        Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
+        @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
+    end
 end
 
 # The implicit stage of Ohm's law at the owned cells (step 3's
@@ -800,13 +788,14 @@ function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
         i = SEG_A + j - 1
         map_blocks!(potential_rhs_kernel!, p.sets[i], statearray(du, p.sets, i),
                     f.EMF[j].work, f.A[1].work, f.A[2].work, f.A[3].work, f.Φ.work,
-                    p.origins, p.spacings, p.provider, t, Val(D), Val(j), Val(f.EMF[j].G),
+                    p.origins, p.spacings, p.lowwall, p.provider, t, Val(D), Val(j),
+                    Val(f.EMF[j].G),
                     Val(GA), Val(f.Φ.G))
         nothing
     end
     map_blocks!(gauge_rhs_kernel!, f.Φ, statearray(du, p.sets, SEG_Φ), f.A[1].work,
-                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.provider, t,
-                p.ξ, Val(D), Val(GA), Val(f.Φ.G))
+                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.lowwall,
+                p.provider, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G))
     return nothing
 end
 
@@ -846,11 +835,12 @@ cells it writes are counted into the diagnostics set.
 atmosphere alone: every repaired state is exactly invertible, and is what
 the next right-hand side would recover anyway.
 
-*(Added in step 8, AMR-8's workaround:)* it first prescribes the potentials'
-owned low walls at the outer faces of a case with Dirichlet hooks
-([`low_walls!`](@ref)), so that the state holds both walls of a closed box
-by the same rule and a closed box is mirror-symmetric ("Boundaries" in
-`CODE.md`).
+*(Added in step 8; amended in step 8 when AMR-8 landed:)* after its fill of
+the potentials, which writes their owned low walls by the outer boundary
+condition (TreeAMR's symmetric walls), it copies those walls — and nothing
+else — into `u` ([`walls_to_state!`](@ref)), so that the state holds the
+boundary condition's walls after every step, where the right-hand side,
+writing zero there, would leave them stale ("Boundaries" in `CODE.md`).
 
 This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
 is the same reset in the step limiter's role.
@@ -869,8 +859,12 @@ reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
 
 function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     f = p.f
-    low_walls!(p, u, t)
     update_fields!(p, u, t)
+    if p.haswalls
+        scatter!(p.sets[SEG_Φ], stateview(u, p.sets, SEG_Φ))
+        fill_set!(p, SEG_Φ, t)
+        walls_to_state!(p, u)
+    end
     map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
                 p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)

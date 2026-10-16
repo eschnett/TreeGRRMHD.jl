@@ -1589,6 +1589,12 @@ a stage's, a reset's — knows its time):
   cell every step (measured in step 6); with the field's Dirichlet data it
   stays uniform to 3.3e−13 under either tableau (a test). This hook reads
   the interior, TreeAMR's region form, CPU-only: AMR-7 in `PLAN.md`.
+  *(Amended in step 8:)* since TreeAMR 0.2.2 it is TreeAMR's relative hook,
+  `CellBoundary(Relative(f))` with `f` the case's potential at the fill's
+  time (`boundary_at`): a kernel, so **every case, periodic or not, runs on
+  every backend** — the CPU-only restriction came from the region form
+  alone and is gone (not exercised on a device here: the machine has none
+  this package targets; step 14's).
 
 *(Measured in step 7:)* the potentials' hooks are not mirror-symmetric. The
 box's low boundary vertex is a block's first owned point and is evolved,
@@ -1608,73 +1614,68 @@ are prescribed.** At every outer face of a case with Dirichlet hooks, the
 owned low wall of each potential (`A_j`, `Φ̃`; a vertex-like dimension's
 first owned point `G+1`) is set by the mirror of the hook's high-wall rule —
 the nearest evolved point (`G+2`) plus the case's difference between the
-two points, at the time of the fill — by a `map_blocks!` kernel of this
-package, `low_walls!` (`src/driver.jl`), which runs on every backend and
-reads only in-block points. It runs in the state vector inside the limiter
-passed as both `stage_limiter` and `step_limiter`, beside the atmosphere
-reset, so the walls persist in the state; and in each potential's working
-array before every ghost fill, so every fill — a right-hand side's, a
-stage's, a reset's, at its own time — sees both walls alike. It is the
-workaround of **AMR-8** (`PLAN.md`), which asks TreeAMR for an opt-in under
-which `fill_ghosts!` fills the owned low wall of every vertex-like
-dimension by the high wall's rule for every face kind; once it lands the
-kernel is deleted. Periodic faces have no walls, and reflecting and
-outflow faces are TreeAMR's machinery and are not touched. The face kinds
-come from exported API (the block's origin against the extent, the
-forest's `periodic`, `reflecting` and `outflow` properties).
+two points, at the time of the fill. And every point beyond an outer face
+takes its nearest evolved point across a block face from the block's own
+(filled) ghost along the dimensions it does not leave the domain through:
+TreeAMR's region form clamped along every outward direction, so a corner
+row where a wall meets another block came from the block's own last column
+and the point two blocks share held a different value in each (the cell
+next to it had a block-dependent `𝔅`, and the two blocks computed
+different fluxes at their common face next to the wall). Both were this
+package's kernels until TreeAMR 0.2.2 (`low_walls!`, `outer_points!`, and on
+a multilevel mesh a second, hookless fill and `outer_points!` again); both
+are TreeAMR's now (amended in step 8):
+- the potentials' field sets are built with **`walls = :symmetric`** (AMR-8),
+  under which the fill writes the owned low wall of a vertex-like dimension
+  at a low domain face by the high wall's rule;
+- their hook is the **relative hook** (AMR-7), which reads `x_r` across a
+  block face from the block's own ghost and runs each region after the
+  stage that fills what it reads, so that **one fill applies the complete
+  condition** — `fill_ghosts!`, `regrid!`'s fill before its transfer and
+  `adapt_to_initial_data!`'s alike (decided by Erik 2026-10-15: "an outer
+  boundary condition needs to be applied always"). `fill_set!` is that one
+  fill; `regrid_state!` hands `regrid!` every set's own hook; the initial
+  adaptation's criterion reads what the cycle filled.
 
-Making the box symmetric bit for bit found a second, older asymmetry in the
-hook itself: TreeAMR's region form clamps the nearest evolved point along
-every *outward* direction, and a corner region that leaves the domain
-through one face and crosses into the next block through another (the
-wall's row beside a block face) was filled from the block's own last
-column rather than from its neighbour's — so the point two blocks share
-held a different value in each, the cell next to it had a block-dependent
-`𝔅`, and the two blocks computed different fluxes at their common face next
-to the wall. The hook runs before the prolongations and may read only its
-own block, so this package refills every point beyond an outer face after
-each fill (`outer_points!`, `src/driver.jl`): from the nearest evolved
-point, clamped only along the dimensions the point leaves the domain
-through and read from the now-filled ghosts along the others (amended
-AMR-7 in `PLAN.md`, which asks for that of a device-capable relative hook).
+Measured (`test/refinement_tests.jl`, the closed `[−2, 2]²` explosion with a
+wall root refined, to `t = 1/4`): a second fill changes nothing bit for bit,
+and one fill of working arrays prefilled with `NaN` writes the same — every
+stored point, from the state alone; a hookless fill leaves it; and a regrid
+through `regrid_state!` transfers bit for bit what step 8's first
+arrangement (a complete fill of this package's, then `regrid!` with no hook
+for the potentials) transferred. The hook evaluates `f(x_g) + (u(x_r) −
+f(x_r))` where `outer_points!` evaluated `u(x_r) + (f(x_g) − f(x_r))`, so the
+potentials' outer points moved by rounding: every number the suite prints
+for a non-periodic case moved in its last digits at most (see "Validation
+ladder").
 
-*(Amended in step 8, decided by Erik 2026-10-15: "an outer boundary
-condition needs to be applied always".)* **Every fill leaves the potentials
-in the state the complete condition defines** — the prescribed low walls,
-and every point beyond an outer face the nearest evolved point plus the
-case's difference, the wall's rows next to another block included — and
-nothing reads a ghost before that:
-- `fill_set!` (the right-hand side's, the stage's, the reset's,
-  `update_fields!`'s fills): the low walls, TreeAMR's fill with the hook,
-  `outer_points!`; and on a mesh with more than one level a hookless fill
-  (TreeAMR then leaves every point beyond an outer face as it is) and
-  `outer_points!` once more, because a fine ghost prolongated next to a
-  wall reads a coarse block's corner row, which the first `outer_points!`
-  corrected, and a fine corner row reads that ghost. After it a further
-  fill and refill change nothing, bit for bit (`test/refinement_tests.jl`):
-  the fill is the condition's fixed point. On a single level there is no
-  prolongation and the first pass is it. A low wall's row in a ghost column
-  across another block's face is TreeAMR's: the exchange copies it from the
-  neighbour's own prescribed wall (rewriting it from this block's clamped
-  point, as a first form of `outer_points!` did, disagreed with the
-  exchange across a coarse-fine face, where the two levels' nearest evolved
-  points differ).
-- `regrid_state!`: the complete fill of every evolved set, then `regrid!`
-  with no hook for a potential that has the case's — its pre-transfer fill
-  recomputes every other ghost bit for bit from the same data and leaves
-  the outer points, so the transfer reads the complete condition. Before
-  this (step 8's first form, `regrid!` filling with the hook alone), a
-  regrid refining a wall root next to coarse ones in the closed `[−2, 2]²`
-  explosion transferred potentials 1.8e−10 off (of 1.2e−2); now exactly
-  what a complete fill gives (a test).
-- `adapt_case!`: the cycle fills with the hooks, and the criterion fills the
-  potentials completely before it reads them; with `transfer = false`
-  nothing else reads them.
+**The low walls in the state** *(decided in step 8, at the reviewer's
+request; proposed)*. The low wall is owned, so it is in the integrator's
+state vector, but TreeAMR writes it during the fill — into the set's working
+array after `scatter!`, not into `u`. `map_blocks!`'s owned range is
+unchanged by symmetric walls (the trimmed range `G+2 …` is the fill's
+regions' only), so the right-hand side would compute an evolved value there
+and `u`'s wall entries would drift from the condition. So:
+- the right-hand side writes **zero** into `du` at an owned low wall of
+  `A_j` and `Φ̃` (`on_low_wall`, a branch, never a multiplied mask): the wall
+  is algebraic, prescribed by the fill, and the implicit part never touches
+  the potentials;
+- the reset, in both its roles, after its own fill of the potentials,
+  copies the filled walls — those points and no other — into `u`
+  (`walls_to_state!`), so that after every step `u` holds the condition's
+  walls for everything that reads `u` without a fill: output, error norms,
+  `gather!`-based comparisons, a regrid's `gather!` (whose new state the
+  post-regrid reset then corrects where a new block's wall was
+  prolongated), a checkpoint and restart.
 
-No ghost TreeAMR reads internally is left with the hook's partial values.
-What remains upstream is that the hook cannot express the condition itself
-(AMR-7, amended in step 8), so an application must do the above, and pays
-a second fill of each potential on a multilevel mesh.
+Nothing in the scheme reads `u`'s walls without a fill first. Tested on the
+closed box, uniform and with a wall root refined: after every step `u`'s
+190 (214) wall entries are what a complete fill writes, bit for bit, and
+`du` is exactly zero there; and one step from a state whose wall entries are
+all perturbed by 1 gives the same state, bit for bit, as from the true one.
+`low_walls(forest, T)` lists, per block, the low domain faces (any
+non-periodic one, since TreeAMR fills the wall at outer, reflecting and
+outflow faces alike).
 
 *Measured in step 8:* the explosion in a box its precursors reach — `[−2,
 2]²` at 32², minmod, `t = 1/4` — was 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`,
@@ -1694,6 +1695,25 @@ precursors before `t_end`; the one exception is the current sheet run on to
 `t = 9`, whose field has diffused to the faces by then: its L1 distance to
 the erf profile went from 9.30e−4 to 9.56e−4 of `B₀`, the low face's `𝔅`
 now the profile's as the high one's was.
+
+*(Measured in step 8, with TreeAMR 0.2.2's symmetric walls and relative
+hook:)* both closed boxes are still their own mirror images bit for bit,
+and nothing printed by a uniform-mesh case moved — the uniform flows, the
+shock tubes' budgets, the current sheet (9.56e−4) and the atmosphere tubes
+to every digit. On a refined mesh a closed box is **not** mirror-symmetric:
+the explosion in its closed box with the middle 2 × 2 roots refined (a mesh
+symmetric under both reflections, whose coarse-fine faces cut the blast's
+transition region), to `t = 1/4`, is 1.0e−2 (`x → −x`) and 8.8e−3 (`y → −y`)
+of a variable's scale from its mirror image in `U`, 1.1e−2 and 1.3e−2 in
+`A_z` (3.2e−4 and 6.3e−3 in `A_z` after one step). That is TreeAMR's open
+item (its `CODE.md`, "Centerings": a plane on a coarse-fine face is the fine
+block's owned plane when the face is the fine block's low face, and the
+coarse block's, interpolated at the fine points between, when it is its high
+face; 4.7e−5 upstream on smooth data, one fill), here at a discontinuity
+and through 20 steps. Recorded, not hidden: `test/refinement_tests.jl`
+asserts it present and bounded (proposed in step 8: nothing in this
+package needs a refined box to be symmetric before the stars of steps 10
+and 12, whose own symmetry tests will say whether upstream must close it).
 
 ## Refinement
 

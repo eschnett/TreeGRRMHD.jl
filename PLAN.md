@@ -149,12 +149,12 @@ This is TreeGH's pattern.
   have landed and are used without workarounds: `regrid_pairs` gives each evolved set its own hook,
   `adapt_case!` adapts every set at once.
 - **The outer boundary condition is applied in full after every fill** (decided by Erik
-  2026-10-15): `fill_set!` (hook, `outer_points!`, and on a multilevel mesh a hookless fill and
-  `outer_points!` again), `regrid_state!` (a complete fill, then `regrid!` with no hook for the
-  potentials, whose fill then keeps it bit for bit), `adapt_case!` (the criterion fills completely).
-  A new path that fills a potential must go through `fill_set!`; a TreeAMR call that fills with the
-  potentials' hook alone and then reads the ghosts is the gap AMR-7 (amended in step 8) names.
-  *(Amended in step 8; replaces the sharp edge "`regrid!` fills ghosts with the hook alone".)*
+  2026-10-15): since TreeAMR 0.2.2 one TreeAMR fill does it — the potentials' relative hook
+  (AMR-7) and symmetric walls (AMR-8) — in `fill_ghosts!`, `regrid!` and
+  `adapt_to_initial_data!` alike, so every evolved set is filled with its own hook
+  (`fill_set!`, `regrid_pairs`). A new path that fills a potential without its hook leaves the
+  outer points and the low wall as they were. *(Amended in step 8 twice: first this package's
+  `outer_points!` and a second fill, then TreeAMR's.)*
 - **A regridded run's initial totals** are `evolve!`'s `totals0`, taken on the initial mesh: the
   case's initial data on the final mesh has other Gauss averages. *(Added in step 8.)*
 - **The IMEX implicit tendency is `(U − u★)/(γΔt)`.** The stage solver must return the `U` it
@@ -169,9 +169,10 @@ This is TreeGH's pattern.
   is wrong in the stage solve unless it is written so that `t` drops out — hence the
   potentials' Dirichlet data in the field (added in step 6).
 - **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells — and *(amended in
-  step 8)* the potentials' owned low walls at the outer faces of a case with Dirichlet hooks
-  (AMR-8's workaround, `low_walls!`): with the reset, both limiters prescribe them, so that a
-  closed box is mirror-symmetric.
+  step 8)* the potentials' owned low walls at the low domain faces, which the fill writes under
+  symmetric walls (AMR-8) and the reset, as stage and step limiter, copies into `u`
+  (`walls_to_state!`), so that `u` holds the boundary condition's walls. The right-hand side writes
+  zero into `du` there: the wall is prescribed, not evolved.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
   monitor.

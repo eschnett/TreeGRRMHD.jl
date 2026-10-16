@@ -174,8 +174,8 @@ function md_closed_global(p, i)
 end
 
 # Bit for bit, the mirror symmetry of a closed box (added in step 8, with
-# AMR-8's workaround): every evolved set of the state `u` at `t`, scattered and
-# ghost-filled, on the closed range — both boundary planes of a vertex-like
+# symmetric walls, AMR-8): every evolved set of the state `u` at `t`, scattered
+# and ghost-filled, on the closed range — both boundary planes of a vertex-like
 # dimension, the low one owned and prescribed, the high one the hook's — is
 # its own reflection along `axes`, with the parities of `md_mirror_error`. A
 # cell `g` mirrors to `M + 1 − g`, a vertex-like point to `M + 2 − g`, and now
