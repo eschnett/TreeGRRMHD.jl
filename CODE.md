@@ -219,7 +219,7 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   levels where an outer face meets a coarse-fine face** *(added in step
   8)*: there each level's hook writes its own wall edges, so the magnetic
   flux through a coarse face touching an outer face is its fine faces' sum
-  only to 7.3e−6 of the largest flux, where everywhere else it is to
+  only to 1.2e−5 of the largest flux, where everywhere else it is to
   rounding ("Conservation at coarse-fine faces"). No workaround needed.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
@@ -1559,7 +1559,13 @@ static two-level meshes and adaptive ones):
   telescopes in floating point — and 0.025 of 0.029 and 0.0037 of 0.0078
   without it (proposed in step 8: the claim of PLAN.md's step 8, "the flux
   through a coarse face equals the sum through its fine faces", made as
-  the rate it is made by).
+  the rate it is made by). *(Re-measured at the end of step 8, with the
+  potentials' conservative transfer and the matter's ghost fill in
+  primitives:)* 8.7e−19 of 5.4e−3 (2D) and of 5.5e−3 (3D) with the
+  correction, 0.025 of 0.029 and 0.0017 of 0.0055 without; the totals
+  0.013 (1D) and 0.12 (2D) ulp a step with the fixup, 1.8·10¹⁰ and
+  5.4·10¹¹ without; tracked Balsara 1 0.015 (2.2·10⁷ without), the rotor
+  0.037.
 - **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
   block across whose *face* the finer neighbour lies (TreeAMR's face
   directions only). An edge at the end of a coarse-fine face is also an
@@ -1589,14 +1595,15 @@ static two-level meshes and adaptive ones):
   *(Measured in step 8, with the potentials' conservative transfer, AMR-9;
   `test/refinement_tests.jl`:)* **the flux holds as a state, to rounding,
   after every fill and every regrid.** The flux through the plane of the
-  oblique wave on the two-level box drifts 1.5e−17 of its scale (5.8e−4
-  with the PointValue operators), and the same after a regrid that coarsens
-  the refined root and refines the opposite one (5.9e−4 with PointValue). In 3D, on every face of a coarse block on a coarse-fine face
-  of the periodic spherical blast (192 faces, then 384 after a regrid), the
-  flux from the coarse block's own `𝔅` equals the sum through the fine faces
-  covering it to 1.4e−16 of the largest flux (2.2e−3 with PointValue). That
+  oblique wave on the two-level box drifts 2.2e−16 of its scale (5.8e−4
+  with the PointValue operators), and 1.5e−16 after a regrid that coarsens
+  the refined root and refines the opposite one (5.8e−4 with PointValue).
+  In 3D, on every face of a coarse block on a coarse-fine face of the
+  periodic spherical blast (192 faces, then 384 after a regrid), the flux
+  from the coarse block's own `𝔅` equals the sum through the fine faces
+  covering it to 1.4e−16 of the largest flux (1.5e−3 with PointValue). That
   is the transfer's property, not the EMF correction's: without the
-  correction it holds to 2.7e−16 too, since after every fill the edges the
+  correction it holds to 1.4e−16 too, since after every fill the edges the
   non-owning level holds are derived from the owner's (the restriction's
   mean, or a prolongation whose two children average to the parent). So
   PLAN.md's negative control "and does not without [the EMF correction]"
@@ -1606,7 +1613,7 @@ static two-level meshes and adaptive ones):
   **Not at an outer face** *(measured in step 8; proposed: accepted,
   recorded)*. In the same blast's closed box the 147 faces away from the
   walls agree to rounding, but the 45 whose perimeter lies on an outer face
-  miss by 7.3e−6 of the largest flux (2.7e−5 after the regrid): there each
+  miss by 1.2e−5 of the largest flux (2.7e−5 after the regrid): there each
   level's relative hook writes its own wall edges, the nearest evolved point
   of that level plus the case's difference, so a coarse wall edge is not
   the sum of the fine ones beside it. The flux through a face at a Dirichlet
@@ -1872,7 +1879,10 @@ proposed in step 8 unless marked otherwise):
   2.01 (L1 errors at 32² 1.71e−3 at width 4 and 6, against 1.85e−3 and
   3.10e−4 uniform). **The width stays 4** (decided in step 8 again): the
   conservative direction changes nothing the reconstruction at the face
-  sees to three digits, and width 2 still loses the order across it.
+  sees to three digits, and width 2 still loses the order across it. With
+  the matter's ghost fill in primitives at width 2 as well (AMR-10, below)
+  the potentials' widths 2, 4, 6 give 1.91 / 0.88, 2.09 / 1.97, 2.08 / 1.97
+  in 1D and 1.45 / 0.08, 2.13 / 1.85, 2.13 / 1.84 in 2D: width 4 again.
 - **The gauge damping** *(decided in step 8; amended in step 8, decided
   by Erik 2026-10-15: "choose the same ξ on all meshes")*: `evolve!` uses
   `ξ = 16/L` on every mesh, uniform or refined, `L` the longest side of the
@@ -1911,15 +1921,16 @@ proposed in step 8 unless marked otherwise):
   16Δt/L ≪ 1` at any resolution a box of side `L` is run at, far inside
   the explicit part's stability.
 
-  *(Re-measured in step 8 with the potentials' conservative transfer,
-  AMR-9:)* the spurious field is much smaller, since a coarse edge's mean is
+  *(Re-measured at the end of step 8 with the potentials' conservative
+  transfer, AMR-9, and the matter's ghost fill in primitives, AMR-10:)*
+  the spurious field is much smaller, since a coarse edge's mean is
   what the fine edges along it carry and the prolongated gradient is closer
   to a fine one:
 
   | `ξ` | 0 | 1 | 4 | 16 | 64 |
   |---|---|---|---|---|---|
-  | `max |𝔅|` over the run | 3.6e−2 | 1.6e−2 | 4.7e−3 | 3.7e−4 | 1.9e−5 |
-  | `max |𝔅|` at `t = 2` | 1.6e−2 | 6.2e−3 | 3.6e−4 | 7.3e−6 | 5.5e−6 |
+  | `max |𝔅|` over the run | 3.6e−2 | 1.6e−2 | 4.8e−3 | 3.9e−4 | 2.0e−5 |
+  | `max |𝔅|` at `t = 2` | 1.6e−2 | 6.2e−3 | 3.5e−4 | 7.2e−6 | 5.7e−6 |
   | `max |Φ̃|` at `t = 2` | 0.25 | 8.4e−2 | 4.0e−3 | 8.0e−5 | 5.3e−4 |
 
   (uniform: at most 5.3e−15). The oblique wave's L1 errors again move in
@@ -1927,7 +1938,8 @@ proposed in step 8 unless marked otherwise):
   two light crossings and `Φ̃` by 3100; beyond it `Φ̃` is overdamped as
   before. `ξ = 16/L` stands (Erik's decision of one `ξ` on every mesh, and
   this table agrees). In the suite's 8² version the undamped field at
-  `t = 2` went from 0.18 to 0.044 and the damped one from 1.2e−3 to 1.9e−5.
+  `t = 2` went from 0.18 to 0.049 and the damped one from 1.2e−3 to 1.6e−5
+  (0.044 and 1.9e−5 with AMR-9 alone).
 
 **The ghost fill of the matter** *(decided by Erik 2026-10-15)*: **the
 ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ` —
@@ -2436,46 +2448,53 @@ named as claims.
    `test/refinement_cases_tests.jl`; HLLE, SSP3(4,3,3), `cfl` 2/5 over `D`
    on the finest level; the matter's operators Conservative width 3
    bounded, the potentials' PointValue width 4, `ξ = 16/L` on every mesh
-   — "Refinement"; Julia 1.13):
+   — "Refinement"; Julia 1.13; *amended at the end of step 8*: since
+   TreeAMR 0.2.2 the potentials `A_j` conservative along the edge (AMR-9),
+   the matter's ghost fill in primitives, PointValue width 2 (AMR-10), and
+   the numbers below re-measured with them, the first value in brackets):
    - **Conservation at coarse-fine faces**: every total but `𝔈`'s drifts
-     0.008 (1D) and 0.12 (2D) ulp of its scale a step on static two-level
-     meshes with the flux fixup, 1.5·10¹⁰ and 3.3·10¹¹ without; through
-     regrids, 0.017 (Balsara 1, tracked, ten regrids) and 0.036 (the rotor,
-     two). See "Conservation at coarse-fine faces".
+     0.008 [0.013] (1D) and 0.12 [0.12] (2D) ulp of its scale a step on
+     static two-level meshes with the flux fixup, 1.5·10¹⁰ [1.8·10¹⁰] and
+     3.3·10¹¹ [5.4·10¹¹] without; through regrids, 0.017 [0.015] (Balsara
+     1, tracked, ten regrids) and 0.036 [0.037] (the rotor, two). See
+     "Conservation at coarse-fine faces".
    - **Magnetic flux**: the rate through every coarse face on a coarse-fine
      face equals the fine faces' sum to 1.7e−18 (2D) and 8.7e−19 (3D) of the
      largest rate with the EMF correction, 0.85 and 0.48 of it without. As a
      state, the flux through the plane drifts 5.8e−4 of its scale across a
      level — the potentials' operators, AMR-9. *(Amended in step 8, AMR-9
      landed:)* with `A_j` conservative along the edge the state holds too —
-     the plane's flux to 1.5e−17 through the run and a regrid, and in 3D every
-     coarse face on a coarse-fine face its fine faces' sum to 1.4e−16 of the
-     largest flux after steps and after a regrid (2.2e−3 with PointValue),
-     with or without the EMF correction (the transfer's property); at an
-     outer face only to 7.3e−6 (each level's hook, AMR-11). The rate's
-     mismatch in 3D is now 8.7e−19 of 7.7e−3 (0.0035 of 0.0077 without).
+     the plane's flux to 2.2e−16 through the run and 1.5e−16 through a
+     regrid, and in 3D every coarse face on a coarse-fine face its fine
+     faces' sum to 1.4e−16 of the largest flux after steps and after a
+     regrid (1.5e−3 with PointValue), with or without the EMF correction (the
+     transfer's property); at an outer face only to 1.2e−5 (each level's
+     hook, AMR-11). The rate's mismatch is now 8.7e−19 of 5.4e−3 (2D) and
+     5.5e−3 (3D), and 0.84 and 0.31 of it without.
    - **`∇·𝔅`**: at most 2.0e−16 of `max |𝔅|` after every step on every
      level and right after every regrid (the adaptive rotor), as in rung 2a.
    - **The field loop across a coarse-fine face** (`x ≥ 0` refined, the face
      through the loop's centre): its magnetic energy and its `A_z` error lie
-     between the uniform coarse and fine controls — at `t = 1/2`, 0.801 of
-     its initial energy against 0.623 and 0.844, L1(`A_z`) 1.6e−6 against
-     3.0e−6 and 8.7e−7; at `t = 4` (`bin/field_loop_refined.jl`, the loop a
-     third of its radius across the face), 0.584 against 0.206 and 0.619,
-     and 4.2e−6 against 9.3e−6 and 3.0e−6. The refined half keeps the fine
+     between the uniform coarse and fine controls — at `t = 1/2`, 0.801
+     [0.803] of its initial energy against 0.623 and 0.844, L1(`A_z`) 1.6e−6
+     [1.56e−6] against 3.0e−6 and 8.7e−7; at `t = 4`
+     (`bin/field_loop_refined.jl`, the loop a third of its radius across the
+     face), 0.584 [0.589] against 0.206 and 0.619, and 4.2e−6 [4.16e−6]
+     against 9.3e−6 and 3.0e−6. The refined half keeps the fine
      mesh's energy; the coarse half loses the coarse mesh's. (Adaptive, one
      level where Löhner fires, the loop with its buffer and 2:1 balance
      covers every root of so small a box: it is the uniform-fine run, to
      every digit printed.)
    - **The interface order and the gauge damping**: the tables in
-     "Refinement" (width 4: L∞ 2.04 in 1D, 2.02 in 2D, where width 2 gives
-     0.91 and 0.33; `ξ = 16/L` clears 97% of a gauge pulse's spurious
-     field within two light crossings).
+     "Refinement" (width 4: L∞ 2.04 [1.97] in 1D, 2.02 [1.85] in 2D, where
+     width 2 gives 0.91 [0.88] and 0.33 [0.08]; `ξ = 16/L` clears 97%
+     [99.95%] of a gauge pulse's spurious field within two light
+     crossings).
    - **The tracked shock tube**: Balsara 1 on its box made periodic, 100
      coarse cells and two levels more where Löhner fires (`refine_tol =
      0.08`, `coarsen_tol = 0.02`, buffer 6), regridded every 1/80: three
      adaptation passes, ten regrids, 18 to 40 blocks, 416 steps, conserved
-     to 0.017 ulp a step, nothing repaired and no reset.
+     to 0.017 [0.015] ulp a step, nothing repaired and no reset.
    - **The atmosphere across a coarse-fine face**: the bounded ghost fill
      repairs no ghost and injects what the uniform mesh does; unbounded,
      `D < 0` in fine ghosts and 250 times the rest mass (the table in
@@ -2486,6 +2505,28 @@ named as claims.
      mass injected hydrodynamically against the conserved fill's 1.5e−11;
      at width 4, 5.4e−4 of energy, and a blow-up magnetized (the tables in
      "Refinement").
+   - **What the end of step 8 moved elsewhere** (measured, every line the
+     suite prints, before and after, Julia 1.13): the symmetric walls and
+     the relative hook moved nothing a uniform-mesh case prints; the
+     primitive ghost fill, whose owned `P` goes through `P_from_W`, moved
+     the uniform runs in their last digits — the waves' L1 errors in the
+     12th to 15th, every rate to the digits recorded unchanged, the
+     drifts (Alfvén 0.0059 → 0.0046 ulp a step, PPM 0.011 → 0.0056), the
+     shock tubes' L1 errors in the 11th to 13th digit (Balsara 3 under PPM
+     in the 10th) and their boundary budgets within 3·10⁻¹⁴, the uniform
+     flows through the faces 4.4·10⁻¹³ … 1.5·10⁻¹² of a variable's scale,
+     the current sheet's distance 9.559329e−4 → 9.559339e−4, Orszag–Tang's
+     asymmetry 1.9e−13 → 3.8e−13 (the recovery's tolerance; asserted ≤
+     1e−11), the rotor's drift 2.9e−16 → 4.0e−16; the 1D/2D/3D bit identity,
+     the turned runs and every mirror symmetry on a uniform mesh hold bit
+     for bit. Chaotic at rounding level, and so moved further: the
+     magnetized atmosphere tube (rung 1b, amended there), the near-vacuum
+     rarefaction under ARS (2.1e−10 → 2.7e−10, resets 152/114 → 161/118)
+     and the ideal magnetized atmosphere under ARS (2.6·10⁴ → 1.6·10⁴ of
+     rest mass injected, `W` 49 → 100); SSP3(4,3,3)'s rows of both are the
+     same to the digits recorded. The 3200-cell references in `test/data/`
+     are not regenerated (proposed in step 8): the scheme changed for them by
+     rounding only, against reference errors of 10⁻³.
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).

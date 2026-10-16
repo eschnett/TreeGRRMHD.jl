@@ -94,8 +94,9 @@ end
     # fine side disagree at every coarse-fine face, and mass leaks at the
     # truncation error. The Alfvén wave of rung 1a over a quarter period on
     # 64 cells with the middle half refined (1D), and along the diagonal on
-    # 2 × 2 roots of 8² with one refined (2D). Measured (1D): 0.008 ulp of a
-    # total's scale a step with the fixup, 3·10⁸ to 1.5·10¹⁰ without.
+    # 2 × 2 roots of 8² with one refined (2D). Measured: 0.013 (1D) and 0.12
+    # (2D) ulp of a total's scale a step with the fixup, 1.8·10¹⁰ and 5.4·10¹¹
+    # without (0.008 and 0.12 with step 8's first conserved ghost fill).
     c1 = alfven_wave_case(Float64; roots=D == 1 ? 8 : 1)
     case = D == 1 ? c1 : oblique_case(c1; N=8, roots=2)
     t_end = alfven_period(c1) / (D == 1 ? 4 : 8)
@@ -216,8 +217,8 @@ end
     # one refined (2D; `E = −v × B` varies everywhere), and the spherical
     # blast in its closed box after two steps on 2 × 2 × 2 roots of 8³ with
     # one refined (3D, the Dirichlet hooks across the levels too). Measured:
-    # 1.7e−18 of a largest rate of 0.016 (2D) and 0.0085 (3D) with the
-    # correction, 0.025 of 0.031 and 0.0039 of 0.0092 without.
+    # 8.7e−19 of a largest rate of 5.4e−3 (2D) and 5.5e−3 (3D) with the
+    # correction, 0.025 of 0.029 and 0.0017 of 0.0055 without.
     case = D == 2 ? orszag_tang_case(Float64; roots=2) :
            cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true)
     t_end = D == 2 ? 1 // 1000 : 1 // 32
@@ -246,8 +247,8 @@ end
     # `coarsen_tol = 0.02`, a 6-cell buffer), regridded every 1/80 to
     # `t = 0.4`. The bounded regrid transfer is exactly conservative and the
     # post-regrid reset writes nothing, so every total stays constant to
-    # rounding through the regrids: measured 0.013 ulp of a total's scale a
-    # step (8 is the bound), and 3·10⁶ to 1.4·10⁷ without the fixup.
+    # rounding through the regrids: measured 0.015 ulp of a total's scale a
+    # step (8 is the bound), and 2.2·10⁷ without the fixup.
     c = balsara_case(Float64, 1; roots=10)
     case = MHDCase(Float64, Val(1); fields=c.fields, potential=c.potential, eos=c.eos,
                    pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
@@ -283,7 +284,7 @@ end
     # adaptation makes 28 blocks, the regrids 52 and 58 as the torsional
     # waves leave the rotor. And the totals through the regrids, constant to
     # rounding but for the precursors at the faces (`md_conserved`;
-    # measured 0.036 ulp of a total's scale a step).
+    # measured 0.037 ulp of a total's scale a step).
     divs = Float64[]
     run = md_run(magnetic_rotor_case(Float64; roots=4), Val(2); N=8, t_end=1 // 10,
                  chunk=1 // 40, limiter=:mc, maxlevel=1, refine_tol=0.08, coarsen_tol=0.02,
@@ -320,10 +321,10 @@ const RF_PV = Operators(; prolongation=4, restriction=4)   # the potentials befo
     # PointValue family, which interpolates there, does not. The oblique
     # Alfvén wave (whose field has a `z` component) on 2 × 2 roots of 8², one
     # refined, an eighth of a period, then a regrid that coarsens the refined
-    # root and refines the opposite one. Measured: on the uniform mesh 5.1e−17
-    # of the flux's scale; two-level 5.1e−17 after the run and the same after
-    # the regrid; with the PointValue operators of step 8 5.8e−4 (and the
-    # regrid moves it further).
+    # root and refines the opposite one. Measured: on the uniform mesh 5.7e−18
+    # of the flux's scale; two-level 2.2e−16 after the run and 1.5e−16 after
+    # the regrid; with the PointValue operators of step 8's first form 5.8e−4
+    # (and the regrid moves it further).
     c1 = alfven_wave_case(Float64; roots=1)
     case = oblique_case(c1; N=8, roots=2)
     function drift(refine, ops_A)
@@ -427,12 +428,12 @@ end
     # edges being derived from the owner's. The spherical blast on 2 × 2 × 2
     # roots of 8³, one refined, after two steps, then a regrid refining the
     # opposite root (every face of a coarse block on a coarse-fine face, 192
-    # and then 384). Measured, in its periodic box: 8.7e−19 of a largest
-    # flux of 6.3e−3 with the correction, 1.7e−18 without, the same after the
-    # regrid; with the PointValue operators of step 8, 1.4e−5. In the closed
-    # box the 147 faces away from the walls agree to 8.7e−19, but the 45
-    # whose perimeter lies on an outer face miss by 4.6e−8 (7e−6 of the
-    # scale; 1.7e−7 after the regrid): there each level's relative hook
+    # and then 384). Measured, in its periodic box, relative to the largest
+    # flux: 1.4e−16 with the correction and without, the same after the
+    # regrid; with the PointValue operators of step 8's first form, 1.5e−3.
+    # In the closed box the 147 faces away from the walls agree to rounding,
+    # but the 45 whose perimeter lies on an outer face miss by 1.2e−5
+    # (2.7e−5 after the regrid): there each level's relative hook
     # writes its own wall edges from its own nearest evolved point, so a
     # coarse wall edge is not the sum of the fine ones (recorded, `CODE.md`;
     # AMR-11 in `PLAN.md`).
@@ -669,9 +670,9 @@ end
     # data, one fill). The explosion in its closed box with the middle 2 × 2
     # roots refined — a mesh symmetric under both reflections, whose
     # coarse-fine faces `|x|, |y| = 1` cut the blast's transition region
-    # (`0.8 ≤ r ≤ 1`) — to `t = 1/4`: measured 1.0e−2 (`x → −x`) and 8.8e−3
-    # (`y → −y`) of a variable's scale in `U`, 1.1e−2 and 1.3e−2 in `A_z`
-    # (3.2e−4 and 6.3e−3 in `A_z` after the first step), against exactly zero
+    # (`0.8 ≤ r ≤ 1`) — to `t = 1/4`: measured 1.1e−2 (`x → −x`) and 8.5e−3
+    # (`y → −y`) of a variable's scale in `U`, 9.8e−3 and 1.3e−2 in `A_z`
+    # (6.3e−4 and 7.2e−3 in `A_z` after the first step), against exactly zero
     # on the uniform mesh (`multid_cases_tests.jl`). Asserted as present and
     # bounded, so that the day upstream closes it this testset says so.
     refine_middle!(forest) =

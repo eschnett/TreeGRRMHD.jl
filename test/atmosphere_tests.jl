@@ -126,7 +126,8 @@ end
           "resets $(ssp.t.resets)/$(ssp.t.step_resets) and $(ars.t.resets)/$(ars.t.step_resets)"
     @test minimum(ssp.pr.ρ) ≥ 1e-8 * (1 - 1e-6)
     @test ssp.t.resets == 0 && ssp.t.step_resets == 0
-    # Measured 2.1e-10 and 152/114.
+    # Measured 2.1e-10 and 152/114 (2.7e-10 and 161/118 since step 8's
+    # primitive ghost fill moved the owned `P` by rounding).
     @test minimum(ars.pr.ρ) ≤ 1e-9
     @test ars.t.step_resets > 0
 
@@ -135,7 +136,8 @@ end
     ars = at_run(mag; tableau=IRK.ARS443())
     @info "Magnetized ideal atmosphere: injected rest mass $(ssp.t.injected_D) (SSP3), " *
           "$(ars.t.injected_D) (ARS); max W $(ssp.W), $(ars.W)"
-    # Measured 1.6e-9 against 2.6e4 (the box holds 0.5).
+    # Measured 1.6e-9 against 2.6e4 (the box holds 0.5); 1.6e-9 against 1.6e4
+    # since step 8 (ARS's run-away is chaotic, its `W` from 49 to 100).
     @test abs(ssp.t.injected_D) ≤ 1e-6
     @test ars.t.injected_D ≥ 1
 end

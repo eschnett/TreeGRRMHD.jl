@@ -10,13 +10,13 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 7 are done, and step 8 but for the re-measurement of the matter's ghost
-fill, which is blocked on AMR-10; step 9 is next, and waits for nothing.** *(Amended in step
-8.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 8 are done; step 9 is next, and waits for nothing.** *(Amended at the
+end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
 (still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
-AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form; SpacetimeMetrics 1.7.0 with
+AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
+(AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
 `main` is still fbfd416 (GH-0 landed; GH-1 to GH-6 waiting; unregistered). The "state" column
 of the table below has each item.
@@ -469,7 +469,10 @@ leave the domain through an outer face, `G+2` on the low side under symmetric wa
 own ghost across a block face along the others), as a kernel on every backend, each hook region
 run after the stage that fills what it reads, so that one fill — `fill_ghosts!`, `regrid!`'s and
 `adapt_to_initial_data!`'s — is the condition's fixed point. `TreeAMR = "0.2.2"` guarantees it;
-the probe is retired and `Relative` joins step 0's name list.
+the probe is retired and `Relative` joins step 0's name list. Used since step 8 (`boundary_at`);
+the region-form hook and `outer_points!` are deleted, and `test/refinement_tests.jl` checks the
+fixed point in one fill (from `NaN`-prefilled arrays too) and that `regrid!` with the hooks
+transfers what a complete fill gives, bit for bit.
 
 ### AMR-8 — Symmetric walls: the owned low wall filled like the high one (wanted; workaround)
 
@@ -538,7 +541,11 @@ unexported `facekind` is not needed.
 dimension at a low domain face by the high wall's rule (hook, mirrored derivation or clamp from
 `G+2`). Upstream records an open item: on a refined mesh a vertex-like set is not
 mirror-symmetric under either kind of wall (4.7e−5 in its test), half-open ownership at
-coarse-fine faces. `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
+coarse-fine faces. `TreeAMR = "0.2.2"` guarantees it; the probe is retired. Used since step 8 for
+`A_j` and `Φ̃`; `low_walls!` is deleted. Its downstream check holds: the closed-box tests of
+`test/multid_cases_tests.jl` stay mirror-symmetric bit for bit; a refined closed box is not
+(1.1e−2, recorded in `test/refinement_tests.jl`). The owned wall the fill writes is copied into the
+state by the reset (`walls_to_state!`) and has zero tendency.
 
 ### AMR-9 — A flux-conservative transfer of edge sets (wanted)
 
@@ -587,7 +594,10 @@ interpolation error, and every rate to rounding.
 conservative along the cell-like dimensions, point values of even width `w` along the
 vertex-like ones (required wherever a conservative set has one); a coarse edge's line integral is
 the sum of its fine edges' after every fill and regrid. `bounded` with it is refused (not
-implemented). `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
+implemented). `TreeAMR = "0.2.2"` guarantees it; the probe is retired. The potentials take it since
+step 8, and `test/refinement_tests.jl` asserts the flux through the plane to rounding across levels
+and through a regrid, and every coarse face's flux the sum of its fine faces' in 3D (but at an
+outer face: AMR-11).
 
 ### AMR-10 — Bounded PointValue interpolation (req: step 8's ghost-fill re-measurement; steps 10, 12)
 
@@ -645,7 +655,11 @@ workaround, and is replaced when AMR-10 lands. The restructuring that follows is
 on every centering, in the fill (prolongation, interpolating restriction, a reflecting wall's
 derived row) and the regrid: the order-`w` value clamped to the range of its bracket, the `2^D`
 points multilinear interpolation reads — bit for bit the unbounded value where no clamp acts.
-Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is retired.
+Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is retired. The
+matter's ghost fill takes the primitives with it since step 8, at width 2 (wider ones clamp `ρ` and
+`s` independently: `CODE.md`, "Refinement"); its downstream check holds — no ghost of the
+magnetized tube across a coarse-fine face is inadmissible (against 33 repaired recoveries with
+conserved ghosts), `test/refinement_cases_tests.jl`.
 
 ### AMR-11 — The relative hook consistent across levels at an outer face (wanted)
 
@@ -654,7 +668,7 @@ flux through a coarse face on a coarse-fine face is the sum through its fine fac
 (1.4e−16 of the largest flux in a periodic 3D box) — except where the face's perimeter lies on an
 outer face: there each level's relative hook writes its own wall and ghost edges, `f(x_g) +
 (u(x_r) − f(x_r))` with `x_r` that level's nearest evolved point, so a coarse wall edge is not
-the mean of the fine ones beside it (7.3e−6 of the largest flux in the closed 3D blast box, 45 of
+the mean of the fine ones beside it (1.2e−5 of the largest flux in the closed 3D blast box, 45 of
 192 faces; 2.7e−5 after a regrid). The same holds for any set with symmetric walls and a
 conservative transfer: at the wall the levels are filled independently.
 
@@ -1453,7 +1467,9 @@ Accept:
 - **Spurious `B`** at refinement boundaries against the gauge damping `ξ` **decides `ξ`**.
 - **A tracked shock tube** with regrids stays conservative.
 
-*(Done, 2026-10-15, on `claude/step-8-refinement`, except **the ghost-fill re-measurement, blocked
+*(Done, 2026-10-16: on `claude/step-8-refinement` on 2026-10-15 but for what waited on AMR-7 to
+AMR-10, and the rest on `claude/step-8-finish` once TreeAMR 0.2.2 had them — see "The finish"
+below.)* *(As first reported, 2026-10-15: done except **the ghost-fill re-measurement, blocked
 on AMR-10**: Erik decided on 2026-10-15 that the matter's ghost fill prolongates the primitives
 with a bounded Lagrange interpolation, which TreeAMR does not offer yet; the conserved, bounded
 ghost fill runs until then, and step 8's atmosphere table is re-measured with the primitives when
@@ -1510,6 +1526,37 @@ ladder" 2b, has the rest:)*
   boundary condition after every fill, AMR-10): 25373 tests, 6m45s at one thread, 7m10s at four,
   7m20s with `--check-bounds=yes`; identical at one and four threads, last digits only with bounds
   checks.
+
+*The finish (2026-10-16, `claude/step-8-finish`, on TreeAMR 0.2.2; `CODE.md` has the details,
+marked "amended/measured/proposed in step 8"):*
+- **TreeAMR 0.2.2** (`TreeAMR = "0.2.2"`): the probes of AMR-7 to AMR-10 retired, the items
+  marked landed; `Relative` joins the exported-name list.
+- **AMR-7, AMR-8**: the potentials have `walls = :symmetric` and the relative hook;
+  `low_walls!`, `outer_points!`, the region-form hook, the second fill and the hookless
+  `regrid!` are gone. One fill is the complete condition's fixed point (from `NaN` too), and
+  `regrid!` with the hooks transfers bit for bit what the old arrangement did. The low wall is
+  owned but prescribed: the RHS writes zero there, and the reset copies the filled walls into
+  `u` (`walls_to_state!`; tested: 190/214 wall entries held bit for bit after every step, `du = 0`
+  there, a perturbed wall changes nothing). Non-periodic cases run on every backend (not tried on
+  a device here). Uniform closed boxes stay mirror-symmetric bit for bit; a refined one is
+  asymmetric by 1.1e−2 — TreeAMR's open half-open item, recorded.
+- **AMR-9**: `A_j` conservative along the edge with point values of width 4 across it, `Φ̃`
+  PointValue width 4 (`ops_Φ`). The magnetic flux holds as a state: the plane's flux to 2.2e−16
+  across levels and through a regrid, every coarse face's flux its fine faces' sum to 1.4e−16 in
+  3D, with or without the EMF correction (the transfer's property; PointValue: 1.5e−3) — except
+  at an outer face, 1.2e−5 (AMR-11, new, wanted). The interface order re-measured: width 4 stays.
+  The gauge pulse's spurious field at `t = 2` fell 3-fold at `ξ = 0` and 190-fold at 16/L.
+- **AMR-10**: the matter's ghost fill prolongates `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, PointValue bounded,
+  **width 2** (proposed), with its own hook; `P` in ghosts by forward EOS evaluation, conserved
+  ghosts by `prim2con` with the ghost's own `B`; the regrid stays conservative. No ghost
+  inadmissible on the atmosphere tubes (magnetized: against 33 repaired with conserved ghosts);
+  widths 4 and 6 clamp `ρ` and `s` independently and inject energy (5.4e−4) or blow up; width 2
+  injects 5.6e−9 of rest mass where the conserved fill injected 1.5e−11 — **for Erik**. Smooth
+  order across coarse-fine faces kept (2D L∞ 1.85 against 2.02).
+- **Found**: the magnetized atmosphere tube is chaotic at rounding level (0 to 144 fallbacks,
+  `W` 4.6 to 90 under 10⁻¹⁵ perturbations, before and after); its "no fallback" assertion now
+  holds hydrodynamically, with a fallback rate ≤ 0.2% magnetized (proposed).
+- **The suite**: see `CLAUDE.md`.
 
 ## Step 9 — Analytic curved backgrounds (rung 3)
 

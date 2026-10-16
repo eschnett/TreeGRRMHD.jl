@@ -44,9 +44,8 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b — but for the re-measurement of the matter's ghost fill,
-blocked on AMR-10) are done; step 9 (analytic curved backgrounds) is next
-and waits for nothing (2026-10-15).** `CODE.md` records the reviewed design
+regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
+curved backgrounds) is next and waits for nothing (2026-10-16).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -75,7 +74,8 @@ use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
 unregistered); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
-another form (`bounded = true`, outflow faces); SpacetimeMetrics 1.7.0 has
+another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
+since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
 (`mhd_fields`, every set of `CODE.md`'s table in D = 1, 2, 3, and the
 diagnostics set `X`), `src/curl.jl` (`curl_A!`, `𝔅 = curl A + 𝔅̄` on every
@@ -91,7 +91,7 @@ pure bit for bit because every recovery is seeded from the state
 `test/wave_tests.jl` (the convergence studies, ~50 s, half of it
 compilation). Step 6: non-periodic cases get Dirichlet hooks from their own
 data (`DirichletBoundary` in `src/driver.jl`; the potentials' are Dirichlet
-in the field and CPU-only, AMR-7), the reset is counted as stage and step
+in the field, since step 8 TreeAMR's relative hook, AMR-7), the reset is counted as stage and step
 limiter with the step limiter's injection (`reset_step!`, `ohm_tally`), and
 `src/cases/shocktubes.jl` has Balsara 1–5 with Giacomazzo & Rezzolla's
 exact plateaus, the resistive tube, Komissarov's current sheet and the
@@ -100,8 +100,8 @@ references in `test/data/` (rerun it only if the scheme changes, and say
 so); `bin/tableau_comparison.jl` made `CODE.md`'s SSP3-vs-ARS table.
 **SSP3(4,3,3) is the default tableau** (decided in step 6). Tests:
 `test/shocktube_tests.jl`, `test/resistive_tests.jl`,
-`test/atmosphere_tests.jl` (~45, 37 and 11 s). Non-periodic runs are
-CPU-only until AMR-7 (waiting). Step 7: `limiter` also takes `:ppm`,
+`test/atmosphere_tests.jl` (~45, 37 and 11 s). Non-periodic runs were
+CPU-only until AMR-7 landed (step 8); now every backend. Step 7: `limiter` also takes `:ppm`,
 `:wenoz`, `:mp5` (need `G = 3`; MP5 runs at `cfl = 1/5`, `default_cfl`),
 every reconstruction an offset in the differences `q_k − q₀` so that 2D/3D
 runs invariant along `y`/`z` are the 1D run bit for bit; the initial data's
@@ -113,24 +113,30 @@ made the per-reconstruction Balsara table and `test/data/balsara3_ppm.ref`.
 Tests: `test/reconstruction_tests.jl` (uses `wave_tests.jl`'s helpers),
 `test/multid_tests.jl` and `test/multid_cases_tests.jl` (uses the former's
 helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
-3D kernels). Step 8: both walls of a closed box prescribed alike
-(`low_walls!`, `outer_points!` in `src/driver.jl`, AMR-8's workaround,
-decided by Erik 2026-10-15), so a closed box is mirror-symmetric bit for
-bit; `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
+3D kernels). Step 8: both walls of a closed box prescribed alike (decided
+by Erik 2026-10-15; since TreeAMR 0.2.2 the potentials' `walls =
+:symmetric` and relative hook, AMR-7 and AMR-8, where step 8 first had its
+own `low_walls!`, `outer_points!`), so a uniform closed box is
+mirror-symmetric bit for bit; the owned low wall is prescribed: zero
+tendency, copied into `u` by the reset (`walls_to_state!`); `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
 `regrid_pairs`, `regrid_state!`); `evolve!` with a static mesh
 (`refine`) or an adaptive one (`maxlevel`, `refine_tol`, `coarsen_tol`,
 `buffer`; `adapt_case!` over every set, AMR-3). Decided by measurement
-(`CODE.md`, "Refinement"): the matter's operators Conservative width 3
-**bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on every mesh
-(`L` the longest side; Erik's decision, 2026-10-15), and the ghost fill in conserved variables, bounded — until AMR-10 (a
-bounded PointValue interpolation, waiting) lets it prolongate the
-primitives, as Erik decided on 2026-10-15, with the conserved ghosts by
-`prim2con` and the regrid conservative. Every fill applies the complete
-outer boundary condition (`fill_set!`, `regrid_state!`; Erik, 2026-10-15). AMR-9 (a flux-conservative
-transfer of edge sets) is new and waiting: the magnetic flux across levels
-holds to rounding as a rate, not as a state. `bin/interface_order.jl`,
-`bin/gauge_damping.jl`, `bin/field_loop_refined.jl` made `CODE.md`'s step-8
-tables. Tests: `test/refinement_tests.jl` and
+(`CODE.md`, "Refinement"): the matter's regrid Conservative width 3
+**bounded**; `A_j` conservative along the edge with point values of
+**width 4** across it (AMR-9), `Φ̃` PointValue width 4 (`ops_Φ`); `ξ = 16/L`
+on every mesh (`L` the longest side; Erik's decision, 2026-10-15); the
+matter's ghost fill in **primitives** (Erik's decision, 2026-10-15, AMR-10):
+the scratch set `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, PointValue bounded **width 2**
+(proposed: wider ones clamp `ρ` and `s` apart), recovery on owned cells
+only, `P` in ghosts by forward EOS (`P_from_W`, also for owned cells),
+conserved ghosts by `prim2con`. Every fill applies the complete outer
+boundary condition in one TreeAMR fill (Erik, 2026-10-15). The magnetic flux
+across levels holds to rounding as a rate and as a state (but at an outer
+face: AMR-11). The magnetized atmosphere tube is chaotic at rounding level
+(fallbacks, injected energy, `W`). `bin/interface_order.jl`,
+`bin/gauge_damping.jl`, `bin/field_loop_refined.jl`, `bin/ghost_fill.jl`
+made `CODE.md`'s step-8 tables. Tests: `test/refinement_tests.jl` and
 `test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
 
 ## Commands

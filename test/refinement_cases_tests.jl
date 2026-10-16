@@ -37,8 +37,9 @@ end
     # dissipated field would put the two-level run outside the two controls.
     # Measured at `t = 1/2` (and at `t = 4` by `bin/field_loop_refined.jl`,
     # where the loop has drifted a third of its radius across the face):
-    # the magnetic energy 0.?? of its initial value against 0.?? (coarse) and
-    # 0.?? (fine), and the L1 error of `A_z` ??.
+    # the magnetic energy 0.803 of its initial value against 0.623 (coarse)
+    # and 0.844 (fine), and the L1 error of `A_z` 1.56e−6 against 3.0e−6 and
+    # 8.7e−7.
     case = field_loop_case(Float64)
     runs = map(((; roots=(4, 2)), (; roots=(8, 4)), (; refine=rf_refine_right!))) do kw
         run = md_run(case, Val(2); N=8, t_end=1 // 2, limiter=:mc, kw...)
@@ -65,9 +66,12 @@ end
     # (linear) the ghosts' `𝔅` is first order and so is the error at the
     # face: the circularly polarized wave of rung 1a over one period, the
     # middle half of 32, 64 and 128 cells refined, loses an order in L∞
-    # (measured 0.9 in `S_y`, against 2.0 at width 4; L1 1.9 and 2.1). Width
-    # 6 measured the same as 4 to three digits, as a second-order scheme
-    # should.
+    # (measured 0.88 in `S_y`, against 1.93 at width 4; L1 1.91 and 2.13,
+    # with the matter's ghost fill in primitives at width 2 — 0.93, 2.03,
+    # 1.91, 2.16 with step 8's first, conserved fill). Width 6 measured the
+    # same as 4 to three digits, as a second-order scheme should. Since step
+    # 8 took up AMR-9, `A_j` are conservative along the edge and point
+    # values of the width across it, and `Φ̃` PointValue of the width.
     rates = map((4, 2)) do w
         errs = map((32, 64, 128)) do M
             c = alfven_wave_case(Float64; roots=M ÷ 8)
@@ -100,12 +104,13 @@ end
     # Without damping the gauge pulse keeps crossing the faces of the
     # periodic box and the spurious field grows; with `ξ = 16/L` it decays
     # with the pulse. 2 × 2 roots of 8², one refined, to `t = 2`: measured
-    # `max |𝔅|` at the end 0.044 with `ξ = 0` and 1.9e−5 with the default
+    # `max |𝔅|` at the end 0.049 with `ξ = 0` and 1.6e−5 with the default
     # (of a pulse whose `|∇Φ̃|` peaks at 8.6), and on the uniform mesh, with
     # the same default `ξ` (one `ξ` on every mesh, decided by Erik
     # 2026-10-15), 8.7e−19 (4.4e−16 at `ξ = 0`). *(Re-measured in step 8
-    # with the potentials' conservative transfer, AMR-9: it was 0.18 and
-    # 1.2e−3 under the PointValue operators.)*
+    # with the potentials' conservative transfer, AMR-9, and the matter's
+    # ghost fill in primitives: it was 0.18 and 1.2e−3 under the PointValue
+    # operators and the conserved fill.)*
     gp = gauge_pulse_case(Float64; roots=2)
     maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1), 1:3)
     final(r) = (update_fields!(r.p, r.u, r.t); maxB(r.p))

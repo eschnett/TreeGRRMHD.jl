@@ -52,9 +52,12 @@ the magnetic rotor, the Orszag–Tang vortex and a field loop keep their
 symmetries and conserved totals; PPM, WENO-Z and MP5 join piecewise-linear
 reconstruction. On meshes with several levels, static or following the
 solution through regrids, every total stays constant to round-off across
-coarse-fine faces, the magnetic flux through a coarse face changes as the
-sum through its fine faces, `∇·B` stays at round-off after every regrid, and
-a closed box is mirror-symmetric bit for bit. Curved backgrounds are next.
+coarse-fine faces, the magnetic flux through a coarse face is the sum
+through its fine faces — as a rate and, with the potentials transferred
+conservatively along their edges, as a state — `∇·B` stays at round-off
+after every regrid, the matter's ghosts are filled from bounded primitives
+so that each is an admissible state, and a uniform closed box is
+mirror-symmetric bit for bit. Curved backgrounds are next.
 Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of
 TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide what
