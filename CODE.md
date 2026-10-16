@@ -1718,8 +1718,8 @@ potentials' outer points moved by rounding: every number the suite prints
 for a non-periodic case moved in its last digits at most (see "Validation
 ladder").
 
-**The low walls in the state** *(decided in step 8, at the reviewer's
-request; proposed)*. The low wall is owned, so it is in the integrator's
+**The low walls in the state** *(proposed in step 8, at the reviewer's
+request)*. The low wall is owned, so it is in the integrator's
 state vector, but TreeAMR writes it during the fill — into the set's working
 array after `scatter!`, not into `u`. `map_blocks!`'s owned range is
 unchanged by symmetric walls (the trimmed range `G+2 …` is the fill's

@@ -14,10 +14,10 @@
 #     transferred: `P`, `B_d` (never state), `F_d`, `EMF_d`, `X`.
 #   * **What follows a regrid**: the problem rebuilt over the same sets, the
 #     state gathered, and the reset run once as the step limiter (which also
-#     writes the potentials' prescribed low walls into the state, AMR-8), so that a prolongated conserved
-#     state the recovery would repair is repaired in the state and its
-#     injection is accounted (proposed in step 8, as TreeHydro's post-regrid
-#     reset).
+#     writes the potentials' prescribed low walls into the state, AMR-8), so
+#     that a prolongated conserved state the recovery would repair is
+#     repaired in the state and its injection is accounted (proposed in step
+#     8, as TreeHydro's post-regrid reset).
 
 """
     lohner(um, u0, up, u_ref, ε, ε_g)
@@ -163,8 +163,9 @@ each with its own hook, so that `regrid!`'s fill before its transfer applies
 the complete outer boundary condition), and where the mesh moved,
 [`rebuild`](@ref) the problem, gather the state into a new vector, and run
 the reset once as the step limiter ([`reset_step!`](@ref), which also
-writes the potentials' prescribed low walls into the new state) — so that a newly prolongated conserved state the
-recovery repairs is repaired in the state, and what that injects is
+writes the potentials' prescribed low walls into the new state) — so that a
+newly prolongated conserved state the recovery repairs is repaired in the
+state, and what that injects is
 counted in `X` like any step limiter's write (proposed in step 8, as
 TreeHydro's post-regrid reset). Returns the problem and the state that hold
 from now on; the ones handed in when nothing moved.

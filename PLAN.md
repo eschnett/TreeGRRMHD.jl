@@ -1556,7 +1556,10 @@ marked "amended/measured/proposed in step 8"):*
 - **Found**: the magnetized atmosphere tube is chaotic at rounding level (0 to 144 fallbacks,
   `W` 4.6 to 90 under 10⁻¹⁵ perturbations, before and after); its "no fallback" assertion now
   holds hydrodynamically, with a fallback rate ≤ 0.2% magnetized (proposed).
-- **The suite**: see `CLAUDE.md`.
+- **The suite**: 25405 tests, `Test Summary` 6m34s at one thread, 6m59s at four, 7m14s with
+  `--check-bounds=yes`, 6m37s for the clean-checkout check (Julia 1.13.2, load 4–6), against
+  25374 and 6m31s on 5f82040 with TreeAMR 0.2.2; identical at one and four threads and from the
+  clean checkout, last digits only with bounds checks. No split into a default and a long set.
 
 ## Step 9 — Analytic curved backgrounds (rung 3)
 
