@@ -2053,6 +2053,56 @@ magnetized run of twelve blew up, the interface order is the conserved
 fill's (1D 2.11 / 2.04, 2D 2.14 / 1.98). `bin/ghost_entropy.jl` has the
 table, reported to Erik.
 
+*Third experiment (branch `claude/step-8-ghost-robustness`, from
+`claude/step-8-ghost-athena`; no decision taken):* robustness on the
+magnetized atmosphere tube across a coarse-fine face, which is chaotic at
+rounding level, over **48 perturbed initial states** per method
+(`bin/ghost_robustness.jl`; runs 1–12 are the twelve of the earlier
+tables, runs 13–48 amplitude 10⁻¹⁵ with seeds 2–37). A blow-up: injected
+`D` above 10⁻⁶, `|τ|` above 10⁻³, or non-finite (the other runs inject
+3·10⁻⁸ … 8·10⁻⁸ of rest mass). Ranges are min / median / max over the runs
+that did not blow up; "p, s out" count the ghosts whose pressure or entropy
+leaves the range of the owned cells within 1.5 coarse spacings, summed over
+the run; wall time per run with five methods running at once on 12 cores.
+The conserved rows are measured on the tree before the primitive fill
+(`git archive 7605986`, the same scheme otherwise), the uniform mesh on
+both trees.
+
+| method | blow-ups (95% Wilson) | injected `D` | injected `τ` | fallbacks | max `W` | ghosts repaired | p out | s out | wall |
+|---|---|---|---|---|---|---|---|---|---|
+| uniform (conserved tree) | 1/48 (0.4–11%) | 2.5e−8 / 4.0e−8 / 6.0e−8 | 3.9e−8 / 8.8e−7 / 2.7e−6 | 0 / 10 / 202 | 37 / 83 / 100 | 3 / 28 / 75 | 0 | 0 | 0.90 s |
+| uniform (primitive tree) | 0/48 (0–7.4%) | 2.4e−8 / 3.9e−8 / 7.6e−8 | 5e−10 / 8.5e−7 / 3.5e−6 | 0 / 26 / 238 | 30 / 82 / 100 | 0 | 0 | 0 | 0.79 s |
+| (a) conserved, bounded | 3/48 (2.1–17%) | 2.7e−8 / 3.4e−8 / 5.6e−8 | −6.9e−7 / 8.6e−8 / 1.7e−6 | 0 / 49 / 425 | 40 / 87 / 100 | 7 / 83 / 163 | 21 / 47 / 69 | 1429 / 1443 / 1462 | 2.17 s |
+| (b) primitives, specific, Conservative w = 3 | 0/48 (0–7.4%) | 2.5e−8 / 3.6e−8 / 5.1e−8 | −5.5e−7 / 1.3e−7 / 1.3e−6 | 0 / 72 / 279 | 47 / 92 / 100 | 0 | 1 / 9 / 22 | 0 | 1.91 s |
+| (c) primitives, density, parent copy | 0/48 (0–7.4%) | 3.1e−8 / 4.0e−8 / 5.2e−8 | −3.2e−7 / 5.1e−7 / 5.1e−6 | 0 / 155 / 521 | 60 / 100 / 100 | 0 / 2 / 7 | 0 | 0 | 1.93 s |
+
+The blow-ups: (a) run 22 (seed 12) injects `D` 2.5·10³ and `τ` 5·10¹²,
+run 33 (seed 23) 88 and 2·10¹⁰, run 23 (seed 13) 0.74 and 1.4·10⁷; the
+uniform mesh's (seed 12, the same seed as (a)'s run 22) 5·10³ and
+1.9·10¹³. Fisher's exact test: (a) against (b) or (c), 3/48 against 0/48,
+`p = 0.24`; (a) against the uniform mesh, 3/48 against 1/48, `p = 0.62` —
+no difference is significant at 48 runs (telling 6% from 0% would take
+about 150 runs per method).
+
+Diagnosis (`claude/step-8-ghost-robustness`, traced step by step). Every
+blow-up starts at the front running into the atmosphere, where `W` spikes
+(30–40 every few steps in every method, up to the cap of 100 in the runs
+that blow up): the stage solve falls back in the front cell, and a step
+later the reset writes a repaired state that injects the mass. (a) run 22:
+at `t = 0.157`, `x = 0.164` — sixteen fine cells inside the refined band,
+not on a coarse-fine face — `W` 81 then 100, fallbacks there, and at
+`t = 0.158` the reset injects `D = 10⁶` (density) at `x = 0.159`; run 33
+the same at `t ≈ 0.11`, `x ≈ 0.12`; the uniform mesh's at `t = 0.364`,
+`x = 0.353`. (a) run 23 is the one at a coarse-fine face: the front reaches
+`x = 0.2` at `t = 0.199` with `W` 52 in the fine cell at 0.196, the first
+fallback is in the last fine cell (0.199) at `t = 0.201`, and the reset
+injects `D = 149` into the first coarse cell (0.2025) and `τ = −5·10¹³`
+into the last fine one. So the front itself is fragile everywhere (the
+uniform mesh blew up once), and one of (a)'s three is where a conserved
+ghost carries the coarse field's energy across the face. (c) runs at the
+`W` cap in most runs and has the most fallbacks (median 155); (b) has none
+of either extreme.
+
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
 `S_x` L1 / L∞ rates:
