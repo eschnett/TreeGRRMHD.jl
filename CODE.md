@@ -708,7 +708,10 @@ The only coupling back to the fields is the implicit Ohm step, which is
 small difference of large numbers (electromagnetically dominated cells, the
 magnetosphere) or the energy inversion fails, invert at the advected `s`
 instead (EOS-3). The switch is a threshold on
-`½(E² + B²) / τ` (open).
+`½(E² + B²) / τ` (open). *(Investigation 2026-10-16, "Floors, the
+atmosphere and the magnetosphere": measured on the magnetized atmosphere
+tube at a threshold of `e_em > τ_f`, it removes the chaos as EOS-5 does, but
+the advected `s` in those cells is itself noise.)*
 
 ## The scheme
 
@@ -1029,6 +1032,172 @@ and `σ = 0` there), and the fields outside a star are those of the
 initial vector potential evolved by the vacuum Maxwell equations. The
 initial dipole is analytic in `A`, which makes it exactly divergence-free
 on the mesh.
+
+**Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
+PLAN.md step; `bin/front_investigation.jl`, `bin/eos5_emulation.jl`;
+proposed, for Erik — nothing in `src/` changed)*: why the magnetized
+atmosphere tube (rung 1b; `Bʸ = 10⁻³`, `Constant(10³)` cut off at
+`μ_max = 10`, 200 cells, SSP3(4,3,3)) is chaotic at rounding level, with
+`W` spiking to 30–100 at the front and fallbacks there, while the
+hydrodynamic tube is not. The harness is `bin/ghost_robustness.jl`'s (its
+48 perturbed initial states, and its numbers to every digit for the
+baseline).
+
+- **The first cause: the field's truncation error lands in the fluid's
+  share.** `τ` and `S_i` are totals and the recovery subtracts
+  `½(E² + B²)` and `ε E × B` of the cell's own `E` and `B`; the scheme does
+  not conserve the quadratic field energy of cell values, so the
+  numerical dissipation of `E` and `B` becomes fluid energy and momentum —
+  as kinetic energy dissipated by a total-energy hydro scheme becomes
+  heat. For a field moving with the front the deposit is nearly null
+  (`δτ ≈ |δS|`), and where the fluid's own energy is small against the
+  field's it *is* the fluid's share. Ahead of the dense front the
+  light-cone HLLE flux leaves cells a little above the atmosphere trigger
+  (`D ≈ 2–50 ρ_atm`) inside the electrovacuum (`μ = B²/D ≈ 30–500`,
+  `σ = 0`) where the front piles up its field (`Bʸ` to 7·10⁻³,
+  `Eᶻ ≈ −vBʸ`). Over the unperturbed run's 1894 such cell-steps
+  (`1.02 ρ_atm < D < 10⁻⁴`) the share's `|S_f|/(τ_f + D)` has median 0.979
+  (max 0.9999) and `s` median 38.9, up to the window's ceiling 40 (456
+  `S_CEILED` writes), `e_em/τ_f` median 2.0, max 8.7·10⁴; the hydrodynamic
+  tube has 370 such cell-steps at median 0.818 and `s ≤ 36.4`. The
+  mechanism alone: `em_wave_case` (`σ = 0`, whose exact solution leaves the
+  fluid at rest) with `½b² = 5·10⁻⁷` over a gas at `ρ = 10⁻⁷`, `s = 1`:
+  after one period at 50 cells `s` is at the window's ceiling (3/2)
+  everywhere and `|vˣ|` reaches 0.25 (200 cells: 1.1·10⁻³, `s` ≥ 1.28; 800
+  cells: 7·10⁻⁵, `s` ≥ 1.18); at `ρ = 10⁻³` `vˣ ≤ 6·10⁻⁶`, at `ρ = 1`
+  10⁻⁹.
+- **What turns it into spikes, mass and chaos: EntropyEOS's repairs of an
+  inadmissible share.** (a) `τ` below the coldest state at the momentum
+  (`S_FLOORED`, the share crossed the light cone): the policy keeps the
+  momentum at `s_min` and clamps `ρ = D/cosh w` *up* to `ρ_atm`, so the
+  written state has `W = |S_f|/ρ_atm` (to the cap) and `D = ρ_atm W`.
+  The `W` spikes are these states and their next steps (`D/W ≈ ρ_atm`; 23
+  of the unperturbed run's 34 cell-steps with `W > 20` are that step's
+  write), and its 115 `S_FLOORED` writes inject `+4.8·10⁻⁸` of rest mass
+  and `+1.8·10⁻⁶` of energy, more than the run's total (`4.5·10⁻⁸`,
+  `1.1·10⁻⁶`; the atmosphere and entropy-ceiling writes take some back).
+  The same state 1% lower in `D` is reset to the atmosphere at rest.
+  (b) `τ` above the hottest state with the solve failed: the policy
+  diagnoses a collapse and writes `ρ_ceiling = 10⁶` — every blow-up traced
+  (`D ≈ 5·10³ = 10⁶ h`), e.g. at `D = 2.3·10⁻⁸`, `τ_f = 3.9·10⁻⁶`,
+  `e_em = 8.6·10⁻⁵`, an advected `s` of −4.7.
+- **The chaos is numerical, one discrete switch.** Two runs 10⁻¹⁵ apart
+  agree to 10⁻¹² for 32 steps (rounding growth, nothing exponential);
+  at step 33 (`t = 0.066`) the stage-4 predictor of the cell at
+  `x = 0.0675` is below the trigger in one run and `S_FLOORED` in the
+  other; one run writes the atmosphere, the other `W = 7.2` and seven
+  times the mass, and the relative difference of `D` jumps from 1.1·10⁻¹²
+  to 0.86 in that step. The front's foot then differs at O(1) for the rest
+  of the run (`bin/front_investigation.jl diverge`).
+- **The fallbacks are a symptom.** All 100 of the unperturbed run are
+  taper cells beside that foot, `μ ∈ [6.9, 10]`, at
+  `f = |E★ + v × B|/|B| ∈ [0.71, 0.96]` — beyond step 3's sweep — every one
+  with repaired iterates; scanning `u = Wvˣ` (W ≤ 200), none has an
+  admissible root (7 have no admissible share at any velocity, 93 have
+  admissible shares and no root): the stage has no solution, and the
+  lagged velocity is the right answer. Re-solved under EOS-5 they still
+  fall back; they do not arise once (a) is consistent.
+- **Not the cause:** the `q v` current (`q = ∇·E ≡ 0` here, `E = Eᶻ(x)`;
+  removing it changes nothing, bit for bit); the ghost fill (the uniform
+  mesh too); resolution (400 cells: 2/48 blow-ups, fallbacks 0 / 197 /
+  547).
+
+Controls, uniform mesh, 48 runs each, the released policy (blow-ups;
+largest `W` min / median / max; fallbacks):
+
+| control | blow-ups | max `W` | fallbacks | chaotic |
+|---|---|---|---|---|
+| the tube (baseline) | 0/48 (0–7.4%) | 29.8 / 81.8 / 100 | 0 / 26 / 238 | yes |
+| `Vacuum` everywhere | 0/48 | 4.94 | 0 | no: the hydrodynamic tube to every digit (no current, no pulse) |
+| `Bʸ = 0` under the cutoff | 0/48 | 4.94 | 325* | no |
+| `IdealConductor` | 0/48 | 18.6 | 0 | no |
+| `Bʸ = 10⁻⁴` | 0/48 | 4.9 | 366* | no |
+| `Bʸ = 10⁻²` | 47/48 | 100 | 0 | — |
+| `ρ_atm = 10⁻⁶` / `10⁻⁴` | 0/48 | 4.8 / 3.9 | 367* / 580* | no |
+| `μ_max = 30` / `100` | 0/48 | 19.9 / 32 / 100; 15 / 21 / 37 | 6 / 34 / 244; 325* … 344 | yes |
+| ARS(4,4,3) | 15/48 (20–45%) | 75 / 100 / 100 | 14 / 42 / 358 | yes |
+| ideal, ARS(4,4,3) | 48/48 | — | — | — |
+
+\* Atmosphere predictors where σ > 0: a predictor below the trigger is
+repaired, its share never equals the totals', and the stage cannot
+converge (all 325 at `Bʸ = 0`, where `E★ = 0` and the fallback's `E` is
+`E★`: harmless, but counted). Where `B²/ρ_atm < μ_max/10` the atmosphere
+conducts under the cutoff. A predictor in the atmosphere could take
+`OHM_SIGMA_ZERO` (proposed, for Erik).
+
+Candidates (48 runs each; uniform; refined `[0, 0.2)` with this tree's
+parent-centred primitive fill; refined with the conserved bounded fill,
+`git archive 7605986`): blow-ups, injected `D` (median; one value where all
+48 agree to the digits printed), fallbacks (median / max), largest `W`
+(median / max), and what the hydrodynamic tube does:
+
+| candidate | uniform | refined, primitive fill | refined, conserved fill | hydrodynamic tube |
+|---|---|---|---|---|
+| baseline | 0/48; 3.9e−8; 26 / 238; 82 / 100 | 0/48; 3.6e−8; 72 / 279; 92 / 100 | 3/48; 3.4e−8; 49 / 425; 87 / 100 | — |
+| **EOS-5 emulated** (proposed) | 0/48; **−1.2e−8**; 0; **4.8** | 0/48; −1.4e−8; 0; 5.0 | 0/48; −1.4e−8; 0; 5.0 | bit for bit |
+| EOS-5 (i) as the reset, + `collapse_to_atmosphere` | as EOS-5 | as EOS-5 | — | bit for bit |
+| `collapse_to_atmosphere` alone | as baseline | as baseline | 0/48, else as baseline | bit for bit |
+| `w_cap` at `W = 10` | 0/48; 1.7e−8 (1.3 … 2.0); 0; 10 | 0/48; 1.3e−8; 0 / 1; 10 | **13/48**; 1.2e−8; 0 / 1; 10 | bit for bit |
+| `atm_trigger = 10` | 0/48; −1.1e−8; 0; 4.8 | 0/48; −1.4e−8; 0; 4.9 | 0/48; −1.3e−8; 0; 5.0 | moves: −1.2e−8, `W` 4.87 |
+| magnetization ceiling `B²/D ≤ 100` (mass added at rest) | 0/48; +7.8e−8; 0; 5.9 | 0/48; +1.2e−7; 0; 19.3 / 19.5 | 0/48; +1.2e−7; 0; 18.8 | bit for bit |
+| the atmosphere where `B²/D > μ_max` | 0/48; −1.1e−8; 0; 4.8 | 0/48; **−3.0e−7**; 0; 4.9 | 0/48; **−4.6e−7**; 0; 4.9 | bit for bit |
+| fixed-`s` recovery where `e_em > τ_f` (EOS-3's route) | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.4e−8; 0; 5.0 | 0/48; −1.4e−8; 0; 5.0 | bit for bit |
+
+(A ceiling at `B²/D ≤ 10 = μ_max` went non-finite in every run; not
+pursued.) Every row but the baseline,
+`collapse_to_atmosphere` alone and the `W` cap is the same run in all 48
+perturbations: two runs 10⁻¹⁵ apart differ by 1.6·10⁻¹³ (uniform),
+7.6·10⁻¹³ (refined) and 2.9·10⁻¹³ (conserved) of `D` under EOS-5 — and by
+0.8, 4.2 and 3.7 times `D` (relative, in a cell of the foot) under the
+released policy; 1.4·10⁻¹⁰ under the ceiling.
+
+**Proposed** (for Erik): **EOS-5** (PLAN.md, "Upstream requirements"):
+no policy repair creates rest mass — (i) a `S_FLOORED` state below `ρ_atm`
+at its rapidity is the atmosphere, the policy's own rule for `ρ < ρ_atm`,
+not `ρ_atm` at `W = |S|/ρ_atm`; (ii) `τ` above the hottest state at a
+density below the collapse tests is the entropy ceiling with `D` kept, not
+`ρ_ceiling`. It removes the amplifier, not the deposit, and that is enough:
+the precursor cells whose share leaves the light cone are written as
+atmosphere, which the scheme already does for a cell 1% thinner. What it
+changes physically: rest mass removed instead of created — over the run
+−1.18·10⁻⁸ (2.4·10⁻⁸ of the box's 0.5; 113 (i) writes −7.8·10⁻⁹ and 101
+atmosphere writes of cells above the trigger −4.0·10⁻⁹) and −7.4·10⁻⁷ of
+energy (1·10⁻⁶ of the box's), against `+2.4 … +7.6·10⁻⁸` and up to
+`+3.5·10⁻⁶` under the released policy; −1.4·10⁻⁸ and −1.5·10⁻⁶ on the
+refined meshes. It also makes `μ_max = 30` clean (largest `W` 4.8, no
+fallback), keeps `Bʸ = 10⁻²` finite and deterministic (`W` 16), and takes
+ARS(4,4,3) from 15/48 blow-ups to none, and the ideal magnetized
+atmosphere under ARS from 48/48 to none (`W` 4.1). Until it lands, the
+reset can do (i) itself and the cases set `collapse_to_atmosphere` (the
+table's second row; it reaches the reset only). Not proposed: the
+alternatives either move the hydrodynamic tube (`atm_trigger`), delete
+magnetized matter in bulk (the atmosphere by `μ`, 3–5·10⁻⁷ on refined
+meshes), add more mass than the baseline injects (the ceiling), rest on an
+advected entropy that is itself noise in these cells (the fixed-`s`
+recovery: `Ds/D` from −250 to +1400 where the collapse branch fired), or
+keep the chaos (the `W` cap).
+
+The suite under the emulation (`Pkg.test(; julia_args = ["-L",
+"bin/eos5_emulation.jl"])`, Julia 1.13, one thread) fails one assertion:
+the ideal magnetized atmosphere under ARS injects −4.5·10⁻⁹ of rest mass
+instead of 1.6·10⁴ (`ars.t.injected_D ≥ 1`) — that row of step 6's
+tableau comparison was this policy artefact, not ARS's (the near-vacuum
+rarefaction row stands: ARS still drops to `ρ = 10⁻¹⁰`, from 2.7·10⁻¹⁰;
+resets 161/118 → 131/110). What else moves: the magnetized tube (`W`
+6.63 → 4.80, fallbacks 92 → 0, Newton 175 → 68, injected `5.0·10⁻⁸`,
+`1.7·10⁻⁶` → `−1.18·10⁻⁸`, `−7.4·10⁻⁷`, at most 33 → 6 recoveries) and its
+coarse-fine run (`3.4·10⁻⁸`, `−3.4·10⁻⁷` → `−1.4·10⁻⁸`, `−1.5·10⁻⁶`); SSP3's
+ideal magnetized atmosphere (`1.56·10⁻⁹` → `−6.66·10⁻⁹`, `W` 4.83 → 4.01);
+step 3's sweep without the cutoff (fallbacks 36, 78, 103 → 33, 74, 90, and
+which roots it finds), and the stage solve in a kernel at `Float64` (47 →
+48 of 48 converged). Every other number the suite prints is unchanged.
+
+Step 3's pointwise sweep need not be extended to decide this: the front's
+fallbacks have no admissible root, and a sweep built backwards from known
+solutions cannot contain them; nor does the safe `μ_max` depend on them.
+It could add (proposed) a class of predictors whose fluid share is
+near-null and at the entropy ceiling in the taper band, asserting a
+finite, flagged fallback — what the front produced.
 
 ## Time integration
 
@@ -2101,7 +2270,10 @@ into the last fine one. So the front itself is fragile everywhere (the
 uniform mesh blew up once), and one of (a)'s three is where a conserved
 ghost carries the coarse field's energy across the face. (c) runs at the
 `W` cap in most runs and has the most fallbacks (median 155); (b) has none
-of either extreme.
+of either extreme. *(Investigation 2026-10-16, "Floors, the atmosphere and
+the magnetosphere": the spikes are EntropyEOS's `S_FLOORED` repairs, the
+blow-ups its collapse branch, on every mesh; with both made consistent
+(EOS-5, emulated) all three meshes are deterministic, 0/48, `W ≤ 5`.)*
 
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
@@ -2423,7 +2595,10 @@ named as claims.
      run to 92 fallbacks, `2.5·10⁻⁸` → `5.0·10⁻⁸` of rest mass and
      `6.9·10⁻⁸` → `1.7·10⁻⁶` of energy, and `W` 4.69 → 6.63; the test now
      asserts no fallback hydrodynamically and a fallback rate of at most
-     0.2% magnetized (proposed in step 8). The same holds for step 6's
+     0.2% magnetized (proposed in step 8). *(Investigation 2026-10-16: the
+     cause — the field's truncation error in the fluid's share, amplified
+     by EntropyEOS's mass-creating repairs — and a proposed fix, EOS-5,
+     under "Floors, the atmosphere and the magnetosphere".)* The same holds for step 6's
      tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
      draw from that spread, and the decision for SSP3(4,3,3) rests on its
      other rows (the near-vacuum rarefaction, the ideal atmosphere). The

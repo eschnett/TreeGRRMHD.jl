@@ -226,6 +226,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
 | EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
+| EOS-5 | EntropyEOS | wanted, workaround | 12 | no policy repair creates rest mass (added 2026-10-16, investigation; not decided) | waiting |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -817,6 +818,56 @@ cold_slice(eos, ρ★s::AbstractVector; T_MeV) -> (yₑ, s, p, U)
 - `beta_equilibrium` solves `μ̃(ρ★, s(T), yₑ) = 0` on `yₑ_bounds` by bracketed secant with a
   bisection fallback (`μ̃`'s `yₑ` derivative is unavailable).
 - `s(T)` comes from `sigma_extended`.
+
+### EOS-5 — No policy repair creates rest mass (wanted, step 12; workaround)
+
+*(Added 2026-10-16 by the front investigation, branch `claude/front-investigation`; proposed, for
+Erik — not decided.)* **Why.** Two branches of `con2prim_safe`'s step 4 (the solve failed; the
+endpoints diagnose the state) write a state far from the input, and that is what makes the
+magnetized atmosphere tube chaotic at rounding level and blow up (`CODE.md`, "Floors, the
+atmosphere and the magnetosphere", "Investigation (2026-10-16)"):
+- *τ below the coldest state at the momentum* (`FLAG_POL_S_FLOORED`): the density at the recovered
+  rapidity is clamped *up* to `ρ_atm`, `ρ₁ = clamp(D/cosh w₁, ρ_atm, ρ_ceiling)`, so a fluid share
+  that has crossed the light cone in a cell barely above the atmosphere is written with
+  `W = |S|/ρ_atm` (to the cap, 100) and `D = ρ_atm W` — up to 100 times its rest mass — while the
+  same state 1% lower in `D` is the atmosphere at rest. The policy's own projection sends
+  `ρ < ρ_atm` to the atmosphere (`pol_project_core`); this branch contradicts it.
+- *τ above the hottest state* (the second endpoint test): `pol_collapse`, i.e. `ρ = ρ_ceiling` (10⁶
+  for the shock gas) unless `collapse_to_atmosphere` — for a hot cell at `D ≈ 2 ρ_atm`, which is
+  no collapse; the converged path's projection would have written the entropy ceiling.
+
+**API.** None new: a change of `con2prim_safe`'s step 4, under the same flags.
+
+**Semantics.**
+- (i) In the `S_FLOORED` branch, where `D/cosh w₁ < ρ_atm` (`w₁` the rapidity of the
+  coldest-state solve, capped), return the atmosphere (`policy_atmosphere`, `FLAG_POL_ATMOSPHERE |
+  FLAG_POL_S_FLOORED`), so that no repair raises `D`; otherwise as now.
+- (ii) In the "above the hottest state" branch, return the state at `s_max` with `D` kept and the
+  rapidity of the `s_max` solve (`r_hi.w`, capped), projected (`FLAG_POL_S_CEILED`); a collapse
+  stays the step-1 arithmetic tests' (`D > D_max` or `τ − B² > τ_max`), as now.
+- Every other path, and every input the released policy leaves alone, unchanged bit for bit.
+
+**Upstream acceptance.**
+- On random inadmissible inputs (`|S| > τ + D`, `τ < 0`, `τ` above the hottest state) across the
+  density box: the returned `cons.D ≤ in.D` (no repair creates rest mass) and the returned state
+  round-trips exactly, as every repaired state does.
+- An input above the hottest state at a density far below `ρ_ceiling` is flagged `S_CEILED` and
+  keeps `D`.
+- The existing suite unchanged elsewhere (the converged path is not touched).
+
+**Downstream check.** `test/atmosphere_tests.jl`: the magnetized atmosphere tube asserts no
+fallback and a largest `W` below 6 instead of a fallback rate, and twelve perturbed runs agree to
+1e−10 (measured with the emulation: 1.6e−13 uniform, 7.6e−13 refined). The ARS row of the
+ideal magnetized atmosphere (`ars.t.injected_D ≥ 1`) no longer holds and has to go (Erik's
+decision; see the investigation).
+
+**Workaround** (measured, not in the code): the reset writes the atmosphere where the policy's
+`S_FLOORED` or `W_CAPPED` repair holds more rest mass than the cell, and the case's policy sets
+`collapse_to_atmosphere = true` — on the uniform and refined tube the same numbers as the
+emulated EOS-5 to every digit printed (`bin/front_investigation.jl`, candidate `reset-eos5`); it
+reaches the reset only, not the recoveries inside the stage solve. `bin/eos5_emulation.jl`
+redefines `con2prim_safe` in the running process for the measurements; it is not loaded by the
+package.
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 
