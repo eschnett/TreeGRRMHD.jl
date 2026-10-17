@@ -22,9 +22,12 @@
 # hydrodynamic tube (`Bʸ = 0`, `IdealConductor`) with the same candidate, to every digit.
 #   MESH: `uniform`; `refined` (`[0, 0.2)` refined; on this tree the parent-centred primitive
 #   fill); `conserved` (the same mesh, to be run on the conserved-fill tree, `git archive
-#   7605986`, with this file and `bin/eos5_emulation.jl` copied in).
-#   CANDIDATE: baseline, eos5, collapse, wcap10, trigger10, ceil100, vac10, fixeds, reset-eos5
-#   (see `CANDIDATES` below).
+#   7605986`, with this file and `bin/policy_variants.jl` copied into its `bin/`).
+#   CANDIDATE: one of 2026-10-16's (baseline, eos5 — B+hot —, collapse, wcap10, trigger10,
+#   ceil100, vac10, fixeds, reset-eos5; see `CANDIDATES` below), or any policy variant of
+#   `bin/policy_variants.jl` (2026-10-17's sweep: `A3`, `B`, `Breset+coll`, `A3+C`, …), whose
+#   token `Breset` is B done in this script's reset instead of in-process. Besides the summary
+#   line: how far two runs 10⁻¹⁵ apart drift, and the hydrodynamic tube.
 # `diverge`: two runs 10⁻¹⁵ apart, step by step — the largest relative difference of `D` and
 # `τ`, and which discrete switches (the recovery's policy flags, the step limiter's writes, the
 # stage predictors' policy flags, the stage branch, `σ > 0`) differ.
@@ -41,8 +44,9 @@ using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
 const IRK = TG.IRK
-include(joinpath(@__DIR__, "eos5_emulation.jl"))
-EOS5_ON[] = false
+include(joinpath(@__DIR__, "policy_variants.jl"))
+set_variant!(name) = (POLICY_VARIANT[] = PolicyVariant(name); nothing)
+set_variant!("base")
 
 # --- the classified step limiter and the monitor ----------------------------------------
 
@@ -232,21 +236,22 @@ function with_pol(case; kw...)
         case.𝔅̄, case.periodic, case.extents, case.roots)
 end
 
-# name => (label, case transform, Fix or nothing, EOS-5 emulated)
+# name => (label, case transform, Fix or nothing, policy variant); any other name is a policy
+# variant of `bin/policy_variants.jl` (`A3+C`, `B`, …), its token `Breset` the reset-side B.
 const CANDIDATES = Dict(
-    "baseline" => ("baseline", identity, nothing, false),
-    "eos5" => ("EOS-5 emulated (proposed)", identity, nothing, true),
+    "baseline" => ("baseline", identity, nothing, "base"),
+    "eos5" => ("EOS-5 as first proposed (B+hot)", identity, nothing, "B+hot"),
     "collapse" => ("collapse_to_atmosphere", c -> with_pol(c; collapse_to_atmosphere=true),
-                   nothing, false),
-    "wcap10" => ("W cap 10", c -> with_pol(c; w_cap=acosh(10.0)), nothing, false),
-    "trigger10" => ("atm_trigger 10", c -> with_pol(c; atm_trigger=10.0), nothing, false),
-    "ceil100" => ("magnetization ceiling 100", identity, Fix(; μ_ceil=100.0), false),
-    "vac10" => ("atmosphere where B²/D > 10", identity, Fix(; μ_vac=10.0), false),
+                   nothing, "base"),
+    "wcap10" => ("W cap 10", c -> with_pol(c; w_cap=acosh(10.0)), nothing, "base"),
+    "trigger10" => ("atm_trigger 10", c -> with_pol(c; atm_trigger=10.0), nothing, "base"),
+    "ceil100" => ("magnetization ceiling 100", identity, Fix(; μ_ceil=100.0), "base"),
+    "vac10" => ("atmosphere where B²/D > 10", identity, Fix(; μ_vac=10.0), "base"),
     "fixeds" => ("fixed-s recovery where e_em > τ_f", identity, Fix(; entropy_ratio=1.0),
-                 false),
+                 "base"),
     "reset-eos5" => ("EOS-5 (i) in the reset + collapse_to_atmosphere",
                      c -> with_pol(c; collapse_to_atmosphere=true), Fix(; consistent=true),
-                     false))
+                     "base"))
 
 # --- runs -------------------------------------------------------------------------------------
 
@@ -306,8 +311,13 @@ fmt3(x; f="%.2g") = isempty(x) ? "–" :
                     Printf.format(Printf.Format("$f / $f / $f"), minimum(x), median(x), maximum(x))
 
 function candidate_kw(name)
-    lab, cf, fix, e5 = CANDIDATES[name]
-    return lab, cf, fix === nothing ? (;) : limiters(fix), e5
+    if haskey(CANDIDATES, name)
+        lab, cf, fix, v = CANDIDATES[name]
+        return lab, cf, fix === nothing ? (;) : limiters(fix), v
+    end
+    toks = split(name, '+')
+    lkw = "Breset" in toks ? limiters(Fix(; consistent=true)) : (;)
+    return name, identity, lkw, name
 end
 
 function batch(label, case; nruns=48, kw...)
@@ -315,23 +325,32 @@ function batch(label, case; nruns=48, kw...)
     nb = count(r -> r.blowup, rs)
     lo, hi = wilson(nb, nruns)
     ok = filter(r -> !r.blowup, rs)
-    @printf("%-44s | %2d/%d (%.1f–%.1f%%) | D %s | τ %s | fb %s | max W %s | W>20 %s | S_FLOORED %s | CEILING %s | %.2f s\n",
+    @printf("%-44s | %2d/%d (%.1f–%.1f%%) | D %s | τ %s | fb %s | max W %s | W>20 %s | writes %s | S_FLOORED %s | CEILING %s | %.2f s\n",
             label, nb, nruns, 100lo, 100hi, fmt3([r.D for r in ok]), fmt3([r.τ for r in ok]),
             fmt3([r.fb for r in ok]; f="%.0f"), fmt3([r.acc.maxW for r in ok]; f="%.1f"),
-            fmt3([r.acc.nW20 for r in ok]; f="%.0f"), fmt3([r.acc.n[:sfl] for r in rs]; f="%.0f"),
+            fmt3([r.acc.nW20 for r in ok]; f="%.0f"),
+            fmt3([sum(values(r.acc.n)) for r in rs]; f="%.0f"),
+            fmt3([r.acc.n[:sfl] for r in rs]; f="%.0f"),
             fmt3([r.acc.n[:ceil] for r in rs]; f="%.0f"), mean(r.wall for r in rs))
     return rs
 end
 
 function matrix(mesh, name; nruns=48)
     kw = mesh == "uniform" ? (;) : (; refine=refine_band!)
-    lab, cf, lkw, e5 = candidate_kw(name)
-    EOS5_ON[] = e5
+    lab, cf, lkw, v = candidate_kw(name)
+    set_variant!(v)                       # before the cases: `default_policy` reads it
     batch("$mesh, $lab", cf(tube()); nruns=nruns, kw..., lkw...)
+    r1 = run_case(cf(tube()); kw..., lkw...)
+    r2 = run_case(cf(tube()); amp=1e-15, seed=7, kw..., lkw...)
+    a = TG.statearray(r1.u, r1.p.sets, TG.SEG_U)
+    b = TG.statearray(r2.u, r2.p.sets, TG.SEG_U)
+    @printf("%-44s   two runs 1e-15 apart: max |ΔD|/D %.3g, max |Δτ|/max |τ| %.3g\n", "$mesh, $lab",
+            maximum(abs.(a[:, TG.U_D, :] .- b[:, TG.U_D, :]) ./ abs.(a[:, TG.U_D, :])),
+            maximum(abs.(a[:, TG.U_TAU, :] .- b[:, TG.U_TAU, :])) / maximum(abs.(a[:, TG.U_TAU, :])))
     h = run_case(cf(atmosphere_tube_case(Float64; By=0)); kw..., lkw...)
-    @printf("%-44s   hydrodynamic: D %.10e, τ %.10e, max W %.10f, fallbacks %d\n",
-            "$mesh, $lab", h.D, h.τ, h.acc.maxW, h.fb)
-    EOS5_ON[] = false
+    @printf("%-44s   hydrodynamic: D %.10e, τ %.10e, max W %.10f, fallbacks %d, writes %d\n",
+            "$mesh, $lab", h.D, h.τ, h.acc.maxW, h.fb, sum(values(h.acc.n)))
+    set_variant!("base")
     return nothing
 end
 
@@ -470,10 +489,10 @@ function stageproblems(; case=tube())
             end
         end
         anyadm ? (root ? (withroot += 1) : (noroot += 1)) : (noadm += 1)
-        EOS5_ON[] = true
+        set_variant!("B+hot")
         _, _, r5, _ = TG.solve_ohm_stage(p.eos, p.opts, p.pol, p.model, m, cons, E★, B, γΔt,
                                          TG.state_guesses(cons); stage=p.stage)
-        EOS5_ON[] = false
+        set_variant!("base")
         r5.flags & TG.OHM_FALLBACK == 0 && (conv5 += 1)
     end
     @printf("stages that fall back: %d, μ = B²/D in [%.3g, %.3g], f = |E★ + v×B|/|B| in [%.3g, %.3g]\n",
