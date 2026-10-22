@@ -48,7 +48,8 @@ const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
 const IRK = TG.IRK
 # *(2026-10-22, branch `claude/no-collapse-to-atmosphere`:)* the entropy-ceiling projection of
-# the hot branch, emulated; `HOT_PROJECTION=0` in the environment gives 1.1.0's own policy.
+# the hot branch, emulated; `HOT_PROJECTION=0` in the environment gives 1.1.0's own policy, 1 the
+# first emulation, 2 (the default) EOS-9 as rewritten after Erik's review.
 include(joinpath(@__DIR__, "hot_projection.jl"))
 
 # --- the classified step limiter and the monitor ----------------------------------------
@@ -326,7 +327,7 @@ end
 function matrix(mesh, name; nruns=48)
     kw = mesh == "uniform" ? (;) : (; refine=refine_band!)
     lab, cf, lkw = candidate_kw(name)
-    lab = lab * (HOT_PROJECTION[] ? " [hot→s_max]" : " [hot→released]")
+    lab = lab * " [policy v$(HOT_PROJECTION[])]"
     HOT_COUNT .= 0
     batch("$mesh, $lab", cf(tube()); nruns=nruns, kw..., lkw...)
     @printf("%-44s   hot branch over the %d runs (every recovery): projections %d, to the atmosphere %d, rapidity capped %d, pol_collapse %d\n",

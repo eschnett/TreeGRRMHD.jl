@@ -667,6 +667,8 @@ end
         for (x, fx) in ((q, f), (r, g))
             @test fx & REC_EOS.FLAG_POL_ρ_FLOORED != 0
             @test fx & REC_EOS.FLAG_POL_ATMOSPHERE != 0
+            # The replacement and its cause only (decided by Erik 2026-10-22).
+            @test fx == REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_ρ_FLOORED
             @test TreeGRRMHD.prim_ρ(x) == atm.ρ && TreeGRRMHD.prim_s(x) == atm.s
             @test TreeGRRMHD.prim_w(x) == 0 && TreeGRRMHD.prim_v(x) == zero(SVector{3,T})
             back = prim2con(eos, m, x, E, B)

@@ -237,7 +237,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17) | superseded 2026-10-21 by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
 | EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0 (unregistered; `[sources]` `rev = "main"`) |
-| EOS-9 | EntropyEOS | proposed (experiment, not decided) | 12 | "τ above the hottest state" projected onto the entropy ceiling, `D` kept, flagged `S_CEILED`, instead of the collapse ceiling (added 2026-10-22) | proposed |
+| EOS-9 | EntropyEOS | proposed (experiment, not decided) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | proposed |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -943,58 +943,103 @@ through `P` and the diagnostics). `[compat]` `EntropyEOS = "1.1"`; the names joi
 longer satisfies `[compat]`; `Pkg.update("EntropyEOS")` (or deleting the manifest) fixes it. Once
 EntropyEOS is registered, `[compat]` alone guarantees it.
 
-### EOS-9 — The hottest state is the entropy ceiling, not a collapse (proposed; experiment)
+### EOS-9 — Step 4's endpoint branches: edge-consistent, guarded, reporting facts (proposed; experiment)
 
-*(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere`, for Erik's
-question whether `collapse_to_atmosphere` can go; not decided. `CODE.md`, "Floors, the atmosphere
-and the magnetosphere", "Investigation (2026-10-22)".)* **Why.** In EntropyEOS 1.1.0
-`con2prim_safe`'s step 4 (the solve failed; the endpoints diagnose the state) sends a state whose
-energy lies above the hottest state compatible with its momentum (`r_hi.f2 < 0` at `s_max`) to
-`pol_collapse`, which — unless `collapse_to_atmosphere` — writes the collapse ceiling: `ρ_ceiling`
-at `s_max`, the rapidity from the momentum at that density, flagged `FLAG_POL_CEILING`. Next to a
-near vacuum such a state is a hot cell at a few `ρ_atm`, not a collapse; writing `ρ_ceiling` (10⁶
-for the shock gas) there is outside the criterion of the valid-range design,
-`D_out ≤ max(D_in, D_atm)`, and was every blow-up of the magnetized tubes. The only way around it
-today is `collapse_to_atmosphere`, an excision choice meant for collapsing stars. The converged
-path already treats an entropy above the window as a projection onto `s_max` with `D` kept
-(`FLAG_POL_S_CEILED`); this branch should do the same.
+*(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere` for Erik's question
+whether `collapse_to_atmosphere` can go; rewritten the same day after his review in six questions,
+Q1–Q6, with his decisions on Q3 (b) and Q6 (a); proposed, not decided. Measurements:
+`bin/endpoint_measure.jl`, `bin/front_investigation.jl`; emulation: `bin/hot_projection.jl`,
+`HOT_PROJECTION = 2`; `CODE.md`, "Floors, the atmosphere and the magnetosphere", "Investigation
+(2026-10-22)".)*
 
-**API.** None new: a change of `con2prim_safe`'s step 4, "above the hottest state" branch.
+**Why.** When `con2prim_safe`'s solve fails, step 4 diagnoses the state with two endpoint solves at
+the edges of the entropy window and projects it — the cold branch (τ below the coldest state at the
+momentum) onto `s_min`, the hot branch (τ above the hottest) today onto the collapse ceiling
+`ρ_ceiling`. Measured on EntropyEOS's synthetic table (whose window depends on `ρ`), across the box,
+hydrodynamic and MHD mode, about 4000 inputs per branch and mode:
+- the hot branch writes `ρ_ceiling` for every input it diagnoses — a hot near-vacuum cell is no
+  collapse; in the magnetized tubes this was every blow-up, and `collapse_to_atmosphere` (an
+  excision option for collapsing stars) is today's only way round it;
+- both branches solve at `srange(D/cosh w_ref)`'s edge but write the state at `ρ₁ = D/cosh w₁`: the
+  edge there differs (cold: by 1.5·10⁻⁵ of the window, in 94% of inputs; hot: by 2·10⁻³ median, up
+  to 0.27), so the written rapidity belongs to another `h` — the cold branch's momentum is off by
+  `3·10⁻⁸` (the solver's tolerance is `10⁻¹²`), and a hot projection at `sr_ref`'s ceiling (the
+  first form of this request) by 0.4% median and 5.6% at most, with `s` up to 0.27 of the window
+  inside it rather than at its edge;
+- the endpoint solves themselves: every cold one converged; of about 29,000 hot ones, 166 ended at
+  the residual's floating-point floor just above tolerance (`|f₁|/cosh w ≤ 8 tol`; 93 out of
+  iterations with the bracket already at the floor, the rest a collapsed bracket) — none capped,
+  none non-finite, and no diagnosis changed with a solve 1000× tighter and 10× longer (nor at
+  `ρ₁`). In the tubes every endpoint solve converged (584 to 1318 per run);
+- step 1's `τ_max` (the largest `ρh` on a 5×3 grid, times `W_cap²`) stopped 8% (hydrodynamic) and 11% (MHD) of the hot inputs
+  before any solve and wrote `ρ_ceiling` for states the table represents.
 
-**Semantics** (emulated in `bin/hot_projection.jl`, which is 1.1.0's function but for this branch):
-- `w₁ = clamp(r_hi.w, 0, w_cap)` — the rapidity of the momentum solve at `s_max` (in MHD mode with
-  the input's `S_par`, `S_perp` and `B²`, as every branch), with `FLAG_POL_W_CAPPED` if clamped;
-- the state `(ρ = D/cosh w₁, s = s_max of the bracket the test used — sr_ref at ρ_ref —, Yₑ, w₁)`
-  through `project_prim_state`, which re-clamps `s` to the window at the final `ρ` (a table's
-  window depends on it) and sends `ρ < ρ_atm` to the atmosphere (its own rule; so no
-  `FLAG_POL_ρ_FLOORED` is needed or set here, and `D_out = ρ_atm < D_in`);
-- packaged with the input's `S_par`, `S_perp`, `B²` (`pol_package`): `D` and the momentum kept (up
-  to the rapidity cap), the energy lowered onto the hottest state — a projection back into the
-  valid range in the one direction that left it;
-- flagged `FLAG_POL_S_CEILED` (bit 11, "s lowered to the physical srange maximum", what happened),
-  with whatever `project_prim_state` adds; **no new bit**: `FLAG_POL_CEILING` then means the
-  collapse ceiling only, which is what lets an application tell the two apart.
+**API.** None new. Changes of `con2prim_safe`'s steps 1 and 4 and of `check_con_state`; the flags
+are the existing ones.
 
-**Also proposed, for consistency (not needed by any case of this package today):** the step-1
-arithmetic test `τ − B² > τ_max` with `D ≤ D_max` calls the same `pol_collapse` and writes
-`ρ_ceiling` whatever the input's `D` — for a small `D`, rest mass created far beyond
-`max(D_in, D_atm)`. That case should take the projection above (`D` kept); only `D > D_max` is
-past the density ceiling, where `pol_collapse`'s projection (`ρ_ceiling`, `D_out = ρ_ceiling W ≤
-D_max < D_in`) satisfies the criterion — and it could add `FLAG_POL_ρ_CEILED` to
-`FLAG_POL_CEILING`, the fact that rest mass was removed, as EOS-8 did for the floor. Neither test
-fires in any case here (`D_max = 10⁸`, `τ_max = 1.5·10²⁰` for the shock gas; 0.16 and 19.6 in
-geometric units for the synthetic table, against `D, τ ≲ 10³` in every case).
+**Semantics.**
+1. *(Q1) One edge-consistent root find per branch*, for the diagnosis and the projection alike: the
+   rapidity `w` with `f₁(w) = 0` at `s = s_edge(D/cosh w)` inside the residual (`s_min` of
+   `srange(D/cosh w, Yₑ)` for the cold branch, `s_max` for the hot), one 1D root find on
+   `[0, w_max]` (measured: Illinois, 20–30 evaluations, no failure in about 15,000 inputs; it agrees
+   with the fixed point `ρ ↦ s_edge(ρ) ↦ w ↦ D/cosh w`, which needs 4 passes cold and 13–17 hot,
+   in every input, to `10⁻⁹` in `w`). The branch is taken on the sign of `f₂` there (cold `f₂ > 0`,
+   hot `f₂ < 0`). Testable: `s_out` is at the edge of `srange(ρ_out)`; `S_out = S_in` to the
+   solver's tolerance unless `W_CAPPED` (measured: at most `7·10⁻¹⁰`, median `10⁻¹⁵`); and no valid
+   state exists at `ρ_out`'s window (the sign of `f₂` at the edge). The cold branch's projection
+   (already shipped) is included.
+2. *(Q2) Guards.* A branch is taken only if its root find found a root — `f1_converged`, or a
+   bracket around a sign change collapsed to the floating-point floor (the measured endpoint
+   solves that missed the tolerance are all of this kind), or the root lies beyond `w_max`
+   (`f₁(w_max) < 0`: capped legitimately, `W_CAPPED`) — and the returned `w` and `f₂` are finite. A
+   root find that ran out of iterations with an open bracket, or met a non-finite residual, gives no
+   diagnosis; if neither branch has one, the existing "neither diagnosis fits: excise" path
+   (`FLAG_POL_ATMOSPHERE`). This governs the diagnosis (the sign of `f₂`) and the projected rapidity,
+   for both branches.
+3. *(Q3, decided (b): EntropyEOS reports facts, the application decides.)* The hot branch's
+   projection is `(ρ₁ = D/cosh w₁, s_max(ρ₁), Yₑ = ye_in, w₁ = min(w, w_cap))`, the density clamped
+   into `[ρ_atm, ρ_ceiling]` exactly as the cold branch clamps it: raised to `ρ_atm` with
+   `FLAG_POL_ρ_FLOORED`, lowered to `ρ_ceiling` with `FLAG_POL_ρ_CEILED` — never replaced by the
+   atmosphere. Whether a floored state is put at rest is the application's rule (TreeGRRMHD's: the
+   atmosphere at rest, `D_out ≤ max(D_in, D_atm)` — this package's criterion, not EntropyEOS's).
+4. *(Q4) Flags describe the returned state, both ways.* Where the whole state is replaced by the
+   atmosphere, return `FLAG_POL_ATMOSPHERE` and its cause (`FLAG_POL_NONFINITE`) only, not the
+   clamps of the discarded state (today the converged path returns `W_CAPPED | ATMOSPHERE` when the
+   capped state falls below `ρ_atm`). The hot branch's output may carry `FLAG_POL_S_CEILED` (bit 11,
+   what the converged path sets for an entropy above the window), `W_CAPPED` (a legitimate cap
+   only), `ρ_FLOORED`, `ρ_CEILED`, `YE_CLAMPED` (the projection is passed `ye_in`, not `ye_c`, as the
+   cold branch's is); `FLAG_POL_CEILING` is left to the collapse test. Every flag set describes
+   something that happened to the returned state, and every clamp that happened is flagged.
+5. *(Q5) `check_con_state` changes with it:* its endpoint diagnosis and `con2prim_safe`'s step 4
+   share one routine (today they bracket differently — `check_con_state` takes the union of the
+   windows at `D` and at `D/cosh w_max`), its hot case returns `FLAG_POL_S_CEILED` (`CEILING` only
+   for `D > D_max`), and its contract reads: it predicts which repair applies, not its clamps.
+6. *(Q6, decided (a).)* Step 1 stays pure arithmetic and only `D > D_max` short-circuits to
+   `pol_collapse`; `τ − B² > τ_max` with `D ≤ D_max` falls through to the solve (and to step 4 if it
+   fails), and the `τ_max` test leaves `check_con_state`'s cheap mode too (whether `τ_max` stays in
+   `PolicyOptions` is EntropyEOS's call). The `D_max` collapse reports `FLAG_POL_ρ_CEILED` (and
+   `W_CAPPED` where it caps) alongside `FLAG_POL_CEILING`.
 
-**Upstream acceptance.** Random inputs with the energy above the hottest state at their momentum,
-across the density box, in hydrodynamic and MHD mode: every output inside the valid range,
-`D_out ≤ max(D_in, D_atm)`, flagged `S_CEILED` (and `W_CAPPED`, `ATMOSPHERE` where they apply),
-never `CEILING`; a fixed point of `con2prim_safe`; the converged path and the other branches bit
-for bit.
+**Upstream acceptance.** On the synthetic table (directly and through a `ρ`-dependent window),
+random inputs across the density box, hydrodynamic and MHD mode, aimed at either branch:
+- `s_out` at the edge of `srange(ρ_out)`, `|S_out − S_in| ≤` a small multiple of the solver's
+  tolerance unless `W_CAPPED`, and `f₂` at the edge of the right sign;
+- the flags in both directions (each set flag describes the returned state; each clamp is flagged),
+  and an atmosphere replacement carrying `ATMOSPHERE` and its cause only;
+- `check_con_state`'s branch flag equals `con2prim_safe`'s for every input reaching step 4;
+- the guards: inputs constructed so that an endpoint root find cannot converge or turns non-finite
+  excise with `FLAG_POL_ATMOSPHERE`;
+- every output a fixed point of `con2prim_safe`; the converged path and every other branch bit for
+  bit, but the atmosphere flags of item 4; `τ_over` with `D ≤ D_max` no longer reaching
+  `pol_collapse`.
 
-**Downstream check.** With `collapse_to_atmosphere` removed from `atmosphere_tube_case`
-(`case_policy`), the suite as it stands (the magnetized and ideal atmosphere assertions; without
-EOS-9 the three ideal-atmosphere assertions fail — the tube blows up), and `FLAG_POL_CEILING`
-absent from the atmosphere tubes' flags.
+**Downstream check.** `collapse_to_atmosphere` removed from the atmosphere tubes (`case_policy`), and
+the suite green as it stands — measured with the emulation: 25940 pass at one thread (Julia 1.13);
+without it (released 1.1.0, the option off) the three assertions of the ideal magnetized atmosphere
+fail (it blows up). The tubes' numbers: those of `claude/atmosphere-at-rest` on every mesh to the
+digits printed, but the ideal atmosphere under ARS (`−4.5·10⁻⁹` of rest mass where the option
+added `5.6·10⁻⁸`); step 3's sweep loses fallbacks (36, 78, 103 → 33, 74, 90 without the cutoff;
+the stage solve in a kernel 47 → 48 of 48 at `Float64` and `Float32`).
 
 **Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
 `claude/atmosphere-at-rest`).
