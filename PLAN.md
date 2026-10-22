@@ -1679,7 +1679,10 @@ marked "amended/measured/proposed in step 8"):*
   order across coarse-fine faces kept (2D L∞ 1.85 against 2.02).
 - **Found**: the magnetized atmosphere tube is chaotic at rounding level (0 to 144 fallbacks,
   `W` 4.6 to 90 under 10⁻¹⁵ perturbations, before and after); its "no fallback" assertion now
-  holds hydrodynamically, with a fallback rate ≤ 0.2% magnetized (proposed).
+  holds hydrodynamically, with a fallback rate ≤ 0.2% magnetized (proposed). *(Decided by Erik
+  2026-10-22: "no fallback" magnetized too, on the uniform and the refined mesh of the suite —
+  the tube is deterministic under the atmosphere-at-rest recovery of 2026-10-21; `CODE.md`,
+  "Floors, the atmosphere and the magnetosphere".)*
 - **The suite**: 25405 tests, `Test Summary` 6m34s at one thread, 6m59s at four, 7m14s with
   `--check-bounds=yes`, 6m37s for the clean-checkout check (Julia 1.13.2, load 4–6), against
   25374 and 6m31s on 5f82040 with TreeAMR 0.2.2; identical at one and four threads and from the

@@ -1107,16 +1107,22 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   which resolves EntropyEOS 1.1.0 from `main`): 25873 pass and one broken —
   the ARS row of the ideal magnetized atmosphere (`ars.t.injected_D ≥ 1`;
   ARS now injects 5.6·10⁻⁸ at `W` 4.1), marked `@test_broken` pending
-  Erik's decision. What moves against the released policy: the magnetized
+  Erik's decision. *(Decided by Erik 2026-10-22:)* that row now asserts
+  what is true — neither tableau runs away there: injected rest mass
+  within 10⁻⁶ (measured −6.6·10⁻⁹ and 5.6·10⁻⁸), energy within 3·10⁻⁴
+  (−1.7·10⁻⁵, −2.4·10⁻⁵), final `W ≤ 5` (4.01, 4.11) — a regression check of
+  this recovery ("The partition" has the re-measured comparison); and the
+  magnetized tube asserts no fallback again, on the uniform mesh and on the
+  refined one of `test/refinement_cases_tests.jl` (none in any of 48
+  perturbed runs on all three meshes). The suite then passes whole, 25876
+  tests (Julia 1.13, one thread). What moves against the released policy: the magnetized
   tube (`W` 6.63 → 4.80, fallbacks 92 → 0, injected `5.0·10⁻⁸`,
   `1.7·10⁻⁶` → `−1.18·10⁻⁸`, `−7.4·10⁻⁷`) and its coarse-fine run
   (`−1.4·10⁻⁸`, `−1.5·10⁻⁶`); SSP3's ideal magnetized atmosphere
   (`1.56·10⁻⁹` → `−6.63·10⁻⁹`, `W` 4.83 → 4.01); and the one
   hydrodynamic case, ARS's near-vacuum rarefaction, whose undershoot the
   wrapper now puts at rest (`ρ` 2.7·10⁻¹⁰ → 1.0·10⁻¹⁰, resets 161/118 →
-  131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged). The
-  magnetized tube's fallback assertion stays the rate (`≤ 0.2%`), which
-  holds; `== 0` would too — Erik's decision.
+  131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged).
 
 **Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
 PLAN.md step; `bin/front_investigation.jl`, and the 2026-10-17 sweep's
@@ -1441,13 +1447,27 @@ the density positive and the reset idle while ARS(4,4,3)'s does not:
   (3 and 2 cells, injecting `2.8·10⁻³` and `0.22` of energy) where
   SSP3(4,3,3) fires none;
 - into a near vacuum its explicit part undershoots: a rarefaction into a
-  medium at `10⁻⁸` reaches `2.1·10⁻¹⁰` (the reset writes 114 cells) where
-  SSP3(4,3,3) never goes below the medium, and in the magnetized ideal
-  atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) the undershoots, repaired where
-  the field's energy dwarfs the fluid's, inject `2.6·10⁴` of rest mass
-  into a box that holds 0.5, and the flow runs away to `W = 49`;
-- with the magnetization cutoff it takes 7 fallbacks and 33 recoveries in a
-  stage, SSP3(4,3,3) none and 6;
+  medium at `10⁻⁸` reaches the atmosphere, `10⁻¹⁰` (the reset writes 110
+  cells as the step limiter), where SSP3(4,3,3) never goes below the medium,
+  and the hydrodynamic atmosphere tube injects `1.2·10⁻⁹` of rest mass
+  against SSP3(4,3,3)'s `−8.4·10⁻¹²`;
+- *(amended 2026-10-22, decided by Erik: the decision stands)* in the
+  magnetized ideal atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) ARS(4,4,3) was
+  recorded injecting `2.6·10⁴` of rest mass into a box that holds 0.5 and
+  running away to `W = 49`. That was EntropyEOS's repairs, not ARS: the
+  entropy-floor branch wrote `ρ_atm` at `W ≈ |S|/ρ_atm`, the collapse
+  branch `ρ_ceiling` ("Floors, the atmosphere and the magnetosphere"). With
+  a floored recovery put at rest and the tube's `collapse_to_atmosphere`
+  (2026-10-21) neither tableau runs away there — ARS injects `5.6·10⁻⁸` and
+  ends at `W = 4.1`, SSP3(4,3,3) `−6.6·10⁻⁹` and 4.0 — and the row no
+  longer argues either way. The others still do, and the default stands on
+  them: Balsara 4's accuracy and plateau, the resets on Balsara 3 and 4,
+  the hydrodynamic rarefaction's undershoot to the atmosphere and the
+  hydrodynamic tube's injection, the cut-off tube's stages (below), and the
+  cost;
+- with the magnetization cutoff it takes 23 fallbacks and 33 recoveries in
+  a stage, SSP3(4,3,3) none and 6 (both now deterministic; before
+  2026-10-21: 7 and 33 against none and 6 in step 6's draw);
 - it costs 10–17% more wall time.
 
 SSP3(4,3,3)'s price is the one step 5 measured: each step's stored `𝔈` is
@@ -1482,10 +1502,19 @@ either side, as a fraction of its total range):
 | resistive tube, L1(`𝔅ʸ` − ideal) at σ = 0, 10, 10², 10³, 10⁶ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ |
 | resistive tube, stages fixed point / Newton at σ = 10² | 94,930 / 65,070 | 39,867 / 120,133 |
 | current sheet to `t = 9`, L1 to the erf profile; wall | 9.30·10⁻⁴; 5.6 s | 9.30·10⁻⁴; 6.4 s |
-| rarefaction into `10⁻⁸` (atmosphere `10⁻¹⁰`): min ρ; resets | 1.0·10⁻⁸; 0/0 | 2.1·10⁻¹⁰; 152/114 |
-| atmosphere tube, `B = 0`: injected `D`, `τ` | −8.4·10⁻¹², −2.2·10⁻¹⁰ | 2.4·10⁻⁹, 1.2·10⁻⁸ |
-| atmosphere tube, ideal, `Bʸ = 10⁻³`: injected `D`, `τ`; max W | 1.6·10⁻⁹, −2.5·10⁻⁷; 4.83 | 2.6·10⁴, 5.3·10¹³; 48.9 |
-| atmosphere tube, `Constant(10³)` cut off at `μ_max = 10`: injected `D`, `τ`; fallbacks; most recoveries | 2.5·10⁻⁸, 6.9·10⁻⁸; 0; 6 | 4.6·10⁻⁸, 1.5·10⁻⁶; 7; 33 |
+| rarefaction into `10⁻⁸` (atmosphere `10⁻¹⁰`): min ρ; resets stage/step | 1.0·10⁻⁸; 0/0 | 1.0·10⁻¹⁰; 131/110 (before 2026-10-21: 2.1·10⁻¹⁰; 152/114 in step 6, 2.7·10⁻¹⁰; 161/118 since step 8) |
+| atmosphere tube, `B = 0`: injected `D`, `τ` | −8.4·10⁻¹², −2.2·10⁻¹⁰ | 1.2·10⁻⁹, 6.0·10⁻⁹ (before 2026-10-21: 2.4·10⁻⁹, 1.2·10⁻⁸) |
+| atmosphere tube, ideal, `Bʸ = 10⁻³`: injected `D`, `τ`; max W at the end | −6.6·10⁻⁹, −1.7·10⁻⁵; 4.01 (before 2026-10-21: 1.6·10⁻⁹, −2.5·10⁻⁷; 4.83) | 5.6·10⁻⁸, −2.4·10⁻⁵; 4.11 (before 2026-10-21: 2.6·10⁴, 5.3·10¹³; 48.9 in step 6, 1.6·10⁴, 2.7·10¹³; 100 since step 8 — the policy artefact) |
+| atmosphere tube, `Constant(10³)` cut off at `μ_max = 10`: injected `D`, `τ`; fallbacks; most recoveries | −1.2·10⁻⁸, −7.4·10⁻⁷; 0; 6 (before 2026-10-21: 2.5·10⁻⁸, 6.9·10⁻⁸; 0; 6 in step 6, 5.0·10⁻⁸, 1.7·10⁻⁶; 92; 33 since step 8 — chaotic) | −1.2·10⁻⁸, −7.9·10⁻⁷; 23; 33 (before 2026-10-21: 4.6·10⁻⁸, 1.5·10⁻⁶; 7; 33 in step 6, 6.8·10³, 2.4·10¹³; 725; 33 on the step-8 tree — chaotic) |
+
+*(Re-measured 2026-10-22, `bin/tableau_comparison.jl atmosphere`, with the
+atmosphere-at-rest recovery and EntropyEOS 1.1.0: the four atmosphere
+rows; the "before" values are step 6's and, where they differ, the tree
+just before 2026-10-21's decision, measured the same day. Re-run in full
+the same day, every Balsara and resistive number is the table's to the
+digits shown, and the current sheet's distance reads 9.559·10⁻⁴ and
+9.560·10⁻⁴ (SSP3, ARS), as it has since step 8's walls — rung 1b — and
+untouched by the recovery; the wall times are within the load's noise.)*
 
 *As built in step 5* (`src/driver.jl`): `evolve!(T, case, Val(D); N,
 t_end, chunk, cfl, limiter, …)` builds the forest of `case.roots` blocks of
@@ -2777,7 +2806,8 @@ named as claims.
      run to 92 fallbacks, `2.5·10⁻⁸` → `5.0·10⁻⁸` of rest mass and
      `6.9·10⁻⁸` → `1.7·10⁻⁶` of energy, and `W` 4.69 → 6.63; the test now
      asserts no fallback hydrodynamically and a fallback rate of at most
-     0.2% magnetized (proposed in step 8). *(Investigation 2026-10-16: the
+     0.2% magnetized (proposed in step 8; *replaced by "no fallback"
+     magnetized as well, decided by Erik 2026-10-22*). *(Investigation 2026-10-16: the
      cause — the field's truncation error in the fluid's share, amplified
      by EntropyEOS's repairs at the edge of the valid range — the sweep of
      fixes, and the decision of 2026-10-21 (a floored state is the
@@ -2787,7 +2817,10 @@ named as claims.
      injected −1.18·10⁻⁸, −7.4·10⁻⁷.)* The same holds for step 6's
      tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
      draw from that spread, and the decision for SSP3(4,3,3) rests on its
-     other rows (the near-vacuum rarefaction, the ideal atmosphere). The
+     other rows (the near-vacuum rarefaction, the ideal atmosphere; *amended
+     2026-10-22:* the ideal atmosphere's row was the policy artefact, and the
+     re-measured comparison in "The partition" — ARS 23 fallbacks, SSP3 none,
+     both deterministic — is what the tube says now). The
      hydrodynamic tube is not chaotic: both fills give its numbers to every
      digit.
    - Cost (Julia 1.13, Apple M3 Pro, one thread, 400 cells): a step of

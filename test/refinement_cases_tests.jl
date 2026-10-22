@@ -196,7 +196,7 @@ end
                     refine=refine_band!, ops_W=ops_W,
                     after_step=(p, u, t) -> rf_ghost_repairs!(acc, p, u, t))
         (; r, acc, D=sum(c -> c.tally.injected_D, r.chunks),
-         τ=sum(c -> c.tally.injected_τ, r.chunks))
+         τ=sum(c -> c.tally.injected_τ, r.chunks), fb=sum(c -> c.tally.bits[5], r.chunks))
     end
     two = run(case, RF.default_ops_W())
     magnetized = run(mag, RF.default_ops_W())
@@ -205,7 +205,8 @@ end
     @info "Atmosphere tube across a coarse-fine face, primitive ghosts: width 2 repaired " *
           "$(two.acc.repaired), below ρ_atm $(two.acc.below), injected D $(two.D), τ $(two.τ); " *
           "magnetized $(magnetized.acc.repaired), $(magnetized.acc.below), $(magnetized.D), " *
-          "$(magnetized.τ); width 4 injected τ $(four.τ); unbounded below ρ_atm " *
+          "$(magnetized.τ), fallbacks $(magnetized.fb); width 4 injected τ $(four.τ); " *
+          "unbounded below ρ_atm " *
           "$(unbounded.acc.below), injected τ $(unbounded.τ)"
     @test two.r.nblocks == 24 && RF.default_ops_W().family == Conservative &&
           RF.default_ops_W().prolongation == 3
@@ -213,6 +214,12 @@ end
     @test magnetized.acc.repaired == 0 && magnetized.acc.below == 0
     @test abs(two.D) ≤ 1e-10 && abs(two.τ) ≤ 1e-8
     @test abs(magnetized.D) ≤ 1e-6
+    # No OHM_FALLBACK magnetized (decided by Erik 2026-10-22): under the
+    # atmosphere-at-rest recovery the tube is deterministic, with no fallback
+    # in any of 48 perturbed runs on the uniform mesh and on both refined
+    # meshes (`bin/front_investigation.jl`; "Floors, the atmosphere and the
+    # magnetosphere" in `CODE.md`).
+    @test magnetized.fb == 0
     @test four.τ ≥ 1e-5
     # *(Experiment branch: with `W` holding `ρ★ s`, `ρ★ Yₑ`, a ghost with
     # `ρ★ ≤ 0` takes the policy's atmosphere, so the unbounded control's

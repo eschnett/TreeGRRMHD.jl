@@ -18,7 +18,12 @@
 # the L1 distance of `𝔅ʸ` to the ideal run of the same tableau. The current
 # sheet (Komissarov's, 200 cells to t = 9): the L1 distance to the erf
 # profile. The atmosphere tube (200 cells) in three forms: the smallest
-# density, the largest Lorentz factor, the resets and the injection.
+# density, the largest Lorentz factor, the resets and the injection. The
+# rarefaction into a medium at 10⁻⁸ above a 10⁻¹⁰ atmosphere (200 cells,
+# `test/atmosphere_tests.jl`'s): the smallest density and the resets (added
+# 2026-10-22, when the atmosphere rows were re-measured).
+#
+#     julia --project=. bin/tableau_comparison.jl atmosphere     # those two only
 
 using Printf
 using TreeGRRMHD
@@ -130,6 +135,22 @@ function sheet()
     end
 end
 
+function rarefaction()
+    println("\n## The rarefaction into 10⁻⁸ above a 10⁻¹⁰ atmosphere, 200 cells")
+    case = shock_tube_case(Float64; Γ=5 // 3, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, 0, 0)),
+                           right=(ρ=1 // 10^8, p=1 // 10^12, v=(0, 0, 0), B=(0, 0, 0)),
+                           ρ_atm=1 // 10^10, roots=20)
+    for tab in TABLEAUS
+        r, wall = timed(() -> evolve!(case, Val(1); N=10, t_end=0.4, chunk=0.1, limiter=:mc,
+                                      tableau=tab))
+        pr = profile_1d(r.p, r.u, r.t)
+        t = totals(r)
+        @printf("%-12s min ρ %.3e; resets %d/%d; injected D %.3e, τ %.3e; wall %.2f s\n",
+                tab.name, minimum(pr.ρ), t.resets, t.step_resets, t.injected_D, t.injected_τ,
+                wall)
+    end
+end
+
 function atmosphere()
     println("\n## The atmosphere tube, 200 cells, ρ_atm = 1e-8")
     forms = (("hydrodynamic, B = 0", 0.0, IdealConductor()),
@@ -150,7 +171,13 @@ function atmosphere()
 end
 
 @info "Tableau comparison, $(Threads.nthreads()) thread(s)"
-balsara()
-sweep()
-sheet()
-atmosphere()
+if "atmosphere" in ARGS
+    rarefaction()
+    atmosphere()
+else
+    balsara()
+    sweep()
+    sheet()
+    rarefaction()
+    atmosphere()
+end
