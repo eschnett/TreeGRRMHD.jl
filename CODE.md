@@ -1124,6 +1124,81 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   wrapper now puts at rest (`ρ` 2.7·10⁻¹⁰ → 1.0·10⁻¹⁰, resets 161/118 →
   131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged).
 
+**Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
+an experiment for Erik, not decided; `bin/hot_projection.jl`,
+`bin/front_investigation.jl`; EOS-9 in PLAN.md)*: can the atmosphere tubes
+do without `collapse_to_atmosphere`, an excision choice meant for collapsing
+stars? **Yes, with one EntropyEOS change and no other:** the "τ above the
+hottest state" branch of `con2prim_safe`'s step 4 projects onto the entropy
+ceiling with `D` kept (and the momentum, up to the rapidity cap), flagged
+`FLAG_POL_S_CEILED`, instead of calling `pol_collapse`. With it and the
+option off, every measured row is as clean as with the option, and the
+hydrodynamic tube is bit for bit; without it, the ideal magnetized
+atmosphere and `Bʸ = 10⁻²` blow up in every run.
+- **The projection** (emulated: 1.1.0's own `con2prim_safe` but for that
+  branch): `w₁ = clamp(r_hi.w, 0, w_cap)`, the rapidity of the momentum
+  solve at `s_max` in the input's mode (`S_par`, `S_perp`, `B²`), then
+  `(D/cosh w₁, s_max, Yₑ, w₁)` through `project_prim_state` and packaged
+  with the input's momentum split. Where `D/cosh w₁ < ρ_atm`,
+  `project_prim_state` already writes the atmosphere at rest
+  (`FLAG_POL_ATMOSPHERE`, `D_out = ρ_atm < D_in`): the policy's own rule,
+  so the projection does not raise `ρ` and need not set
+  `FLAG_POL_ρ_FLOORED`. It happens nearly always where the branch fires:
+  over 48 runs every recovery that took it at `Bʸ = 10⁻²` (8928, all with
+  the rapidity capped) and 8448 of 8976 in the ideal atmosphere under SSP3
+  (17,040 of 17,856 under ARS) ended in the atmosphere. In the cut-off tube
+  (`μ_max = 10`, every mesh), at 400 cells, at `μ_max = 30` and under ARS
+  the branch never fires — there `collapse_to_atmosphere` was already
+  idle under the atmosphere-at-rest recovery.
+- **Genuine collapse** (step 1's arithmetic tests) is untouched: `D_max =
+  ρ_ceiling W_cap` and `τ_max = max ρh(s_max) W_cap²` — `10⁸` and
+  `1.5·10²⁰` for the shock gas (`Γ = 5/3`), `10⁶` and `1.6·10¹¹` for the
+  waves' gas, 0.1 and 21 for EntropyEOS's test `HybridEOS`, and `10¹⁷`,
+  `1.2·10¹⁹` in g/cm³ for the synthetic table (0.16 and 19.6 through
+  `GeometricEOS`) — far above every state of this package's cases (`D`,
+  `τ ≲ 10³`); neither fires. For `D > D_max` the ceiling projection writes
+  `D_out = ρ_ceiling W ≤ D_max < D_in`, inside the valid range. The
+  `τ_max` test alone (`D ≤ D_max`) writes `ρ_ceiling` whatever `D` is, which
+  for a small `D` creates rest mass; EOS-9 proposes that it take the same
+  projection — for consistency, not because any case reaches it.
+- **Flags:** today the hot branch and genuine collapse both set
+  `FLAG_POL_CEILING`. The projection sets `FLAG_POL_S_CEILED` (bit 11,
+  what the converged path sets for an entropy above the window), plus
+  `W_CAPPED`/`ATMOSPHERE` where they apply; `CEILING` is left to the
+  collapse tests. No new bit is needed (bits 8–16 are used in 1.1.0).
+
+Measured (48 perturbed runs each, as before; "coll" the atmosphere tube's
+`collapse_to_atmosphere`; the recovery wrapper's atmosphere at rest on in
+every column; blow-ups out of 48; largest `W` median/max; fallbacks;
+injected rest mass; two runs 10⁻¹⁵ apart):
+
+| | coll on, released hot branch (470e8d9) | **coll off, hot branch → `s_max`** | coll off, released hot branch (control) |
+|---|---|---|---|
+| uniform | 0/48; 4.8; 0; −1.2e−8; 1.6e−13 | same, every digit | same, every digit |
+| refined, primitive fill | 0/48; 5.0; 0; −1.4e−8; 7.6e−13 | same | same |
+| refined, conserved fill | 0/48; 5.0; 0; −1.4e−8; 2.9e−13 | same | same |
+| hydrodynamic tube (3 meshes) | −8.4e−12, −1.6e−11, −1.5e−11 | bit for bit | bit for bit |
+| ARS(4,4,3) | 0/48; 7.0; 23; −1.2e−8 | same | same |
+| `Bʸ = 10⁻²` | 0/48; 16; 1; −8.5e−9 | 0/48; 16; 1; −8.5e−9 | **48/48** |
+| ideal, SSP3 | 0/48; 4.8; 0; −6.6e−9 | 0/48; 4.8; 0; −6.7e−9 | **48/48** |
+| ideal, ARS | 0/48; 4.3; 0; +5.6e−8 | 0/48; 4.3; 0; −4.5e−9 | **48/48** |
+| 400 cells | 0/48; 5.6; 0; −1.5e−8 | same | same |
+| `μ_max = 30` | 0/48; 4.8; 0; −1.2e−8 | same | same |
+| step 3's sweep, no cutoff: fallbacks Γ = 4/3, 5/3, 2 | 36, 78, 103 | **33, 74, 90** (kernel test 48 of 48, from 47) | 36, 78, 103 |
+| step 3's sweep, cutoff `μ_max = 10` | 0 at `f ≤ 0.3`; 1 at Γ = 2, `f = 1` | same | same |
+| suite (Julia 1.13, one thread) | 25876 pass | 25876 pass | 3 fail: the ideal magnetized atmosphere's three assertions (it blows up: 1.1·10⁴, 3.3·10⁴ of rest mass) |
+
+(The step-3 sweep never used `collapse_to_atmosphere`: the option is per
+case. Set in its policies too, it had cost 1 → 4 fallbacks at Γ = 2,
+`f = 1`; the projection instead removes some, as 2026-10-17's "hot" did.)
+So the projection buys exactly the cases where the hot branch fires — the
+ideal magnetized atmosphere and the strong field — and there it is as good
+as the option or better (the ideal atmosphere under ARS removes
+4.5·10⁻⁹ of rest mass where the option added 5.6·10⁻⁸), without an
+excision rule in any case's policy. On this branch the plain suite (without
+the emulation) fails those three assertions: it is an experiment, and
+EOS-9 is what it waits for.
+
 **Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
 PLAN.md step; `bin/front_investigation.jl`, and the 2026-10-17 sweep's
 `bin/policy_variants.jl`, removed 2026-10-21 with the decision above —

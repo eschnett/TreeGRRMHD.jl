@@ -237,6 +237,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17) | superseded 2026-10-21 by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
 | EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0 (unregistered; `[sources]` `rev = "main"`) |
+| EOS-9 | EntropyEOS | proposed (experiment, not decided) | 12 | "τ above the hottest state" projected onto the entropy ceiling, `D` kept, flagged `S_CEILED`, instead of the collapse ceiling (added 2026-10-22) | proposed |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -941,6 +942,62 @@ through `P` and the diagnostics). `[compat]` `EntropyEOS = "1.1"`; the names joi
 2.0) fails to resolve rather than loading silently. An existing `Manifest.toml` pinned at 1.0.0 no
 longer satisfies `[compat]`; `Pkg.update("EntropyEOS")` (or deleting the manifest) fixes it. Once
 EntropyEOS is registered, `[compat]` alone guarantees it.
+
+### EOS-9 — The hottest state is the entropy ceiling, not a collapse (proposed; experiment)
+
+*(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere`, for Erik's
+question whether `collapse_to_atmosphere` can go; not decided. `CODE.md`, "Floors, the atmosphere
+and the magnetosphere", "Investigation (2026-10-22)".)* **Why.** In EntropyEOS 1.1.0
+`con2prim_safe`'s step 4 (the solve failed; the endpoints diagnose the state) sends a state whose
+energy lies above the hottest state compatible with its momentum (`r_hi.f2 < 0` at `s_max`) to
+`pol_collapse`, which — unless `collapse_to_atmosphere` — writes the collapse ceiling: `ρ_ceiling`
+at `s_max`, the rapidity from the momentum at that density, flagged `FLAG_POL_CEILING`. Next to a
+near vacuum such a state is a hot cell at a few `ρ_atm`, not a collapse; writing `ρ_ceiling` (10⁶
+for the shock gas) there is outside the criterion of the valid-range design,
+`D_out ≤ max(D_in, D_atm)`, and was every blow-up of the magnetized tubes. The only way around it
+today is `collapse_to_atmosphere`, an excision choice meant for collapsing stars. The converged
+path already treats an entropy above the window as a projection onto `s_max` with `D` kept
+(`FLAG_POL_S_CEILED`); this branch should do the same.
+
+**API.** None new: a change of `con2prim_safe`'s step 4, "above the hottest state" branch.
+
+**Semantics** (emulated in `bin/hot_projection.jl`, which is 1.1.0's function but for this branch):
+- `w₁ = clamp(r_hi.w, 0, w_cap)` — the rapidity of the momentum solve at `s_max` (in MHD mode with
+  the input's `S_par`, `S_perp` and `B²`, as every branch), with `FLAG_POL_W_CAPPED` if clamped;
+- the state `(ρ = D/cosh w₁, s = s_max of the bracket the test used — sr_ref at ρ_ref —, Yₑ, w₁)`
+  through `project_prim_state`, which re-clamps `s` to the window at the final `ρ` (a table's
+  window depends on it) and sends `ρ < ρ_atm` to the atmosphere (its own rule; so no
+  `FLAG_POL_ρ_FLOORED` is needed or set here, and `D_out = ρ_atm < D_in`);
+- packaged with the input's `S_par`, `S_perp`, `B²` (`pol_package`): `D` and the momentum kept (up
+  to the rapidity cap), the energy lowered onto the hottest state — a projection back into the
+  valid range in the one direction that left it;
+- flagged `FLAG_POL_S_CEILED` (bit 11, "s lowered to the physical srange maximum", what happened),
+  with whatever `project_prim_state` adds; **no new bit**: `FLAG_POL_CEILING` then means the
+  collapse ceiling only, which is what lets an application tell the two apart.
+
+**Also proposed, for consistency (not needed by any case of this package today):** the step-1
+arithmetic test `τ − B² > τ_max` with `D ≤ D_max` calls the same `pol_collapse` and writes
+`ρ_ceiling` whatever the input's `D` — for a small `D`, rest mass created far beyond
+`max(D_in, D_atm)`. That case should take the projection above (`D` kept); only `D > D_max` is
+past the density ceiling, where `pol_collapse`'s projection (`ρ_ceiling`, `D_out = ρ_ceiling W ≤
+D_max < D_in`) satisfies the criterion — and it could add `FLAG_POL_ρ_CEILED` to
+`FLAG_POL_CEILING`, the fact that rest mass was removed, as EOS-8 did for the floor. Neither test
+fires in any case here (`D_max = 10⁸`, `τ_max = 1.5·10²⁰` for the shock gas; 0.16 and 19.6 in
+geometric units for the synthetic table, against `D, τ ≲ 10³` in every case).
+
+**Upstream acceptance.** Random inputs with the energy above the hottest state at their momentum,
+across the density box, in hydrodynamic and MHD mode: every output inside the valid range,
+`D_out ≤ max(D_in, D_atm)`, flagged `S_CEILED` (and `W_CAPPED`, `ATMOSPHERE` where they apply),
+never `CEILING`; a fixed point of `con2prim_safe`; the converged path and the other branches bit
+for bit.
+
+**Downstream check.** With `collapse_to_atmosphere` removed from `atmosphere_tube_case`
+(`case_policy`), the suite as it stands (the magnetized and ideal atmosphere assertions; without
+EOS-9 the three ideal-atmosphere assertions fail — the tube blows up), and `FLAG_POL_CEILING`
+absent from the atmosphere tubes' flags.
+
+**Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
+`claude/atmosphere-at-rest`).
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 
