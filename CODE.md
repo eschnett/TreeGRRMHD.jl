@@ -1103,6 +1103,20 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   carries bit 16 (66816 where it was 1280), and step 3's sweep, whose
   policies no longer set `collapse_to_atmosphere`, prints what it did
   before.
+- **The suite** (Julia 1.13, one thread; and the clean-checkout check,
+  which resolves EntropyEOS 1.1.0 from `main`): 25873 pass and one broken —
+  the ARS row of the ideal magnetized atmosphere (`ars.t.injected_D ≥ 1`;
+  ARS now injects 5.6·10⁻⁸ at `W` 4.1), marked `@test_broken` pending
+  Erik's decision. What moves against the released policy: the magnetized
+  tube (`W` 6.63 → 4.80, fallbacks 92 → 0, injected `5.0·10⁻⁸`,
+  `1.7·10⁻⁶` → `−1.18·10⁻⁸`, `−7.4·10⁻⁷`) and its coarse-fine run
+  (`−1.4·10⁻⁸`, `−1.5·10⁻⁶`); SSP3's ideal magnetized atmosphere
+  (`1.56·10⁻⁹` → `−6.63·10⁻⁹`, `W` 4.83 → 4.01); and the one
+  hydrodynamic case, ARS's near-vacuum rarefaction, whose undershoot the
+  wrapper now puts at rest (`ρ` 2.7·10⁻¹⁰ → 1.0·10⁻¹⁰, resets 161/118 →
+  131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged). The
+  magnetized tube's fallback assertion stays the rate (`≤ 0.2%`), which
+  holds; `== 0` would too — Erik's decision.
 
 **Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
 PLAN.md step; `bin/front_investigation.jl`, and the 2026-10-17 sweep's
