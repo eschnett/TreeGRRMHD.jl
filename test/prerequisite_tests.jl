@@ -91,14 +91,18 @@ end
     # in EntropyEOS 1.0.0; their probes were retired 2026-10-14). `κ` stays
     # unexported and is called qualified (amended in step 0). (Amended in
     # step 1: the synthetic table was to stand in for the analytic EOSes
-    # until EOS-2.)
+    # until EOS-2.) EOS-8 (landed in EntropyEOS 1.1.0, guaranteed by
+    # `[compat]`, so no probe) adds `FLAG_POL_ρ_FLOORED`, which the recovery
+    # wrapper branches on, and `policy_atmosphere`, which it writes (decided by
+    # Erik 2026-10-21).
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
                  :IdealGasEOS, :HybridEOS, :polytropic_entropy,
                  :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
                  :narrow, :prim2con, :Prim2ConOut, :con2prim, :Con2PrimIn,
                  :Con2PrimOptions, :Con2PrimOut, :con2prim_safe, :Con2PrimSafeOut,
                  :PolicyOptions, :PrimState, :default_policy, :C2PResult,
-                 :FLAG_POL_ATMOSPHERE, :FLAG_POL_ANY,
+                 :FLAG_POL_ATMOSPHERE, :FLAG_POL_ANY, :FLAG_POL_ρ_FLOORED,
+                 :FLAG_POL_ρ_CLAMPED, :policy_atmosphere,
                  :make_synthetic_table, :build_eos)
         @test name in names(EOS)
     end

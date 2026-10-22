@@ -619,6 +619,97 @@ end
     @test worst < (T === Float64 ? 3e-11 : 2 * 512 * Float64(eps(Float32)))
 end
 
+# The two recoveries of given conserved states in one kernel.
+@kernel function rec_floor_kernel!(out_hydro, out_ideal, flags, @Const(conss), m, E, B, eos,
+                                   opts, pol)
+    i = @index(Global)
+    T = eltype(E)
+    q, fh = con2prim_hydro(eos, opts, pol, m, conss[i], E, B, cold_guesses(T))
+    r, fi = con2prim_ideal(eos, opts, pol, m, conss[i], B, cold_guesses(T))
+    out_hydro[i] = q
+    out_ideal[i] = r
+    flags[i] = (fh, fi)
+end
+
+@testset "A density the policy raised to the atmosphere's is the atmosphere at rest: T=$T" for T in (Float64, Float32)
+    # Guards the one decision this package adds to EntropyEOS's policy
+    # (decided by Erik 2026-10-21; "Floors, the atmosphere and the
+    # magnetosphere" in `CODE.md`): where `con2prim_safe` raised the density
+    # to `ρ_atm` without resetting the state (`FLAG_POL_ρ_FLOORED`,
+    # EntropyEOS 1.1), it kept the coldest state's rapidity at that momentum,
+    # `W ≈ |S|/ρ_atm` — `W ≈ 40` here, with `D = ρ_atm W` eight times the
+    # input's. Both recoveries, and so the reset, the right-hand side and the
+    # stage solve, take the atmosphere at rest instead, flagged; the state
+    # written then holds `D = ρ_atm ≤ max(D_in, D_atm)` and is a fixed point.
+    # Also: the new bit 16 travels through `P` and the diagnostics' `|` of
+    # flags exactly at `Float32`; and the kernel, inference and allocation
+    # claims hold on this branch too.
+    eos = REC_EOS.narrow(rec_gas(2), T)
+    opts = REC_EOS.Con2PrimOptions{T}()
+    pol = REC_EOS.default_policy(eos, T(REC_ρ_ATM))
+    m = flat_metric(T)
+    E = zero(SVector{3,T})
+    B = SVector(zero(T), T(1e-6), zero(T))
+    # `D = 5 ρ_atm` carrying `|S| = 40 D` with almost no energy: below the
+    # coldest state at that momentum.
+    D = T(5e-10)
+    floored(S) = (D, S, zero(T), zero(T), T(1e-9), D / 2, 5 * D, zero(T), zero(T), zero(T))
+    conss = [floored(T(k * 1e-9)) for k in 10:2:40]
+    cin = REC_EOS.Con2PrimIn{T}(D, T(1e-9), D / 2, zero(T), T(2e-8), zero(T))
+    raw = REC_EOS.con2prim_safe(eos, cin, opts, pol)
+    @test raw.policy_flags & REC_EOS.FLAG_POL_ρ_FLOORED != 0      # the policy's fact
+    @test raw.base.ρ == T(REC_ρ_ATM) && raw.base.W > 10           # at W ≈ |S|/ρ_atm
+
+    atm = REC_EOS.policy_atmosphere(eos, pol, T(1 // 2))
+    for c in conss
+        q, f = con2prim_hydro(eos, opts, pol, m, c, E, B, cold_guesses(T))
+        r, g = con2prim_ideal(eos, opts, pol, m, c, B, cold_guesses(T))
+        for (x, fx) in ((q, f), (r, g))
+            @test fx & REC_EOS.FLAG_POL_ρ_FLOORED != 0
+            @test fx & REC_EOS.FLAG_POL_ATMOSPHERE != 0
+            @test TreeGRRMHD.prim_ρ(x) == atm.ρ && TreeGRRMHD.prim_s(x) == atm.s
+            @test TreeGRRMHD.prim_w(x) == 0 && TreeGRRMHD.prim_v(x) == zero(SVector{3,T})
+            back = prim2con(eos, m, x, E, B)
+            @test TreeGRRMHD.cons_D(back) ≤ max(TreeGRRMHD.cons_D(c), atm.ρ)
+            x2, f2 = con2prim_hydro(eos, opts, pol, m, back, E, B, cold_guesses(T))
+            @test f2 == REC_EOS.FLAG_POL_ATMOSPHERE && isequal(x2, x)
+        end
+        # The stage solve's recovery returns the atmosphere's EOS point, for
+        # its Jacobian.
+        _, _, pt = TreeGRRMHD.fluid_recovery(eos, opts, pol, m, D, SVector(c[2], c[3], c[4]),
+                                              c[5], c[6], cold_guesses(T))
+        @test isequal(pt, REC_EOS.evaluate(eos, atm.ρ, atm.s, atm.ye, T(NaN)))
+    end
+
+    # Bit 16 through `P` and through the diagnostics' stored `|`.
+    fl = REC_EOS.FLAG_POL_ρ_FLOORED | REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_S_FLOORED
+    q, _ = con2prim_hydro(eos, opts, pol, m, conss[1], E, B, cold_guesses(T))
+    @test TreeGRRMHD.aux_flags(TreeGRRMHD.pack_P(q, fl, E, B, zero(T), m)) === fl
+    stored = T(unsafe_trunc(UInt32, T(REC_EOS.FLAG_POL_W_CAPPED)) | fl)
+    @test unsafe_trunc(UInt32, stored) === fl | REC_EOS.FLAG_POL_W_CAPPED
+    @test unsafe_trunc(UInt32, T(REC_EOS.FLAG_POL_ANY)) === REC_EOS.FLAG_POL_ANY
+
+    # In a kernel, bit for bit; inferred and allocation-free.
+    n = length(conss)
+    out_h = Vector{NTuple{NPRIM,T}}(undef, n)
+    out_i = Vector{NTuple{NPRIM,T}}(undef, n)
+    flags = Vector{NTuple{2,UInt32}}(undef, n)
+    rec_floor_kernel!(CPU())(out_h, out_i, flags, conss, m, E, B, eos, opts, pol; ndrange=n)
+    synchronize(CPU())
+    for i in 1:n
+        q, f = con2prim_hydro(eos, opts, pol, m, conss[i], E, B, cold_guesses(T))
+        r, g = con2prim_ideal(eos, opts, pol, m, conss[i], B, cold_guesses(T))
+        @test isequal(out_h[i], q) && isequal(out_i[i], r) && flags[i] == (f, g)
+    end
+    c = conss[1]
+    @test (@inferred con2prim_hydro(eos, opts, pol, m, c, E, B, cold_guesses(T))) isa
+          Tuple{NTuple{NPRIM,T},UInt32}
+    @test (@inferred con2prim_ideal(eos, opts, pol, m, c, B, cold_guesses(T))) isa
+          Tuple{NTuple{NPRIM,T},UInt32}
+    @test rec_allocations(con2prim_hydro, eos, opts, pol, m, c, E, B, cold_guesses(T)) == 0
+    @test rec_allocations(con2prim_ideal, eos, opts, pol, m, c, B, cold_guesses(T)) == 0
+end
+
 @testset "A table in g/cm³ runs the recovery inside a kernel through the adapter" begin
     # Guards the adapter as a kernel argument: a `GeometricEOS` around a
     # table holds arrays, so it is not `isbits` on the host, but on the CPU

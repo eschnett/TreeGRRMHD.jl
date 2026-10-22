@@ -25,7 +25,7 @@ IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutt
 
 [compat]
 Adapt = "4"
-EntropyEOS = "1"
+EntropyEOS = "1.1"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42, 1"
 SpacetimeMetrics = "1.7"

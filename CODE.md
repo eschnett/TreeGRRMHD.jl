@@ -699,7 +699,14 @@ which iterates on that share, calls the same recovery bit for bit.
 `con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
 them: `policy_flags`, not the solver's result, is EntropyEOS's validity
 signal, and a failed solve is always repaired and flagged (proposed in step
-1).
+1). *(Amended 2026-10-21, decided by Erik:)* one exception, the one decision
+this package adds to the policy: where the flags say the policy raised the
+density to the atmosphere's without resetting the state
+(`FLAG_POL_ρ_FLOORED`, EntropyEOS 1.1, EOS-8), both recoveries return the
+atmosphere at rest and add `FLAG_POL_ATMOSPHERE` ("Floors, the atmosphere and
+the magnetosphere"). EntropyEOS's conserved output is never used: every
+caller rebuilds the conserved state from the primitive one with this
+package's `prim2con`.
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -761,7 +768,9 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
 the rapidity `w` (also the next recovery's warm start), `p`, `h`, `cs²` and
 the EOS's own warm start — then the policy flags (as a number; every bit is
-below 2¹⁶, so exact even in `Float32`), `Eⁱ`, `Bⁱ`, `q`, and the metric
+below 2¹⁷ — `FLAG_POL_ρ_FLOORED` is bit 16 since EntropyEOS 1.1 — so exact
+even in `Float32`, which holds every integer below 2²⁴; amended 2026-10-21,
+and tested at `Float32` with the new bit), `Eⁱ`, `Bⁱ`, `q`, and the metric
 `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric derivatives and
 `K_ij` the sources read are not in it yet: step 2 decides the form of the
 sources, and with it whether they are stored or interpolated on the fly
@@ -1033,9 +1042,72 @@ initial vector potential evolved by the vacuum Maxwell equations. The
 initial dipole is analytic in `A`, which makes it exactly divergence-free
 on the mesh.
 
+**A density raised to the atmosphere's is the atmosphere at rest**
+*(decided by Erik 2026-10-21, with EntropyEOS's review; EOS-5 withdrawn,
+EOS-6 superseded, the decision kept in this package and keyed on a flag
+that reports a fact — the investigation below)*. EntropyEOS 1.1.0 (EOS-8,
+unregistered, through `[sources]`; `[compat]` `"1.1"`) reports
+`FLAG_POL_ρ_FLOORED` (bit 16) where a repair raised `ρ` to `ρ_atm` without
+an atmosphere reset, i.e. wrote `ρ cosh w > D` — its entropy-floor branch,
+which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
+(The rapidity cap raises `ρ` too but keeps `D`, and does not set it.)
+- **Where:** `src/con2prim.jl`, the one wrapper around `con2prim_safe` —
+  `fluid_recovery` (under `con2prim_hydro`) and `ideal_recovery` (under
+  `con2prim_ideal`) are its only two calls, so the reset, the right-hand
+  side's `P`, the stage solve's predictor, iterates and ideal seed, and
+  `IdealConductor`'s stages all see it; none of them uses EntropyEOS's
+  conserved output, every one rebuilds the conserved state with this
+  package's `prim2con` (checked 2026-10-21).
+- **What:** `flags & FLAG_POL_ρ_FLOORED != 0`, tested alone — not tied to
+  `S_FLOORED`, EntropyEOS's internal path — returns the atmosphere at rest,
+  `policy_atmosphere(eos, pol, D Yₑ/D)`, its EOS point by `evaluate` (the
+  stage solve's Jacobian reads it), and the policy's flags with
+  `FLAG_POL_ATMOSPHERE` added. A branch, no mask multiplied; `isbits`,
+  allocation-free, inferred, and the same bit for bit in a CPU kernel at
+  `Float64` and `Float32` (`test/recovery_tests.jl`). The state written then
+  holds `D = ρ_atm ≤ max(D_in, D_atm)`, the criterion consistent with
+  EntropyEOS's valid range.
+- **The collapse branch:** a hot near-vacuum cell whose energy lies above
+  the hottest state of the window is, to the default policy, past the
+  collapse ceiling, and is written at `ρ_ceiling` (10⁶ for the shock gas):
+  every blow-up of the magnetized tube. The cases with a magnetized
+  atmosphere set EntropyEOS's existing `collapse_to_atmosphere`
+  (`case_policy` in `src/cases/shocktubes.jl`; today `atmosphere_tube_case`,
+  hydrodynamic or magnetized — without a field the branch never fires and
+  the hydrodynamic tube is the same bit for bit). Not the other cases: the
+  shock tubes, the current sheet, the waves and the 2D/3D cases hold no
+  near vacuum, and the near-vacuum rarefaction is hydrodynamic and never
+  reaches the branch (its numbers below are unchanged by it); a star's
+  magnetosphere (steps 10 and 12) will need it and states it in its case.
+  Its cost, measured with the option set in every policy of the suite
+  (2026-10-17): step 3's sweep gains fallbacks — without the cutoff 36,
+  78, 103 → 35, 69, 92, and with it at `μ_max = 10` the row `Γ = 2`,
+  `f = 1` goes from 1 to 4 (every row `f ≤ 0.3` stays at none); as set
+  now, per case, the sweep is untouched. Writing such a state at the
+  entropy ceiling with `D` kept instead (the note in PLAN.md's EOS-5) does
+  not cost the sweep anything, and is Erik's call.
+- **Measured with the real 1.1.0** (`bin/front_investigation.jl`; the same
+  48 perturbed runs as before), every number the emulated "B + coll" gave,
+  to every digit printed: on the uniform mesh, the refined mesh with the
+  parent-centred primitive fill and with the conserved bounded fill, 0/48
+  blow-ups, no fallback, largest `W` 4.8, 5.0, 5.0, injected `D`
+  −1.2·10⁻⁸, −1.4·10⁻⁸, −1.4·10⁻⁸ and `τ` −7.4·10⁻⁷, −1.5·10⁻⁶,
+  −1.5·10⁻⁶ in every run; two runs 10⁻¹⁵ apart 1.6·10⁻¹³, 7.6·10⁻¹³,
+  2.9·10⁻¹³ apart; 12010, 27973, 28057 step-limiter writes a run; the
+  hydrodynamic tube bit for bit on all three. Beyond the tube (uniform):
+  ARS(4,4,3) 0/48, `W` 7.0, 23 fallbacks; `Bʸ = 10⁻²` 0/48, `W` 16; the
+  ideal magnetized atmosphere 0/48 under SSP3 (`W` 4.8) and under ARS
+  (`W` 4.3, where the reset-only form reached 53); 400 cells 0/48, `W`
+  5.6; `μ_max = 30` 0/48, `W` 4.8. The only differences from the emulation
+  are its reach and a reported bit: the stages' `|` of policy flags now
+  carries bit 16 (66816 where it was 1280), and step 3's sweep, whose
+  policies no longer set `collapse_to_atmosphere`, prints what it did
+  before.
+
 **Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
-PLAN.md step; `bin/front_investigation.jl`, `bin/policy_variants.jl`;
-proposed, for Erik — nothing in `src/` changed)*: why the magnetized
+PLAN.md step; `bin/front_investigation.jl`, and the 2026-10-17 sweep's
+`bin/policy_variants.jl`, removed 2026-10-21 with the decision above —
+commit ec4f044 has it; nothing in `src/` changed until the decision)*: why the magnetized
 atmosphere tube (rung 1b; `Bʸ = 10⁻³`, `Constant(10³)` cut off at
 `μ_max = 10`, 200 cells, SSP3(4,3,3)) is chaotic at rounding level, with
 `W` spiking to 30–100 at the front and fallbacks there, while the
@@ -1241,11 +1313,12 @@ under A3); SSP3's ideal magnetized atmosphere (1.56·10⁻⁹ → about
 coarse-fine run. Step 3's sweep moves only where the collapse branch is
 changed: under hot (fallbacks without the cutoff 36, 78, 103 → 33, 74,
 90; the `Float64` kernel test 47 → 48 of 48) and under coll (35, 69, 92,
-**and the cutoff row at `μ_max = 10`, Γ = 4/3, 0 → 4 fallbacks** — the
-"none falls back" of "Ohm's law and the conductivity" holds under hot,
-not under coll).
+and in the cutoff sweep at `μ_max = 10` the row `Γ = 2`, `f = 1` from 1
+to 4 fallbacks; *corrected 2026-10-21*, this said `Γ = 4/3`, 0 → 4 — every
+row `f ≤ 0.3` stays at none under both).
 
-**Reading** *(proposed, for Erik)*:
+**Reading** *(proposed, for Erik; decided 2026-10-21 as B + coll, with B
+in this package's recovery wrapper on EntropyEOS's new flag — above)*:
 - **The smallest trigger that works is 3.** A2 and A2.5 keep the chaos
   (two runs drift 0.8 and 4.5 times `D` apart on the uniform mesh, `W` to
   100) and A2 blows up the ideal magnetized atmosphere; A3, A5, A10 and
@@ -2363,10 +2436,12 @@ ghost carries the coarse field's energy across the face. (c) runs at the
 `W` cap in most runs and has the most fallbacks (median 155); (b) has none
 of either extreme. *(Investigation 2026-10-16, "Floors, the atmosphere and
 the magnetosphere": the spikes are EntropyEOS's `S_FLOORED` repairs, the
-blow-ups its collapse branch, on every mesh; with the `S_FLOORED` branch
-writing the atmosphere at rest and `collapse_to_atmosphere` (B + coll), or
-with `atm_trigger = 3`, all three meshes are deterministic, 0/48, `W ≤ 5`
-— the 2026-10-17 sweep there.)*
+blow-ups its collapse branch, on every mesh. *Decided by Erik 2026-10-21:*
+a floored state is the atmosphere at rest (EntropyEOS 1.1's
+`FLAG_POL_ρ_FLOORED`, in the recovery wrapper) and the tube's policy sets
+`collapse_to_atmosphere`; measured, all three meshes are deterministic,
+0/48, `W ≤ 5`, no fallback — the table above stays the record of the
+released policy, the ghost fill's choice is unchanged and Erik's.)*
 
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
@@ -2690,9 +2765,12 @@ named as claims.
      asserts no fallback hydrodynamically and a fallback rate of at most
      0.2% magnetized (proposed in step 8). *(Investigation 2026-10-16: the
      cause — the field's truncation error in the fluid's share, amplified
-     by EntropyEOS's repairs at the edge of the valid range — and the
-     2026-10-17 sweep of fixes, under "Floors, the atmosphere and the
-     magnetosphere".)* The same holds for step 6's
+     by EntropyEOS's repairs at the edge of the valid range — the sweep of
+     fixes, and the decision of 2026-10-21 (a floored state is the
+     atmosphere at rest; the tube's policy sets `collapse_to_atmosphere`),
+     under "Floors, the atmosphere and the magnetosphere": the tube is then
+     deterministic with no fallback, and the suite's run prints `W` 4.80,
+     injected −1.18·10⁻⁸, −7.4·10⁻⁷.)* The same holds for step 6's
      tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
      draw from that spread, and the decision for SSP3(4,3,3) rests on its
      other rows (the near-vacuum rarefaction, the ideal atmosphere). The

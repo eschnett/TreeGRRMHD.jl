@@ -56,7 +56,7 @@ const NX = 19
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
-# number below 2¹⁶, exact in any float), the recoveries the stages made and
+# number below 2¹⁷, exact in Float32 and wider), the recoveries the stages made and
 # the most any one stage made, the cells the reset wrote back as the stage
 # limiter, and the cell's light speed, for the time step. *(Added in step 6:)*
 # the cells the reset wrote back as the step limiter, and what those writes

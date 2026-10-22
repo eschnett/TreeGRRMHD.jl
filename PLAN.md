@@ -139,6 +139,13 @@ This is TreeGH's pattern.
     round trip's `D`), and on a repaired state it is not the repaired speed (amended in step 1).
   - The warm-start guesses of `con2prim`/`con2prim_safe` are **positional**, although the
     docstrings show keywords.
+  - *(Added 2026-10-21.)* `con2prim_safe` is called in `src/con2prim.jl` only (`fluid_recovery`,
+    `ideal_recovery`), and its conserved output `cons` is never used: every caller rebuilds the
+    conserved variables from the primitive state with this package's `prim2con`. Where the policy
+    reports `FLAG_POL_ρ_FLOORED` (EntropyEOS ≥ 1.1: ρ raised to `ρ_atm` without an atmosphere
+    reset) the wrapper returns the atmosphere at rest with `FLAG_POL_ATMOSPHERE` added (decided by
+    Erik 2026-10-21). Test flag words with `& … != 0`, never `==` (`FLAG_POL_ρ_CLAMPED` is two
+    bits), and remember bit 16: flags stored as numbers are exact below `2^24` in `Float32`.
 - **TreeGH's conventions.**
   - `h_ab = g_ab − η_ab` is stored as an offset, and `Π_ab = √γ n^μ∂_μ g_ab` is not `∂ₜh`.
   - Components are packed `(tt,tx,ty,tz,xx,xy,xz,yy,yz,zz)`.
@@ -204,7 +211,7 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-16 (added in step 0, amended 2026-10-14 and in step 8): for the items still
+The state column is as of 2026-10-21 (added in step 0, amended 2026-10-14, in step 8 and on 2026-10-21): for the items still
 waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
 what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
@@ -227,8 +234,9 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
 | EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
 | EOS-5 | EntropyEOS | — | — | withdrawn 2026-10-17 (was: no policy repair creates rest mass); notes kept for Erik | withdrawn |
-| EOS-6 | EntropyEOS | candidate | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17; not decided) | candidate |
-| EOS-7 | EntropyEOS | candidate, not recommended | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17; not decided) | candidate |
+| EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17) | superseded 2026-10-21 by EOS-8 and the wrapper |
+| EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
+| EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0 (unregistered; `[sources]` `rev = "main"`) |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -852,10 +860,16 @@ rest):
   48 runs — and either this note or the existing option `collapse_to_atmosphere = true` closes it
   (both measured; the option needs no upstream change).
 
-(i) is written out as EOS-6 below; (ii) stays a note (the existing `collapse_to_atmosphere`
-does its job here).
+(i) was written out as EOS-6 below, now superseded (EOS-8); (ii) stays a note — the existing
+`collapse_to_atmosphere` does its job in the cases that set it, and the entropy ceiling instead
+remains Erik's call.
 
-### EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (candidate)
+### EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (superseded)
+
+**Superseded 2026-10-21** (design agreed by Erik with EntropyEOS's review): EntropyEOS does not
+decide where the state goes; it reports what its repair did (`FLAG_POL_ρ_FLOORED`, EOS-8, landed in
+1.1.0), and this package's recovery wrapper writes the atmosphere at rest on that flag ("Sharp
+edges"; `CODE.md`, "Floors, the atmosphere and the magnetosphere"). The record follows.
 
 *(Added 2026-10-17, the front investigation's sweep, variant B; a candidate for Erik, not
 decided.)* **Why.** `con2prim_safe`'s step 4, `S_FLOORED` branch, raises `ρ₁ = D/cosh w₁` to
@@ -887,7 +901,9 @@ digit printed, but it does not reach the recoveries inside the stage solve (the 
 atmosphere under ARS reaches `W = 53` where the in-process form stays at 4.3). Without the
 collapse option either form leaves the collapse branch open (the note above).
 
-### EOS-7 — The atmosphere's entropy in the atmosphere band (candidate, not recommended)
+### EOS-7 — The atmosphere's entropy in the atmosphere band (not pursued)
+
+*(Not pursued, 2026-10-21.)* The record follows.
 
 *(Added 2026-10-17, variant C; for completeness, as Erik asked for every variant that needs an
 EntropyEOS change.)* **Semantics.** A state whose density, after the policy's own projection, lies
@@ -898,6 +914,33 @@ Inside the valid range, `D_out = D_in`. **Not recommended:** measured, it does n
 tube's chaos on its own (blow-ups 0, 1 and 5 of 48 on the three meshes, against 0, 0 and 3; `W` at
 the cap in the median run) and nothing beyond B or the trigger when combined. Acceptance and
 downstream check would follow EOS-6's pattern if it were taken up.
+
+### EOS-8 — Report the density floor (req; landed in EntropyEOS 1.1.0, unregistered)
+
+*(Added 2026-10-21; design agreed by Erik with EntropyEOS's review; superseding EOS-6.)* **Why.**
+`con2prim_safe`'s entropy-floor branch (τ below the coldest state at the momentum) raised the density
+to `ρ_atm` at the coldest state's rapidity without saying so, writing `W ≈ |S|/ρ_atm` and adding rest
+mass; this package needs to know when that happened to put such a point at rest itself.
+
+**API** (EntropyEOS 1.1.0, origin/main 43923c7): `FLAG_POL_ρ_FLOORED` (bit 16: ρ raised to `ρ_atm`
+without an atmosphere reset, i.e. `ρ cosh w > D` — the rapidity cap, which raises ρ while keeping
+`D`, does not set it); `FLAG_POL_ρ_CEILED` (bit 13, now also the branch's silent upper clamp);
+`FLAG_POL_ρ_CLAMPED = ρ_FLOORED | ρ_CEILED` (test with `& != 0`); `FLAG_POL_ANY` including bit 16;
+`policy_atmosphere` exported. Nothing else of the policy changed.
+
+**Downstream.** `src/con2prim.jl` branches on `flags & FLAG_POL_ρ_FLOORED != 0` alone and returns
+the atmosphere at rest (`policy_atmosphere`, its EOS point by `evaluate`), adding
+`FLAG_POL_ATMOSPHERE`; `test/recovery_tests.jl`, "A density the policy raised to the atmosphere's is
+the atmosphere at rest", at `Float64` and `Float32` (in a kernel, inferred, allocation-free, bit 16
+through `P` and the diagnostics). `[compat]` `EntropyEOS = "1.1"`; the names join
+`test/prerequisite_tests.jl`'s list, and no probe is kept (the rule above).
+
+**Is it guaranteed in a clean checkout?** Yes, while EOS-0 is open: `[sources]` names
+`rev = "main"`, so a tree without a `Manifest.toml` resolves EntropyEOS at `main`'s head, and
+`[compat]` `"1.1"` then requires that head to be ≥ 1.1.0 and < 2 — a `main` without the flag (or a
+2.0) fails to resolve rather than loading silently. An existing `Manifest.toml` pinned at 1.0.0 no
+longer satisfies `[compat]`; `Pkg.update("EntropyEOS")` (or deleting the manifest) fixes it. Once
+EntropyEOS is registered, `[compat]` alone guarantees it.
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 

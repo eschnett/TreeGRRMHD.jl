@@ -22,12 +22,15 @@
 # hydrodynamic tube (`Bʸ = 0`, `IdealConductor`) with the same candidate, to every digit.
 #   MESH: `uniform`; `refined` (`[0, 0.2)` refined; on this tree the parent-centred primitive
 #   fill); `conserved` (the same mesh, to be run on the conserved-fill tree, `git archive
-#   7605986`, with this file and `bin/policy_variants.jl` copied into its `bin/`).
-#   CANDIDATE: one of 2026-10-16's (baseline, eos5 — B+hot —, collapse, wcap10, trigger10,
-#   ceil100, vac10, fixeds, reset-eos5; see `CANDIDATES` below), or any policy variant of
-#   `bin/policy_variants.jl` (2026-10-17's sweep: `A3`, `B`, `Breset+coll`, `A3+C`, …), whose
-#   token `Breset` is B done in this script's reset instead of in-process. Besides the summary
-#   line: how far two runs 10⁻¹⁵ apart drift, and the hydrodynamic tube.
+#   7605986` with this file copied into its `bin/` and its EntropyEOS at 1.1.0, so that it runs
+#   with the wrapper of `src/con2prim.jl` patched in; see CODE.md).
+#   CANDIDATE: baseline (the code as it stands), or one of 2026-10-16's alternatives (collapse,
+#   wcap10, trigger10 — any `trigger<k>` —, ceil100, vac10, fixeds; see `CANDIDATES` below).
+#   Besides the summary line: how far two runs 10⁻¹⁵ apart drift, and the hydrodynamic tube.
+#   *(Amended 2026-10-21: the in-process policy emulation `bin/policy_variants.jl` and the
+#   reset-side "B" are gone — EntropyEOS 1.1.0 reports `FLAG_POL_ρ_FLOORED` and
+#   `src/con2prim.jl` writes the atmosphere at rest on it; the 2026-10-17 sweep's tables were
+#   made by commit ec4f044's version of this file.)*
 # `diverge`: two runs 10⁻¹⁵ apart, step by step — the largest relative difference of `D` and
 # `τ`, and which discrete switches (the recovery's policy flags, the step limiter's writes, the
 # stage predictors' policy flags, the stage branch, `σ > 0`) differ.
@@ -44,9 +47,6 @@ using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
 const IRK = TG.IRK
-include(joinpath(@__DIR__, "policy_variants.jl"))
-set_variant!(name) = (POLICY_VARIANT[] = PolicyVariant(name); nothing)
-set_variant!("base")
 
 # --- the classified step limiter and the monitor ----------------------------------------
 
@@ -121,15 +121,12 @@ end
 #            B²/D > μ_ceil — the ideal-GRMHD magnetization ceiling;
 #   μ_vac    the atmosphere where B²/D > μ_vac (μ_vac = μ_max: every cell the cutoff makes
 #            electrovacuum holds the atmosphere);
-#   consistent  a state the policy repaired with S_FLOORED or W_CAPPED and more rest mass than
-#            the cell had is written as the atmosphere instead (EOS-5 (i), in the reset only);
 #   entropy_ratio  where ½(E² + B²) > ratio · τ_f, or τ_f ≤ 0, the fluid recovered at the
 #            advected entropy from D and S_f alone (EntropyEOS's internal `inner_solve_w`;
 #            EOS-3 would make it public), the energy then rewritten.
 Base.@kwdef struct Fix
     μ_ceil::Float64 = 0.0
     μ_vac::Float64 = 0.0
-    consistent::Bool = false
     entropy_ratio::Float64 = 0.0
 end
 
@@ -178,10 +175,6 @@ function exp_reset!(u, integ, p, t, step::Bool, fix::Fix)
         prim, pf = con2prim_hydro(p.eos, p.opts, p.pol, m, cons, E, B, TG.state_guesses(cons))
         fl |= pf
         if fix.μ_vac > 0 && (D ≤ 0 || B² / D > fix.μ_vac) && pf & EOS.FLAG_POL_ATMOSPHERE == 0
-            prim = atm_prim(p, m, ye)
-            fl |= EOS.FLAG_POL_ATMOSPHERE
-        elseif fix.consistent && pf & (EOS.FLAG_POL_S_FLOORED | EOS.FLAG_POL_W_CAPPED) != 0 &&
-               TG.prim_ρ(prim) * cosh(TG.prim_w(prim)) > D * (1 + 1e-12)
             prim = atm_prim(p, m, ye)
             fl |= EOS.FLAG_POL_ATMOSPHERE
         elseif fix.entropy_ratio > 0 && pf & EOS.FLAG_POL_ATMOSPHERE == 0
@@ -236,22 +229,15 @@ function with_pol(case; kw...)
         case.𝔅̄, case.periodic, case.extents, case.roots)
 end
 
-# name => (label, case transform, Fix or nothing, policy variant); any other name is a policy
-# variant of `bin/policy_variants.jl` (`A3+C`, `B`, …), its token `Breset` the reset-side B.
+# name => (label, case transform, Fix or nothing)
 const CANDIDATES = Dict(
-    "baseline" => ("baseline", identity, nothing, "base"),
-    "eos5" => ("EOS-5 as first proposed (B+hot)", identity, nothing, "B+hot"),
+    "baseline" => ("baseline", identity, nothing),
     "collapse" => ("collapse_to_atmosphere", c -> with_pol(c; collapse_to_atmosphere=true),
-                   nothing, "base"),
-    "wcap10" => ("W cap 10", c -> with_pol(c; w_cap=acosh(10.0)), nothing, "base"),
-    "trigger10" => ("atm_trigger 10", c -> with_pol(c; atm_trigger=10.0), nothing, "base"),
-    "ceil100" => ("magnetization ceiling 100", identity, Fix(; μ_ceil=100.0), "base"),
-    "vac10" => ("atmosphere where B²/D > 10", identity, Fix(; μ_vac=10.0), "base"),
-    "fixeds" => ("fixed-s recovery where e_em > τ_f", identity, Fix(; entropy_ratio=1.0),
-                 "base"),
-    "reset-eos5" => ("EOS-5 (i) in the reset + collapse_to_atmosphere",
-                     c -> with_pol(c; collapse_to_atmosphere=true), Fix(; consistent=true),
-                     "base"))
+                   nothing),
+    "wcap10" => ("W cap 10", c -> with_pol(c; w_cap=acosh(10.0)), nothing),
+    "ceil100" => ("magnetization ceiling 100", identity, Fix(; μ_ceil=100.0)),
+    "vac10" => ("atmosphere where B²/D > 10", identity, Fix(; μ_vac=10.0)),
+    "fixeds" => ("fixed-s recovery where e_em > τ_f", identity, Fix(; entropy_ratio=1.0)))
 
 # --- runs -------------------------------------------------------------------------------------
 
@@ -311,13 +297,12 @@ fmt3(x; f="%.2g") = isempty(x) ? "–" :
                     Printf.format(Printf.Format("$f / $f / $f"), minimum(x), median(x), maximum(x))
 
 function candidate_kw(name)
-    if haskey(CANDIDATES, name)
-        lab, cf, fix, v = CANDIDATES[name]
-        return lab, cf, fix === nothing ? (;) : limiters(fix), v
+    if startswith(name, "trigger")
+        k = parse(Float64, name[8:end])
+        return "atm_trigger $k", c -> with_pol(c; atm_trigger=k), (;)
     end
-    toks = split(name, '+')
-    lkw = "Breset" in toks ? limiters(Fix(; consistent=true)) : (;)
-    return name, identity, lkw, name
+    lab, cf, fix = CANDIDATES[name]
+    return lab, cf, fix === nothing ? (;) : limiters(fix)
 end
 
 function batch(label, case; nruns=48, kw...)
@@ -337,8 +322,7 @@ end
 
 function matrix(mesh, name; nruns=48)
     kw = mesh == "uniform" ? (;) : (; refine=refine_band!)
-    lab, cf, lkw, v = candidate_kw(name)
-    set_variant!(v)                       # before the cases: `default_policy` reads it
+    lab, cf, lkw = candidate_kw(name)
     batch("$mesh, $lab", cf(tube()); nruns=nruns, kw..., lkw...)
     r1 = run_case(cf(tube()); kw..., lkw...)
     r2 = run_case(cf(tube()); amp=1e-15, seed=7, kw..., lkw...)
@@ -350,7 +334,6 @@ function matrix(mesh, name; nruns=48)
     h = run_case(cf(atmosphere_tube_case(Float64; By=0)); kw..., lkw...)
     @printf("%-44s   hydrodynamic: D %.10e, τ %.10e, max W %.10f, fallbacks %d, writes %d\n",
             "$mesh, $lab", h.D, h.τ, h.acc.maxW, h.fb, sum(values(h.acc.n)))
-    set_variant!("base")
     return nothing
 end
 
@@ -463,7 +446,7 @@ function stageproblems(; case=tube())
     end
     run_case(case; solve=capture!)
     μs, fs = Float64[], Float64[]
-    noadm, withroot, noroot, conv5 = 0, 0, 0, 0
+    noadm, withroot, noroot = 0, 0, 0
     for (p, m, cons, B, E★, γΔt) in probs
         D, S, τ, DY = TG.cons_D(cons), TG.cons_S(cons), TG.cons_τ(cons), TG.cons_DYₑ(cons)
         S_f, τ_f = TG.field_budget(m, S, τ, E★, B)
@@ -489,16 +472,11 @@ function stageproblems(; case=tube())
             end
         end
         anyadm ? (root ? (withroot += 1) : (noroot += 1)) : (noadm += 1)
-        set_variant!("B+hot")
-        _, _, r5, _ = TG.solve_ohm_stage(p.eos, p.opts, p.pol, p.model, m, cons, E★, B, γΔt,
-                                         TG.state_guesses(cons); stage=p.stage)
-        set_variant!("base")
-        r5.flags & TG.OHM_FALLBACK == 0 && (conv5 += 1)
     end
     @printf("stages that fall back: %d, μ = B²/D in [%.3g, %.3g], f = |E★ + v×B|/|B| in [%.3g, %.3g]\n",
             length(probs), extrema(μs)..., extrema(fs)...)
-    @printf("  no u gives an admissible fluid share: %d; admissible shares and a root: %d; admissible shares, no root: %d; converged when re-solved under EOS-5: %d\n",
-            noadm, withroot, noroot, conv5)
+    @printf("  no u gives an admissible fluid share: %d; admissible shares and a root: %d; admissible shares, no root: %d\n",
+            noadm, withroot, noroot)
 end
 
 function emwave(; ρ, b=1e-3, roots=5, periods=1)

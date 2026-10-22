@@ -95,7 +95,8 @@ end
 """
     shock_tube_case([T]; Γ, left, right, x₀ = 0, extents = ((-1/2, 1/2),),
                     model = IdealConductor(), ideal_E = model isa IdealConductor,
-                    roots = 40, ρ_atm = 10⁻¹⁰, eos = shock_gas(T, Γ))
+                    roots = 40, ρ_atm = 10⁻¹⁰, eos = shock_gas(T, Γ),
+                    collapse_to_atmosphere = false)
 
 A Riemann problem as a one-dimensional [`MHDCase`](@ref) with Dirichlet
 boundaries (see the top of `src/cases/shocktubes.jl`). `left` and `right`
@@ -104,12 +105,14 @@ the contravariant 3-vectors — with the same normal field `B[1]`, which becomes
 the background `𝔅̄ˣ`. The electric field is the ideal `E = −v × B` when
 `ideal_E` (the default under [`IdealConductor`](@ref), where every stage
 imposes it), and zero otherwise, as the resistive tests start. `ρ_atm` is the
-atmosphere of EntropyEOS's default policy.
+atmosphere of EntropyEOS's default policy, and `collapse_to_atmosphere` that
+policy's option (see [`case_policy`](@ref)).
 """
 function shock_tube_case(::Type{T}=Float64; Γ, left, right, x₀=0, extents=((-1 // 2, 1 // 2),),
                          model::Conductivity=IdealConductor(),
                          ideal_E::Bool=model isa IdealConductor, roots=40,
-                         ρ_atm=1 // 10^10, eos=shock_gas(T, Γ)) where {T}
+                         ρ_atm=1 // 10^10, eos=shock_gas(T, Γ),
+                         collapse_to_atmosphere::Bool=false) where {T}
     T(left.B[1]) == T(right.B[1]) || throw(ArgumentError(
         "the normal field must be the same on both sides, got $(left.B[1]) and " *
         "$(right.B[1]): ∇·B = 0 across the diaphragm, and in one dimension it is the " *
@@ -123,8 +126,8 @@ function shock_tube_case(::Type{T}=Float64; Γ, left, right, x₀=0, extents=((-
     end
     w = ShockTube{T}(side(left), side(right), T(x₀))
     return MHDCase(T, Val(1); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(ρ_atm)), model=model,
-                   𝔅̄=SVector(T(left.B[1]), zero(T), zero(T)), periodic=false,
+                   pol=case_policy(eos, T(ρ_atm); collapse_to_atmosphere),
+                   model=model, 𝔅̄=SVector(T(left.B[1]), zero(T), zero(T)), periodic=false,
                    extents=extents, roots=roots)
 end
 
@@ -422,6 +425,25 @@ end
 # --- the atmosphere tube ------------------------------------------------------------
 
 """
+    case_policy(eos, ρ_atm; collapse_to_atmosphere = false) -> PolicyOptions
+
+EntropyEOS's `default_policy(eos, ρ_atm)`, with its existing option
+`collapse_to_atmosphere` set as given. With it, a state the policy diagnoses as
+past the collapse ceiling — which next to a near vacuum is a hot cell at a few
+`ρ_atm` whose energy lies above the hottest state the window holds, not a
+collapse — is written as the atmosphere instead of at `ρ_ceiling` (10⁶ for the
+shock gas). Set by the cases with a magnetized atmosphere (decided by Erik
+2026-10-21; "Floors, the atmosphere and the magnetosphere" in `CODE.md`).
+"""
+function case_policy(eos, ρ_atm::T; collapse_to_atmosphere::Bool=false) where {T}
+    pol = EntropyEOS.default_policy(eos, ρ_atm)
+    collapse_to_atmosphere || return pol
+    return EntropyEOS.policy_derive_bounds(eos, EntropyEOS.PolicyOptions{T}(;
+        ρ_atm=pol.ρ_atm, s_atm=pol.s_atm, ye_atm=pol.ye_atm, atm_trigger=pol.atm_trigger,
+        ρ_ceiling=pol.ρ_ceiling, w_cap=pol.w_cap, collapse_to_atmosphere=true))
+end
+
+"""
     atmosphere_tube_case([T]; ρ_atm = 10⁻⁸, By = 0, model = IdealConductor(),
                          roots = 20)
 
@@ -435,6 +457,12 @@ uniform across the diaphragm, makes the atmosphere magnetically dominated
 atmosphere at up to `W ≈ 5`, and its front reaches `x ≈ 0.39`. Every cell
 the expansion thins below the atmosphere's trigger, and every atmosphere
 cell the reconstruction disturbs, is the reset's.
+
+Its policy sets `collapse_to_atmosphere` (decided by Erik 2026-10-21): with a
+field, a near-vacuum cell can hold more energy than the entropy window's
+hottest state at its density, which the default policy writes at `ρ_ceiling`
+(every blow-up of the magnetized tube, before). Without a field the branch never
+fires, and the hydrodynamic tube is the same either way, bit for bit.
 """
 function atmosphere_tube_case(::Type{T}=Float64; ρ_atm=1 // 10^8, By=0,
                               model::Conductivity=IdealConductor(), roots=20) where {T}
@@ -445,5 +473,5 @@ function atmosphere_tube_case(::Type{T}=Float64; ρ_atm=1 // 10^8, By=0,
     p_atm = EntropyEOS.evaluate(eos, atm.ρ, atm.s, atm.ye, T(NaN)).p
     return shock_tube_case(T; Γ=Γ, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, By, 0)),
                            right=(ρ=atm.ρ, p=p_atm, v=(0, 0, 0), B=(0, By, 0)), model=model,
-                           ρ_atm=ρ_atm, roots=roots, eos=eos)
+                           ρ_atm=ρ_atm, roots=roots, eos=eos, collapse_to_atmosphere=true)
 end

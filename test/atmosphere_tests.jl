@@ -94,6 +94,9 @@ end
         # anywhere from 0 to 144 fallbacks of its 160,000 cell-stages, in the
         # tree before step 8's primitive ghost fill as after it; asserted is
         # the rate, at most 0.2% (twice the worst of twelve perturbed runs).
+        # (2026-10-21: with a floored recovery put at rest and the tube's
+        # `collapse_to_atmosphere`, the tube is deterministic and has no
+        # fallback; whether to assert `== 0` again is Erik's decision, pending.)
         if By == 0
             @test t.stages[5] == 0
         else
@@ -139,5 +142,12 @@ end
     # Measured 1.6e-9 against 2.6e4 (the box holds 0.5); 1.6e-9 against 1.6e4
     # since step 8 (ARS's run-away is chaotic, its `W` from 49 to 100).
     @test abs(ssp.t.injected_D) ≤ 1e-6
-    @test ars.t.injected_D ≥ 1
+    # Broken pending Erik's decision (2026-10-21): ARS's run-away here was
+    # EntropyEOS's entropy-floor repair writing `ρ_atm` at `W ≈ |S|/ρ_atm` and
+    # the collapse branch writing `ρ_ceiling`; since the recovery puts a
+    # floored state at rest and the tube's policy sets
+    # `collapse_to_atmosphere` ("Floors, the atmosphere and the magnetosphere"
+    # in `CODE.md`), ARS injects 5.6e-8 and stays at `W` 4.1. Whether this row
+    # is dropped from the tableau decision is Erik's; it fails as expected.
+    @test_broken ars.t.injected_D ≥ 1
 end
