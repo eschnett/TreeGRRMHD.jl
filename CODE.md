@@ -720,6 +720,73 @@ atmosphere and the magnetosphere": measured on the magnetized atmosphere
 tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
 the advected `s` in those cells is itself noise.)*
 
+**Measurement (2026-10-23): recovery counts and costs** (branch
+`claude/recovery-cost`, not a PLAN.md step; `bin/recovery_cost.jl`, which
+redefines the recovery's two `con2prim_safe` calls and the passes in-process
+and is the code bit for bit with its counters off; Julia 1.13, Apple M3 Pro,
+one thread, load 4–15 on 12 cores; ideal gases as the cases set them). Per
+owned cell and SSP3(4,3,3) step the scheme makes **11 recoveries that run
+EntropyEOS's cold seed** — 3 right-hand sides, 3 stage limiters, 1 step
+limiter, 4 stage predictors (or `IdealConductor`'s single ideal recovery):
+`state_guesses` gives `s` but no `w`, and `con2prim` runs `cold_seed`
+whenever `s` or `w` is missing — plus the stage iterations, which are warm
+(0 to 5.5 a step). The conserved bounded ghost fill (emulated: step 8's
+first fill, the tree at 7605986) adds `3((N + 2G)/N)^D − 3` ghost recoveries
+(1.8 in 1D at `N = 10`, 2.7 in 2D at 16, 13.1 in 3D at 8: the 5.36 holds);
+the primitive fill (this tree's) none. A cold-seeded call costs 0.75–1.3 µs
+(2.0–2.2 µs in the 3D blast, with about 4 Newton iterations and 4% nested
+fallbacks), a warm iteration 0.22–0.25 µs; recoveries are 48–53% of the
+step on the 1D waves (100 cells, where kernel launches dominate the rest),
+67–75% on the tubes and in 2D, 73% in 3D, and 51–82% with the conserved
+fill (whose step is 5–15% longer in 1D and 2D, 64–74% in 3D). Pointwise,
+`con2prim_safe` from a warm start 10⁻³–10⁻² away costs 0.4–0.7 µs on the
+Γ = 5/3 gas against 1.4–1.7 µs cold (median) and 2.4–3.5 µs on EntropyEOS's
+synthetic table through `GeometricEOS` against 10–11 µs; the advected `s`
+alone saves nothing (the same time and iterations as fully cold). Estimated
+savings, as a fraction of the step, primitive fill / conserved fill (the
+recorded calls of three steps replayed both ways):
+
+| case | recoveries / cell / step | share of step | (a) step-local seeds | (b) reuse: RHS, first predictor | (c) ghost copies |
+|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 11 / 12.8 | 48% / 51% | 36% / 37% | 13%, 4% | — / 7% |
+| Alfvén wave, ideal, 100 | 11 / 12.8 | 53% / 56% | 39% / 40% | 14%, — | — / 8% |
+| resistive tube σ = 10, 10², 10³, 200 | 13.7–16.0 / +1.8 | 70–75% / 73–76% | 52–56% / 52–55% | 17–19%, 6% | — / 9–10% |
+| magnetized atmosphere tube, 200 | 12.5 (3.3 no solve) / 14.3 | 67% / 70% | 48% / 49% | ≤ 19%, 6% | — / 9% |
+| rotor, 64² | 11 / 13.7 | 75% / 79% | 60% / 59% | 20%, — | — / 11% |
+| Orszag–Tang, 64² | 11 / 13.7 | 75% / 79% | 58% / 56% | 20%, — | — / 15% |
+| spherical blast, 16³, `N = 8`, `G = 3` | 11 / 24.1 | 73% / 82% | 69% / 64% | 22%, — | — / 26% |
+| resistive tube σ = 10², two levels | 16.5 / 18.4 | 70% / 77% | 49% / 48% | 16%, 5% | — / 8% |
+| rotor, two levels, 7168 cells | 11 / 13.7 | 74% / 80% | 60% / 61% | 20%, — | — / 10% |
+
+(a) seeds every recovery but the step limiter's from the cell's latest one
+in the step (the cache started by the step limiter's cold recovery of
+`uⁿ⁺¹`): the right-hand side's then costs 0.1 µs (its input is the stage
+limiter's bit for bit), the stage limiter's 0.1 µs (0–0.2 Newton iterations
+from the stage solve's last recovery, whose input is within 10⁻¹⁰ of
+`τ + D` of it everywhere — bit for bit where σ = 0, in 7–12% of the
+resistive tubes' cells), a predictor 0.14–0.28 µs. (b) needs no
+seed: the right-hand side's owned recoveries have the stage limiter's
+input bit for bit wherever the limiter wrote nothing (100% off the
+atmosphere tube, 80% on it), and the first predictor the step limiter's
+(non-ideal σ), so reusing those recoveries changes no result; (a) includes
+most of (b). (c) every same-level ghost of the conserved fill holds its
+source's `U`, and recovers its `P`, bit for bit but the sign of a zero (1.8
+million checks), so exchanging `P` would replace those recoveries.
+Correctness: warm-seeded answers differ from today's by at most 10⁻¹¹ in
+`ρ`, `s`, `w`, never in the policy's flags, except where the thermal energy
+is a tiny part of `τ` (`s` up to 1.3·10⁻⁴ at the atmosphere tube's front,
+within EntropyEOS's conditioned bound); run with real step-local seeds the
+final states move by 4·10⁻¹⁴ (tube), 6·10⁻¹³ (rotor), 1·10⁻¹² (atmosphere
+tube), stage counts and the injected mass unchanged, and under the
+primitive fill 1D = 2D, the turned run, one chunk = two and one thread =
+four stay bit for bit. Under the conserved fill, ghosts seeded from their
+own history break 1D = 2D and the turn, and Orszag–Tang's totals drift 26
+ulp instead of 1 (a face's two blocks see `P` that differ at the
+tolerance): there the ghosts would need their owner's `P` (c). EntropyEOS,
+for Erik: on the synthetic table near rest (`W = 1.005`) 16–26% of states
+end in the nested fallback whatever the seed. *(Measured, for Erik; no
+change to the code, which decision is his.)*
+
 ## The scheme
 
 ### Where the fields live
