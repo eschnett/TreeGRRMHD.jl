@@ -458,11 +458,12 @@ atmosphere at up to `W ≈ 5`, and its front reaches `x ≈ 0.39`. Every cell
 the expansion thins below the atmosphere's trigger, and every atmosphere
 cell the reconstruction disturbs, is the reset's.
 
-Its policy sets `collapse_to_atmosphere` (decided by Erik 2026-10-21): with a
-field, a near-vacuum cell can hold more energy than the entropy window's
-hottest state at its density, which the default policy writes at `ρ_ceiling`
-(every blow-up of the magnetized tube, before). Without a field the branch never
-fires, and the hydrodynamic tube is the same either way, bit for bit.
+*(Experiment branch `claude/no-collapse-to-atmosphere`:)* its policy does not
+set `collapse_to_atmosphere` here (on `claude/atmosphere-at-rest` it does,
+decided by Erik 2026-10-21): with a field, a near-vacuum cell can hold more
+energy than the entropy window's hottest state at its density, which the
+released policy writes at `ρ_ceiling`; the experiment projects such a state
+onto the entropy ceiling instead (`bin/hot_projection.jl`, EOS-9 in PLAN.md).
 """
 function atmosphere_tube_case(::Type{T}=Float64; ρ_atm=1 // 10^8, By=0,
                               model::Conductivity=IdealConductor(), roots=20) where {T}
@@ -473,5 +474,5 @@ function atmosphere_tube_case(::Type{T}=Float64; ρ_atm=1 // 10^8, By=0,
     p_atm = EntropyEOS.evaluate(eos, atm.ρ, atm.s, atm.ye, T(NaN)).p
     return shock_tube_case(T; Γ=Γ, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, By, 0)),
                            right=(ρ=atm.ρ, p=p_atm, v=(0, 0, 0), B=(0, By, 0)), model=model,
-                           ρ_atm=ρ_atm, roots=roots, eos=eos, collapse_to_atmosphere=true)
+                           ρ_atm=ρ_atm, roots=roots, eos=eos, collapse_to_atmosphere=false)
 end
