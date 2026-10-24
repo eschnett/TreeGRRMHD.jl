@@ -8,6 +8,7 @@
 #     julia --project=. bin/recovery_cost.jl pointwise
 #     julia --project=. bin/recovery_cost.jl identity
 #     julia --project=. -t T bin/recovery_cost.jl threads OUTFILE   # then `threadcmp F1 F4`
+#     julia --project=TREE bin/recovery_cost.jl steptime [CASE...]   # all of `CASES` by default
 #
 # One thread unless said (the counting context is global). `bin/recovery_cost_hooks.jl` is
 # evaluated into the TreeGRRMHD module and redefines, in this process only, the recovery's
@@ -32,6 +33,17 @@
 #
 # CODE.md's table: `counts CASE both` for every name in `CASES` (the conserved fill of a
 # case is the second block of its output), `pointwise`, `identity`, `threads`.
+#
+# *(Added 2026-10-24, stage 3 of the recovery pipeline: the real step cache, "The step cache"
+# in CODE.md.)* `steptime`: the code as it is, no hooks — per case, the wall time per step
+# of `evolve!` (the mean over steps 2…n, the best of three runs after a warm-up), with the
+# step cache and, on a tree that has it, without (`step_cache = false`), and the step
+# cache's seed tallies per site (cold, warm, reused per owned cell and step). It runs on any
+# tree: `--project` names the tree measured, and a tree without the cache (stage 2,
+# a9cd482) gives its plain time; run both trees in one job on one node. The hooks below
+# replace the passes with cache-free ones, so `counts`, `identity` and `threads` measure the
+# 2026-10-23 emulation, never the real cache: with the hooks loaded every recovery is
+# seeded as before the cache, and `identity`'s reference run is `step_cache = false`.
 
 # *(Amended 2026-10-24, EntropyEOS 2.0:)* the replays and the pointwise timings call level 1,
 # `con2prim_safe` onto the projection `proj`, alone: level 2 (`apply_policy`) costs nothing to seed.
@@ -445,8 +457,11 @@ const ID_KW1 = (; N=10, t_end=1 // 10, limiter=:mc)
 const ID_KWR = (; N=8, t_end=1 // 20, limiter=:mc)
 const ID_KWA = (; N=10, t_end=0.4, chunk=0.1, limiter=:mc)
 
-# (1) The code as it is, before the hooks are loaded.
-identity_plain() = (evolve!(ID_TUBE, Val(1); ID_KW1...), evolve!(ID_ROTOR, Val(2); ID_KWR...))
+# (1) The code as it is, before the hooks are loaded, with the step cache off (the hooks'
+# passes do not consult it; 2026-10-24).
+const ID_NOCACHE = isdefined(TG, :with_step_cache) ? (; step_cache=false) : (;)
+identity_plain() = (evolve!(ID_TUBE, Val(1); ID_KW1..., ID_NOCACHE...),
+                    evolve!(ID_ROTOR, Val(2); ID_KWR..., ID_NOCACHE...))
 
 function identity_hooks((plain1, plainr))
     c1, rot, atm = ID_TUBE, ID_ROTOR, ID_ATM
@@ -528,6 +543,52 @@ function threadcmp(f1, f4)
     end
 end
 
+# --- steptime: the real step cache (2026-10-24) -----------------------------------------------
+
+function steptime_run(name; kw...)
+    case, D, ekw, _ = CASES[name]()
+    stamps = UInt64[]
+    push!(stamps, time_ns())
+    r = evolve!(case, Val(D); after_step=(p, u, t) -> push!(stamps, time_ns()), ekw..., kw...)
+    dts = diff(stamps)[2:end]               # the first interval holds the setup
+    return (; r, ms=mean(dts) / 1e6, med=median(dts) / 1e6)
+end
+
+function steptime(names)
+    cached = isdefined(TG, :with_step_cache)
+    variants = cached ? (("cache", (; step_cache=true)), ("nocache", (; step_cache=false))) :
+               (("plain", (;)),)
+    for name in names
+        for (label, kw) in variants
+            steptime_run(name; kw...)                       # compile and warm up
+            runs = [steptime_run(name; kw...) for _ in 1:3]
+            best = argmin(x -> x.ms, runs)
+            r = best.r
+            nown = ncells_owned(r)
+            @printf("steptime %-18s %-7s %8.4f ms/step (runs %s; median %.4f), %d steps, %d owned cells, %.1f ns per cell and step
+",
+                    name, label, best.ms, join([@sprintf("%.4f", x.ms) for x in runs], " "),
+                    best.med, r.nsteps, nown, 1e6 * best.ms / nown)
+            if cached && label == "cache"
+                per(x) = x / (r.nsteps * nown)
+                for k in (:rhs, :stage, :stage_limiter, :step_limiter)
+                    c = map(q -> sum(ch -> getproperty(getproperty(ch.tally.seeds, k), q), r.chunks),
+                            (:cold, :warm, :reused))
+                    @printf("    seeds %-14s cold %6.3f warm %6.3f reused %6.3f per cell and step
+",
+                            k, per.(c)...)
+                end
+                @printf("    stage iterations (recoveries after the first) %.3f per cell and step
+",
+                        per(sum(ch -> ch.tally.recoveries, r.chunks)) -
+                        per(sum(ch -> ch.tally.seeds.stage.cold + ch.tally.seeds.stage.warm +
+                                      ch.tally.seeds.stage.reused, r.chunks)))
+            end
+        end
+    end
+    return nothing
+end
+
 # --- main -----------------------------------------------------------------------------------
 
 cmd = isempty(ARGS) ? "help" : ARGS[1]
@@ -551,6 +612,10 @@ elseif cmd == "threads"
     Base.invokelatest(threads, ARGS[2])
 elseif cmd == "threadcmp"
     threadcmp(ARGS[2], ARGS[3])
+elseif cmd == "steptime"
+    steptime(length(ARGS) ≥ 2 ? ARGS[2:end] :
+             ["emwave", "alfven", "resist10", "resist100", "resist1000", "atmosphere", "rotor",
+              "orszagtang", "blast3d", "resist100_refined", "rotor_refined"])
 else
     println("usage: see the header of bin/recovery_cost.jl")
 end
