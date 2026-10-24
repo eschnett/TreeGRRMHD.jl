@@ -347,9 +347,12 @@ end
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     m = point_metric(provider, oftype(h, t), x)
     cons = read_vars(Uw, stored(n, GU), b, Val(NU))
-    𝔅 = cell_𝔅((B1, B2, B3), n, b, GB, Val(D))
-    B = 𝔅 / m.sqrtγ
-    E = cons_𝔈(cons) / m.sqrtγ
+    # `· inv(√γ)`, the reset's and the stage solve's arithmetic, so that every
+    # site hands EntropyEOS the same input for the same state (amended
+    # 2026-10-24: until then `/ √γ`; the same numbers in flat space).
+    isg = inv(m.sqrtγ)
+    B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
+    E = cons_𝔈(cons) * isg
     prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, state_guesses(cons))
     u = prim_W(prim) * prim_v(prim)
     wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
@@ -385,7 +388,8 @@ end
         x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
         m = point_metric(provider, oftype(h, t), x)
         wv = read_vars(Ww, stored(n, GW), b, Val(NW))
-        B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) / m.sqrtγ
+        # `· inv(√γ)`, the owned cells' arithmetic (amended 2026-10-24).
+        B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * inv(m.sqrtγ)
         Pc = P_from_W(eos, m, wv, B, zero(UInt32))
         @inbounds for v in 1:NP
             Pw[sP..., v, b] = Pc[v]
