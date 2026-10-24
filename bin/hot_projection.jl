@@ -15,6 +15,12 @@
 #
 #     julia --project=. -e 'using Pkg; Pkg.test(; julia_args=["-L", "<abs path>/bin/hot_projection.jl"])'
 import TreeGRRMHD
+# *(Amended 2026-10-24:)* EOS-9 landed in EntropyEOS 2.0.0, which this package resolves since
+# then; this file measures and emulates 1.1.0's internals, which 2.0 replaced. It runs on
+# `claude/recovery-pipeline-1` (d94bcf5), which resolves EntropyEOS 1.1.0.
+pkgversion(TreeGRRMHD.EntropyEOS) < v"2" || error(
+    "$(basename(@__FILE__)) measures EntropyEOS 1.1's internals, which 2.0 replaced (EOS-9 " *
+    "landed in 2.0.0); run it on branch claude/recovery-pipeline-1 (d94bcf5).")
 isdefined(Main, :HOT_PROJECTION) ||
     @eval Main const HOT_PROJECTION = Ref(parse(Int, get(ENV, "HOT_PROJECTION", "2")))
 isdefined(Main, :HOT_COUNT) || @eval Main const HOT_COUNT = zeros(Int, 4)

@@ -33,6 +33,10 @@
 # CODE.md's table: `counts CASE both` for every name in `CASES` (the conserved fill of a
 # case is the second block of its output), `pointwise`, `identity`, `threads`.
 
+# *(Amended 2026-10-24, EntropyEOS 2.0:)* the replays and the pointwise timings call level 1,
+# `con2prim_safe` onto the projection `proj`, alone: level 2 (`apply_policy`) costs nothing to seed.
+# The recorded calls are the scheme's own, both levels. The 2026-10-23 numbers were made on
+# `claude/recovery-cost` (d456a44), with EntropyEOS 1.1.0.
 using Printf, Random, Statistics, Serialization
 using StaticArrays
 using TreeAMR
@@ -120,7 +124,7 @@ nstored(r) = nblocks(r.p.f.P) * prod(size(r.p.f.P.work)[1:(ndims(r.p.f.P.work) -
 
 # --- the replay ---------------------------------------------------------------------------
 
-@noinline function replay_time(eos, opts, pol, recs, seeds::Symbol)
+@noinline function replay_time(eos, opts, proj, recs, seeds::Symbol)
     n = length(recs)
     n == 0 && return (NaN, 0.0, 0)
     acc = 0.0
@@ -131,7 +135,7 @@ nstored(r) = nblocks(r.p.f.P) * prod(size(r.p.f.P.work)[1:(ndims(r.p.f.P.work) -
         for r in recs
             g = seeds === :now ? r.gnow : r.gloc
             cin = EOS.Con2PrimIn{Float64}(r.cin...)
-            out = EOS.con2prim_safe(eos, cin, opts, pol, g[1], g[2], g[3])
+            out = EOS.con2prim_safe(eos, cin, opts, proj, g[1], g[2], g[3])
             acc += out.base.ρ
             reps == 0 && (iters += out.base.iters_newton)
         end
@@ -142,7 +146,7 @@ nstored(r) = nblocks(r.p.f.P) * prod(size(r.p.f.P.work)[1:(ndims(r.p.f.P.work) -
 end
 
 # How far the step-locally seeded answer is from the answer as seeded now.
-function replay_diff(eos, opts, pol, recs)
+function replay_diff(eos, opts, proj, recs)
     worst = 0.0
     wρ = ws = ww = 0.0
     at = nothing
@@ -150,8 +154,8 @@ function replay_diff(eos, opts, pol, recs)
     flagdiff = 0
     for r in recs
         cin = EOS.Con2PrimIn{Float64}(r.cin...)
-        a = EOS.con2prim_safe(eos, cin, opts, pol, r.gnow...)
-        b = EOS.con2prim_safe(eos, cin, opts, pol, r.gloc...)
+        a = EOS.con2prim_safe(eos, cin, opts, proj, r.gnow...)
+        b = EOS.con2prim_safe(eos, cin, opts, proj, r.gloc...)
         (a.base.ρ, a.base.s, a.base.w) == (b.base.ρ, b.base.s, b.base.w) && (same += 1)
         a.policy_flags == b.policy_flags || (flagdiff += 1)
         dρ = abs(a.base.ρ - b.base.ρ) / abs(a.base.ρ)
@@ -228,7 +232,7 @@ function counts(name, fill)
     # The replay of the window.
     nrec = length(recs)
     @printf("replay of %d recorded calls (steps %d…%d):\n", nrec, a.w0, a.w0 + WINDOW - 1)
-    eos, opts, pol = p.eos, p.opts, p.pol
+    eos, opts, proj = p.eos, p.opts, p.proj
     replay = Dict{Int,Any}()
     for s in 1:TG.RC_NS
         rs = filter(x -> x.site == s && x.solved, recs)     # the policy's answers cost nothing to seed
@@ -236,12 +240,12 @@ function counts(name, fill)
         cold = filter(x -> isnanseed(x.gnow), rs)
         warm = filter(x -> !isnanseed(x.gnow), rs)
         withloc = filter(x -> isnanseed(x.gnow) && !isnanseed(x.gloc), rs)
-        tc, _, ic = replay_time(eos, opts, pol, cold, :now)
-        tw, _, iw = replay_time(eos, opts, pol, warm, :now)
-        tn, _, in_ = replay_time(eos, opts, pol, withloc, :now)
-        tl, _, il = replay_time(eos, opts, pol, withloc, :loc)
+        tc, _, ic = replay_time(eos, opts, proj, cold, :now)
+        tw, _, iw = replay_time(eos, opts, proj, warm, :now)
+        tn, _, in_ = replay_time(eos, opts, proj, withloc, :now)
+        tl, _, il = replay_time(eos, opts, proj, withloc, :loc)
         d = isempty(withloc) ? (; worst=NaN, wρ=NaN, ws=NaN, ww=NaN, at=nothing, same=0, flagdiff=0) :
-            replay_diff(eos, opts, pol, withloc)
+            replay_diff(eos, opts, proj, withloc)
         replay[s] = (; cold=length(cold), warm=length(warm), withloc=length(withloc), tc, tw, tn, tl)
         @printf("  %-28s cold-seeded %6d at %6.0f ns (it %4.2f), warm %6d at %6.0f ns (it %4.2f); step-local %6d: %6.0f → %6.0f ns (it %4.2f → %4.2f), answers equal %5.1f%%, worst %.1e, flags differ %d\n",
                 TG.RC_SITES[s], length(cold), tc, ic / max(length(cold), 1), length(warm), tw,
@@ -307,15 +311,15 @@ end
 
 function pointwise()
     gas = TG.shock_gas(Float64, 5 // 3)
-    pol_g = EOS.default_policy(gas, 1e-10)
+    proj_g = EOS.default_projection(gas, 1e-10)
     table = EOS.build_eos(EOS.make_synthetic_table())
     f = MSUN_DENSITY_CGS
     tab = GeometricEOS(table.view; density=f)
-    pol_t = EOS.default_policy(tab, 1e7 / f)
+    proj_t = EOS.default_projection(tab, 1e7 / f)
     opts = EOS.Con2PrimOptions{Float64}()
     rng = Xoshiro(23)
-    for (label, eos, pol, ρs) in (("ideal gas, Γ = 5/3", gas, pol_g, () -> exp10(-2 + 2 * rand(rng))),
-                                  ("synthetic table (GeometricEOS)", tab, pol_t,
+    for (label, eos, proj, ρs) in (("ideal gas, Γ = 5/3", gas, proj_g, () -> exp10(-2 + 2 * rand(rng))),
+                                  ("synthetic table (GeometricEOS)", tab, proj_t,
                                    () -> exp10(9 + 4 * rand(rng)) / f))
         for W in (1.005, 2.0, 5.0)
             states = map(1:400) do _
@@ -327,10 +331,10 @@ function pointwise()
             cin(ρ, s, w) = (c = EOS.prim2con(eos, ρ, s, 0.3, w, 0.0, 0.0, NaN);
                             EOS.Con2PrimIn{Float64}(c.D, c.τ, c.D_Y, 0.0, c.S_perp, 0.0))
             ins = [cin(x...) for x in states]
-            sol = [EOS.con2prim_safe(eos, c, opts, pol) for c in ins]
+            sol = [EOS.con2prim_safe(eos, c, opts, proj) for c in ins]
             near(δ) = map(states) do (ρ, s, w)
                 c = cin(ρ * (1 + δ * randn(rng)), s * (1 + δ * randn(rng)), w * (1 + δ * randn(rng)))
-                o = EOS.con2prim_safe(eos, c, opts, pol)
+                o = EOS.con2prim_safe(eos, c, opts, proj)
                 (o.base.s, o.base.w, o.base.eos.u_solved)
             end
             seeds = [("cold", [(NaN, NaN, NaN) for _ in ins]),
@@ -338,8 +342,8 @@ function pointwise()
                      ("warm, the answer", [(o.base.s, o.base.w, o.base.eos.u_solved) for o in sol]),
                      ("warm, 1e-3 away", near(1e-3)), ("warm, 1e-2 away", near(1e-2))]
             for (sl, g) in seeds
-                t, it = time_calls(eos, opts, pol, ins, g)
-                med, nfb = median_call(eos, opts, pol, ins, g)
+                t, it = time_calls(eos, opts, proj, ins, g)
+                med, nfb = median_call(eos, opts, proj, ins, g)
                 @printf("%-32s W = %-5g %-24s %6.0f ns per call (median %6.0f), %4.2f Newton iterations, nested fallback %4.1f%%\n",
                         label, W, sl, t, med, it, 100 * nfb / length(ins))
             end
@@ -349,30 +353,30 @@ end
 
 # The median over the states of each call's own time (a few repeats each, the fastest), and
 # how many calls reached the nested fallback.
-@noinline function median_call(eos, opts, pol, ins, g)
+@noinline function median_call(eos, opts, proj, ins, g)
     ts = map(eachindex(ins)) do i
         best = typemax(UInt64)
         for _ in 1:5
             t0 = time_ns()
-            o = EOS.con2prim_safe(eos, ins[i], opts, pol, g[i]...)
+            o = EOS.con2prim_safe(eos, ins[i], opts, proj, g[i]...)
             best = min(best, time_ns() - t0)
             o.base.ρ == 0.5 && println()
         end
         best
     end
-    nfb = count(i -> EOS.con2prim_safe(eos, ins[i], opts, pol, g[i]...).base.result !==
+    nfb = count(i -> EOS.con2prim_safe(eos, ins[i], opts, proj, g[i]...).base.result !==
                      EOS.C2PResult.converged_newton, eachindex(ins))
     return median(Float64.(ts)), nfb
 end
 
-@noinline function time_calls(eos, opts, pol, ins, g)
+@noinline function time_calls(eos, opts, proj, ins, g)
     reps = 0
     its = 0
     acc = 0.0
     t0 = time_ns()
     while true
         for i in eachindex(ins)
-            o = EOS.con2prim_safe(eos, ins[i], opts, pol, g[i]...)
+            o = EOS.con2prim_safe(eos, ins[i], opts, proj, g[i]...)
             acc += o.base.ρ
             reps == 0 && (its += o.base.iters_newton)
         end

@@ -27,11 +27,20 @@
 # that sit exactly on a cap, the entropy ceiling or the rapidity cap, which
 # the owners' own recoveries put there, by rounding).
 
+# *(Amended 2026-10-24, EntropyEOS 2.0:)* `check_prim_state` takes the projection's options and
+# reports a density below `ρ_min` as `ρ_FLOORED` where 1.x reported the atmosphere; such a ghost is
+# the atmosphere's here, as before (`as_atmosphere`). Run against an older tree (EntropyEOS 1.1),
+# take this file from `claude/recovery-pipeline-1` (d94bcf5).
+
 using Printf
 using TreeAMR
 using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
+
+# A density below `ρ_min` is the atmosphere's (EntropyEOS 2.0's `check_prim_state` reports it as
+# `ρ_FLOORED`, 1.x as `ATMOSPHERE`).
+as_atmosphere(fl) = fl & EOS.FLAG_POL_ρ_FLOORED != 0 ? EOS.FLAG_POL_ATMOSPHERE : fl
 
 refine_band!(forest) =
     (refine!(forest, [k for k in copy(forest.leaves)
@@ -57,12 +66,12 @@ function count_ghosts!(acc, p, u, t)
         (isfinite(Pc[TG.P_RHO]) && Pc[TG.P_RHO] ≥ (1 - 1e-12) * 1e-8) || (acc.below += 1)
         fl = if PRIMITIVES
             ps = EOS.PrimState{Float64}(Pc[TG.P_RHO], Pc[TG.P_S], Pc[TG.P_YE], Pc[TG.P_W])
-            EOS.check_prim_state(p.eos, ps, p.pol)
+            as_atmosphere(EOS.check_prim_state(p.eos, ps, p.proj))
         else
             cons = ntuple(v -> U.work[i, v, b], TG.NU)
             m = TG.aux_metric(Pc)
             E = TG.cons_𝔈(cons) / m.sqrtγ
-            con2prim_hydro(p.eos, p.opts, p.pol, m, cons, E, TG.aux_B(Pc),
+            con2prim_hydro(p.eos, p.opts, p.proj, p.pol, m, cons, E, TG.aux_B(Pc),
                            TG.state_guesses(cons))[2]
         end
         if fl & EOS.FLAG_POL_ANY & ~EOS.FLAG_POL_ATMOSPHERE != 0

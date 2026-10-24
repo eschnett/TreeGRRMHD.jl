@@ -139,7 +139,7 @@ function rarefaction()
     println("\n## The rarefaction into 10⁻⁸ above a 10⁻¹⁰ atmosphere, 200 cells")
     case = shock_tube_case(Float64; Γ=5 // 3, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, 0, 0)),
                            right=(ρ=1 // 10^8, p=1 // 10^12, v=(0, 0, 0), B=(0, 0, 0)),
-                           ρ_atm=1 // 10^10, roots=20)
+                           ρ_min=1 // 10^10, roots=20)
     for tab in TABLEAUS
         r, wall = timed(() -> evolve!(case, Val(1); N=10, t_end=0.4, chunk=0.1, limiter=:mc,
                                       tableau=tab))

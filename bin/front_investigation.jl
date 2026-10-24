@@ -3,6 +3,7 @@
 # "Floors, the atmosphere and the magnetosphere", "Investigation (2026-10-16)".
 #
 #     julia --project=. bin/front_investigation.jl matrix MESH CANDIDATE [runs=48]
+#     julia --project=. bin/front_investigation.jl beyond [runs=48]
 #     julia --project=. bin/front_investigation.jl diverge
 #     julia --project=. bin/front_investigation.jl precursor
 #     julia --project=. bin/front_investigation.jl stageproblems
@@ -47,18 +48,21 @@ using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
 const IRK = TG.IRK
-# *(2026-10-22, branch `claude/no-collapse-to-atmosphere`:)* the entropy-ceiling projection of
-# the hot branch, emulated; `HOT_PROJECTION=0` in the environment gives 1.1.0's own policy, 1 the
-# first emulation, 2 (the default) EOS-9 as rewritten after Erik's review.
-include(joinpath(@__DIR__, "hot_projection.jl"))
+# *(Amended 2026-10-24, EntropyEOS 2.0:)* the entropy-ceiling projection of the hot branch
+# (EOS-9) is EntropyEOS's own since 2.0.0, so the emulation `bin/hot_projection.jl` is no longer
+# included and its tally of the hot branch is gone; the runs use the package's recovery as it
+# stands (`con2prim_safe` and `apply_policy`). The 1.1 runs are on `claude/recovery-pipeline-1`
+# (d94bcf5).
 
 # --- the classified step limiter and the monitor ----------------------------------------
 
+# 2.0's faces (amended 2026-10-24): `:ceil` is the density ceiling, `ρ_CEILED` (1.x's
+# `CEILING`, the collapse, is gone), `:wcap` the rapidity cap, `W_CEILED`.
 const CLASSES = (:atm, :sfl, :sce, :wcap, :ceil, :other)
-classify(f) = f & EOS.FLAG_POL_CEILING != 0 ? :ceil :
-              f & EOS.FLAG_POL_ATMOSPHERE != 0 ? :atm :
+classify(f) = f & EOS.FLAG_POL_ATMOSPHERE != 0 ? :atm :
+              f & EOS.FLAG_POL_ρ_CEILED != 0 ? :ceil :
               f & EOS.FLAG_POL_S_FLOORED != 0 ? :sfl :
-              f & EOS.FLAG_POL_W_CAPPED != 0 ? :wcap :
+              f & EOS.FLAG_POL_W_CEILED != 0 ? :wcap :
               f & EOS.FLAG_POL_S_CEILED != 0 ? :sce : :other
 
 mutable struct Acc
@@ -94,7 +98,7 @@ function classified_reset_step!(u, integ, p, t)
         h = spacing(Float64, f.U.forest, blockkey(f.U, b))
         for i in 1:(f.U.forest.N)
             _, m, cons, B, E = cell_state(p, us, b, i, t)
-            prim, fl = con2prim_hydro(p.eos, p.opts, p.pol, m, cons, E, B,
+            prim, fl = con2prim_hydro(p.eos, p.opts, p.proj, p.pol, m, cons, E, B,
                                       TG.state_guesses(cons))
             fl & EOS.FLAG_POL_ANY == 0 && continue
             c = prim2con(p.eos, m, prim, E, B)
@@ -134,8 +138,8 @@ Base.@kwdef struct Fix
     entropy_ratio::Float64 = 0.0
 end
 
-atm_prim(p, m, ye) = let a = EOS.policy_atmosphere(p.eos, p.pol, ye)
-    TG.primitive_state(p.eos, m, a.ρ, zero(SVector{3,Float64}), a.s, a.ye)
+atm_prim(p, m, ye) = let (ρ, s, y) = TG.atmosphere_prim(p.eos, p.proj, p.pol, ye)
+    TG.primitive_state(p.eos, m, ρ, zero(SVector{3,Float64}), s, y)
 end
 
 function fixed_s_prim(p, m, D, S_f, τ_f, ye, s)
@@ -145,8 +149,8 @@ function fixed_s_prim(p, m, D, S_f, τ_f, ye, s)
     s = clamp(s, sr.s_min, sr.s_max)
     r, _ = EOS.inner_solve_w(p.eos, D, τ_f, ye, 0.0, Smag, 0.0, s, p.opts.w_max,
                              p.opts.τ_floor_rel, 0.0, NaN, p.opts.max_iter_1d, p.opts.tol)
-    w = min(r.w, EOS.pol_w_cap(p.pol))
-    D / cosh(w) < EOS.pol_ρ_atm(p.eos, p.pol) && return atm_prim(p, m, ye)
+    w = min(r.w, p.proj.w_cap)
+    D / cosh(w) < p.proj.ρ_min && return atm_prim(p, m, ye)
     return TG.primitive_state(p.eos, m, D / cosh(w), TG.velocity_at_rapidity(m, Su, w), s, ye)
 end
 
@@ -176,7 +180,7 @@ function exp_reset!(u, integ, p, t, step::Bool, fix::Fix)
             cons = ntuple(v -> v in (TG.U_D, TG.U_DYE, TG.U_DS) ? cons[v] * k : cons[v], TG.NU)
             fl |= MARK
         end
-        prim, pf = con2prim_hydro(p.eos, p.opts, p.pol, m, cons, E, B, TG.state_guesses(cons))
+        prim, pf = con2prim_hydro(p.eos, p.opts, p.proj, p.pol, m, cons, E, B, TG.state_guesses(cons))
         fl |= pf
         if fix.μ_vac > 0 && (D ≤ 0 || B² / D > fix.μ_vac) && pf & EOS.FLAG_POL_ATMOSPHERE == 0
             prim = atm_prim(p, m, ye)
@@ -220,17 +224,17 @@ end
 limiters(fix::Fix) = (; stage_limiter=(u, i, p, t) -> exp_reset!(u, i, p, t, false, fix),
                       step_limiter=(u, i, p, t) -> exp_reset!(u, i, p, t, true, fix))
 
-# The case with some of its policy's options replaced.
-function with_pol(case; kw...)
+# The case with some of its options replaced: the projection's (`w_cap`) or the policy's
+# (`atm_trigger`, `collapse_to_atmosphere`, `s_atm`). Amended 2026-10-24, EntropyEOS 2.0.
+function with_pol(case; w_cap=case.proj.w_cap, kw...)
     q = case.pol
-    nt = merge((; ρ_atm=q.ρ_atm, s_atm=q.s_atm, ye_atm=q.ye_atm, atm_trigger=q.atm_trigger,
-                ρ_ceiling=q.ρ_ceiling, w_cap=q.w_cap, collapse_to_atmosphere=q.collapse_to_atmosphere),
-               kw)
-    pol = EOS.policy_derive_bounds(case.eos, EOS.PolicyOptions{Float64}(; nt...))
-    return TG.MHDCase{Float64,1,typeof(case.fields),typeof(case.potential),typeof(case.eos),
-                      typeof(case.opts),typeof(pol),typeof(case.model),typeof(case.provider)}(
-        case.fields, case.potential, case.eos, case.opts, pol, case.model, case.provider,
-        case.𝔅̄, case.periodic, case.extents, case.roots)
+    nt = merge((; s_atm=q.s_atm, ye_atm=q.ye_atm, atm_trigger=q.atm_trigger,
+                collapse_to_atmosphere=q.collapse_to_atmosphere), kw)
+    pol = EOS.PolicyOptions{Float64}(; nt...)
+    proj = EOS.ProjectionOptions{Float64}(case.proj.ρ_min, case.proj.ρ_max, w_cap)
+    return MHDCase(Float64, Val(1); fields=case.fields, potential=case.potential, eos=case.eos,
+                   opts=case.opts, proj=proj, pol=pol, model=case.model, provider=case.provider,
+                   𝔅̄=case.𝔅̄, periodic=case.periodic, extents=case.extents, roots=case.roots)
 end
 
 # name => (label, case transform, Fix or nothing)
@@ -239,6 +243,8 @@ const CANDIDATES = Dict(
     "collapse" => ("collapse_to_atmosphere", c -> with_pol(c; collapse_to_atmosphere=true),
                    nothing),
     "wcap10" => ("W cap 10", c -> with_pol(c; w_cap=acosh(10.0)), nothing),
+    # 2.0's own default atmosphere entropy, the window's minimum (amended 2026-10-24).
+    "satmmin" => ("s_atm at the window's minimum", c -> with_pol(c; s_atm=NaN), nothing),
     "ceil100" => ("magnetization ceiling 100", identity, Fix(; μ_ceil=100.0)),
     "vac10" => ("atmosphere where B²/D > 10", identity, Fix(; μ_vac=10.0)),
     "fixeds" => ("fixed-s recovery where e_em > τ_f", identity, Fix(; entropy_ratio=1.0)))
@@ -314,7 +320,7 @@ function batch(label, case; nruns=48, kw...)
     nb = count(r -> r.blowup, rs)
     lo, hi = wilson(nb, nruns)
     ok = filter(r -> !r.blowup, rs)
-    @printf("%-44s | %2d/%d (%.1f–%.1f%%) | D %s | τ %s | fb %s | max W %s | W>20 %s | writes %s | S_FLOORED %s | CEILING %s | %.2f s\n",
+    @printf("%-44s | %2d/%d (%.1f–%.1f%%) | D %s | τ %s | fb %s | max W %s | W>20 %s | writes %s | S_FLOORED %s | ρ_CEILED %s | %.2f s\n",
             label, nb, nruns, 100lo, 100hi, fmt3([r.D for r in ok]), fmt3([r.τ for r in ok]),
             fmt3([r.fb for r in ok]; f="%.0f"), fmt3([r.acc.maxW for r in ok]; f="%.1f"),
             fmt3([r.acc.nW20 for r in ok]; f="%.0f"),
@@ -327,11 +333,7 @@ end
 function matrix(mesh, name; nruns=48)
     kw = mesh == "uniform" ? (;) : (; refine=refine_band!)
     lab, cf, lkw = candidate_kw(name)
-    lab = lab * " [policy v$(HOT_PROJECTION[])]"
-    HOT_COUNT .= 0
     batch("$mesh, $lab", cf(tube()); nruns=nruns, kw..., lkw...)
-    @printf("%-44s   hot branch over the %d runs (every recovery): projections %d, to the atmosphere %d, rapidity capped %d, pol_collapse %d\n",
-            "$mesh, $lab", nruns, HOT_COUNT...)
     r1 = run_case(cf(tube()); kw..., lkw...)
     r2 = run_case(cf(tube()); amp=1e-15, seed=7, kw..., lkw...)
     a = TG.statearray(r1.u, r1.p.sets, TG.SEG_U)
@@ -342,6 +344,21 @@ function matrix(mesh, name; nruns=48)
     h = run_case(cf(atmosphere_tube_case(Float64; By=0)); kw..., lkw...)
     @printf("%-44s   hydrodynamic: D %.10e, τ %.10e, max W %.10f, fallbacks %d, writes %d\n",
             "$mesh, $lab", h.D, h.τ, h.acc.maxW, h.fb, sum(values(h.acc.n)))
+    return nothing
+end
+
+# Beyond the tube (uniform mesh, the baseline): the rows "Beyond the tube" of CODE.md's
+# "Floors, the atmosphere and the magnetosphere" — ARS(4,4,3), `Bʸ = 10⁻²`, the ideal magnetized
+# atmosphere under SSP3 and ARS, 400 cells, `μ_max = 30`. Added 2026-10-24 (EntropyEOS 2.0);
+# until then they were run from the REPL with `batch`.
+function beyond(; nruns=48)
+    batch("uniform, ARS(4,4,3)", tube(); nruns=nruns, tableau=IRK.ARS443())
+    batch("uniform, By = 1e-2", tube(; By=1e-2); nruns=nruns)
+    batch("uniform, ideal, SSP3", tube(; model=IdealConductor()); nruns=nruns)
+    batch("uniform, ideal, ARS(4,4,3)", tube(; model=IdealConductor()); nruns=nruns,
+          tableau=IRK.ARS443())
+    batch("uniform, 400 cells", tube(; roots=40); nruns=nruns)
+    batch("uniform, μ_max = 30", tube(; model=cut(30)); nruns=nruns)
     return nothing
 end
 
@@ -366,10 +383,10 @@ function logged_ohm!(U, ustar, γΔt, p, t)
     rec = Tuple{UInt32,UInt32,Bool}[]
     for b in 1:nblocks(p.f.U), i in 1:(p.f.U.forest.N)
         _, m, cons, B, E★ = cell_state(p, us, b, i, t)
-        _, prim, r, _ = TG.solve_ohm_stage(p.eos, p.opts, p.pol, p.model, m, cons, E★, B, γΔt,
+        _, prim, r, _ = TG.solve_ohm_stage(p.eos, p.opts, p.proj, p.pol, p.model, m, cons, E★, B, γΔt,
                                            TG.state_guesses(cons); stage=p.stage)
         S_f, τ_f = TG.field_budget(m, TG.cons_S(cons), TG.cons_τ(cons), E★, B)
-        pr, pf, _ = TG.fluid_recovery(p.eos, p.opts, p.pol, m, TG.cons_D(cons), S_f, τ_f,
+        pr, pf, _ = TG.fluid_recovery(p.eos, p.opts, p.proj, p.pol, m, TG.cons_D(cons), S_f, τ_f,
                                       TG.cons_DYₑ(cons), TG.state_guesses(cons))
         σ = TG.conductivity(p.model, pr, TG.magnetization(m, B, TG.cons_D(cons)))
         push!(rec, (pf, r.flags & 0x1f, σ > 0))
@@ -447,7 +464,7 @@ function stageproblems(; case=tube())
         us = TG.statearray(ustar, p.sets, TG.SEG_U)
         for b in 1:nblocks(p.f.U), i in 1:(p.f.U.forest.N)
             _, m, cons, B, E★ = cell_state(p, us, b, i, t)
-            _, _, r, _ = TG.solve_ohm_stage(p.eos, p.opts, p.pol, p.model, m, cons, E★, B, γΔt,
+            _, _, r, _ = TG.solve_ohm_stage(p.eos, p.opts, p.proj, p.pol, p.model, m, cons, E★, B, γΔt,
                                             TG.state_guesses(cons); stage=p.stage)
             r.flags & TG.OHM_FALLBACK != 0 && push!(probs, (p, m, cons, B, E★, γΔt))
         end
@@ -458,7 +475,7 @@ function stageproblems(; case=tube())
     for (p, m, cons, B, E★, γΔt) in probs
         D, S, τ, DY = TG.cons_D(cons), TG.cons_S(cons), TG.cons_τ(cons), TG.cons_DYₑ(cons)
         S_f, τ_f = TG.field_budget(m, S, τ, E★, B)
-        pr, _, _ = TG.fluid_recovery(p.eos, p.opts, p.pol, m, D, S_f, τ_f, DY, TG.state_guesses(cons))
+        pr, _, _ = TG.fluid_recovery(p.eos, p.opts, p.proj, p.pol, m, D, S_f, τ_f, DY, TG.state_guesses(cons))
         μ = TG.magnetization(m, B, D)
         push!(μs, μ)
         vB = TG.raise(m, TG.cross_down(m, TG.prim_v(pr), B))
@@ -468,7 +485,7 @@ function stageproblems(; case=tube())
         for a in range(-6, 6; length=4001)          # u = sinh a, W up to 200
             u = SVector(sinh(a), 0.0, 0.0)
             S_E, τ_E = TG.field_budget(m, S, τ, TG.ohm_E(m, c, u, E★, B), B)
-            q, fl, _ = TG.fluid_recovery(p.eos, p.opts, p.pol, m, D, S_E, τ_E, DY,
+            q, fl, _ = TG.fluid_recovery(p.eos, p.opts, p.proj, p.pol, m, D, S_E, τ_E, DY,
                                          TG.state_guesses(cons))
             if fl == 0
                 anyadm = true
@@ -507,6 +524,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
     end
     if mode == "matrix"
         matrix(ARGS[2], ARGS[3]; nruns=nruns)
+    elseif mode == "beyond"
+        beyond(; nruns=nruns)
     elseif mode == "diverge"
         diverge()
     elseif mode == "precursor"

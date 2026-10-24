@@ -32,11 +32,20 @@
 # fallback, the first step-limiter injection above 10⁻⁹ in one cell, and the
 # first `W > 20`, each as `t@x` (and the cell's level).
 
+# *(Amended 2026-10-24, EntropyEOS 2.0:)* `check_prim_state` takes the projection's options and
+# reports a density below `ρ_min` as `ρ_FLOORED` where 1.x reported the atmosphere; such a ghost is
+# the atmosphere's here, as before (`as_atmosphere`). Run against an older tree (EntropyEOS 1.1),
+# take this file from `claude/recovery-pipeline-1` (d94bcf5).
+
 using Printf, Random
 using TreeAMR
 using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
+
+# A density below `ρ_min` is the atmosphere's (EntropyEOS 2.0's `check_prim_state` reports it as
+# `ρ_FLOORED`, 1.x as `ATMOSPHERE`).
+as_atmosphere(fl) = fl & EOS.FLAG_POL_ρ_FLOORED != 0 ? EOS.FLAG_POL_ATMOSPHERE : fl
 const PRIMITIVES = isdefined(TG, :default_ops_W)
 
 refine_band!(forest) =
@@ -88,12 +97,14 @@ function monitor!(acc, p, u, t)
         lo < x < hi || continue
         Pc = ntuple(v -> P.work[i, v, b], TG.NP)
         fl = if PRIMITIVES
-            EOS.check_prim_state(p.eos, EOS.PrimState{Float64}(Pc[TG.P_RHO], Pc[TG.P_S],
-                                                                Pc[TG.P_YE], Pc[TG.P_W]), p.pol)
+            as_atmosphere(EOS.check_prim_state(p.eos,
+                                               EOS.PrimState{Float64}(Pc[TG.P_RHO], Pc[TG.P_S],
+                                                                      Pc[TG.P_YE], Pc[TG.P_W]),
+                                               p.proj))
         else
             cons = ntuple(v -> U.work[i, v, b], TG.NU)
             m = TG.aux_metric(Pc)
-            con2prim_hydro(p.eos, p.opts, p.pol, m, cons, TG.cons_𝔈(cons) / m.sqrtγ,
+            con2prim_hydro(p.eos, p.opts, p.proj, p.pol, m, cons, TG.cons_𝔈(cons) / m.sqrtγ,
                            TG.aux_B(Pc), TG.state_guesses(cons))[2]
         end
         fl & EOS.FLAG_POL_ANY & ~EOS.FLAG_POL_ATMOSPHERE != 0 && (acc.repaired += 1)

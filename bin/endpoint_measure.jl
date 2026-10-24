@@ -31,6 +31,12 @@
 using Printf, Random, Statistics
 using TreeGRRMHD
 const E = TreeGRRMHD.EntropyEOS
+# *(Amended 2026-10-24:)* EOS-9 landed in EntropyEOS 2.0.0, which this package resolves since
+# then; this file measures and emulates 1.1.0's internals, which 2.0 replaced. It runs on
+# `claude/recovery-pipeline-1` (d94bcf5), which resolves EntropyEOS 1.1.0.
+pkgversion(TreeGRRMHD.EntropyEOS) < v"2" || error(
+    "$(basename(@__FILE__)) measures EntropyEOS 1.1's internals, which 2.0 replaced (EOS-9 " *
+    "landed in 2.0.0); run it on branch claude/recovery-pipeline-1 (d94bcf5).")
 include(joinpath(@__DIR__, "hot_projection.jl"))
 
 solve_at(eos, in, ye, B², s, opts; w_start, u=NaN, tol=opts.tol, maxit=opts.max_iter_1d) =

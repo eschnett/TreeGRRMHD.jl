@@ -223,10 +223,14 @@ end
 
 # --- the counted call --------------------------------------------------------------------
 
-@inline function rc_c2p(eos, cin::EntropyEOS.Con2PrimIn{T}, opts, pol, g::NTuple{3,T},
+# Both levels (amended 2026-10-24, EntropyEOS 2.0): `con2prim_safe` onto `proj`, counted and
+# timed, then `apply_policy` with `pol`, as `src/con2prim.jl` calls them.
+@inline function rc_c2p(eos, cin::EntropyEOS.Con2PrimIn{T}, opts, proj, pol, g::NTuple{3,T},
                         ideal::Bool) where {T}
-    RCS.mode == 0 && return EntropyEOS.con2prim_safe(eos, cin, opts, pol, g[1], g[2], g[3])
-    return rc_c2p_counted(eos, cin, opts, pol, g, ideal)
+    out = RCS.mode == 0 ?
+          EntropyEOS.con2prim_safe(eos, cin, opts, proj, g[1], g[2], g[3]) :
+          rc_c2p_counted(eos, cin, opts, proj, g, ideal)
+    return EntropyEOS.apply_policy(eos, cin, out, proj, pol)
 end
 
 @inline rc_cin(c) = (c.D, c.τ, c.D_Y, c.S_par, c.S_perp, c.B²)
@@ -240,7 +244,7 @@ function rc_bucket(δ)
     return 6
 end
 
-@noinline function rc_c2p_counted(eos, cin::EntropyEOS.Con2PrimIn{T}, opts, pol,
+@noinline function rc_c2p_counted(eos, cin::EntropyEOS.Con2PrimIn{T}, opts, proj,
                                   g::NTuple{3,T}, ideal::Bool) where {T}
     site = RCS.site
     if site == RC_STAGE
@@ -256,7 +260,7 @@ end
     loc = (sd[1, c, b], sd[2, c, b], sd[3, c, b])
     locok = !(isnan(loc[1]) | isnan(loc[2]))
     t0 = time_ns()
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, pol, g[1], g[2], g[3])
+    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, g[1], g[2], g[3])
     dt = time_ns() - t0
     cls = !out.solved ? 3 : cold ? 1 : 2
     RCS.n[site, cls] += 1
@@ -302,6 +306,7 @@ end
 # --- the two functions that call con2prim_safe, redefined to count -------------------------
 
 @inline function fluid_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
                                 S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
                                 guesses::NTuple{3,T}) where {T}
@@ -309,8 +314,7 @@ end
     S² = sum(S_fluid .* Su)
     S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
     cin = EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T))
-    out = rc_c2p(eos, cin, opts, pol, guesses, false)
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
+    out = rc_c2p(eos, cin, opts, proj, pol, guesses, false)
     b = out.base
     v = velocity_at_rapidity(m, Su, b.w)
     prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
@@ -318,6 +322,7 @@ end
 end
 
 @inline function ideal_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
@@ -341,8 +346,7 @@ end
     S_perp² = dot_up(m, Su_perp, Su_perp)
     S_perp = S_perp² < zero(T) ? zero(T) : sqrt(S_perp²)
     cin = EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²)
-    out = rc_c2p(eos, cin, opts, pol, guesses, true)
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
+    out = rc_c2p(eos, cin, opts, proj, pol, guesses, true)
     b = out.base
     v_perp = S_perp > zero(T) ? (b.v_perp / S_perp) * Su_perp : zero(SVector{3,T})
     v = velocity_at_rapidity(m, b.v_par * b̂ + v_perp, b.w)
@@ -355,7 +359,7 @@ end
 # `primitive_kernel!` (this branch's primitive fill, owned cells).
 @kernel function rc_primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                       @Const(origins), @Const(spacings), provider, t, eos, opts,
-                                      pol, N, ::Val{D}, ::Val{GP}, ::Val{GU},
+                                      proj, pol, N, ::Val{D}, ::Val{GP}, ::Val{GU},
                                       ::Val{GB}) where {D,GP,GU,GB}
     I = @index(Global, NTuple)
     b = I[D + 1]
@@ -370,7 +374,7 @@ end
     sP = stored(n, GP)
     lin = rc_lin(sP, N, GP)
     rc_context!(RC_RHS, b, lin)
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, rc_guesses(cons, b, lin))
+    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, rc_guesses(cons, b, lin))
     rc_store!(prim, b, lin)
     u = prim_W(prim) * prim_v(prim)
     wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
@@ -386,7 +390,7 @@ end
 # The conserved fill's recovery in every stored cell (the tree at 7605986).
 @kernel function rc_conserved_kernel!(Pw, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                       @Const(origins), @Const(spacings), @Const(kind), provider,
-                                      t, eos, opts, pol, N, ::Val{D}, ::Val{GP}, ::Val{GU},
+                                      t, eos, opts, proj, pol, N, ::Val{D}, ::Val{GP}, ::Val{GU},
                                       ::Val{GB}) where {D,GP,GU,GB}
     I = @index(Global, NTuple)                       # stored: `stored = true`
     b = I[D + 1]
@@ -401,7 +405,7 @@ end
     E = cons_𝔈(cons) / m.sqrtγ
     lin = rc_lin(s, N, GP)
     rc_context!(RC_RHS + Int(@inbounds kind[lin, b]), b, lin)
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, rc_guesses(cons, b, lin))
+    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, rc_guesses(cons, b, lin))
     rc_store!(prim, b, lin)
     Pc = pack_P(prim, flags, E, B, zero(h), m)
     @inbounds for v in 1:NP
@@ -411,7 +415,7 @@ end
 
 @kernel function rc_ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw,
                                 @Const(origins), @Const(spacings), provider, t, γΔt, eos, opts,
-                                pol, model, stage, N, ::Val{D}, ::Val{GB}, ::Val{GX},
+                                proj, pol, model, stage, N, ::Val{D}, ::Val{GB}, ::Val{GX},
                                 ::Val{GP}) where {D,GB,GX,GP}
     I = @index(Global, NTuple)
     b = I[D + 1]
@@ -425,7 +429,7 @@ end
     E★ = cons_𝔈(cons★) * isg
     lin = rc_lin(stored(n, GP), N, GP)
     rc_context!(RC_STAGE, b, lin)
-    E, prim, r, nrec = solve_ohm_stage(eos, opts, pol, model, m, cons★, E★, B,
+    E, prim, r, nrec = solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
                                        oftype(h, γΔt), rc_guesses(cons★, b, lin); stage=stage)
     rc_store!(prim, b, lin)
     𝔈 = m.sqrtγ * E
@@ -448,7 +452,7 @@ end
 end
 
 @kernel function rc_reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, @Const(origins),
-                                  @Const(spacings), provider, t, eos, opts, pol, N, ::Val{D},
+                                  @Const(spacings), provider, t, eos, opts, proj, pol, N, ::Val{D},
                                   ::Val{GB}, ::Val{GX}, ::Val{GP},
                                   ::Val{STEP}) where {D,GB,GX,GP,STEP}
     I = @index(Global, NTuple)
@@ -463,7 +467,7 @@ end
     E = cons_𝔈(cons) * isg
     lin = rc_lin(stored(n, GP), N, GP)
     rc_context!(STEP ? RC_RESET_STEP : RC_RESET_STAGE, b, lin)
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, rc_guesses(cons, b, lin))
+    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, rc_guesses(cons, b, lin))
     rc_store!(prim, b, lin)
     if flags & EntropyEOS.FLAG_POL_ANY != 0
         c = prim2con(eos, m, prim, E, B)
@@ -518,13 +522,13 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
         @rct 5 fill_set!(p, SEG_U, t)
         @rct 4 map_blocks!(rc_conserved_kernel!, f.P, f.P.work, f.U.work, f.B[1].work,
                            f.B[2].work, f.B[3].work, p.origins, p.spacings, RCS.kind,
-                           p.provider, t, p.eos, p.opts, p.pol, N, Val(D), Val(f.P.G),
+                           p.provider, t, p.eos, p.opts, p.proj, p.pol, N, Val(D), Val(f.P.G),
                            Val(f.U.G), GB; stored=true)
         RCS.mode > 0 && rc_check_copies!(p)
     else
         @rct 4 map_blocks!(rc_primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work,
                            f.B[1].work, f.B[2].work, f.B[3].work, p.origins, p.spacings,
-                           p.provider, t, p.eos, p.opts, p.pol, N, Val(D), Val(f.P.G),
+                           p.provider, t, p.eos, p.opts, p.proj, p.pol, N, Val(D), Val(f.P.G),
                            Val(f.U.G), GB)
         @rct 5 fill_ghosts!(f.W, p.schedule_W;
                             boundary=p.boundary_W === nothing ? nothing :
@@ -610,7 +614,7 @@ function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     @rct 14 map_blocks!(rc_ohm_kernel!, f.U, statearray(U, p.sets, SEG_U),
                         statearray(ustar, p.sets, SEG_U), f.B[1].work, f.B[2].work,
                         f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, γΔt,
-                        p.eos, p.opts, p.pol, p.model, p.stage, f.P.forest.N, Val(D),
+                        p.eos, p.opts, p.proj, p.pol, p.model, p.stage, f.P.forest.N, Val(D),
                         Val(GB_of(f)), Val(f.X.G), Val(f.P.G))
     return nothing
 end
@@ -634,7 +638,7 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val{STEP}) where {T,D,STEP}
     t0 = time_ns()
     map_blocks!(rc_reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work,
                 f.B[2].work, f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t,
-                p.eos, p.opts, p.pol, f.P.forest.N, Val(D), Val(GB_of(f)), Val(f.X.G),
+                p.eos, p.opts, p.proj, p.pol, f.P.forest.N, Val(D), Val(GB_of(f)), Val(f.X.G),
                 Val(f.P.G), step)
     RCT[STEP ? 18 : 16] += Int(time_ns() - t0)
     STEP && (RCS.step += 1)
