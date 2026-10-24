@@ -12,7 +12,10 @@
 # Since step 8 (AMR-10) the fill prolongates the primitives `W` (PointValue,
 # bounded) and rebuilds each conserved ghost by `prim2con` with the ghost's
 # own `B`; the configurations are the uniform mesh and the primitives at
-# widths 2, 4, 6, and at width 4 unbounded. Run against a tree from before
+# widths 2, 4, 6, and at width 4 unbounded. *(Amended 2026-10-23:)* the
+# package's fill is now the parent-centred one (`default_ops_W`, Conservative
+# width 3 bounded; decided by Erik), which no longer writes the conserved
+# ghosts — `P` in every ghost comes from `W` — and is the first refined row. Run against a tree from before
 # (`git archive 7605986`), where `default_ops_W` does not exist, it measures
 # the conserved fill instead, bounded and unbounded (Conservative width 3).
 # A ghost counts as repaired where the policy would repair it for anything
@@ -82,6 +85,7 @@ configs = if PRIMITIVES
     pv(w; bounded=true) = Operators(; prolongation=w, restriction=w, family=PointValue,
                                     bounded=bounded)
     [("uniform", (;)),
+     ("primitives, parent-centred", (; refine=refine_band!)),
      ("primitives, w = 2", (; refine=refine_band!, ops_W=pv(2))),
      ("primitives, w = 4", (; refine=refine_band!, ops_W=pv(4))),
      ("primitives, w = 6", (; refine=refine_band!, ops_W=pv(6))),

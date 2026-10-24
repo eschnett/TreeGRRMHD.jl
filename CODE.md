@@ -170,7 +170,8 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   surface refined everywhere stays positive and within range and keeps its
   total, where the unbounded operator overshoots (moved there from
   `test/upstream_behaviour_tests.jl` in step 8), and the matter's ghost
-  fill and regrid use it since step 8. See [Refinement](#refinement)
+  fill and regrid use it since step 8 — the ghost fill on the primitives
+  `W` since 2026-10-23 (decided by Erik). See [Refinement](#refinement)
   for what upstream's design assumes of this package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
   TreeGH's list).
@@ -213,8 +214,11 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   points that enclose it — for the matter's ghost fill of the primitives
   ("Refinement"). No workaround: the conserved, bounded ghost fill runs
   until it lands. *(Landed in TreeAMR 0.2.2, `bounded = true` with
-  `PointValue` at every even width; the matter's ghost fill takes the
-  primitives with it since step 8.)*
+  `PointValue` at every even width; the matter's ghost fill took the
+  primitives with it in step 8, at width 2. Amended 2026-10-23: the fill
+  now takes the bounded conservative operator, AMR-4, centred on the
+  parent — decided by Erik; "Refinement". The PointValue fill stays for
+  measurements and as the width-4 control of the suite.)*
 - **AMR-11 (wanted, no step blocked) The relative hook consistent across
   levels where an outer face meets a coarse-fine face** *(added in step
   8)*: there each level's hook writes its own wall edges, so the magnetic
@@ -785,7 +789,11 @@ ulp instead of 1 (a face's two blocks see `P` that differ at the
 tolerance): there the ghosts would need their owner's `P` (c). EntropyEOS,
 for Erik: on the synthetic table near rest (`W = 1.005`) 16–26% of states
 end in the nested fallback whatever the seed. *(Measured, for Erik; no
-change to the code, which decision is his.)*
+change to the code, which decision is his.)* *(Amended 2026-10-23,
+decided by Erik:)* (a), (b) and (c) are all to be done; (c) is the
+parent-centred primitive fill, which this tree already ran, now the only
+one ("Refinement"), with the dead `prim2con` of the conserved ghosts
+removed.
 
 ## The scheme
 
@@ -820,11 +828,11 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | set | centering | nvars | `G` | operators / at `regrid!` |
 |---|---|---|---|---|
 | GH `U` (TreeGH) | vertex | 20 | 3 | PointValue width 6 / `=> schedule` |
-| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8), in the regrid / `=> schedule` |
+| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8), in the regrid; its ghosts are not written by the scheme (2026-10-23) / `=> schedule` |
 | `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | Conservative width 3 along the edge, point values of width 4 across it (AMR-9; decided in step 8) / `=> schedule` |
 | `Φ̃` | vertex | 1 | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
-| `W` — `ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`, the matter's ghost fill *(added in step 8)* | cell | 9 | 3 | PointValue width 2, bounded (AMR-10; proposed in step 8) / `=> nothing` |
+| `W` — `ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`, the matter's ghost fill *(added in step 8)* | cell | 9 | 3 | Conservative width 3, bounded, centred on the parent (decided by Erik 2026-10-23; step 8's was PointValue width 2) / `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
@@ -2005,12 +2013,14 @@ primitives, decided by Erik 2026-10-15):
    `B` averaged to cells.
 3. `con2prim` over the **owned** cells, in hydrodynamic mode, into `P` and
    the primitive set `W` (`ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`); `fill_ghosts!` on `W`
-   (PointValue, bounded — AMR-10 — with its own Dirichlet hook, the case's
-   primitives); at every ghost cell `P` from `W` by one forward EOS
-   evaluation, no inversion, and the conserved ghost by `prim2con` with the
-   ghost's own `B` and metric. (Until step 8 the exchange was in conserved
-   variables, as TreeHydro decided, and `con2prim` ran over every stored
-   cell.)
+   (copies at same-level faces, the bounded conservative prolongation
+   centred on the parent at refinement boundaries, with its own Dirichlet
+   hook, the case's primitives); at every ghost cell `P` from `W` by one
+   forward EOS evaluation, no inversion, with the ghost's own `B` and
+   metric. No ghost is recovered and the conserved ghosts are not written
+   ("Refinement"). (Until step 8 the exchange was in conserved variables, as
+   TreeHydro decided, and `con2prim` ran over every stored cell; amended
+   2026-10-23, decided by Erik.)
 4. `q = ∇·E` at cells.
 5. `T_ab` at cells, averaged to vertices into `Tsrc`; TreeGH's right-hand
    side (if evolved).
@@ -2038,7 +2048,8 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   `primitive_kernel!` over the owned cells (the recovery, `W`, and `P`
   through `P_from_W`), the fill of `W`, and `ghost_kernel!` over every
   stored cell that is not owned (`P` through the same `P_from_W` with the
-  ghost's `B`, the conserved ghost by `prim2con`). Owned cells take `P`
+  ghost's `B`; until 2026-10-23 also the conserved ghost by `prim2con`,
+  which nothing read). Owned cells take `P`
   through `P_from_W` too, rather than straight from the recovery (proposed
   in step 8): where a ghost is a copy of its owner — every ghost on a
   uniform mesh — the two blocks then hold the same `P` bit for bit and
@@ -2490,15 +2501,73 @@ proposed in step 8 unless marked otherwise):
   `t = 2` went from 0.18 to 0.049 and the damped one from 1.2e−3 to 1.6e−5
   (0.044 and 1.9e−5 with AMR-9 alone).
 
-**The ghost fill of the matter** *(decided by Erik 2026-10-15)*: **the
-ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ` —
-with a bounded (no new extrema) Lagrange interpolation, and builds each
-conserved ghost by `prim2con` with the ghost's own `B`, the curl of the
-prolongated `A`; **the regrid stays conservative**, Conservative width 3,
-bounded, on the conserved variables. TreeAMR had no bounded PointValue
-operator: that was **AMR-10**, landed in TreeAMR 0.2.2.
+**The ghost fill of the matter** *(decided by Erik 2026-10-15: in
+primitives; amended 2026-10-23, decided by Erik: the parent-centred
+primitive fill, the only one)*: **the ghost fill exchanges the
+primitives** `W = (ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ)` — copied at same-level faces,
+exactly, and at refinement boundaries prolongated with TreeAMR's bounded
+conservative operator centred on the parent (`default_ops_W()` =
+`Operators(; prolongation=3, restriction=2, family=Conservative,
+bounded=true)`, AMR-4: the parent plus an MC-limited linear slope, scaled so
+that every child stays within the parent and its face neighbours —
+Athena++'s prolongation of the primitives, Stone et al. 2020, ApJS 249, 4,
+§2.1.5, with MC for its minmod; a coarse ghost the `2^D` mean of the fine
+cells it covers). **`P` in every ghost comes from `W` by one forward EOS
+evaluation (`P_from_W`), with the ghost's own `B`; no ghost is ever
+recovered**: the recovery runs on the owned cells only. **The conserved
+ghosts are not written by the scheme.** Nothing reads them — the fluxes,
+the EMFs, the sources, `q` and the indicator (`mhd_flags`) read `P`; the
+stage solve and the reset read the owned cells of the state vector; the
+totals and the L1 errors the owned cells — so `U`'s ghosts hold only what
+TreeAMR's own fills of `U` leave there: `regrid!`'s before its transfer,
+and the initial adaptation's (each with the case's conserved hook). **The
+regrid stays conservative**, Conservative width 3, bounded, on the
+conserved variables. *(Amended 2026-10-23: until then `ghost_kernel!` also
+rebuilt every conserved ghost by `prim2con`, which nothing read; step 8's
+PointValue width-2 fill of `W` was the default until the parent-centred
+operator replaced it after the experiments below, and the experimental
+density forms of `W` — `ghost_vars = :density`, `:mass` — are gone from
+`src/`.)*
 
-*As built in step 8, when AMR-10 landed* (`primitives_from_sets!`,
+**Three working fills, to revisit when the physics gets harder**
+*(recorded 2026-10-23 at Erik's request)*. Each ran the atmosphere tube
+across a coarse-fine face and the suite. The one-line result is the 48
+perturbed magnetized atmosphere tubes of `bin/ghost_robustness.jl` (the
+table below; `Bʸ = 10⁻³`, cut off at `μ_max = 10`) under EntropyEOS 1.0's
+policy, and in brackets under the atmosphere-at-rest recovery with
+`collapse_to_atmosphere` (EntropyEOS 1.1, 2026-10-21;
+`bin/front_investigation.jl`, "Floors, the atmosphere and the
+magnetosphere"):
+
+1. **Conserved, bounded**: `U` filled with Conservative width 3, bounded,
+   and the recovery in every stored cell, ghosts included — step 8's first
+   fill (`claude/step-8-finish` at 7605986; run as `git archive 7605986`):
+   3/48 blow-ups (2.1–17%), fallbacks median 49, 83 repaired ghost
+   recoveries median [0/48, no fallback, largest `W` 5.0, injected `D`
+   −1.4·10⁻⁸]. It costs `3((N + 2G)/N)^D − 3` more recoveries per cell and
+   right-hand side: a 3D step 64–74% longer ("Primitive recovery",
+   2026-10-23).
+2. **Parent-centred primitives** (**the code**): `W` with the specific
+   `s`, `Yₑ`, Conservative width 3, bounded (`claude/step-8-ghost-athena`,
+   1f014c8; the runs on `claude/step-8-ghost-robustness`, 6b0a72e, method
+   `prim-cons3-specific`): 0/48 (0–7.4%), fallbacks median 72, no repaired
+   ghost, a ghost pressure outside its neighbours' range 9 times a run
+   (median) [0/48, no fallback, largest `W` 5.0, injected `D` −1.4·10⁻⁸].
+3. **Density-form primitives, parent copy**: `W` holding `ρ★ s`, `ρ★ Yₑ`
+   (`ghost_vars = :density`, from `claude/step-8-ghost-entropy-density`,
+   19f4563), Conservative width 1 — every child its parent
+   (`claude/step-8-ghost-robustness`, 6b0a72e, method
+   `prim-cons1-density`): 0/48 (0–7.4%), no ghost pressure or entropy out
+   of range, but fallbacks median 155 and `W` at its cap of 100 in most
+   runs [not re-measured].
+
+No difference in blow-ups is significant at 48 runs (below). What the code
+lost is the second and third: they run on their branches, and
+`bin/ghost_entropy.jl`, `bin/ghost_robustness.jl` and
+`bin/interface_order.jl` say so when asked for them.
+
+*As built in step 8, when AMR-10 landed* *(history: superseded 2026-10-23
+by the fill above; the measurements stand as measured)* (`primitives_from_sets!`,
 `P_from_W`, `ghost_kernel!` in `src/evolution.jl`; "The right-hand side"):
 - **The set** `W`, cell-centred, 9 variables: `ρ★`, `s`, `Yₑ`, the
   contravariant `uⁱ = Wvⁱ` and the contravariant, undensitized `Eⁱ` — Erik's
@@ -2572,9 +2641,11 @@ energy-conserving mixture. Not an error — the reset's injection is a
 correction the scheme accounts — but larger than step 8's first fill, and
 an argument for prolongating the pressure instead of the entropy, which
 needs the entropy from `(ρ, p)` (EOS-3), or for keeping width 2. The fill
-runs as Erik decided, at width 2, until that is settled.
+runs as Erik decided, at width 2, until that is settled. *(Settled
+2026-10-23 by Erik: the parent-centred fill, above.)*
 
-*Experiment (branch `claude/step-8-ghost-entropy-density`, not decided):*
+*Experiment (branch `claude/step-8-ghost-entropy-density`; decided against
+2026-10-23):*
 `W` holding the densities `ρ★ s`, `ρ★ Yₑ` (`ghost_vars = :density`, the
 default on that branch), and also `ρ★ uⁱ` (`:mass`), so that with common
 weights the ghost's entropy is mass-weighted; `bin/ghost_entropy.jl` has the
@@ -2588,7 +2659,8 @@ cell does not (2.96e−6 against 1e−8), which the light-cone HLLE flux draws
 out of the coarse cell through the coarse-fine face. Widths 4 and 6 are not
 robust in either form.
 
-*Second experiment (branch `claude/step-8-ghost-athena`, not decided):*
+*Second experiment (branch `claude/step-8-ghost-athena`; the code since,
+decided by Erik 2026-10-23):*
 `W` filled with TreeAMR's bounded conservative operator, `Operators(;
 prolongation=3, restriction=2, family=Conservative, bounded=true)` — a
 linear reconstruction centred on the parent with MC slopes, scaled to keep
@@ -2603,7 +2675,7 @@ fill's (1D 2.11 / 2.04, 2D 2.14 / 1.98). `bin/ghost_entropy.jl` has the
 table, reported to Erik.
 
 *Third experiment (branch `claude/step-8-ghost-robustness`, from
-`claude/step-8-ghost-athena`; no decision taken):* robustness on the
+`claude/step-8-ghost-athena`; the three fills above):* robustness on the
 magnetized atmosphere tube across a coarse-fine face, which is chaotic at
 rounding level, over **48 perturbed initial states** per method
 (`bin/ghost_robustness.jl`; runs 1–12 are the twelve of the earlier
@@ -3149,7 +3221,9 @@ named as claims.
      (where conserved ghosts had 33 repaired recoveries), but 5.6e−9 of rest
      mass injected hydrodynamically against the conserved fill's 1.5e−11;
      at width 4, 5.4e−4 of energy, and a blow-up magnetized (the tables in
-     "Refinement").
+     "Refinement"). *(Amended 2026-10-23:)* the fill is now the
+     parent-centred one (decided by Erik): −1.6e−11 of rest mass, as the
+     conserved fill's.
    - **What the end of step 8 moved elsewhere** (measured, every line the
      suite prints, before and after, Julia 1.13): the symmetric walls and
      the relative hook moved nothing a uniform-mesh case prints; the
@@ -3212,7 +3286,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - *(Added in step 8; closed by Erik 2026-10-15.)* Primitives or the
   conserved state in the matter's ghost fill: the primitives, with a
   bounded Lagrange prolongation (AMR-10), the conserved state in the regrid
-  (see "Refinement").
+  (see "Refinement"). *(Amended 2026-10-23, decided by Erik:)* the
+  primitives with the bounded conservative prolongation centred on the
+  parent; the three working fills are recorded in "Refinement", to revisit
+  when the physics gets harder.
 - TreeGH's CFL factor under the SSP3 explicit tableau.
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).

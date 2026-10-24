@@ -671,7 +671,9 @@ Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is 
 matter's ghost fill takes the primitives with it since step 8, at width 2 (wider ones clamp `ρ` and
 `s` independently: `CODE.md`, "Refinement"); its downstream check holds — no ghost of the
 magnetized tube across a coarse-fine face is inadmissible (against 33 repaired recoveries with
-conserved ghosts), `test/refinement_cases_tests.jl`.
+conserved ghosts), `test/refinement_cases_tests.jl`. *(Amended 2026-10-23, decided by Erik:)* the
+fill now takes the bounded conservative operator centred on the parent (AMR-4) on `W`; the
+PointValue operator stays the suite's width-4 control (`CODE.md`, "Refinement").
 
 ### AMR-11 — The relative hook consistent across levels at an outer face (wanted)
 
@@ -1717,6 +1719,10 @@ AMR-10 lands.)* *(Amended in step 8:)* as built:
   the box's longest side; amended, decided by Erik 2026-10-15 — first 0 on uniform meshes); the ghost fill in conserved variables, bounded, measured — and
   *(decided by Erik 2026-10-15)* to become primitives with a bounded Lagrange prolongation and
   the conserved ghosts by `prim2con`, once AMR-10 lands; the regrid stays conservative.
+  *(Amended 2026-10-23, decided by Erik:)* the primitives are copied at same-level faces and
+  prolongated with the bounded conservative operator centred on the parent; the conserved ghosts
+  are no longer written (nothing reads them); `ghost_vars` is gone (`CODE.md`, "Refinement",
+  which records the three working fills).
 - Tests: `test/refinement_tests.jl` (the AMR-4 surface moved here, conservation, the magnetic flux,
   the tracked tube, `∇·𝔅` through regrids, the flux through the plane) and
   `test/refinement_cases_tests.jl` (the field loop, the interface order, the gauge pulse, the

@@ -85,10 +85,12 @@ const NW = 9
 # The slots of `W` (added in step 8; decided by Erik 2026-10-15, "Refinement"
 # in `CODE.md`): the rest-mass density `ρ★`, the entropy per baryon `s`, the
 # electron fraction `Yₑ`, the contravariant `uⁱ = W vⁱ` and the contravariant,
-# undensitized `Eⁱ`. Point values at the cell centres, each kept within its
-# neighbours' range by the bounded PointValue fill (AMR-10), so that a ghost
-# built from them is an admissible state wherever its neighbours are: `ρ★ > 0`,
-# `s` and `Yₑ` in their windows, `uⁱ` (unbounded, unlike `vⁱ`) any value.
+# undensitized `Eⁱ`. Values at the cell centres, copied at same-level faces and
+# kept within the parent's and its face neighbours' range at refinement
+# boundaries by the bounded conservative prolongation (`default_ops_W`; decided
+# by Erik 2026-10-23), so that each variable of a ghost lies within its
+# neighbours' range: `ρ★ > 0` and `s`, `Yₑ` in their windows wherever theirs
+# are, `uⁱ` (unbounded, unlike `vⁱ`) any value.
 const W_RHO = 1
 const W_S = 2
 const W_YE = 3

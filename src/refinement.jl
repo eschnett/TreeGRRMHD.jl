@@ -87,8 +87,9 @@ end
 
 The flag vector `regrid!` takes, one entry per block, from Löhner's
 indicator on `ρ`, `|B|` and `|E|` of a current primitive set — `P` must be
-recovered in every stored cell, ghosts included ([`update_primitives!`](@ref)),
-since the stencil reads one cell past each face. TreeHydro's four marks
+current in every stored cell, ghosts included ([`update_primitives!`](@ref):
+recovered in the owned cells, built from the exchanged primitives `W` in the
+ghosts), since the stencil reads one cell past each face. TreeHydro's four marks
 (`hydro_flags`, which this follows):
 
     any cell > refine_tol, level < maxlevel  ->  (Refine, box)

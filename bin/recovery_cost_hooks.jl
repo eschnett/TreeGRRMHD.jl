@@ -31,7 +31,9 @@
 # - **The conserved ghost fill** (`RCS.fill = :conserved`): step 8's first fill, the tree at
 #   7605986 — the matter's conserved state filled by its own schedule (Conservative width 3,
 #   bounded, the case's hook) and recovered in every stored cell, `P` straight from the
-#   recovery. The default (`:primitive`) is this branch's fill of `W`.
+#   recovery. The default (`:primitive`) is the package's fill of `W` (since 2026-10-23
+#   the only one in `src/`, whose ghost pass no longer writes the conserved ghosts; the
+#   measurement of 2026-10-23 timed it with that `prim2con`, "RHS: ghost P").
 # - **Ghost kinds**: per stored cell, owned / same-level copy / prolongated / restricted /
 #   outer boundary, from the geometry; with the conserved fill, whether a copy's `U` and
 #   `P` equal its source's bit for bit after the pass.
@@ -308,7 +310,7 @@ end
     S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
     cin = EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T))
     out = rc_c2p(eos, cin, opts, pol, guesses, false)
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ, out.policy_flags)
+    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
     b = out.base
     v = velocity_at_rapidity(m, Su, b.w)
     prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
@@ -340,7 +342,7 @@ end
     S_perp = S_perp² < zero(T) ? zero(T) : sqrt(S_perp²)
     cin = EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²)
     out = rc_c2p(eos, cin, opts, pol, guesses, true)
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ, out.policy_flags)
+    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
     b = out.base
     v_perp = S_perp > zero(T) ? (b.v_perp / S_perp) * Su_perp : zero(SVector{3,T})
     v = velocity_at_rapidity(m, b.v_par * b̂ + v_perp, b.w)
@@ -354,7 +356,7 @@ end
 @kernel function rc_primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                       @Const(origins), @Const(spacings), provider, t, eos, opts,
                                       pol, N, ::Val{D}, ::Val{GP}, ::Val{GU},
-                                      ::Val{GB}, gv::Val) where {D,GP,GU,GB}
+                                      ::Val{GB}) where {D,GP,GU,GB}
     I = @index(Global, NTuple)
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -371,9 +373,8 @@ end
     prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, rc_guesses(cons, b, lin))
     rc_store!(prim, b, lin)
     u = prim_W(prim) * prim_v(prim)
-    th = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, gv)
-    wv = (th[1], th[2], th[3], th[4], th[5], th[6], E[1], E[2], E[3])
-    Pc = P_from_W(eos, pol, m, wv, B, flags, gv)
+    wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
+    Pc = P_from_W(eos, m, wv, B, flags)
     @inbounds for v in 1:NW
         Ww[sP..., v, b] = wv[v]
     end
@@ -483,7 +484,7 @@ end
 # --- the passes, with timers -----------------------------------------------------------------
 
 const RCT_NAMES = ("RHS: scatter", "RHS: fill potentials", "RHS: curl", "RHS: recovery kernel",
-                   "RHS: matter ghost fill", "RHS: ghost P (forward EOS, prim2con)",
+                   "RHS: matter ghost fill", "RHS: ghost P (forward EOS)",
                    "RHS: charge", "RHS: fluxes", "RHS: restrict fluxes", "RHS: EMFs",
                    "RHS: restrict EMFs", "RHS: tendencies", "stage: scatter, fill, curl of A",
                    "stage: solve kernel", "stage limiter: scatter, fill, curl of A",
@@ -524,14 +525,13 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
         @rct 4 map_blocks!(rc_primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work,
                            f.B[1].work, f.B[2].work, f.B[3].work, p.origins, p.spacings,
                            p.provider, t, p.eos, p.opts, p.pol, N, Val(D), Val(f.P.G),
-                           Val(f.U.G), GB, p.ghost_vars)
+                           Val(f.U.G), GB)
         @rct 5 fill_ghosts!(f.W, p.schedule_W;
                             boundary=p.boundary_W === nothing ? nothing :
                                      boundary_at(p.boundary_W, t))
-        @rct 6 map_blocks!(ghost_kernel!, f.P, f.P.work, f.U.work, f.W.work, f.B[1].work,
+        @rct 6 map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work,
                            f.B[2].work, f.B[3].work, p.origins, p.spacings, p.provider, t,
-                           p.eos, p.pol, N, Val(D), Val(f.P.G), Val(f.U.G), Val(f.W.G), GB,
-                           p.ghost_vars; stored=true)
+                           p.eos, N, Val(D), Val(f.P.G), Val(f.W.G), GB; stored=true)
     end
     @rct 7 map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
     return f.P

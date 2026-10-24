@@ -186,6 +186,10 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   Ghosts of `U` hold cell averages; the point value is the average where the
   solution is uniform (a shock tube's far states) and differs by `O(h²)` of
   the second derivative where it is smooth (the current sheet's tails).
+  Only TreeAMR's own fills of `U` use it — `regrid!`'s before its transfer
+  and the initial adaptation's; the scheme's ghost fill is the primitives',
+  whose hook [`primitive_boundary`](@ref) derives from this one (amended
+  2026-10-23).
 - **The potentials**, `R = 1 … 4`: Dirichlet in the *field*, not in the
   potential (proposed in step 6). Each ghost point holds the nearest evolved
   point's value plus the case's difference between the two points,
@@ -246,29 +250,18 @@ end
 
 # The primitives of the matter's ghost fill (step 8): `g(x, δ) -> vals`, the
 # case's `ρ★, s, Yₑ, uⁱ = W vⁱ, Eⁱ` at the ghost cell's center (`W`'s slots).
-# (Experiment:) `R = :W` stores the specific `s`, `Yₑ`; `R = :Wd` the
-# densities `ρ★ s`, `ρ★ Yₑ` (`W_store`).
 @inline function (d::DirichletAt{<:DirichletBoundary{:W}})(x::NTuple{D,T}, δ) where {D,T}
     h = d.hook
-    return case_prims(h.fields, h.provider, point3(x), T(d.t), Val(:specific))
-end
-@inline function (d::DirichletAt{<:DirichletBoundary{:Wd}})(x::NTuple{D,T}, δ) where {D,T}
-    h = d.hook
-    return case_prims(h.fields, h.provider, point3(x), T(d.t), Val(:density))
-end
-@inline function (d::DirichletAt{<:DirichletBoundary{:Wm}})(x::NTuple{D,T}, δ) where {D,T}
-    h = d.hook
-    return case_prims(h.fields, h.provider, point3(x), T(d.t), Val(:mass))
+    return case_prims(h.fields, h.provider, point3(x), T(d.t))
 end
 
-@inline function case_prims(fields, provider, x::SVector{3,T}, t::T, gv::Val) where {T}
+@inline function case_prims(fields, provider, x::SVector{3,T}, t::T) where {T}
     m = point_metric(provider, t, x)
     ρ, v, s, Yₑ, E, B = fields(x, t)
     v3, E3 = SVector{3,T}(v), SVector{3,T}(E)
     W = inv(sqrt(one(T) - dot_up(m, v3, v3)))
     u = W * v3
-    th = W_store(T(ρ), T(s), T(Yₑ), u, gv)
-    return (th[1], th[2], th[3], th[4], th[5], th[6], E3[1], E3[2], E3[3])
+    return W_store(T(ρ), T(s), T(Yₑ), u, E3)
 end
 
 """
@@ -280,13 +273,9 @@ The boundary hook of the primitive set `W` that goes with the matter's hook
 cell's center (added in step 8). Any other matter hook has no primitive
 counterpart this package can derive; pass `boundary_W` to `MHDProblem`.
 """
-primitive_boundary(hook::DirichletBoundary{:U}, ::Val{:specific}=Val(:specific)) =
+primitive_boundary(hook::DirichletBoundary{:U}) =
     DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider)
-primitive_boundary(hook::DirichletBoundary{:U}, ::Val{:density}) =
-    DirichletBoundary{:Wd}(hook.fields, hook.potential, hook.eos, hook.provider)
-primitive_boundary(hook::DirichletBoundary{:U}, ::Val{:mass}) =
-    DirichletBoundary{:Wm}(hook.fields, hook.potential, hook.eos, hook.provider)
-primitive_boundary(hook, ::Val=Val(:density)) = throw(ArgumentError(
+primitive_boundary(hook) = throw(ArgumentError(
     "the matter's boundary hook $(typeof(hook)) has no primitive counterpart: since step 8 " *
     "the matter's ghost fill prolongates the primitives (CODE.md, \"Refinement\"), so a " *
     "non-periodic problem needs a hook for the primitive set `W` too — pass `boundary_W`."))
@@ -298,8 +287,6 @@ primitive_boundary(hook, ::Val=Val(:density)) = throw(ArgumentError(
 
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
-boundary_at(hook::DirichletBoundary{:Wd}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
-boundary_at(hook::DirichletBoundary{:Wm}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary, t) = CellBoundary(Relative(DirichletAt(hook, t)))
 
 # --- the owned low walls -------------------------------------------------------------
@@ -557,7 +544,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  backend=CPU(), after_step=nothing, roots=case.roots,
                  ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                  ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
-                 ghost_vars::Symbol=:specific, fixup::Bool=true, refine=nothing,
+                 fixup::Bool=true, refine=nothing,
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing) where {T,D}
@@ -584,8 +571,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
                          provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
                          limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
-                         ops_W=ops_W, ghost_vars=ghost_vars,
-                         fixup=fixup, boundary=case_boundary(case))
+                         ops_W=ops_W, fixup=fixup, boundary=case_boundary(case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
@@ -685,26 +671,25 @@ the three `A_j` and `Φ̃` unless told otherwise ("Field sets" and
 - `Φ̃`: PointValue width 4. A vertex set has no cell-like dimension, so the
   conservative family would be this very operator (injection and width-4
   Lagrange); it stays PointValue (decided in step 8).
-- `W`, the primitives the matter's ghost fill prolongates: PointValue
-  **width 2**, `bounded = true` (AMR-10, TreeAMR 0.2.2; proposed in step 8 by
-  the ghost-fill and interface-order measurements, "Refinement" in
-  `CODE.md`). Width 2 is the multilinear interpolation, a convex
-  combination of the bracketing points with the same weights for every
-  variable, so a ghost is a mixture of its neighbours' states; at width 4
-  and 6 the bound clamps each variable on its own, and next to a heated
-  atmosphere a ghost took the dense side's density with the atmosphere's
-  entropy — the atmosphere tube across a coarse-fine face then injected
-  5.4e−4 and 1.8e−3 of energy (and the magnetized tube blew up at width 4),
-  where width 2 injects 2.4e−9. The flag is kept so that a width can be
-  tried without touching it (width 2 is bounded already).
+- `W`, the primitives the matter's ghost fill exchanges: the matter's own
+  operator, Conservative width 3, `bounded = true` — the parent-centred
+  primitive fill (decided by Erik 2026-10-23; "Refinement" in `CODE.md`). At
+  a same-level face a ghost is a copy of its owner, exact; at a refinement
+  boundary a fine ghost is its coarse parent plus an MC-limited linear slope
+  centred on the parent, scaled so that every child stays within the parent
+  and its face neighbours (TreeAMR's bounded prolongation, AMR-4) — Athena++'s
+  prolongation of the primitives (Stone et al. 2020, ApJS 249, 4, §2.1.5),
+  with MC slopes for its minmod — and a coarse ghost is the `2^D` mean of the
+  fine cells it covers. At the foot of a jump a child takes its parent's
+  value, so a dense neighbour does not leak into an atmosphere cell's
+  children, where the PointValue width-2 fill of step 8 did. Every variable
+  has its own slope, so a ghost is not a convex mixture of whole states; the
+  48 perturbed magnetized runs saw no blow-up and no repaired ghost with it.
 """
 default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
 default_ops_A() = Operators(; prolongation=3, restriction=2, family=Conservative,
                             vertex_prolongation=4)
 default_ops_Φ() = Operators(; prolongation=4, restriction=4)
-# *(Experiment, `claude/step-8-ghost-athena`:)* the bounded conservative
-# operator on the primitives — a parent-centred, MC-limited linear
-# prolongation (Athena++'s, but MC for minmod); the restriction the 2^D mean.
 default_ops_W() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
 
 """

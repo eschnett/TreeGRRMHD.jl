@@ -73,7 +73,7 @@ conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
-unregistered); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+unregistered; `[sources]` pins the tag `v1.1.0`, since its `main` is 2.0.0); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
@@ -126,11 +126,14 @@ tendency, copied into `u` by the reset (`walls_to_state!`); `src/refinement.jl` 
 **bounded**; `A_j` conservative along the edge with point values of
 **width 4** across it (AMR-9), `Φ̃` PointValue width 4 (`ops_Φ`); `ξ = 16/L`
 on every mesh (`L` the longest side; Erik's decision, 2026-10-15); the
-matter's ghost fill in **primitives** (Erik's decision, 2026-10-15, AMR-10):
-the scratch set `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, PointValue bounded **width 2**
-(proposed: wider ones clamp `ρ` and `s` apart), recovery on owned cells
-only, `P` in ghosts by forward EOS (`P_from_W`, also for owned cells),
-conserved ghosts by `prim2con`. Every fill applies the complete outer
+matter's ghost fill in **primitives** (Erik's decisions, 2026-10-15 and
+2026-10-23): the scratch set `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, copied at
+same-level faces and prolongated **parent-centred** at refinement boundaries
+(`default_ops_W`, Conservative width 3 bounded, Athena++'s choice), recovery
+on owned cells only, `P` in ghosts by forward EOS (`P_from_W`, also for
+owned cells), no ghost ever recovered, the conserved ghosts never written by
+the scheme (only `regrid!`'s own fill); `CODE.md`, "Refinement", records the
+three working fills and their branches. Every fill applies the complete outer
 boundary condition in one TreeAMR fill (Erik, 2026-10-15). The magnetic flux
 across levels holds to rounding as a rate and as a state (but at an outer
 face: AMR-11). The magnetized atmosphere tube is chaotic at rounding level

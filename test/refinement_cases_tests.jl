@@ -156,32 +156,25 @@ function rf_ghost_repairs!(acc, p, u, t)
 end
 
 @testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face with the parent-centred bounded prolongation, and not with PointValue width 4" begin
-    # *(Experiment branch `claude/step-8-ghost-athena`:)* the default fill of
-    # `W` is TreeAMR's bounded conservative operator (width 3, MC slopes
-    # centred on the parent, scaled to keep every child within the parent and
-    # its face neighbours — Athena++'s construction, Stone et al. 2020,
-    # §2.1.5, but for MC against minmod), on the specific `s`, `Yₑ`: measured
-    # injected D −1.6e−11 and τ −2.6e−10 (the conserved fill's −1.5e−11 and
-    # −2.5e−10), and no blow-up in twelve perturbed magnetized runs. The
-    # rest of this comment is the PointValue fill's.
-    # Guards the matter's ghost fill (decided by Erik 2026-10-15; the width
-    # proposed in step 8, "Refinement" in `CODE.md`): the fill prolongates
-    # the primitives `ρ, s, Yₑ, uⁱ, Eⁱ` (PointValue, bounded: AMR-10) and
-    # builds each conserved ghost by `prim2con` with the ghost's own `B`.
-    # The atmosphere tube on 200 cells with `[0, 0.2)` refined, which the
-    # front crosses (`bin/ghost_fill.jl` has the whole table). At width 2 —
-    # the multilinear interpolation, every variable with the same weights —
-    # no interior ghost is inadmissible or below the atmosphere, hydro-
+    # Guards the matter's ghost fill (decided by Erik 2026-10-15 in primitives,
+    # and 2026-10-23 parent-centred; "Refinement" in `CODE.md`): `W` is
+    # exchanged with TreeAMR's bounded conservative operator (width 3, MC
+    # slopes centred on the parent, scaled to keep every child within the
+    # parent and its face neighbours — Athena++'s construction, Stone et al.
+    # 2020, §2.1.5, but for MC against minmod), on the specific `s`, `Yₑ`,
+    # and `P` in every ghost from it with the ghost's own `B`. The atmosphere
+    # tube on 200 cells with `[0, 0.2)` refined, which the front crosses: no
+    # interior ghost is inadmissible or below the atmosphere, hydro-
     # dynamically and magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`, where
     # step 8's conserved ghosts had 33 repaired recoveries), and the reset
-    # injects 5.6e−9 of rest mass and 2.4e−9 of energy (the uniform mesh
-    # −8.4e−12 and −2.2e−10; the conserved fill −1.5e−11 and −2.5e−10). At
-    # width 4 the bound clamps each variable on its own, and where the front
-    # starts on the coarse-fine face a coarse ghost restricted from a dense
-    # and a heated atmosphere cell took the first's density and the second's
-    # entropy — a pressure of 5 beside 0.2 — and the reset injects 5.4e−4 of
-    # energy; unbounded, ghosts fall below the atmosphere and the energy goes
-    # non-finite.
+    # injects −1.6e−11 of rest mass and −2.6e−10 of energy (the conserved
+    # fill −1.5e−11 and −2.5e−10). The PointValue fill at width 4 is the
+    # control: the bound clamps each variable on its own, and where the
+    # front starts on the coarse-fine face a coarse ghost restricted from a
+    # dense and a heated atmosphere cell took the first's density and the
+    # second's entropy — a pressure of 5 beside 0.2 — and the reset injects
+    # 5.4e−4 of energy; unbounded, ghosts fall below the atmosphere and the
+    # energy goes non-finite.
     case = atmosphere_tube_case(Float64)
     mag = atmosphere_tube_case(Float64; By=1e-3, model=MagnetizationCutoff(Constant(1e3), 10))
     refine_band!(forest) =
@@ -202,7 +195,7 @@ end
     magnetized = run(mag, RF.default_ops_W())
     four = run(case, pv(4))
     unbounded = run(case, pv(4; bounded=false))
-    @info "Atmosphere tube across a coarse-fine face, primitive ghosts: width 2 repaired " *
+    @info "Atmosphere tube across a coarse-fine face, primitive ghosts: parent-centred repaired " *
           "$(two.acc.repaired), below ρ_atm $(two.acc.below), injected D $(two.D), τ $(two.τ); " *
           "magnetized $(magnetized.acc.repaired), $(magnetized.acc.below), $(magnetized.D), " *
           "$(magnetized.τ), fallbacks $(magnetized.fb); width 4 injected τ $(four.τ); " *
@@ -221,8 +214,5 @@ end
     # magnetosphere" in `CODE.md`).
     @test magnetized.fb == 0
     @test four.τ ≥ 1e-5
-    # *(Experiment branch: with `W` holding `ρ★ s`, `ρ★ Yₑ`, a ghost with
-    # `ρ★ ≤ 0` takes the policy's atmosphere, so the unbounded control's
-    # energy is absurd (−1.1e15) rather than non-finite.)*
     @test unbounded.acc.below > 0 && !(abs(unbounded.τ) < 1)
 end

@@ -10,8 +10,12 @@
 #     julia --project=. bin/interface_order.jl [1d] [2d] [matter=unbounded] [potentials=pointvalue]
 #                                              [ghost=w]
 #
-# `ghost=w` sets the width of the matter's ghost fill in primitives (AMR-10,
-# PointValue bounded; 2 by default, `default_ops_W`).
+# `ghost=w` sets the matter's ghost fill in primitives to PointValue width `w`,
+# bounded (AMR-10; step 8's fill was width 2); `ghost=c3` (the default,
+# `default_ops_W`, decided by Erik 2026-10-23) and `ghost=c1` the bounded
+# conservative operator of width 3 and 1 (the parent-centred fill, and the
+# parent copy). `W` holds the specific `s`, `Yₑ`; the density form (`gv=`) runs
+# only on `claude/step-8-ghost-athena` (1f014c8), which had `ghost_vars`.
 #
 # 1D: the wave of rung 1a (`alfven_wave_case`, MC, HLLE, SSP3(4,3,3), one
 # period) on a static two-level mesh — `M` coarse cells in blocks of `N = 8`
@@ -71,19 +75,19 @@ ops_Φ(w) = Operators(; prolongation=w, restriction=w)
 println("potentials: ", POINTVALUE ? "PointValue" : "A conservative (AMR-9), Φ̃ PointValue")
 args = filter(a -> !occursin('=', a), ARGS)
 ghost = let a = findfirst(s -> startswith(s, "ghost="), ARGS)
-    a === nothing ? "2" : ARGS[a][7:end]
+    a === nothing ? "c3" : ARGS[a][7:end]
 end
 # `ghost=c3` / `ghost=c1`: the bounded conservative operator on the primitives
-# (Athena++'s construction, experiment).
+# (Athena++'s construction, Stone et al. 2020, §2.1.5, but for MC against minmod).
 ops_W = startswith(ghost, "c") ?
         Operators(; prolongation=parse(Int, ghost[2:end]), restriction=2, family=Conservative,
                   bounded=true) :
         Operators(; prolongation=parse(Int, ghost), restriction=parse(Int, ghost),
                   family=PointValue, bounded=true)
-ghost_vars = let a = findfirst(s -> startswith(s, "gv="), ARGS)
-    a === nothing ? :density : Symbol(ARGS[a][4:end])
-end
-println("W holds: ", ghost_vars)
+any(s -> startswith(s, "gv=") && s != "gv=specific", ARGS) && error(
+    "W in density form was removed on 2026-10-23 (Erik's decision of the parent-centred " *
+    "primitive fill): run `gv=` on claude/step-8-ghost-athena (1f014c8).")
+println("W holds: the specific s, Yₑ")
 println("matter's ghost fill: ", ops_W)
 
 if isempty(args) || "1d" in args
@@ -101,7 +105,7 @@ if isempty(args) || "1d" in args
             w = get(kw, :w, 4)
             r = evolve!(c, Val(1); N=8, t_end=alfven_period(c), limiter=:mc,
                         refine=haskey(kw, :w) ? refine_middle! : nothing, ops_U=ops_U,
-                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W, ghost_vars=ghost_vars)
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W)
             errors(r, c, TG.U_S + 1, 2)
         end
         study(label, runs, hs)
@@ -125,7 +129,7 @@ if isempty(args) || "2d" in args
             w = get(kw, :w, 4)
             r = evolve!(c, Val(2); N=N, t_end=t_end, limiter=:mc,
                         refine=haskey(kw, :w) ? refine_first! : nothing, ops_U=ops_U,
-                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W, ghost_vars=ghost_vars)
+                        ops_A=ops_A(w), ops_Φ=ops_Φ(w), ops_W=ops_W)
             errors(r, c, TG.U_S, 3)
         end
         study(label, runs, hs)

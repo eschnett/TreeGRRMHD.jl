@@ -12,9 +12,11 @@
 # randn(MersenneTwister(1))` with `a` = 0, ±1, ±2, ±3, ±5, ±10, 20 × 10⁻¹⁵);
 # runs 13–48 take `a = 10⁻¹⁵` and seeds 2–37.
 #
-# Methods: on this branch (the primitive fill, `ghost_vars`, `ops_W`)
-#   `prim-cons3-specific`  W = (ρ★, s, Yₑ, uⁱ, Eⁱ), bounded Conservative width 3
-#   `prim-cons1-density`   W = (ρ★, ρ★s, ρ★Yₑ, uⁱ, Eⁱ), the parent copy (width 1)
+# Methods: on the package's primitive fill (`ops_W`)
+#   `prim-cons3-specific`  W = (ρ★, s, Yₑ, uⁱ, Eⁱ), bounded Conservative width 3 (since
+#                          2026-10-23 the package's only fill, `default_ops_W`)
+#   `prim-cons1-density`   W = (ρ★, ρ★s, ρ★Yₑ, uⁱ, Eⁱ), the parent copy (width 1): only on
+#                          `claude/step-8-ghost-robustness` (6b0a72e), which had `ghost_vars`
 #   `uniform`              no refinement
 # and on a tree with the conserved fill (`git archive 7605986`):
 #   `conserved`            U with Conservative width 3, bounded (the default)
@@ -141,8 +143,11 @@ cb(p) = Operators(; prolongation=p, restriction=2, family=Conservative, bounded=
 kw = method == "uniform" ? (;) :
      method == "conserved" ? (PRIMITIVES ? error("conserved needs the conserved tree") :
                               (; refine=refine_band!)) :
-     method == "prim-cons3-specific" ? (; refine=refine_band!, ops_W=cb(3), ghost_vars=:specific) :
-     method == "prim-cons1-density" ? (; refine=refine_band!, ops_W=cb(1), ghost_vars=:density) :
+     method == "prim-cons3-specific" ? (; refine=refine_band!, ops_W=cb(3)) :
+     method == "prim-cons1-density" ?
+     error("W in density form was removed on 2026-10-23 (Erik's decision of the " *
+           "parent-centred primitive fill): run this method on claude/step-8-ghost-robustness " *
+           "(6b0a72e).") :
      error("unknown method $method")
 const AMPS12 = (0.0, 1e-15, -1e-15, 2e-15, -2e-15, 3e-15, -3e-15, 5e-15, -5e-15, 1e-14, -1e-14,
                 2e-14)

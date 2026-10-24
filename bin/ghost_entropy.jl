@@ -20,6 +20,13 @@
 # perturbed by `pert · randn` (seed 1) and prints each quantity's spread.
 # Run against a tree from before AMR-10 (`git archive 7605986`), it measures
 # the conserved, bounded fill.
+#
+# *(Amended 2026-10-23:)* the package now has the specific `s`, `Yₑ` only
+# (Erik's decision of the parent-centred primitive fill), so the `density` and
+# `mass` rows run only on the branches that had `ghost_vars`:
+# `claude/step-8-ghost-entropy-density` (19f4563; PointValue widths) and
+# `claude/step-8-ghost-athena` (1f014c8; the `cons3`, `cons1` rows too).
+# Asking for them here (`only=density`, `only=mass`) stops with that message.
 
 using Printf, Random
 using TreeAMR
@@ -27,7 +34,6 @@ using TreeGRRMHD
 const TG = TreeGRRMHD
 const EOS = TG.EntropyEOS
 const PRIMITIVES = isdefined(TG, :default_ops_W)
-const DENSITY = isdefined(TG, :W_store)
 
 refine_band!(forest) =
     (refine!(forest, [k for k in copy(forest.leaves)
@@ -117,21 +123,13 @@ pv(w) = Operators(; prolongation=w, restriction=w, family=PointValue, bounded=tr
 # parent and its face neighbours; `cb(1)`: every child the parent. Restriction
 # the 2^D-child mean.
 cb(p) = Operators(; prolongation=p, restriction=2, family=Conservative, bounded=true)
-configs = if DENSITY
+configs = if PRIMITIVES
     [("uniform", (;)),
-     ("specific s, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:specific)),
-     ("specific s, w = 4", (; refine=refine_band!, ops_W=pv(4), ghost_vars=:specific)),
-     ("specific s, w = 6", (; refine=refine_band!, ops_W=pv(6), ghost_vars=:specific)),
-     ("density ρs, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:density)),
-     ("density ρs, w = 4", (; refine=refine_band!, ops_W=pv(4), ghost_vars=:density)),
-     ("density ρs, w = 6", (; refine=refine_band!, ops_W=pv(6), ghost_vars=:density)),
-     ("specific s, cons3", (; refine=refine_band!, ops_W=cb(3), ghost_vars=:specific)),
-     ("density ρs, cons3", (; refine=refine_band!, ops_W=cb(3), ghost_vars=:density)),
-     ("specific s, cons1", (; refine=refine_band!, ops_W=cb(1), ghost_vars=:specific)),
-     ("density ρs, cons1", (; refine=refine_band!, ops_W=cb(1), ghost_vars=:density)),
-     ("mass ρs, ρu, w = 2", (; refine=refine_band!, ops_W=pv(2), ghost_vars=:mass)),
-     ("mass ρs, ρu, w = 4", (; refine=refine_band!, ops_W=pv(4), ghost_vars=:mass)),
-     ("mass ρs, ρu, w = 6", (; refine=refine_band!, ops_W=pv(6), ghost_vars=:mass))]
+     ("specific s, w = 2", (; refine=refine_band!, ops_W=pv(2))),
+     ("specific s, w = 4", (; refine=refine_band!, ops_W=pv(4))),
+     ("specific s, w = 6", (; refine=refine_band!, ops_W=pv(6))),
+     ("specific s, cons3", (; refine=refine_band!, ops_W=cb(3))),
+     ("specific s, cons1", (; refine=refine_band!, ops_W=cb(1)))]
 else
     [("uniform (conserved)", (;)),
      ("conserved, bounded", (; refine=refine_band!,
@@ -147,11 +145,16 @@ fmti(xs) = (a = spread(xs); a[1] == a[2] ? "$(a[1])" : "$(a[1])…$(a[2])")
 
 # `only=prefix` runs the configurations whose label starts with it.
 let o = findfirst(a -> startswith(a, "only="), ARGS)
-    o === nothing || filter!(c -> startswith(c[1], ARGS[o][6:end]), configs)
+    pre = o === nothing ? "" : ARGS[o][6:end]
+    PRIMITIVES && (startswith(pre, "density") || startswith(pre, "mass")) && error(
+        "the density and mass forms of W were removed on 2026-10-23 (Erik's decision of the " *
+        "parent-centred primitive fill): run this script on claude/step-8-ghost-entropy-density " *
+        "(19f4563) or claude/step-8-ghost-athena (1f014c8).")
+    filter!(c -> startswith(c[1], pre), configs)
 end
 which = filter(a -> a in ("hydro", "magnetized"), ARGS)
 isempty(which) && (which = ["hydro", "magnetized"])
-println(DENSITY ? "primitive fills, specific and density-weighted" :
+println(PRIMITIVES ? "primitive fills, specific s, Yₑ" :
         "conserved fill (tree before AMR-10)")
 for name in which
     hydro = name == "hydro"

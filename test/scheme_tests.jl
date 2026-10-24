@@ -189,6 +189,64 @@ end
     end
 end
 
+@testset "The matter's ghosts come from the exchanged primitives, never from a recovery: D=$D" for D in 1:2
+    # Guards the parent-centred primitive fill (decided by Erik 2026-10-23;
+    # "Refinement" in `CODE.md`): the recovery runs on the owned cells only,
+    # `W` is exchanged, and every ghost's `P` is built from `W` by forward EOS
+    # evaluation. A ghost recovered from the conserved state, or a kernel
+    # that read or wrote the conserved ghosts, would show here: the matter
+    # set's work array is filled with NaN before the right-hand side, so a
+    # recovery of a conserved ghost would hand back the policy's atmosphere
+    # (finite, and not its owner's `P`), a stencil reading one would make
+    # `du` non-finite, and a write would leave a finite number behind. On a
+    # uniform periodic mesh of several blocks every ghost is a same-level
+    # copy, so its `W` is its owner's, and its `P` its owner's bit for bit —
+    # but for `q`, which only the owned cells compute, and the recovery's
+    # flags, which a ghost does not carry (zero for this smooth wave anyway).
+    c1 = alfven_wave_case(Float64; roots=2)
+    N = 10
+    case = D == 1 ? c1 : oblique_case(c1; N=N, roots=2)
+    forest = Forest(case.roots; N=N, periodic=case.periodic, extents=case.extents)
+    f = mhd_fields(Float64, forest)
+    p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+                   𝔅̄=case.𝔅̄, limiter=:mc)
+    u = exact_state(p, case, 0.0)
+    f.U.work .= NaN
+    du = similar(u)
+    mhd_rhs!(du, u, p, 0.0)
+    @test all(isfinite, du)
+    G = f.U.G
+    owned(c) = all(d -> 1 ≤ c[d] - G[d] ≤ N, 1:D)
+    ghost_U_nan = true
+    for b in 1:nblocks(f.U), c in CartesianIndices(ntuple(d -> 1:(N + 2G[d]), D))
+        owned(Tuple(c)) && continue
+        ghost_U_nan &= all(isnan, f.U.work[Tuple(c)..., :, b])
+    end
+    @test ghost_U_nan
+    # The owner of every stored cell, from its centre on the periodic mesh.
+    h = ntuple(d -> (case.extents[d][2] - case.extents[d][1]) / (case.roots[d] * N), D)
+    ncell = ntuple(d -> case.roots[d] * N, D)
+    cellkey(x) = ntuple(d -> mod(floor(Int, (x[d] - case.extents[d][1]) / h[d]), ncell[d]), D)
+    owner = Dict{NTuple{D,Int},Tuple{Int,NTuple{D,Int}}}()
+    for b in 1:nblocks(f.P), c in CartesianIndices(ntuple(d -> (G[d] + 1):(G[d] + N), D))
+        owner[cellkey(coordinates(f.P, b, Tuple(c)))] = (b, Tuple(c))
+    end
+    slots = [v for v in 1:SC.NP if v != SC.P_Q && v != SC.P_FLAGS]
+    nghosts, sameW, sameP = 0, true, true
+    for b in 1:nblocks(f.P), c in CartesianIndices(ntuple(d -> 1:(N + 2G[d]), D))
+        s = Tuple(c)
+        owned(s) && continue
+        ob, os = owner[cellkey(coordinates(f.P, b, s))]
+        nghosts += 1
+        sameW &= isequal(f.W.work[s..., :, b], f.W.work[os..., :, ob])
+        sameP &= isequal(f.P.work[s..., slots, b], f.P.work[os..., slots, ob])
+        sameP &= f.P.work[s..., SC.P_FLAGS, b] == 0 && f.P.work[os..., SC.P_FLAGS, ob] == 0
+    end
+    @test nghosts == nblocks(f.P) * (prod(N .+ 2 .* G) - N^D)
+    @test sameW
+    @test sameP
+end
+
 @testset "MHDProblem refuses what it cannot run" begin
     # Guards the constructor's checks: no default limiter (the case's choice),
     # a limiter or solver with no method, a non-periodic forest with no hooks,
