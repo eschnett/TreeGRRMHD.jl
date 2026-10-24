@@ -151,6 +151,19 @@ This is TreeGH's pattern.
     words with `& … != 0`; `==` only where the whole word is the claim. The bits are 8–17
     (`FLAG_POL_ANY = 0x3ff00`): flags stored as numbers are exact below `2^24` in `Float32`.
     The options are `isbits` and travel into the kernels as two arguments, `proj` before `pol`.
+    *(Amended 2026-10-24, the step cache:)* the two calls are in one function, `two_levels`,
+    which `fluid_recovery` and `ideal_recovery` go through.
+  - *(Added 2026-10-24, stage 3 of the recovery plan.)* **The step cache.** Inside `evolve!`'s
+    steps (`with_step_cache`) every recovery is seeded from the cell's latest one in the step and
+    reused where its EntropyEOS input is that one's bit for bit; the step limiter `reset_step!`
+    invalidates it, and `with_step_cache` before and after. So the callbacks are pure in
+    `(u, t)` only outside a step, and a step is pure in `uⁿ`. A test that steps an integrator
+    itself runs without the cache unless it wraps the stepping in `with_step_cache` — the
+    restart test does, with `mhd_integrator`'s integrator, whose step limiter is `reset_step!`;
+    one built with another step limiter would carry the cache across steps. Every site computes
+    `B`, `E` and the undensitized variables as `· inv(√γ)`, so that the keys agree; a new
+    recovery site must too. `X` counts the seeds per site (`ohm_tally(p).seeds`), and
+    `evolve!(…; step_cache = false)` is the negative control ("The step cache", `CODE.md`).
 - **TreeGH's conventions.**
   - `h_ab = g_ab − η_ab` is stored as an offset, and `Π_ab = √γ n^μ∂_μ g_ab` is not `∂ₜh`.
   - Components are packed `(tt,tx,ty,tz,xx,xy,xz,yy,yz,zz)`.

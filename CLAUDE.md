@@ -84,7 +84,16 @@ bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"). Under 2.0
 ARS(4,4,3) near the vacuum regresses (accepted for now, being isolated
 separately) and step 3's uncut sweep falls back more (its bound of 12
 approved); `s_atm` stays the midpoint; EOS-10 stays an upstream request
-(decided by Erik 2026-10-24). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+(decided by Erik 2026-10-24). Stage 3 of the recovery plan
+(`claude/recovery-pipeline-3`, 2026-10-24): **the step cache** — inside
+`evolve!`'s steps (`with_step_cache`) every recovery is seeded from the
+cell's latest one in the step and reused where its EntropyEOS input is that
+one's bit for bit; invalidated by the step limiter and around the stepping,
+so the callbacks are pure in `(u, t)` outside a step and a step is pure in
+`uⁿ` (`CODE.md`, "Primitive recovery", "The step cache"; the entry and
+`two_levels` in `src/con2prim.jl`, the cache on `MHDProblem`, the seed
+tallies in `X`; `evolve!(…; step_cache = false)` the negative control;
+`test/step_cache_tests.jl`; `bin/recovery_cost.jl steptime`). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
@@ -254,7 +263,17 @@ One and four threads identical, and the clean checkout identical to the
 one-thread run on the same node (another CPU moves last digits). With
 bounds checks the four allocation assertions of the ρ_min-face testset
 fail, 272 B and 144 B, in EntropyEOS's nested fallback (EOS-10 in
-`PLAN.md`; waiting on it, decided by Erik 2026-10-24); every other run passes whole. At
+`PLAN.md`; waiting on it, decided by Erik 2026-10-24); every other run passes whole. After the step
+cache (2026-10-24, `claude/recovery-pipeline-3` at 1462923, Symmetry, AMD
+EPYC 7532 throughout): **26268 tests** (+72, `test/step_cache_tests.jl`), a
+`Test Summary` time of 10m32s at one thread on cn079 against the stage-2
+baseline's 14m00s in the same job (a9cd482, 26196 tests, every test
+passing), 9m42s at four threads and 10m41s for the clean-checkout check on
+cn080, 12m26s with `--check-bounds=yes` on cn084. One and four threads
+identical, the clean checkout identical to the one-thread run. **Four
+failures in every run**: the uniform flow's slow cases leave `≤ 10⁻¹¹`
+(`1.1–8.4·10⁻¹¹`, warm seeds answering to EntropyEOS's tolerance; `CODE.md`,
+"The step cache", for Erik); with bounds checks also EOS-10's four. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

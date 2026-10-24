@@ -624,7 +624,13 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
   cell on the Alfvén wave (measured in step 5, below). A table's `log₁₀ T`
   is the warm start this loses; if step 13 finds it matters, the state can
-  carry it the way it carries `D s`.
+  carry it the way it carries `D s`. *(Amended 2026-10-24, decided by Erik
+  2026-10-23:)* the right-hand side is pure in `(u, t)` **outside a step**;
+  **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
+  every recovery is seeded from the cell's latest recovery in that step,
+  and a recovery whose input is that one's is reused — [the step
+  cache](#primitive-recovery), invalidated at the end of every step, so a
+  restart from `uⁿ`, which holds no cache, still reproduces the run.
 - **Analytic EOSes come from EntropyEOS** (decided; EOS-1, EOS-2). They are
   needed from the first evolution (step 5) on, not only from rung 4: the
   synthetic ideal-gas table is `Γ = 5/3` only, in cgs, with `T ≤ 50 MeV`,
@@ -936,6 +942,160 @@ parent-centred primitive fill, which this tree already ran, now the only
 one ("Refinement"), with the dead `prim2con` of the conserved ghosts
 removed.
 
+**The step cache** *(stage 3 of the recovery plan, `claude/recovery-pipeline-3`,
+2026-10-24; (a) and (b) above, decided by Erik 2026-10-23)*. The only true
+input of a Runge–Kutta step is `uⁿ`; every recovery after the first is of a
+state a little way from one the cell has just recovered. So inside a step:
+
+- **What it holds.** One entry per owned cell (`MHDProblem`'s `cache`, a
+  cell set with `G = 0` and 27 slots, `src/con2prim.jl`): EntropyEOS's input
+  to the cell's latest recovery in the step — the key `(D, τ, D_Y, S_∥, S_⊥,
+  B²)` that `Con2PrimIn` gets — and the output of its two levels: `(ρ, s,
+  Yₑ, w, v_∥, v_⊥)`, the whole `EOSPoint` and the policy flags. An entry is
+  valid while its `s` is a number. Built with the problem, invalid, so a
+  `rebuild` after a regrid has a fresh one of the new mesh's size and
+  nothing is transferred.
+- **(a) Seeds.** Every recovery inside a step — the right-hand side's, both
+  limiters', the stage solve's predictor and `IdealConductor`'s ideal
+  recovery — is seeded with the entry's `(s, w, u_eos)` where the cell has
+  one, and from the state (`state_guesses`) otherwise. The stage solve's
+  chaining inside (`guesses_of`) is unchanged; it leaves the cell holding
+  the recovery of the state it returns (its final iterate's, or the
+  predictor's at `σ = 0`).
+- **(b) Reuse.** A recovery whose key is the entry's bit for bit (`===` on
+  the six floats) takes the entry's output and does not call EntropyEOS.
+  `−0.0` is not `0.0` there, a conservative miss; a NaN matches only the
+  same NaN, which EntropyEOS, a function of its input's bits, would answer
+  the same way; an invalid entry never matches (its `s` is NaN, whatever its
+  key). Every recovery, called or reused, hands its caller its state from
+  an entry (`two_levels`), so a reused recovery is the one it replaces bit
+  for bit, and outside a step (an invalid entry, nothing written) the code
+  is the code before the cache. In practice the reuse is the right-hand
+  side after a stage limiter that wrote nothing (the same state, recovered
+  with the same arithmetic), the limiter after a stage at `σ = 0` (the stage
+  writes `E★` back), the second stage's predictor where the first stage's
+  increment is zero (vacuum) or the ideal recovery reads only the matter
+  (`IdealConductor`), and uniform regions, where nothing changes in a step.
+  For the keys to agree in curved space, every site computes `B`, `E` and
+  the undensitized `D`, `S`, `τ` as `· inv(√γ)` (amended 2026-10-24: the
+  right-hand side's recovery and the ghosts divided by `√γ`; in flat space
+  `√γ = 1` exactly and the two are the same numbers, so the change moved
+  nothing — the flat-space suite's output is the same with and without it).
+- **Rule 1: the cache lives within one step.** The step limiter
+  (`reset_step!`) invalidates every cell's entry as it ends the step, and
+  `with_step_cache` invalidates it before and after `evolve!`'s stepping. So
+  every step starts with an invalid cache, its first recovery (the first
+  stage's predictor, or the right-hand side of a trivial first stage) is
+  cold, and **a step is a pure function of `uⁿ`, `t` and `Δt`**: one chunk
+  or two, a restart from a saved `u` with a rebuilt problem, one thread or
+  four reproduce the run bit for bit (tests). This rests on IMEXRungeKutta
+  1.4's step semantics, read in its source: `step!` runs the stages, the
+  update and the step limiter once, with no retry, rejection or adaptive
+  step, and `solve!` is `step!` until `t1`; an exception from a callback
+  propagates out of `step!` leaving `integ.u = uⁿ` (after the step limiter,
+  undefined), and out of `with_step_cache`, whose `finally` switches the
+  cache off and invalidates it. No step-begin hook is needed, so no IMEX
+  request: the step limiter is the step's end, and `with_step_cache` the
+  only way into a step with the cache on. (It relies on the integrator's
+  step limiter being `reset_step!`, as `mhd_integrator` builds it.)
+- **Rule 2: the cache is active only inside `evolve!`'s `step!`/`solve!`
+  calls.** A host-side switch on the problem (`cache_on`, a `Ref{Bool}`;
+  the kernels get a plain `Bool`), set by `with_step_cache` around them and
+  cleared in its `finally`. Outside — a callback called directly, an
+  `after_step` monitor (which runs between steps), `update_primitives!`
+  before a regrid, the regrid's reset, an integrator a test builds and
+  steps itself — no kernel reads or writes the cache, every recovery is
+  seeded from the state, and the callbacks are pure in `(u, t)` as before
+  (the step-5 purity testset is unchanged). `evolve!(…; step_cache = false)`
+  is the negative control.
+- **No ghost is ever recovered** (stage 1), so the cache has owned cells
+  only.
+- **Tallies.** `X` counts, per site — the right-hand side, the stage solve's
+  first recovery, the stage limiter, the step limiter — the recoveries made
+  inside a step as cold (from the state), warm (from the cache) and reused
+  (`ohm_tally(p).seeds`); the stage solve's later recoveries stay in
+  `X_RECOVERIES`, which still counts every recovery the stages make,
+  reused or not. Per SSP3(4,3,3) step and cell that is 11 counted
+  recoveries, of which exactly one is cold.
+- **Dropped: reuse across steps** (the step limiter's recovery of `uⁿ⁺¹`
+  feeding the next step's first predictor, column (b)'s second number
+  above). A cache that outlives a step either breaks restart
+  reproducibility (a restart from `uⁿ⁺¹` has no cache) or forces the step
+  limiter cold to keep the entry canonical; it would save at most about
+  0.2 µs per cell and step, 4–6% of a step and only where σ is neither zero
+  nor ideal, against a rule set twice as complex. *A possible follow-up,
+  for Erik.*
+
+**Measured 2026-10-24** (`bin/recovery_cost.jl steptime`; Symmetry cn086,
+AMD EPYC 7532, one job, one pinned thread, Julia 1.13; stage 3 at 1462923
+against stage 2 at a9cd482, two rounds each, interleaved; ms per step, the
+mean over steps 2…n, the best of three runs; "no cache" is this tree with
+`step_cache = false`). Seeds per owned cell and step as cold / warm /
+reused, from `X`; "iter." the stage solve's recoveries after its first:
+
+| case | stage 2 | stage 3 | saving | no cache | RHS | stage solve | stage limiter | step limiter | iter. |
+|---|---|---|---|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 3.408, 3.408 | 1.450, 1.435 | **57%, 58%** | 3.020, 3.088 | 0/0/3 | 1/2/1 | 0/0/3 | 0/1/0 | 0 |
+| Alfvén wave, ideal, 100 | 3.904, 3.869 | 1.657, 1.673 | **58%, 57%** | 3.468, 3.480 | 0/0/3 | 1/2/1 | 0/3/0 | 0/1/0 | 0 |
+| resistive tube σ = 10, 200 | 8.810, 8.698 | 3.461, 3.487 | **61%, 60%** | 8.582, 8.607 | 0/0/3 | 1/2.78/0.22 | 0/2.74/0.26 | 0/0.93/0.07 | 4.99 |
+| resistive tube σ = 10², 200 | 8.698, 8.682 | 3.430, 3.454 | **61%, 60%** | 8.481, 8.500 | 0/0/3 | 1/2.86/0.14 | 0/2.74/0.26 | 0/0.96/0.04 | 5.04 |
+| resistive tube σ = 10³, 200 | 8.464, 8.466 | 3.245, 3.252 | **62%, 62%** | 8.263, 8.300 | 0/0/3 | 1/2.88/0.12 | 0/2.62/0.38 | 0/0.96/0.04 | 2.73 |
+| magnetized atmosphere tube, 200 | 8.843, 8.822 | 3.202, 3.216 | **64%, 64%** | 8.621, 8.644 | 0/0.60/2.40 | 1/2.50/0.51 | 0/1.23/1.77 | 0/0.93/0.07 | 1.45 |
+| rotor, 64² | 158.9, 159.3 | 57.8, 58.1 | **64%, 64%** | 159.1, 160.1 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.76/0.24 | 0 |
+| Orszag–Tang, 64² | 170.5, 171.0 | 65.0, 66.3 | **62%, 61%** | 172.0, 172.6 | 0/0/3 | 1/2/1 | 0/3/0 | 0/1/0 | 0 |
+| spherical blast, 16³ | 257.2, 257.3 | 106.6, 104.2 | **59%, 60%** | 260.9, 259.7 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.88/0.12 | 0 |
+| resistive tube σ = 10², two levels | 10.54, 10.56 | 4.357, 4.370 | **59%, 59%** | 10.63, 10.65 | 0/0/3 | 1/2.84/0.16 | 0/2.76/0.24 | 0/0.95/0.05 | 5.54 |
+| rotor, two levels, 7168 cells | 293.7, 294.4 | 108.3, 109.1 | **63%, 63%** | 296.5, 297.5 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.85/0.15 | 0 |
+
+The saving is 57–64%, at and a little above the top of the 2026-10-23
+estimate (36–60% for (a), most of (b) inside it): of the 11 counted
+recoveries per cell and step one is cold, the right-hand side's three are
+reused everywhere the stage limiter wrote nothing (100% but on the
+atmosphere tube, 80% there, as estimated), and reuse also covers what the
+estimate counted as warm — the second stage's predictor in vacuum and under
+`IdealConductor`, the limiter after a stage at `σ = 0`, uniform regions —
+on a CPU (Zen 2) where a cold seed costs relatively more than on the M3 the
+estimate was made on. The whole suite runs 25% faster (14m00s → 10m32s at
+one thread on cn079). The tree with the cache off is 0–11% faster than
+stage 2 (the 1D waves most); not investigated. Correctness:
+`test/step_cache_tests.jl` (warm against cold — the final states 1.0·10⁻¹⁴
+to 2.5·10⁻¹² apart, the recovered `ρ`, `s`, `w` at most 9.9·10⁻¹², the same
+branches, resets and injected mass; one chunk = two; a restart = the run;
+monitors change nothing; the reuse counts exactly), and the suite's 1D =
+2D, turned, closed-box mirror, Orszag–Tang and one- = four-thread claims,
+unchanged.
+
+**What moves, against stage 2 on the same node** (every printed number of
+the suite; the rest of them move in their last digits, as warm seeds answer
+to the tolerance rather than to rounding): the uniform-flow testset's slow
+flows (`vˣ = ±1/2`) **break their bound**: `1.06·10⁻¹¹`, `8.1·10⁻¹¹`,
+`1.68·10⁻¹¹`, `8.4·10⁻¹¹` of a variable's scale (SSP3, ARS) against
+`≤ 10⁻¹¹`, where stage 2 had `0.9–1.9·10⁻¹²` (the fast flows are
+unchanged, `≤ 1.0·10⁻¹²`). Measured why (laptop, the same numbers): with
+EntropyEOS's `tol = 10⁻¹⁴` instead of `10⁻¹²` the cached runs give
+`0.7–2.9·10⁻¹²` again. A cold Newton solve ends with a quadratic step that
+lands near rounding, and a uniform state's cells all take the same one; a
+warm seed already within `tol` returns after no step or one, at the
+tolerance, and which depends on the cell's history in the step — at the
+Dirichlet faces, where the ghosts are the exact primitives, that history
+differs, and the flow drifts by the tolerance per step. **The bound is kept
+and fails; for Erik** (accept the tolerance-level drift and say so in the
+bound; or ask EntropyEOS for a warm start that always polishes with one
+Newton step after its residual test, which would restore rounding at a
+small cost; or a tighter `tol` in the cases). Besides: the ARS(4,4,3)
+near-vacuum rows, chaotic at rounding (2026-10-24, above), move as they do
+under any perturbation — the rarefaction's min ρ `1.0·10⁻¹⁰` →
+`2.1·10⁻¹⁰` and resets 133/116 → 139/113, the ideal magnetized atmosphere
+`−7.85·10⁻⁹`, `−2.03·10⁻⁹` → `−7.64·10⁻⁹`, `+2.81·10⁻⁹` (SSP3, ARS), `W`
+3.99, 4.13 → 4.00, 4.01; the coarse-fine magnetized tube `−1.4027·10⁻⁸` →
+`−1.4012·10⁻⁸`; the `Float32` Alfvén smoke `8.5575·10⁻⁵` → `8.5421·10⁻⁵`;
+drift tallies within their spread (static two-level 0.146 → 0.122 ulp,
+tracked Balsara 0.015 → 0.011, oblique 1.49 → 1.31, adaptive rotor 0.040 →
+0.054, Orszag–Tang's asymmetry `3.9·10⁻¹³` → `1.4·10⁻¹³`); Balsara 3 with
+PPM in the 9th digit. The atmosphere tubes' counts and the resistive
+tube's stage branches are unchanged. The `· inv(√γ)` unification alone
+(3495217) gives the stage-2 output exactly (one thread, cn081, every line).
+
 ## The scheme
 
 ### Where the fields live
@@ -978,7 +1138,8 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
-| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)* | cell | 19 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)*, the recoveries' seeds per site *(2026-10-24)* | cell | 31 | 0 | `=> nothing` |
+| step cache — the cell's latest recovery in the step: EntropyEOS's input and output *(2026-10-24)*; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
 `P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
@@ -2164,7 +2325,12 @@ package relies on it for:
   re-weight it by `b_k/a_kk`, 2.758 at SSP3(4,3,3)'s last stage;
 - explicit evaluations only where the tableau uses them: three right-hand
   sides (TreeGH plus MHD) per SSP3(4,3,3) step;
-- fixed `Δt`, generic arrays and Julia 1.10.
+- fixed `Δt`, generic arrays and Julia 1.10;
+- *(2026-10-24, the step cache)* a step that is never retried or rejected,
+  whose step limiter is its last call, and an exception that leaves
+  `integ.u = uⁿ`: with these the step limiter is where a step ends, and the
+  step cache needs no step-begin hook ([Primitive
+  recovery](#primitive-recovery), "The step cache").
 
 Per SSP3(4,3,3) step, IMEXRungeKutta 1.4.0 makes 3 explicit evaluations,
 4 stage solves, 3 stage-limiter calls (its first stage is implicit, so no
@@ -2287,7 +2453,10 @@ primitives, decided by Erik 2026-10-15):
 The implicit stage solve then runs on owned cells between explicit
 evaluations, and the atmosphere stage limiter after it. The same reset runs
 once more on each step's result, as the step limiter. The right-hand side
-never mutates `u`.
+never mutates `u`. It is pure in `(u, t)` outside a step; inside a step of
+`evolve!` its recovery goes through [the step cache](#primitive-recovery),
+and a step is pure in `uⁿ` (amended 2026-10-24, decided by Erik
+2026-10-23).
 
 *As built in step 5* (`src/evolution.jl`, `mhd_rhs!`; the kernels are
 written for `D = 1, 2, 3` and step 5 validates `D = 1`):
@@ -2323,7 +2492,9 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   and ghost fill of the three `A` sets and the curl — and calls
   `solve_ohm_stage` in every owned cell with that `B`, the provider's
   metric and `state_guesses(u★)`, writing `√γ E` into `𝔈` and nothing else
-  and tallying the outcome into `X`.
+  and tallying the outcome into `X`. *(Amended 2026-10-24:)* inside a step
+  every site's first recovery is seeded from the step cache where the cell
+  has an entry, and reused where its input is the entry's.
 - Cost (measured in step 5, Julia 1.13, Apple M3 Pro, one thread, the
   Alfvén wave on 400 cells in 40 blocks): 0.77 ms for a right-hand side, of
   which the recovery over the 640 stored cells is 0.55 ms; 0.39 ms for an

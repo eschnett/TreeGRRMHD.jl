@@ -36,7 +36,8 @@ sk_cells(r) = nblocks(r.p.f.U) * r.p.f.U.forest.N^length(r.p.f.U.forest.roots)
     # stage takes another branch, the reset writes the same cells and injects
     # the same mass. A seed taken from the wrong cell or the wrong step, or a
     # cached output reused for another input, moves the state far beyond it.
-    # Measured on the laptop (2026-10-24) at the end, `max |Δu|/max |u|` and
+    # Measured on the laptop and on Symmetry's EPYC 7532 (2026-10-24, the same
+    # digits) at the end, `max |Δu|/max |u|` and
     # the relative `ρ`, `s` and absolute `w` of the recovered final state: the
     # EM wave 1.2e-12 (ρ 7.0e-13), Alfvén 1.0e-14, the resistive tube 2.5e-12
     # (ρ 3.0e-12, w 2.3e-12), the magnetized atmosphere tube 7.7e-13 (s
