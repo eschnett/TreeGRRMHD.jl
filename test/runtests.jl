@@ -50,6 +50,9 @@ using TreeGRRMHD
     include("shocktube_tests.jl")
     include("resistive_tests.jl")
     include("atmosphere_tests.jl")
+    # Stage 3 of the recovery pipeline (2026-10-24): the step cache — warm
+    # seeds and reuse inside a step, and what they must not change.
+    include("step_cache_tests.jl")
     # Step 7: the higher-order reconstructions (uses `wave_tests.jl`'s
     # study), and the scheme in two and three dimensions.
     include("reconstruction_tests.jl")
