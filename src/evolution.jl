@@ -35,14 +35,23 @@
 # set it reads. A state-vector array (`statearray`) has no ghosts, so a local
 # owned index is its index.
 #
-# **Warm starts come from the state** (proposed in step 5, amending
-# "Thermodynamics" in `CODE.md`, which carried them in `P`): every recovery
-# the scheme makes is seeded with `s = (√γ D s)/(√γ D)`, the advected entropy
-# the state carries for this purpose, and a cold rapidity and EOS warm start.
-# A warm start carried in `P` from the previous evaluation would make every
-# recovery depend, at the solver's tolerance, on what was evaluated before —
-# the right-hand side would not be a function of `(u, t)` bit for bit, and a
-# restart from a checkpoint (which holds no `P`) would not reproduce the run.
+# **Warm starts come from the state, or from the step** (proposed in step 5,
+# amending "Thermodynamics" in `CODE.md`, which carried them in `P`; amended
+# 2026-10-24, decided by Erik 2026-10-23): outside a step every recovery the
+# scheme makes is seeded with `s = (√γ D s)/(√γ D)`, the advected entropy the
+# state carries for this purpose, and a cold rapidity and EOS warm start, so
+# that the callbacks are functions of `(u, t)` bit for bit. Inside a step of
+# `evolve!` the **step cache** (`MHDProblem`'s `cache`, one entry per owned
+# cell) holds the cell's latest recovery in the step: every recovery is
+# seeded from it where it holds one, and a recovery whose EntropyEOS input is
+# the cached one bit for bit reuses its output. The cache is invalidated at
+# the end of every step (the step limiter) and whenever `evolve!` starts or
+# stops stepping, so a step is a pure function of `uⁿ`, `t` and `Δt`: one
+# chunk or two, a restart from a saved state, one thread or four reproduce
+# the run bit for bit ("The step cache" in `CODE.md`). A warm start carried
+# across steps, or in `P`, would make a recovery depend, at the solver's
+# tolerance, on what was evaluated before, and a restart from a checkpoint
+# (which holds neither) would not reproduce the run.
 
 # --- small pointwise helpers ------------------------------------------------------
 
@@ -80,6 +89,33 @@ function of the state, so that every recovery the scheme makes is.
 @inline function state_guesses(cons::NTuple{NU,T}) where {T}
     s = cons_Ds(cons) / cons_D(cons)
     return (isfinite(s) ? s : T(NaN), T(NaN), T(NaN))
+end
+
+# --- the step cache in a kernel -----------------------------------------------------
+
+# The owned cell's step-cache entry where the cache is active, an invalid
+# one otherwise: then nothing is reused and every recovery is seeded from the
+# state, today's recovery bit for bit.
+@inline read_entry(Cw, ci::NTuple, b::Int, active::Bool, ::Type{T}) where {T} =
+    active ? read_vars(Cw, ci, b, Val(NC)) : invalid_entry(T)
+
+@inline function write_entry!(Cw, ci::NTuple, b::Int, e::NTuple{NC})
+    @inbounds for v in 1:NC
+        Cw[ci..., v, b] = e[v]
+    end
+    return nothing
+end
+
+# The seed of a recovery: the entry's, where the cell has recovered in this
+# step, the state's otherwise.
+@inline seed_of(e::NTuple{NC,T}, cons::NTuple{NU,T}) where {T} =
+    entry_valid(e) ? entry_seed(e) : state_guesses(cons)
+
+# Count one recovery at `site` as cold, warm or reused (`X_SEEDS`).
+@inline function tally_seed!(Xw, xi::NTuple, b::Int, site::Int, e::NTuple{NC}, hit::Bool)
+    k = hit ? 2 : entry_valid(e) ? 1 : 0
+    @inbounds Xw[xi..., X_SEEDS + 3 * (site - 1) + k, b] += one(eltype(Xw))
+    return nothing
 end
 
 # --- the problem ------------------------------------------------------------------
@@ -139,9 +175,18 @@ case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `boundary_W` is
 the hook of `W`, by default derived from the matter's
 ([`primitive_boundary`](@ref)). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
+
+The problem also owns the **step cache** *(added 2026-10-24; "The step
+cache" in `CODE.md`)*: a cell set over the owned cells, `G = 0`, of
+[`NC`](@ref) slots per cell — EntropyEOS's input to the cell's latest
+recovery in the current step and its output — built afresh, invalid, with
+the problem (so a [`rebuild`](@ref) after a regrid sizes it to the new mesh,
+and nothing is transferred), and a host-side switch that only
+[`with_step_cache`](@ref) turns on. While it is off, which is always outside
+`evolve!`'s steps, no kernel reads or writes the cache.
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
-                  LIM,RS}
+                  LIM,RS,FC}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -170,6 +215,8 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     fixup::Bool
     limiter::Val{LIM}
     solver::Val{RS}
+    cache::FC                    # the step cache, NC slots per owned cell (2026-10-24)
+    cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -238,17 +285,19 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     lowwall = to_backend(backend, lw_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
+    cache = FieldSet{T}(forest, NC; G=0, centering=cellcentered(D), backend=backend)
+    cache.work .= T(NaN)                     # invalid: no recovery in a step yet
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
                       typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
                       typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
-                      typeof(boundary),limiter,riemann}(
+                      typeof(boundary),limiter,riemann,typeof(cache)}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann))
+        Val(riemann), cache, Ref(false))
 end
 
 """
@@ -259,7 +308,8 @@ schedules, per-block geometry and outer faces rebuilt from the forest as it
 is now: what a [`regrid!`](@ref) leaves stale (it replaces every set's
 storage in place, so `p.f` still names the sets). A keyword of
 [`MHDProblem`](@ref) given here replaces `p`'s (`fixup = false`, the
-negative control). Added in step 8.
+negative control). Added in step 8. The new problem has its own step cache,
+sized to the forest and invalid, with the switch off (2026-10-24).
 """
 rebuild(p::MHDProblem; kwargs...) =
     MHDProblem(p.f; eos=p.eos, opts=p.opts, proj=p.proj, pol=p.pol, model=p.model,
@@ -335,11 +385,17 @@ end
 # hydrodynamic recovery of `U`, and from it the primitives the ghost fill
 # carries into `W` and all of `P` (through `P_from_W`, as a ghost's).
 # *(Amended in step 8: until AMR-10 this ran over every stored cell after a
-# conserved ghost fill.)*
+# conserved ghost fill.)* *(Amended 2026-10-24:)* through the step cache
+# where it is `active` — seeded from the cell's latest recovery in the step,
+# reused where its input is that one's (in practice the stage limiter's,
+# wherever it wrote nothing) — and `B`, `E` as `· inv(√γ)`, the reset's and
+# the stage solve's arithmetic, so that the inputs agree bit for bit (until
+# then `/ √γ`; the same in flat space).
 @kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
-                                   @Const(origins), @Const(spacings), provider, t, eos, opts,
-                                   proj, pol, ::Val{D}, ::Val{GP}, ::Val{GU},
-                                   ::Val{GB}) where {D,GP,GU,GB}
+                                   Cw, Xw, @Const(origins), @Const(spacings), provider, t, eos,
+                                   opts, proj, pol, active::Bool, ::Val{D}, ::Val{GP},
+                                   ::Val{GU}, ::Val{GB}, ::Val{GC},
+                                   ::Val{GX}) where {D,GP,GU,GB,GC,GX}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -347,13 +403,17 @@ end
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     m = point_metric(provider, oftype(h, t), x)
     cons = read_vars(Uw, stored(n, GU), b, Val(NU))
-    # `· inv(√γ)`, the reset's and the stage solve's arithmetic, so that every
-    # site hands EntropyEOS the same input for the same state (amended
-    # 2026-10-24: until then `/ √γ`; the same numbers in flat space).
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E = cons_𝔈(cons) * isg
-    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, state_guesses(cons))
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
+                                                 seed_of(entry, cons), entry)
+    if active
+        write_entry!(Cw, ci, b, entry2)
+        tally_seed!(Xw, stored(n, GX), b, SITE_RHS, entry, hit)
+    end
     u = prim_W(prim) * prim_v(prim)
     wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
     Pc = P_from_W(eos, m, wv, B, flags)
@@ -700,11 +760,14 @@ end
 
 # The implicit stage of Ohm's law at the owned cells (step 3's
 # `solve_ohm_stage`), writing only `𝔈` into `U`, and tallying the outcome
-# into `X`. `U` enters holding `u★`.
-@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw,
+# into `X`. `U` enters holding `u★`. Through the step cache where it is
+# `active` (2026-10-24): the predictor seeded from the cell's latest recovery
+# in the step, and the cell left holding the recovery of the state the solve
+# returns.
+@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw, Cw,
                              @Const(origins), @Const(spacings), provider, t, γΔt, eos, opts,
-                             proj, pol, model, stage, ::Val{D}, ::Val{GB},
-                             ::Val{GX}) where {D,GB,GX}
+                             proj, pol, model, stage, active::Bool, ::Val{D}, ::Val{GB},
+                             ::Val{GX}, ::Val{GC}) where {D,GB,GX,GC}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -715,8 +778,15 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E★ = cons_𝔈(cons★) * isg
-    E, _, r, nrec = solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
-                                    oftype(h, γΔt), state_guesses(cons★); stage=stage)
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    E, _, r, nrec, entry2, hit = ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
+                                           oftype(h, γΔt), seed_of(entry, cons★), entry;
+                                           stage=stage)
+    if active
+        write_entry!(Cw, ci, b, entry2)
+        tally_seed!(Xw, stored(n, GX), b, SITE_STAGE, entry, hit)
+    end
     𝔈 = m.sqrtγ * E
     @inbounds for k in 1:3
         Uw[n..., U_E + k - 1, b] = 𝔈[k]
@@ -741,10 +811,14 @@ end
 # which the reset does not touch. Counted into `X`: as the stage limiter
 # (`STEP = false`), the cells written; as the step limiter, the cells
 # written and the change they made to `√γ D` and `√γ τ`, which is what the
-# reset injects into the state (step 6).
-@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, @Const(origins),
-                               @Const(spacings), provider, t, eos, opts, proj, pol, ::Val{D},
-                               ::Val{GB}, ::Val{GX}, ::Val{STEP}) where {D,GB,GX,STEP}
+# reset injects into the state (step 6). Through the step cache where it is
+# `active` (2026-10-24): seeded from the cell's latest recovery in the step,
+# reused where its input is that one's; the stage limiter leaves its recovery
+# in the cache, and the step limiter, which ends the step, invalidates it.
+@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, Cw,
+                               @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
+                               pol, active::Bool, ::Val{D}, ::Val{GB}, ::Val{GX}, ::Val{GC},
+                               ::Val{STEP}) where {D,GB,GX,GC,STEP}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -755,7 +829,19 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E = cons_𝔈(cons) * isg
-    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, state_guesses(cons))
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
+                                                 seed_of(entry, cons), entry)
+    if active
+        tally_seed!(Xw, stored(n, GX), b, STEP ? SITE_STEP_LIMITER : SITE_STAGE_LIMITER, entry,
+                    hit)
+        if STEP
+            @inbounds Cw[ci..., C_S, b] = oftype(h, NaN)   # the step ends: invalid
+        else
+            write_entry!(Cw, ci, b, entry2)
+        end
+    end
     if flags & EntropyEOS.FLAG_POL_ANY != 0
         c = prim2con(eos, m, prim, E, B)
         @inbounds for v in 1:(U_E - 1)
@@ -847,8 +933,9 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     curl_A!(f, p.𝔅̄, p.spacings)
     GB = Val(GB_of(f))
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
-                f.B[2].work, f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.proj, p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB)
+                f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.origins, p.spacings,
+                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
+                Val(f.U.G), GB, Val(p.cache.G), Val(f.X.G))
     fill_ghosts!(f.W, p.schedule_W;
                  boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
     map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work, f.B[2].work,
@@ -867,9 +954,14 @@ the matter's flux divergence and explicit sources, `A`'s EMF and gauge
 gradient, and `Φ̃`'s gauge equation. The conduction current, the one
 implicit term, is not here: it is [`ohm_solve!`](@ref)'s.
 
-**Pure in `(u, t)`, and it never mutates `u`**: every working array is
-scratch, rewritten in full, and every recovery is seeded from `u` itself
-([`state_guesses`](@ref)). IMEXRungeKutta's `f_exp!`.
+**Pure in `(u, t)` outside a step, and it never mutates `u`**: every
+working array is scratch, rewritten in full, and every recovery is seeded
+from `u` itself ([`state_guesses`](@ref)). Inside a step of
+[`evolve!`](@ref) ([`with_step_cache`](@ref)) its recoveries go through the
+step cache — seeded from the cell's latest recovery in the step, reused
+where the input is that one's — and a step is pure in `uⁿ` (amended
+2026-10-24, decided by Erik 2026-10-23; "The step cache" in `CODE.md`).
+IMEXRungeKutta's `f_exp!`.
 """
 function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
@@ -928,8 +1020,9 @@ function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     update_fields!(p, ustar, t)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U),
                 statearray(ustar, p.sets, SEG_U), f.B[1].work, f.B[2].work, f.B[3].work,
-                f.X.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos, p.opts, p.proj,
-                p.pol, p.model, p.stage, Val(D), Val(GB_of(f)), Val(f.X.G))
+                f.X.work, p.cache.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos,
+                p.opts, p.proj, p.pol, p.model, p.stage, p.cache_on[], Val(D), Val(GB_of(f)),
+                Val(f.X.G), Val(p.cache.G))
     return nothing
 end
 
@@ -968,6 +1061,8 @@ reset_atmosphere!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(false))
 apart, with what they change in `√γ D` and `√γ τ` summed per cell — the rest
 mass and the energy the reset injects into the state, since only the step
 limiter's writes reach `uⁿ⁺¹` ([`ohm_tally`](@ref); added in step 6).
+As the end of a step it also invalidates every cell's step-cache entry,
+where the cache is active (2026-10-24).
 """
 reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
 
@@ -980,9 +1075,58 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
         walls_to_state!(p, u)
     end
     map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
-                f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.proj, p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)
+                f.B[3].work, f.X.work, p.cache.work, p.origins, p.spacings, p.provider, t,
+                p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G),
+                Val(p.cache.G), step)
     return nothing
+end
+
+# --- the step cache ---------------------------------------------------------------
+
+"""
+    invalidate_step_cache!(p::MHDProblem)
+
+Mark every cell's step-cache entry invalid (its `s` slot NaN), so that the
+next recovery of every cell is seeded from the state. Added 2026-10-24.
+"""
+function invalidate_step_cache!(p::MHDProblem)
+    w = p.cache.work
+    selectdim(w, ndims(w) - 1, C_S) .= eltype(w)(NaN)
+    return p
+end
+
+"""
+    with_step_cache(f, p::MHDProblem; active = true)
+
+Call `f()` — IMEXRungeKutta's `step!` or `solve!` on an integrator over `p`
+— with `p`'s step cache active, and return what it returns. The cache is
+invalidated before, and switched off and invalidated again after, in a
+`finally`, so that whatever `f` does, or throws, the first step `f` takes
+starts with an invalid cache and nothing outside sees one. Within, the
+step limiter ([`reset_step!`](@ref)) invalidates it at the end of every
+step. So each step is a pure function of `uⁿ`, `t` and `Δt` (IMEXRungeKutta
+1.4 neither retries nor rejects a step, and an exception leaves `integ.u =
+uⁿ`), whatever came before it: one chunk or two, a restart, one thread or
+four give the same run bit for bit. [`evolve!`](@ref) wraps its stepping in
+this; every other caller — a callback called directly, an `after_step`
+monitor, an integrator a test builds — runs with the cache off, exactly as
+before it existed. `active = false` calls `f()` alone (the negative
+control). "The step cache" in `CODE.md`; added 2026-10-24, decided by Erik
+2026-10-23.
+"""
+function with_step_cache(f, p::MHDProblem; active::Bool=true)
+    active || return f()
+    p.cache_on[] && throw(ArgumentError(
+        "with_step_cache: the step cache of this problem is already active; nesting would " *
+        "end the outer steps' cache early (CODE.md, \"The step cache\")."))
+    invalidate_step_cache!(p)
+    p.cache_on[] = true
+    try
+        return f()
+    finally
+        p.cache_on[] = false
+        invalidate_step_cache!(p)
+    end
 end
 
 # --- diagnostics ------------------------------------------------------------------
@@ -1013,7 +1157,12 @@ flagged, counted, and reduced per chunk):
   6);
 - `injected_D`, `injected_τ`: the volume integrals `Σ hᴰ Δ(√γ D)` and
   `Σ hᴰ Δ(√γ τ)` of those step-limiter writes — the rest mass and the
-  energy the reset put into the state (negative where it took some out).
+  energy the reset put into the state (negative where it took some out);
+- `seeds` *(added 2026-10-24)*: per site — `rhs`, `stage` (the stage
+  solve's first recovery), `stage_limiter`, `step_limiter` — the recoveries
+  made inside a step as `(; cold, warm, reused)`: seeded from the state,
+  seeded from the step cache, or reused from it without calling EntropyEOS
+  ("The step cache" in `CODE.md`). Zero for recoveries outside a step.
 
 The counts are integers carried in the set's float type, exact below `2^24`
 in `Float32`.
@@ -1036,7 +1185,15 @@ function ohm_tally(p::MHDProblem{T,D}) where {T,D}
             max_recoveries=roundint(mesh_mapreduce(identity, max, zero(T), X;
                                                    vars=X_MAX_RECOVERIES)),
             resets=count(X_RESETS), step_resets=count(X_STEP_RESETS),
-            injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU))
+            injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU),
+            seeds=seed_tally(count))
+end
+
+function seed_tally(count)
+    site(s) = (; cold=count(X_SEEDS + 3 * (s - 1)), warm=count(X_SEEDS + 3 * (s - 1) + 1),
+               reused=count(X_SEEDS + 3 * (s - 1) + 2))
+    return (; rhs=site(SITE_RHS), stage=site(SITE_STAGE), stage_limiter=site(SITE_STAGE_LIMITER),
+            step_limiter=site(SITE_STEP_LIMITER))
 end
 
 """

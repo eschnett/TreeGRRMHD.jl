@@ -110,7 +110,8 @@ export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM
 export MHDFields, mhd_fields, evolved_sets, edge_centering, face_centering, curl_A!
 export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_primitives!,
        update_fields!, boundary_at
-export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B
+export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B,
+       with_step_cache
 # The driver and the cases
 export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
        DirichletBoundary, case_boundary, profile_1d, walls_to_state!

@@ -45,6 +45,85 @@
 # put a floored state at rest itself; "Floors, the atmosphere and the
 # magnetosphere" in `CODE.md`).
 
+# --- the step cache's entry ---------------------------------------------------------
+#
+# A cell's entry in the step cache (stage 3 of the recovery pipeline, decided
+# by Erik 2026-10-23; "Primitive recovery" in `CODE.md`, "The step cache"):
+# EntropyEOS's input to the cell's latest recovery in the current step — the
+# key `(D, τ, D_Y, S_∥, S_⊥, B²)` of `Con2PrimIn`, bit for bit — and the output
+# of its two levels: the state `(ρ, s, Yₑ, w, v_∥, v_⊥)`, the whole `EOSPoint`
+# and the policy flags. Its `(s, w, u_eos)` is the seed of the cell's next
+# recovery. Every recovery goes through `two_levels`, which either finds its
+# input in the entry and returns the entry, or calls EntropyEOS and returns the
+# new entry; both paths hand the caller its state from the entry, so a reused
+# recovery is the recovery it replaces bit for bit. Outside a step the entry
+# is `invalid_entry`, and every recovery is today's.
+
+"""Number of slots of a step-cache entry: the key (6), the state (6), the
+`EOSPoint` (14) and the policy flags."""
+const NC = 27
+const C_KEY = 1              # D, τ, D_Y, S_∥, S_⊥, B²: EntropyEOS's `Con2PrimIn`
+const C_RHO = 7
+const C_S = 8                # NaN: the entry is invalid (no recovery yet in this step)
+const C_YE = 9
+const C_W = 10
+const C_VPAR = 11
+const C_VPERP = 12
+const C_EOS = 13             # the `EOSPoint`'s fields in order; `iters`, `flags` as numbers
+const C_POLICY = 27          # below 2¹⁸, exact in `Float32`
+
+# An entry with nothing in it.
+@inline invalid_entry(::Type{T}) where {T} = ntuple(_ -> T(NaN), Val(NC))
+
+# Whether the entry holds a recovery: its `s` is a number (a recovered state
+# always has one; invalidation writes NaN there).
+@inline entry_valid(e::NTuple{NC,T}) where {T} = !isnan(e[C_S])
+
+# The seed `(s, w, u_eos)` the entry's recovery hands the next one —
+# `guesses(prim)` of its state.
+@inline entry_seed(e::NTuple{NC,T}) where {T} = (e[C_S], e[C_W], e[C_EOS + 11])
+
+@inline entry_key(cin::EntropyEOS.Con2PrimIn) = (cin.D, cin.τ, cin.D_Y, cin.S_par, cin.S_perp,
+                                                 cin.B²)
+
+# Whether the entry is a recovery of `cin`: a valid entry whose key is `cin`'s
+# bit for bit (`===` on the floats: `−0.0` is not `0.0`, a conservative
+# miss; a NaN matches only the same NaN, which EntropyEOS, a function of its
+# input's bits, answers the same way).
+@inline entry_hit(e::NTuple{NC,T}, cin::EntropyEOS.Con2PrimIn{T}) where {T} =
+    entry_valid(e) && ntuple(k -> e[C_KEY + k - 1], Val(6)) === entry_key(cin)
+
+@inline function make_entry(cin::EntropyEOS.Con2PrimIn{T}, out) where {T}
+    b = out.base
+    q = b.eos
+    return (entry_key(cin)..., b.ρ, b.s, b.ye, b.w, b.v_par, b.v_perp, q.U, q.U_ρ, q.U_s,
+            q.U_ρρ, q.U_ρs, q.T̂, q.p, q.h, q.cs², q.T_MeV, q.μ̃, q.u_solved, T(q.iters),
+            T(q.flags), T(out.policy_flags))
+end
+
+@inline function entry_point(e::NTuple{NC,T}) where {T}
+    k = C_EOS - 1
+    return EntropyEOS.EOSPoint{T}(e[k + 1], e[k + 2], e[k + 3], e[k + 4], e[k + 5], e[k + 6],
+                                  e[k + 7], e[k + 8], e[k + 9], e[k + 10], e[k + 11],
+                                  e[k + 12], unsafe_trunc(Int32, e[k + 13]),
+                                  unsafe_trunc(UInt32, e[k + 14]))
+end
+
+@inline entry_flags(e::NTuple{NC,T}) where {T} = unsafe_trunc(UInt32, e[C_POLICY])
+
+# EntropyEOS's two levels for `cin` — `con2prim_safe` from `guesses` onto the
+# projection `proj`, then `apply_policy` — as an entry, and whether it was
+# `entry` reused: the one place the package calls them.
+@inline function two_levels(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                            proj::EntropyEOS.ProjectionOptions{T},
+                            pol::EntropyEOS.PolicyOptions{T}, cin::EntropyEOS.Con2PrimIn{T},
+                            guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
+    entry_hit(entry, cin) && return entry, true
+    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
+    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
+    return make_entry(cin, out), false
+end
+
 # `v` rescaled so that `|v|_γ = tanh w`, or zero where it has no direction.
 @inline function velocity_at_rapidity(m::Metric3{T}, v::SVector{3,T}, w::T) where {T}
     V² = dot_up(m, v, v)
@@ -101,13 +180,30 @@ end
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
+    prim, flags, pt, _, _ = hydro_recovery(eos, opts, proj, pol, m, cons, E, B, guesses,
+                                           invalid_entry(T))
+    return prim, flags, pt
+end
+
+# The same, through the cell's step-cache entry `entry` (`src/evolution.jl`;
+# stage 3 of the recovery pipeline): also returns the entry of this recovery
+# and whether it was reused from `entry` without calling EntropyEOS. The
+# kernels take `E` and `B` as `𝔈 · inv(√γ)` and `𝔅 · inv(√γ)`, and the
+# undensitizing here multiplies by the same `inv(√γ)`, so that every site
+# hands EntropyEOS the same input bit for bit for the same state (amended
+# 2026-10-24: the right-hand side divided by `√γ`).
+@inline function hydro_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
+                                cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
     isg = inv(m.sqrtγ)
     D = cons_D(cons) * isg
     S = cons_S(cons) * isg
     τ = cons_τ(cons) * isg
     DYₑ = cons_DYₑ(cons) * isg
     S_fluid, τ_fluid = field_budget(m, S, τ, E, B)
-    return fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses)
+    return fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses, entry)
 end
 
 # The fluid's share of the undensitized total momentum `S_i` and energy `τ`:
@@ -125,6 +221,18 @@ end
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
                                 S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
                                 guesses::NTuple{3,T}) where {T}
+    prim, flags, pt, _, _ = fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ,
+                                           guesses, invalid_entry(T))
+    return prim, flags, pt
+end
+
+# The same through a step-cache entry: also returns this recovery's entry and
+# whether it was reused.
+@inline function fluid_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
+                                S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
     Su = raise(m, S_fluid)
     S² = sum(S_fluid .* Su)
     # A NaN passes through to the policy, which flags it; a quadratic form
@@ -132,12 +240,11 @@ end
     S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
 
     cin = EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T))
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
-    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
-    b = out.base
-    v = velocity_at_rapidity(m, Su, b.w)
-    prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
-    return prim, out.policy_flags, b.eos
+    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry)
+    v = velocity_at_rapidity(m, Su, e[C_W])
+    pt = entry_point(e)
+    prim = pack_prim(e[C_RHO], v, e[C_S], e[C_YE], e[C_W], pt.p, pt.h, pt.cs², pt.u_solved)
+    return prim, entry_flags(e), pt, e, hit
 end
 
 """
@@ -201,6 +308,18 @@ end
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
+    prim, flags, pt, _, _ = ideal_recovery(eos, opts, proj, pol, m, cons, B, guesses,
+                                           invalid_entry(T))
+    return prim, flags, pt
+end
+
+# The same through a step-cache entry: also returns this recovery's entry and
+# whether it was reused.
+@inline function ideal_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
+                                cons::NTuple{NU,T}, B::SVector{3,T},
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
     isg = inv(m.sqrtγ)
     D = cons_D(cons) * isg
     S = cons_S(cons) * isg
@@ -226,11 +345,10 @@ end
     S_perp = S_perp² < zero(T) ? zero(T) : sqrt(S_perp²)
 
     cin = EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²)
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
-    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
-    b = out.base
-    v_perp = S_perp > zero(T) ? (b.v_perp / S_perp) * Su_perp : zero(SVector{3,T})
-    v = velocity_at_rapidity(m, b.v_par * b̂ + v_perp, b.w)
-    prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
-    return prim, out.policy_flags, b.eos
+    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry)
+    v_perp = S_perp > zero(T) ? (e[C_VPERP] / S_perp) * Su_perp : zero(SVector{3,T})
+    v = velocity_at_rapidity(m, e[C_VPAR] * b̂ + v_perp, e[C_W])
+    pt = entry_point(e)
+    prim = pack_prim(e[C_RHO], v, e[C_S], e[C_YE], e[C_W], pt.p, pt.h, pt.cs², pt.u_solved)
+    return prim, entry_flags(e), pt, e, hit
 end

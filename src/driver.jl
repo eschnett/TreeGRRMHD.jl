@@ -519,7 +519,7 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing) -> NamedTuple
+            after_regrid = nothing, step_cache = true) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -539,6 +539,16 @@ data on its final mesh does not reproduce to rounding).
 `after_step(p, u, t)`, if given, is called after every step with the
 problem, the state and its time — a monitor, such as the `∇·𝔅` check of
 rung 2a ([`max_div_B`](@ref); added in step 7); it must not change `u`.
+It runs outside the step, with the step cache off, so a monitor that calls
+[`update_primitives!`](@ref) or [`mhd_rhs!`](@ref) does not change the run.
+
+The steps run with the **step cache** ([`with_step_cache`](@ref); added
+2026-10-24, decided by Erik 2026-10-23): inside a step every recovery is
+seeded from the cell's latest one in the step, and one whose input is that
+one's bit for bit is reused; the cache is invalidated at the end of every
+step and whenever stepping starts or stops, so a step is a pure function of
+`uⁿ`, `t` and `Δt`. `step_cache = false` runs every recovery from the state,
+as before (the negative control; "The step cache" in `CODE.md`).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
 once after the initial adaptation (added in step 8).
 
@@ -573,7 +583,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  fixup::Bool=true, refine=nothing,
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
-                 maxpasses::Integer=10, after_regrid=nothing) where {T,D}
+                 maxpasses::Integer=10, after_regrid=nothing,
+                 step_cache::Bool=true) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -636,10 +647,10 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,
                                reuse=integ)
         if after_step === nothing
-            IRK.solve!(integ)
+            with_step_cache(() -> IRK.solve!(integ), p; active=step_cache)
         else
             while integ.nstep < integ.nsteps
-                IRK.step!(integ)
+                with_step_cache(() -> IRK.step!(integ), p; active=step_cache)
                 after_step(p, integ.u, integ.t)
             end
         end
