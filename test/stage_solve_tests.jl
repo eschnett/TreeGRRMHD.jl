@@ -126,7 +126,7 @@ end
     # thermal energy of a cold state is not pushed across the entropy window;
     # and of `ohm_E`.
     eos = rec_gas(2)
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     tight = REC_EOS.Con2PrimOptions{Float64}(; tol=1e-14)
     rng = Xoshiro(52)
     e(k) = SVector(ntuple(i -> i == k ? 1.0 : 0.0, 3))
@@ -138,7 +138,7 @@ end
         D = ST.cons_D(cons) / m.sqrtγ
         DYₑ = ST.cons_DYₑ(cons) / m.sqrtγ
         S_f, τ_f = ST.fluid_share(eos, m, prim)
-        recover(S, τ) = ST.fluid_recovery(eos, tight, pol, m, D, S, τ, DYₑ, cold_guesses(Float64))
+        recover(S, τ) = ST.fluid_recovery(eos, tight, proj, pol, m, D, S, τ, DYₑ, cold_guesses(Float64))
         p0, f0, pt = recover(S_f, τ_f)
         @test f0 == 0
         du_dS, du_dτ = ST.recovery_jacobian(m, D, p0, pt)
@@ -174,7 +174,7 @@ end
     # move `E` by rounding.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(53)
     for k in 1:100
         m = rec_metric(rng)
@@ -185,8 +185,8 @@ end
         D = ST.cons_D(cons) / m.sqrtγ
         g = k % 2 == 0 ? cold_guesses(Float64) : guesses(prim)
         for model in (Vacuum(), DensityProfile(1e6, D / 2), DensityProfile(1e6, D))
-            E, q, r, n = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt, g)
-            qh, fh = con2prim_hydro(eos, opts, pol, m, cons, E★, B, g)
+            E, q, r, n = solve_ohm_stage(eos, opts, proj, pol, model, m, cons, E★, B, γΔt, g)
+            qh, fh = con2prim_hydro(eos, opts, proj, pol, m, cons, E★, B, g)
             @test E === E★
             @test isequal(q, qh)
             @test r == OhmStageResult(OHM_SIGMA_ZERO, fh)
@@ -202,7 +202,7 @@ end
     # returns that field, to the recovery's accuracy, whatever `E★` is.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(54)
     worst = 0.0
     for _ in 1:200
@@ -212,9 +212,9 @@ end
         Eid = ideal_E(m, ST.prim_v(prim), B)
         cons = prim2con(eos, m, prim, Eid, B)
         E★ = SVector{3}(randn(rng, 3))
-        E, q, r, n = solve_ohm_stage(eos, opts, pol, IdealConductor(), m, cons, E★, B, γΔt,
+        E, q, r, n = solve_ohm_stage(eos, opts, proj, pol, IdealConductor(), m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
-        qi, fi = con2prim_ideal(eos, opts, pol, m, cons, B, cold_guesses(Float64))
+        qi, fi = con2prim_ideal(eos, opts, proj, pol, m, cons, B, cold_guesses(Float64))
         @test isequal(q, qi) && r == OhmStageResult(OHM_IDEAL, fi) && fi == 0 && n == 1
         @test E == ideal_E(m, ST.prim_v(q), B)
         worst = max(worst, st_norm(m, E - Eid) / st_norm(m, B))
@@ -231,7 +231,7 @@ end
     # `~ |E★ + v×B| / (cW)` — L-stability of the stage, seen pointwise.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(55)
     worst = 0.0
     for _ in 1:100, σΔt in (1e4, 1e6, 1e8)
@@ -241,10 +241,10 @@ end
         Eid = ideal_E(m, ST.prim_v(prim), B)
         cons = prim2con(eos, m, prim, Eid, B)
         E★ = Eid + st_norm(m, B) * rec_direction(rng, m)
-        E, q, r, _ = solve_ohm_stage(eos, opts, pol, Constant(σΔt / γΔt), m, cons, E★, B, γΔt,
+        E, q, r, _ = solve_ohm_stage(eos, opts, proj, pol, Constant(σΔt / γΔt), m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         @test ST.converged(r) && r.policy_flags == 0
-        Ei, _, _, _ = solve_ohm_stage(eos, opts, pol, IdealConductor(), m, cons, E★, B, γΔt,
+        Ei, _, _, _ = solve_ohm_stage(eos, opts, proj, pol, IdealConductor(), m, cons, E★, B, γΔt,
                                       cold_guesses(Float64))
         # `M⁻¹`'s largest eigenvalue, `1/(1 + c/W)`, as in `ohm_E`'s test;
         # the fluid's response to the departure moves `v` too.
@@ -261,20 +261,20 @@ end
 function st_sweep(Γ, nper; f=nothing, cutoff=false)
     eos = rec_gas(Γ)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(56)
     points = NamedTuple[]
     for lσ in -3:8, lb in -4:4, W in (1.0, 2.0, 10.0), _ in 1:nper
         m = rec_metric(rng)
         prim, Esol, E★, B, cons, model, γΔt = st_problem(rng, eos, m, exp10(lσ), exp10(lb), W;
                                                          f, cutoff)
-        E, q, r, n = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt,
+        E, q, r, n = solve_ohm_stage(eos, opts, proj, pol, model, m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         r_ohm, r_matter = st_residual(eos, model, m, cons, E★, B, γΔt, E, q)
         # Whether either seed is a fluid state: the predictor's recovery at
         # `E★` and the ideal recovery.
-        _, f★ = con2prim_hydro(eos, opts, pol, m, cons, E★, B, cold_guesses(Float64))
-        _, fI = con2prim_ideal(eos, opts, pol, m, cons, B, cold_guesses(Float64))
+        _, f★ = con2prim_hydro(eos, opts, proj, pol, m, cons, E★, B, cold_guesses(Float64))
+        _, fI = con2prim_ideal(eos, opts, proj, pol, m, cons, B, cold_guesses(Float64))
         push!(points,
               (; lσ, lb, W, flags=r.flags, n, finite=all(isfinite, E) && all(isfinite, q[1:10]),
                r_ohm, r_matter, seeded=f★ == 0 || fI == 0,
@@ -412,7 +412,7 @@ end
     # Ohm's current and Ampère's source read the cell's magnetization.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(64)
     for _ in 1:100
         m = rec_metric(rng)
@@ -427,9 +427,9 @@ end
         @test ohm_current(c, m, q, E, Blo, 0.0) == ohm_current(Constant(5.0), m, q, E, Blo, 0.0)
         # Beyond the taper the stage is the vacuum's, bit for bit.
         cons = prim2con(eos, m, q, E, Bhi)
-        Es, qs, r, n = solve_ohm_stage(eos, opts, pol, c, m, cons, E, Bhi, 0.3,
+        Es, qs, r, n = solve_ohm_stage(eos, opts, proj, pol, c, m, cons, E, Bhi, 0.3,
                                        cold_guesses(Float64))
-        qh, fh = con2prim_hydro(eos, opts, pol, m, cons, E, Bhi, cold_guesses(Float64))
+        qh, fh = con2prim_hydro(eos, opts, proj, pol, m, cons, E, Bhi, cold_guesses(Float64))
         @test Es === E && isequal(qs, qh) && r == OhmStageResult(OHM_SIGMA_ZERO, fh) && n == 1
     end
 end
@@ -442,7 +442,7 @@ end
     # steep function of ρ, and across it, where the branch is the vacuum's.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(57)
     worst = 0.0
     nσ0 = npts = nfb = 0
@@ -456,7 +456,7 @@ end
         prim, _, E★, B, cons, model, γΔt =
             st_problem(rng, eos, m, σΔt, exp10(-3 + 4 * rand(rng)), W;
                        model_of=ρ -> DensityProfile(σΔt / 0.3, f * ρ / 2))
-        E, q, r, _ = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt,
+        E, q, r, _ = solve_ohm_stage(eos, opts, proj, pol, model, m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         @test all(isfinite, E)
         r.flags & OHM_SIGMA_ZERO != 0 && (nσ0 += 1; continue)
@@ -485,7 +485,7 @@ end
     # recoverable stage is the true solution.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     F = REC_EOS
     rng = Xoshiro(58)
     worst = 0.0
@@ -499,10 +499,10 @@ end
         E★ = Esol + c * ST.conduction_drift(m, prim, Esol, B)
         τ_f = ST.cons_τ(prim2con(eos, m, prim, zero(Esol), zero(Esol))) / m.sqrtγ
         E★ = E★ + sqrt(10 * τ_f) * rec_direction(rng, m)
-        _, f★ = con2prim_hydro(eos, opts, pol, m, cons, E★, B, cold_guesses(Float64))
+        _, f★ = con2prim_hydro(eos, opts, proj, pol, m, cons, E★, B, cold_guesses(Float64))
         f★ == 0 && continue
         n_bad += 1
-        E, q, r, _ = solve_ohm_stage(eos, opts, pol, model, m, cons, E★, B, γΔt,
+        E, q, r, _ = solve_ohm_stage(eos, opts, proj, pol, model, m, cons, E★, B, γΔt,
                                      cold_guesses(Float64))
         @test all(isfinite, E) && all(isfinite, q[1:10])
         if ST.converged(r) && r.policy_flags == 0
@@ -519,7 +519,7 @@ end
     prim, Esol, E★, B, cons, _, γΔt = st_problem(rng, eos, m, 1.0, 1.0, 2.0)
     bad = ntuple(i -> i == ST.U_TAU ? NaN : cons[i], NU)
     for model in (Constant(10.0), DensityProfile(10.0, 1e-9))
-        E, q, r, _ = solve_ohm_stage(eos, opts, pol, model, m, bad, E★, B, γΔt,
+        E, q, r, _ = solve_ohm_stage(eos, opts, proj, pol, model, m, bad, E★, B, γΔt,
                                      cold_guesses(Float64))
         @test r.policy_flags & F.FLAG_POL_NONFINITE != 0
         @test all(isfinite, q[1:10])
@@ -529,10 +529,11 @@ end
 # One cell, resting, with no field: Ohm's law alone decays `E` as
 # `exp(−ασt)`, and the field's energy heats the fluid at fixed total `τ`.
 # `u` is the cell's ten variables; the explicit part is zero.
-struct STCell{M,E,O,P}
+struct STCell{M,E,O,J,P}
     m::M
     eos::E
     opts::O
+    proj::J
     pol::P
     model::Constant{Float64}
 end
@@ -540,7 +541,7 @@ end
 function st_solve_imp!(U, u★, γΔt, p, t)
     cons★ = ntuple(i -> u★[i], NU)
     E★ = ST.cons_𝔈(cons★) / p.m.sqrtγ
-    E, _, r, _ = solve_ohm_stage(p.eos, p.opts, p.pol, p.model, p.m, cons★, E★, zero(E★), γΔt,
+    E, _, r, _ = solve_ohm_stage(p.eos, p.opts, p.proj, p.pol, p.model, p.m, cons★, E★, zero(E★), γΔt,
                                  cold_guesses(Float64))
     ST.converged(r) || error("the stage solve did not converge: $r")
     𝔈 = p.m.sqrtγ * E
@@ -560,7 +561,7 @@ end
     # order, and one stiff step leaves `O(1/(ασΔt))` of the field.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     m = rec_metric(Xoshiro(59))
     prim = primitive_state(eos, m, 1e-4, zero(SVector{3,Float64}), 4.5, 0.3)
     τ_f = ST.cons_τ(prim2con(eos, m, prim, zero(SVector{3,Float64}), zero(SVector{3,Float64})))
@@ -568,7 +569,7 @@ end
     u0 = collect(prim2con(eos, m, prim, E0, zero(E0)))
     f_exp! = (du, u, p, t) -> (du .= 0; nothing)
     run(σ, n) = begin
-        p = STCell(m, eos, opts, pol, Constant(σ))
+        p = STCell(m, eos, opts, proj, pol, Constant(σ))
         prob = IRK.IMEXProblem(f_exp!, st_solve_imp!, copy(u0), (0.0, 1.0), p)
         integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=1 / n)
         IRK.solve!(integ)
@@ -599,10 +600,10 @@ end
     @test 50 < stiff[1] / stiff[2] < 200
 end
 
-@kernel function st_kernel!(Es, prims, results, iters, eos, opts, pol, @Const(σs), @Const(metrics),
+@kernel function st_kernel!(Es, prims, results, iters, eos, opts, proj, pol, @Const(σs), @Const(metrics),
                             @Const(conss), @Const(E★s), @Const(Bs), γΔt)
     i = @index(Global)
-    E, q, r, n = solve_ohm_stage(eos, opts, pol, Constant(σs[i]), metrics[i], conss[i], E★s[i],
+    E, q, r, n = solve_ohm_stage(eos, opts, proj, pol, Constant(σs[i]), metrics[i], conss[i], E★s[i],
                                  Bs[i], γΔt, cold_guesses(typeof(γΔt)))
     Es[i] = E
     prims[i] = q
@@ -610,11 +611,11 @@ end
     iters[i] = n
 end
 
-@kernel function st_cut_kernel!(Es, prims, results, iters, eos, opts, pol, μ_max, @Const(σs),
+@kernel function st_cut_kernel!(Es, prims, results, iters, eos, opts, proj, pol, μ_max, @Const(σs),
                                 @Const(metrics), @Const(conss), @Const(E★s), @Const(Bs), γΔt)
     i = @index(Global)
     model = MagnetizationCutoff(Constant(σs[i]), μ_max)
-    E, q, r, n = solve_ohm_stage(eos, opts, pol, model, metrics[i], conss[i], E★s[i], Bs[i], γΔt,
+    E, q, r, n = solve_ohm_stage(eos, opts, proj, pol, model, metrics[i], conss[i], E★s[i], Bs[i], γΔt,
                                  cold_guesses(typeof(γΔt)))
     Es[i] = E
     prims[i] = q
@@ -633,7 +634,7 @@ end
     eos64 = rec_gas(2)
     eos = REC_EOS.narrow(eos64, T)
     opts = REC_EOS.Con2PrimOptions{T}()
-    pol = REC_EOS.default_policy(eos, T(REC_ρ_ATM))
+    (; proj, pol) = recovery_options(eos, T(REC_ρ_ATM))
     rng = Xoshiro(61)
     σs, metrics, conss, E★s, Bs = T[], Metric3{T}[], NTuple{NU,T}[], SVector{3,T}[], SVector{3,T}[]
     exact = SVector{3,Float64}[]
@@ -649,14 +650,14 @@ end
     end
     γΔt = T(3 // 10)
     n = length(metrics)
-    host = [solve_ohm_stage(eos, opts, pol, Constant(σs[i]), metrics[i], conss[i], E★s[i], Bs[i],
+    host = [solve_ohm_stage(eos, opts, proj, pol, Constant(σs[i]), metrics[i], conss[i], E★s[i], Bs[i],
                             γΔt, cold_guesses(T)) for i in 1:n]
     Es = Vector{SVector{3,T}}(undef, n)
     prims = Vector{NTuple{NPRIM,T}}(undef, n)
     results = Vector{OhmStageResult}(undef, n)
     iters = Vector{Int}(undef, n)
     backend = CPU()
-    st_kernel!(backend)(Es, prims, results, iters, eos, opts, pol, σs, metrics, conss, E★s, Bs, γΔt;
+    st_kernel!(backend)(Es, prims, results, iters, eos, opts, proj, pol, σs, metrics, conss, E★s, Bs, γΔt;
                         ndrange=n)
     synchronize(backend)
     @test isequal(Es, [h[1] for h in host])
@@ -685,13 +686,13 @@ end
     end
     nc = length(cms)
     μ_max = T(ST_μ_MAX)
-    chost = [solve_ohm_stage(eos, opts, pol, MagnetizationCutoff(Constant(cσs[i]), μ_max), cms[i],
+    chost = [solve_ohm_stage(eos, opts, proj, pol, MagnetizationCutoff(Constant(cσs[i]), μ_max), cms[i],
                              ccs[i], cEs[i], cBs[i], γΔt, cold_guesses(T)) for i in 1:nc]
     cE = Vector{SVector{3,T}}(undef, nc)
     cq = Vector{NTuple{NPRIM,T}}(undef, nc)
     cr = Vector{OhmStageResult}(undef, nc)
     cn = Vector{Int}(undef, nc)
-    st_cut_kernel!(backend)(cE, cq, cr, cn, eos, opts, pol, μ_max, cσs, cms, ccs, cEs, cBs, γΔt;
+    st_cut_kernel!(backend)(cE, cq, cr, cn, eos, opts, proj, pol, μ_max, cσs, cms, ccs, cEs, cBs, γΔt;
                             ndrange=nc)
     synchronize(backend)
     @test isequal(cE, [h[1] for h in chost]) && isequal(cq, [h[2] for h in chost])
@@ -707,10 +708,10 @@ end
     for mdl in (Vacuum(), Constant(T(10)), DensityProfile(T(10), T(1e-9)), IdealConductor(),
                 MagnetizationCutoff(Constant(T(10)), μ_max),
                 MagnetizationCutoff(DensityProfile(T(10), T(1e-9)), μ_max))
-        @test (@inferred solve_ohm_stage(eos, opts, pol, mdl, m, cons, E★, B, γΔt,
+        @test (@inferred solve_ohm_stage(eos, opts, proj, pol, mdl, m, cons, E★, B, γΔt,
                                          cold_guesses(T))) isa
               Tuple{SVector{3,T},NTuple{NPRIM,T},OhmStageResult,Int}
-        @test rec_allocations(solve_ohm_stage, eos, opts, pol, mdl, m, cons, E★, B, γΔt,
+        @test rec_allocations(solve_ohm_stage, eos, opts, proj, pol, mdl, m, cons, E★, B, γΔt,
                               cold_guesses(T)) == 0
     end
 

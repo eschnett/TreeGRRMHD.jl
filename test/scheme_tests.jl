@@ -160,7 +160,7 @@ end
     for case in (em_wave_case(; roots=3), alfven_wave_case(; roots=3))
         forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
         f = mhd_fields(Float64, forest)
-        p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+        p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
                        𝔅̄=case.𝔅̄, limiter=:mc)
         u1 = exact_state(p, case, 0.0)
         u2 = exact_state(p, case, 0.3)
@@ -208,7 +208,7 @@ end
     case = D == 1 ? c1 : oblique_case(c1; N=N, roots=2)
     forest = Forest(case.roots; N=N, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest)
-    p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+    p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
                    𝔅̄=case.𝔅̄, limiter=:mc)
     u = exact_state(p, case, 0.0)
     f.U.work .= NaN
@@ -255,7 +255,7 @@ end
     case = em_wave_case(; roots=2)
     forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest)
-    kw = (; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model)
+    kw = (; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model)
     @test_throws "no default limiter" MHDProblem(f; kw...)
     @test_throws "limiter must be one of" MHDProblem(f; kw..., limiter=:weno)
     @test_throws "riemann must be one of" MHDProblem(f; kw..., limiter=:mc, riemann=:hllc)
@@ -322,7 +322,7 @@ end
     case = em_wave_case(; roots=3)
     forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest)
-    p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+    p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
                    limiter=:mc)
     u = exact_state(p, case, 0.0)
     uU = statearray(u, p.sets, SC.SEG_U)

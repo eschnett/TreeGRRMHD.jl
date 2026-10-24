@@ -199,7 +199,7 @@ end
                                 11.0)
     @test prim == ntuple(Float64, NPRIM)
     m = rec_metric(Xoshiro(22))
-    flags = REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_W_CAPPED
+    flags = REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_W_CEILED
     P = TreeGRRMHD.pack_P(prim, flags, SVector(13.0, 14.0, 15.0), SVector(16.0, 17.0, 18.0),
                           19.0, m)
     @test P isa NTuple{NP,Float64}
@@ -234,7 +234,7 @@ end
     # nested solve, and the round trip is no better (measured in step 1).
     opts = REC_EOS.Con2PrimOptions{Float64}()
     tight = REC_EOS.Con2PrimOptions{Float64}(; tol=1e-14)
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(23)
     worst_ρ = worst_s = worst_s_raw = worst_cons = worst_τ = 0.0
     worst_ρ_tight = worst_s_tight = default_cons = default_τ = 0.0
@@ -250,7 +250,7 @@ end
         B = sqrt(2 * ratio * (1 - share) * τ_fluid) * rec_direction(rng, m)
 
         cons = prim2con(eos, m, prim, E, B)
-        q, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, cold_guesses(Float64))
+        q, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, cold_guesses(Float64))
         flags == 0 || (flagged += 1)
 
         κ_ρ, κ_s = rec_conditioning(eos, prim, τ_fluid)
@@ -270,7 +270,7 @@ end
         # not an input of the hydrodynamic recovery — `s` comes from `τ`, and
         # `D s` is reset from it ("Matter" in `CODE.md`) — so its slot is
         # checked through `s` above, and not here.
-        qt, ft = con2prim_hydro(eos, tight, pol, m, cons, E, B, cold_guesses(Float64))
+        qt, ft = con2prim_hydro(eos, tight, proj, pol, m, cons, E, B, cold_guesses(Float64))
         ft == 0 || (flagged += 1)
         eρ, es, _ = rec_prim_errors(m, prim, qt, κ_ρ, κ_s)
         worst_ρ_tight = max(worst_ρ_tight, eρ)
@@ -307,7 +307,7 @@ end
     # `τ`) and the angle between `v` and `B`.
     eos = rec_gas(Γ)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(24)
     worst_ρ = worst_s = worst_v = 0.0
     flagged = 0
@@ -327,7 +327,7 @@ end
         B = (sqrt(2 * exp10(-4 + 6 * rand(rng)) * τ_fluid) / nd) * dir
         E = ideal_E(m, v, B)
         cons = prim2con(eos, m, prim, E, B)
-        q, flags = con2prim_ideal(eos, opts, pol, m, cons, B, cold_guesses(Float64))
+        q, flags = con2prim_ideal(eos, opts, proj, pol, m, cons, B, cold_guesses(Float64))
         flags == 0 || (flagged += 1)
         κ_ρ, κ_s = rec_conditioning(eos, prim, TreeGRRMHD.cons_τ(cons) / m.sqrtγ)
         eρ, es, _ = rec_prim_errors(m, prim, q, κ_ρ, κ_s)
@@ -354,8 +354,8 @@ end
     prim = rec_prim(rng, eos, m)
     zero3 = zero(SVector{3,Float64})
     cons = prim2con(eos, m, prim, zero3, zero3)
-    qi, fi = con2prim_ideal(eos, opts, pol, m, cons, zero3, cold_guesses(Float64))
-    qh, fh = con2prim_hydro(eos, opts, pol, m, cons, zero3, zero3, cold_guesses(Float64))
+    qi, fi = con2prim_ideal(eos, opts, proj, pol, m, cons, zero3, cold_guesses(Float64))
+    qh, fh = con2prim_hydro(eos, opts, proj, pol, m, cons, zero3, zero3, cold_guesses(Float64))
     @test fi == fh == 0
     @test rec_same(qi, qh; vtol=4eps())
 end
@@ -368,7 +368,7 @@ end
     # has nothing to do, and the state is the cold one to the tolerance.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(25)
     for _ in 1:50
         m = rec_metric(rng)
@@ -376,8 +376,8 @@ end
         B = 1e-3 * rec_direction(rng, m)
         E = 2e-3 * rec_direction(rng, m)
         cons = prim2con(eos, m, prim, E, B)
-        cold, _ = con2prim_hydro(eos, opts, pol, m, cons, E, B, cold_guesses(Float64))
-        warm, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, guesses(prim))
+        cold, _ = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, cold_guesses(Float64))
+        warm, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, guesses(prim))
         @test flags == 0
         κ_ρ, κ_s = rec_conditioning(eos, prim, TreeGRRMHD.cons_τ(cons) / m.sqrtγ)
         eρ, es, _ = rec_prim_errors(m, cold, warm, κ_ρ, κ_s)
@@ -389,7 +389,7 @@ end
               (TreeGRRMHD.dot_up(m, E, E) + TreeGRRMHD.dot_up(m, B, B)) / 2
         cin = REC_EOS.Con2PrimIn{Float64}(cons[1] / sg, τ_f, cons[6] / sg, 0.0,
                                           sqrt(TreeGRRMHD.dot_down(m, S_f, S_f)), 0.0)
-        out = REC_EOS.con2prim_safe(eos, cin, opts, pol, guesses(prim)...)
+        out = REC_EOS.con2prim_safe(eos, cin, opts, proj, guesses(prim)...)
         @test out.base.iters_newton <= 1
     end
 end
@@ -402,14 +402,14 @@ end
     # what they were: the policy repairs the fluid only.
     eos = rec_gas(2)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(eos, REC_ρ_ATM)
+    (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     F = REC_EOS
     rng = Xoshiro(26)
     m = rec_metric(rng)
     E = 1e-6 * rec_direction(rng, m)
     B = 2e-6 * rec_direction(rng, m)
     cold = cold_guesses(Float64)
-    recover(c) = con2prim_hydro(eos, opts, pol, m, c, E, B, cold)
+    recover(c) = con2prim_hydro(eos, opts, proj, pol, m, c, E, B, cold)
     # The EOS's warm start is NaN for an analytic EOS, so it is not read.
     healthy(q) = all(isfinite, q[1:(NPRIM - 1)]) && TreeGRRMHD.prim_w(q) <= acosh(100.0) + 4eps() &&
                  REC_BOX.s_window[1] <= TreeGRRMHD.prim_s(q) <= REC_BOX.s_window[2]
@@ -435,7 +435,7 @@ end
         @test flags & F.FLAG_POL_ATMOSPHERE != 0
         @test healthy(q)
     end
-    q, flags = con2prim_hydro(eos, opts, pol, m, c, SVector(NaN, 0, 0), B, cold)
+    q, flags = con2prim_hydro(eos, opts, proj, pol, m, c, SVector(NaN, 0, 0), B, cold)
     @test flags & F.FLAG_POL_NONFINITE != 0 && healthy(q)
 
     # Faster than the cap (W = 200 > 100): the rapidity is capped with `D`
@@ -443,7 +443,7 @@ end
     fast = primitive_state(eos, m, 1e-4, tanh(acosh(200.0)) * rec_direction(rng, m), 5.0, 0.3)
     c = prim2con(eos, m, fast, E, B)
     q, flags = recover(c)
-    @test flags & F.FLAG_POL_W_CAPPED != 0
+    @test flags & F.FLAG_POL_W_CEILED != 0
     @test TreeGRRMHD.prim_w(q) == acosh(100.0)
     @test isapprox(TreeGRRMHD.prim_ρ(q) * cosh(TreeGRRMHD.prim_w(q)),
                    TreeGRRMHD.cons_D(c) / m.sqrtγ; rtol=4eps())
@@ -473,7 +473,7 @@ end
     # Above the density ceiling: clamped, not excised.
     dense = primitive_state(eos, m, 3e-2, 0.2 * rec_direction(rng, m), 5.0, 0.3)
     q, flags = recover(prim2con(eos, m, dense, E, B))
-    @test flags & F.FLAG_POL_ρ_CLAMPED != 0
+    @test flags & F.FLAG_POL_ρ_CEILED != 0
     @test TreeGRRMHD.prim_ρ(q) == 1e-2
     @test healthy(q)
 
@@ -484,16 +484,16 @@ end
 
 # The three conversions in one kernel, as the right-hand side will call them.
 @kernel function rec_kernel!(out_hydro, out_ideal, flags, @Const(prims), @Const(metrics),
-                             @Const(Es), @Const(Bs), eos, opts, pol)
+                             @Const(Es), @Const(Bs), eos, opts, proj, pol)
     i = @index(Global)
     m = metrics[i]
     prim = prims[i]
     E, B = Es[i], Bs[i]
     T = eltype(E)
     cons = prim2con(eos, m, prim, E, B)
-    q, fh = con2prim_hydro(eos, opts, pol, m, cons, E, B, cold_guesses(T))
+    q, fh = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, cold_guesses(T))
     cons_ideal = prim2con(eos, m, prim, ideal_E(m, TreeGRRMHD.prim_v(prim), B), B)
-    r, fi = con2prim_ideal(eos, opts, pol, m, cons_ideal, B, guesses(q))
+    r, fi = con2prim_ideal(eos, opts, proj, pol, m, cons_ideal, B, guesses(q))
     out_hydro[i] = q
     out_ideal[i] = r
     flags[i] = fh | fi
@@ -506,30 +506,30 @@ function rec_allocations(f, args...)
     return @allocated f(args...)
 end
 
-function rec_kernel_run(eos, opts, pol, prims, metrics, Es, Bs)
+function rec_kernel_run(eos, opts, proj, pol, prims, metrics, Es, Bs)
     n = length(prims)
     T = eltype(eltype(Es))
     out_h = Vector{NTuple{NPRIM,T}}(undef, n)
     out_i = Vector{NTuple{NPRIM,T}}(undef, n)
     flags = Vector{UInt32}(undef, n)
     backend = CPU()
-    rec_kernel!(backend)(out_h, out_i, flags, prims, metrics, Es, Bs, eos, opts, pol;
+    rec_kernel!(backend)(out_h, out_i, flags, prims, metrics, Es, Bs, eos, opts, proj, pol;
                          ndrange=n)
     synchronize(backend)
     return out_h, out_i, flags
 end
 
-function rec_host_run(eos, opts, pol, prims, metrics, Es, Bs)
+function rec_host_run(eos, opts, proj, pol, prims, metrics, Es, Bs)
     T = eltype(eltype(Es))
     out_h = NTuple{NPRIM,T}[]
     out_i = NTuple{NPRIM,T}[]
     flags = UInt32[]
     for i in eachindex(prims)
         m, prim, E, B = metrics[i], prims[i], Es[i], Bs[i]
-        q, fh = con2prim_hydro(eos, opts, pol, m, prim2con(eos, m, prim, E, B), E, B,
+        q, fh = con2prim_hydro(eos, opts, proj, pol, m, prim2con(eos, m, prim, E, B), E, B,
                                cold_guesses(T))
         cons_ideal = prim2con(eos, m, prim, ideal_E(m, TreeGRRMHD.prim_v(prim), B), B)
-        r, fi = con2prim_ideal(eos, opts, pol, m, cons_ideal, B, guesses(q))
+        r, fi = con2prim_ideal(eos, opts, proj, pol, m, cons_ideal, B, guesses(q))
         push!(out_h, q)
         push!(out_i, r)
         push!(flags, fh | fi)
@@ -577,11 +577,11 @@ end
     # element types here.
     eos = REC_EOS.narrow(rec_gas(2), T)
     opts = REC_EOS.Con2PrimOptions{T}()
-    pol = REC_EOS.default_policy(eos, T(REC_ρ_ATM))
+    (; proj, pol) = recovery_options(eos, T(REC_ρ_ATM))
     @test isbits(eos) && isbits(opts) && isbits(pol) && isbits(flat_metric(T))
     prims, metrics, Es, Bs = rec_states(Xoshiro(27), eos, T, 64)
-    kh, ki, kf = rec_kernel_run(eos, opts, pol, prims, metrics, Es, Bs)
-    hh, hi, hf = rec_host_run(eos, opts, pol, prims, metrics, Es, Bs)
+    kh, ki, kf = rec_kernel_run(eos, opts, proj, pol, prims, metrics, Es, Bs)
+    hh, hi, hf = rec_host_run(eos, opts, proj, pol, prims, metrics, Es, Bs)
     @test isequal(kh, hh)
     @test isequal(ki, hi)
     @test kf == hf
@@ -592,13 +592,13 @@ end
     m, prim, E, B = metrics[1], prims[1], Es[1], Bs[1]
     cons = prim2con(eos, m, prim, E, B)
     @test (@inferred prim2con(eos, m, prim, E, B)) isa NTuple{NU,T}
-    @test (@inferred con2prim_hydro(eos, opts, pol, m, cons, E, B, cold_guesses(T))) isa
+    @test (@inferred con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, cold_guesses(T))) isa
           Tuple{NTuple{NPRIM,T},UInt32}
-    @test (@inferred con2prim_ideal(eos, opts, pol, m, cons, B, cold_guesses(T))) isa
+    @test (@inferred con2prim_ideal(eos, opts, proj, pol, m, cons, B, cold_guesses(T))) isa
           Tuple{NTuple{NPRIM,T},UInt32}
     @test rec_allocations(prim2con, eos, m, prim, E, B) == 0
-    @test rec_allocations(con2prim_hydro, eos, opts, pol, m, cons, E, B, cold_guesses(T)) == 0
-    @test rec_allocations(con2prim_ideal, eos, opts, pol, m, cons, B, cold_guesses(T)) == 0
+    @test rec_allocations(con2prim_hydro, eos, opts, proj, pol, m, cons, E, B, cold_guesses(T)) == 0
+    @test rec_allocations(con2prim_ideal, eos, opts, proj, pol, m, cons, B, cold_guesses(T)) == 0
 
     # At `Float32` the recovery is a smoke test: it runs, it is `Float32`,
     # and it lands on the state to EntropyEOS's `Float32` accuracy — its
@@ -621,74 +621,86 @@ end
 
 # The two recoveries of given conserved states in one kernel.
 @kernel function rec_floor_kernel!(out_hydro, out_ideal, flags, @Const(conss), m, E, B, eos,
-                                   opts, pol)
+                                   opts, proj, pol)
     i = @index(Global)
     T = eltype(E)
-    q, fh = con2prim_hydro(eos, opts, pol, m, conss[i], E, B, cold_guesses(T))
-    r, fi = con2prim_ideal(eos, opts, pol, m, conss[i], B, cold_guesses(T))
+    q, fh = con2prim_hydro(eos, opts, proj, pol, m, conss[i], E, B, cold_guesses(T))
+    r, fi = con2prim_ideal(eos, opts, proj, pol, m, conss[i], B, cold_guesses(T))
     out_hydro[i] = q
     out_ideal[i] = r
     flags[i] = (fh, fi)
 end
 
-@testset "A density the policy raised to the atmosphere's is the atmosphere at rest: T=$T" for T in (Float64, Float32)
-    # Guards the one decision this package adds to EntropyEOS's policy
-    # (decided by Erik 2026-10-21; "Floors, the atmosphere and the
-    # magnetosphere" in `CODE.md`): where `con2prim_safe` raised the density
-    # to `ρ_atm` without resetting the state (`FLAG_POL_ρ_FLOORED`,
-    # EntropyEOS 1.1), it kept the coldest state's rapidity at that momentum,
-    # `W ≈ |S|/ρ_atm` — `W ≈ 40` here, with `D = ρ_atm W` eight times the
-    # input's. Both recoveries, and so the reset, the right-hand side and the
-    # stage solve, take the atmosphere at rest instead, flagged; the state
-    # written then holds `D = ρ_atm ≤ max(D_in, D_atm)` and is a fixed point.
-    # Also: the new bit 16 travels through `P` and the diagnostics' `|` of
-    # flags exactly at `Float32`; and the kernel, inference and allocation
-    # claims hold on this branch too.
+@testset "A state the projection put on the ρ_min face is the atmosphere at rest: T=$T" for T in (Float64, Float32)
+    # Guards this package's atmosphere rule through EntropyEOS 2.0's two
+    # levels (decided by Erik 2026-10-21; amended 2026-10-24, EntropyEOS 2.0;
+    # "Floors, the atmosphere and the magnetosphere" in `CODE.md`): where the
+    # projection (`con2prim_safe`, level 1) had to put a state on the `ρ_min`
+    # face (`FLAG_POL_ρ_FLOORED`) it keeps `D` and lowers the momentum to
+    # `w = acosh(D/ρ_min)` — `W = 5` here, `|S| = 40 D` asking for `W ≈ 40` —
+    # and the policy (`apply_policy`, level 2, called right after it by both
+    # recoveries, and so by the reset, the right-hand side and the stage
+    # solve) replaces it by the atmosphere at rest, adding
+    # `FLAG_POL_ATMOSPHERE` to level 1's bits. The state written holds
+    # `D = ρ_min ≤ max(D_in, D_atm)`, is the state `atmosphere_prim` gives
+    # the initial data bit for bit, and is a fixed point. Also: the flag bits
+    # (8–17) travel through `P` and the diagnostics' `|` exactly at
+    # `Float32`; and the kernel, inference and allocation claims hold here.
     eos = REC_EOS.narrow(rec_gas(2), T)
     opts = REC_EOS.Con2PrimOptions{T}()
-    pol = REC_EOS.default_policy(eos, T(REC_ρ_ATM))
+    (; proj, pol) = recovery_options(eos, T(REC_ρ_ATM))
     m = flat_metric(T)
     E = zero(SVector{3,T})
     B = SVector(zero(T), T(1e-6), zero(T))
-    # `D = 5 ρ_atm` carrying `|S| = 40 D` with almost no energy: below the
-    # coldest state at that momentum.
+    # `D = 5 ρ_min` carrying `|S| = 40 D` and more with almost no energy:
+    # faster than any state of density `ρ_min` or above.
     D = T(5e-10)
     floored(S) = (D, S, zero(T), zero(T), T(1e-9), D / 2, 5 * D, zero(T), zero(T), zero(T))
     conss = [floored(T(k * 1e-9)) for k in 10:2:40]
     cin = REC_EOS.Con2PrimIn{T}(D, T(1e-9), D / 2, zero(T), T(2e-8), zero(T))
-    raw = REC_EOS.con2prim_safe(eos, cin, opts, pol)
-    @test raw.policy_flags & REC_EOS.FLAG_POL_ρ_FLOORED != 0      # the policy's fact
-    @test raw.base.ρ == T(REC_ρ_ATM) && raw.base.W > 10           # at W ≈ |S|/ρ_atm
+    raw = REC_EOS.con2prim_safe(eos, cin, opts, proj)
+    @test raw.policy_flags & REC_EOS.FLAG_POL_ρ_FLOORED != 0      # level 1's fact
+    @test raw.policy_flags & REC_EOS.FLAG_POL_ATMOSPHERE == 0     # level 1 has none
+    @test raw.base.ρ == T(REC_ρ_ATM) && raw.base.W > 4            # at W = D/ρ_min
+    @test raw.cons.D == D                                          # D kept
 
-    atm = REC_EOS.policy_atmosphere(eos, pol, T(1 // 2))
+    ρa, sa, ya = atmosphere_prim(eos, proj, pol, T(1 // 2))
+    @test ρa == T(REC_ρ_ATM) && sa == pol.s_atm                    # 1.x's midpoint
     for c in conss
-        q, f = con2prim_hydro(eos, opts, pol, m, c, E, B, cold_guesses(T))
-        r, g = con2prim_ideal(eos, opts, pol, m, c, B, cold_guesses(T))
+        q, f = con2prim_hydro(eos, opts, proj, pol, m, c, E, B, cold_guesses(T))
+        r, g = con2prim_ideal(eos, opts, proj, pol, m, c, B, cold_guesses(T))
         for (x, fx) in ((q, f), (r, g))
             @test fx & REC_EOS.FLAG_POL_ρ_FLOORED != 0
             @test fx & REC_EOS.FLAG_POL_ATMOSPHERE != 0
-            # The replacement and its cause only (decided by Erik 2026-10-22).
-            @test fx == REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_ρ_FLOORED
-            @test TreeGRRMHD.prim_ρ(x) == atm.ρ && TreeGRRMHD.prim_s(x) == atm.s
+            @test TreeGRRMHD.prim_ρ(x) == ρa && TreeGRRMHD.prim_s(x) == sa
+            @test TreeGRRMHD.prim_Yₑ(x) == ya
             @test TreeGRRMHD.prim_w(x) == 0 && TreeGRRMHD.prim_v(x) == zero(SVector{3,T})
             back = prim2con(eos, m, x, E, B)
-            @test TreeGRRMHD.cons_D(back) ≤ max(TreeGRRMHD.cons_D(c), atm.ρ)
-            x2, f2 = con2prim_hydro(eos, opts, pol, m, back, E, B, cold_guesses(T))
+            @test TreeGRRMHD.cons_D(back) ≤ max(TreeGRRMHD.cons_D(c), ρa)
+            x2, f2 = con2prim_hydro(eos, opts, proj, pol, m, back, E, B, cold_guesses(T))
             @test f2 == REC_EOS.FLAG_POL_ATMOSPHERE && isequal(x2, x)
         end
+        # Level 2 keeps level 1's bits and adds the replacement's.
+        S_f, τ_f = TreeGRRMHD.field_budget(m, SVector(c[2], c[3], c[4]), c[5], E, B)
+        in1 = REC_EOS.Con2PrimIn{T}(c[1], τ_f, c[6], zero(T), sqrt(sum(abs2, S_f)), zero(T))
+        @test f == REC_EOS.con2prim_safe(eos, in1, opts, proj).policy_flags |
+                   REC_EOS.FLAG_POL_ATMOSPHERE
         # The stage solve's recovery returns the atmosphere's EOS point, for
         # its Jacobian.
-        _, _, pt = TreeGRRMHD.fluid_recovery(eos, opts, pol, m, D, SVector(c[2], c[3], c[4]),
-                                              c[5], c[6], cold_guesses(T))
-        @test isequal(pt, REC_EOS.evaluate(eos, atm.ρ, atm.s, atm.ye, T(NaN)))
+        _, _, pt = TreeGRRMHD.fluid_recovery(eos, opts, proj, pol, m, D,
+                                              SVector(c[2], c[3], c[4]), c[5], c[6],
+                                              cold_guesses(T))
+        @test isequal(pt, REC_EOS.evaluate(eos, ρa, sa, ya, T(NaN)))
     end
 
-    # Bit 16 through `P` and through the diagnostics' stored `|`.
-    fl = REC_EOS.FLAG_POL_ρ_FLOORED | REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_S_FLOORED
-    q, _ = con2prim_hydro(eos, opts, pol, m, conss[1], E, B, cold_guesses(T))
+    # The highest bit, 17 (`W_CEILED`), through `P` and through the
+    # diagnostics' stored `|`; `FLAG_POL_ANY` is bits 8–17.
+    @test REC_EOS.FLAG_POL_ANY == 0x3ff00
+    fl = REC_EOS.FLAG_POL_ρ_FLOORED | REC_EOS.FLAG_POL_ATMOSPHERE | REC_EOS.FLAG_POL_S_CEILED
+    q, _ = con2prim_hydro(eos, opts, proj, pol, m, conss[1], E, B, cold_guesses(T))
     @test TreeGRRMHD.aux_flags(TreeGRRMHD.pack_P(q, fl, E, B, zero(T), m)) === fl
-    stored = T(unsafe_trunc(UInt32, T(REC_EOS.FLAG_POL_W_CAPPED)) | fl)
-    @test unsafe_trunc(UInt32, stored) === fl | REC_EOS.FLAG_POL_W_CAPPED
+    stored = T(unsafe_trunc(UInt32, T(REC_EOS.FLAG_POL_W_CEILED)) | fl)
+    @test unsafe_trunc(UInt32, stored) === fl | REC_EOS.FLAG_POL_W_CEILED
     @test unsafe_trunc(UInt32, T(REC_EOS.FLAG_POL_ANY)) === REC_EOS.FLAG_POL_ANY
 
     # In a kernel, bit for bit; inferred and allocation-free.
@@ -696,20 +708,20 @@ end
     out_h = Vector{NTuple{NPRIM,T}}(undef, n)
     out_i = Vector{NTuple{NPRIM,T}}(undef, n)
     flags = Vector{NTuple{2,UInt32}}(undef, n)
-    rec_floor_kernel!(CPU())(out_h, out_i, flags, conss, m, E, B, eos, opts, pol; ndrange=n)
+    rec_floor_kernel!(CPU())(out_h, out_i, flags, conss, m, E, B, eos, opts, proj, pol; ndrange=n)
     synchronize(CPU())
     for i in 1:n
-        q, f = con2prim_hydro(eos, opts, pol, m, conss[i], E, B, cold_guesses(T))
-        r, g = con2prim_ideal(eos, opts, pol, m, conss[i], B, cold_guesses(T))
+        q, f = con2prim_hydro(eos, opts, proj, pol, m, conss[i], E, B, cold_guesses(T))
+        r, g = con2prim_ideal(eos, opts, proj, pol, m, conss[i], B, cold_guesses(T))
         @test isequal(out_h[i], q) && isequal(out_i[i], r) && flags[i] == (f, g)
     end
     c = conss[1]
-    @test (@inferred con2prim_hydro(eos, opts, pol, m, c, E, B, cold_guesses(T))) isa
+    @test (@inferred con2prim_hydro(eos, opts, proj, pol, m, c, E, B, cold_guesses(T))) isa
           Tuple{NTuple{NPRIM,T},UInt32}
-    @test (@inferred con2prim_ideal(eos, opts, pol, m, c, B, cold_guesses(T))) isa
+    @test (@inferred con2prim_ideal(eos, opts, proj, pol, m, c, B, cold_guesses(T))) isa
           Tuple{NTuple{NPRIM,T},UInt32}
-    @test rec_allocations(con2prim_hydro, eos, opts, pol, m, c, E, B, cold_guesses(T)) == 0
-    @test rec_allocations(con2prim_ideal, eos, opts, pol, m, c, B, cold_guesses(T)) == 0
+    @test rec_allocations(con2prim_hydro, eos, opts, proj, pol, m, c, E, B, cold_guesses(T)) == 0
+    @test rec_allocations(con2prim_ideal, eos, opts, proj, pol, m, c, B, cold_guesses(T)) == 0
 end
 
 @testset "A table in g/cm³ runs the recovery inside a kernel through the adapter" begin
@@ -720,7 +732,7 @@ end
     table = REC_EOS.build_eos(REC_EOS.make_synthetic_table())
     g = GeometricEOS(table.view; density=MSUN_DENSITY_CGS)
     opts = REC_EOS.Con2PrimOptions{Float64}()
-    pol = REC_EOS.default_policy(g, 1e7 / MSUN_DENSITY_CGS)
+    (; proj, pol) = recovery_options(g, 1e7 / MSUN_DENSITY_CGS)
     rng = Xoshiro(28)
     m = flat_metric(Float64)
     prims = NTuple{NPRIM,Float64}[]
@@ -733,8 +745,8 @@ end
     metrics = fill(m, length(prims))
     Bs = [1e-12 * rec_direction(rng, m) for _ in prims]
     Es = [1e-12 * rec_direction(rng, m) for _ in prims]
-    kh, ki, kf = rec_kernel_run(g, opts, pol, prims, metrics, Es, Bs)
-    hh, hi, hf = rec_host_run(g, opts, pol, prims, metrics, Es, Bs)
+    kh, ki, kf = rec_kernel_run(g, opts, proj, pol, prims, metrics, Es, Bs)
+    hh, hi, hf = rec_host_run(g, opts, proj, pol, prims, metrics, Es, Bs)
     @test isequal(kh, hh) && isequal(ki, hi) && kf == hf
     @test all(==(0), kf)
 end

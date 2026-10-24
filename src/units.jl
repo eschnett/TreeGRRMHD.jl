@@ -11,11 +11,12 @@
 # nowhere else. `GeometricEOS` puts it *inside* the EOS interface (EOS-1):
 # it is an `AbstractEOS` whose densities are geometric and whose evaluation
 # scales `ρ★` on the way in and the density-like derivatives on the way out,
-# so that `con2prim_safe`, `prim2con`, `default_policy` and the atmosphere
-# policy all run in geometric units unchanged. That works because the
-# recovery's equations are homogeneous of degree one in the densities —
-# `D`, `τ`, `S`, `B²`, `z = ρhW²` and `p` all scale together — and the EOS is
-# the only place a density is compared with a number (proposed in step 1).
+# so that `con2prim_safe`, `prim2con`, `default_projection` and the
+# atmosphere policy, `apply_policy`, all run in geometric units unchanged.
+# That works because the recovery's equations are homogeneous of degree one
+# in the densities — `D`, `τ`, `S`, `B²`, `z = ρhW²` and `p` all scale
+# together — and the EOS is the only place a density is compared with a
+# number (proposed in step 1).
 #
 # The other factor is `κ`. The EOS works in `ρ★ = κρ`, re-zeroed so that
 # `ρ★(1 + U) = ρ(1 + ε)`; the scheme's `D` is `ρ★ W` (CODE.md, "Where the
@@ -127,9 +128,9 @@ The EOS's density `ρ★ = κρ` from a physical rest-mass density, in the units
 
 `eos`, an EOS in its own run units, seen in geometric units: an
 `AbstractEOS` whose densities are the scheme's, so that EntropyEOS's
-`prim2con`, `con2prim_safe` and `default_policy` run on geometric conserved
-variables unchanged. `density` is the EOS's density per geometric density
-unit, [`MSUN_DENSITY_CGS`](@ref) for a table in g/cm³.
+`prim2con`, `con2prim_safe`, `apply_policy` and `default_projection` run on
+geometric conserved variables unchanged. `density` is the EOS's density per
+geometric density unit, [`MSUN_DENSITY_CGS`](@ref) for a table in g/cm³.
 
 `evaluate` scales `ρ★` up by `density` and the density-like results down:
 `U`, `U_s`, `T̂`, `h`, `cs²`, `T_MeV`, `μ̃` and the warm start are unchanged,

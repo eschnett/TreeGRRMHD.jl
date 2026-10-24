@@ -97,7 +97,7 @@ end
     # `G = 2` the outermost face of a block would read outside its storage.
     case = em_wave_case(; roots=2)
     forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
-    kw = (; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model)
+    kw = (; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model)
     g2 = mhd_fields(Float64, forest; G=2)
     for lim in (:ppm, :wenoz, :mp5)
         @test_throws "needs G ≥ 3" MHDProblem(g2; kw..., limiter=lim)

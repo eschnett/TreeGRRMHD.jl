@@ -395,8 +395,8 @@ end
 end
 
 """
-    solve_ohm_stage(eos, opts, pol, σ::Conductivity, m::Metric3, cons★, E★, B, γΔt, guesses;
-                    stage=OhmStageOptions{T}()) -> (E, prim, result::OhmStageResult, iters)
+    solve_ohm_stage(eos, opts, proj, pol, σ::Conductivity, m::Metric3, cons★, E★, B, γΔt,
+                    guesses; stage=OhmStageOptions{T}()) -> (E, prim, result::OhmStageResult, iters)
 
 The implicit stage of Ohm's law in one cell: the field `Eⁱ` (contravariant,
 undensitized) with
@@ -409,8 +409,8 @@ the densitized stage predictor `u★`, whose `𝔈` slots are not read (`E★ =
 𝔈★/√γ` is passed, as [`con2prim_hydro`](@ref) takes its `E`); `B` is the
 cell's field, `γΔt` the stage's implicit coefficient times `Δt`, and
 `guesses` the warm start `(s, w, u_eos)` of the cell's last recovery
-([`guesses`](@ref), or [`cold_guesses`](@ref)). `opts` and `pol` are
-EntropyEOS's, as for `con2prim_hydro`.
+([`guesses`](@ref), or [`cold_guesses`](@ref)). `opts`, `proj` and `pol`
+are EntropyEOS's, as for `con2prim_hydro`.
 
 Returns `E`; the primitive state `prim` it was solved with, so that Ohm's
 law holds between them to rounding and `prim2con(eos, m, prim, E, B)`
@@ -433,6 +433,7 @@ writes `𝔈 = √γ E` into `U` and nothing else ("The implicit stage solve" in
 Allocation-free and kernel-callable.
 """
 @inline function solve_ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                 proj::EntropyEOS.ProjectionOptions{T},
                                  pol::EntropyEOS.PolicyOptions{T}, model::Conductivity,
                                  m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
                                  B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T};
@@ -447,7 +448,7 @@ Allocation-free and kernel-callable.
     # The predictor: the fluid's share at `E★`, and its recovery — the answer
     # where there is no conductivity, the first iterate otherwise.
     S_f, τ_f = field_budget(m, S, τ, E★, B)
-    prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses)
+    prim, f, pt = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ, guesses)
     # The magnetization is the stage's: `B` is explicit, `D` is not changed.
     μ = magnetization(m, B, D)
     σ = conductivity(model, prim, μ)
@@ -475,7 +476,7 @@ Allocation-free and kernel-callable.
     cW = c * lorentz(m, u)
     stiff = cW / (one(T) + cW) > stage.λ_ideal
     if newton && (stiff || f != 0)
-        primI, fI, ptI = ideal_recovery(eos, opts, pol, m, cons★, B, guesses_of(prim))
+        primI, fI, ptI = ideal_recovery(eos, opts, proj, pol, m, cons★, B, guesses_of(prim))
         nrec += 1
         σI = conductivity(model, primI, μ)
         if !iszero(σI) && (stiff ? (fI == 0 || f != 0) : fI == 0)
@@ -540,7 +541,8 @@ Allocation-free and kernel-callable.
             err_prev = err
             S_f, τ_f = S_E, τ_E
         end
-        prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
+        prim, f, pt = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ,
+                                     guesses_of(prim))
         nrec += 1
         if f != 0
             repaired = OHM_REPAIRED
@@ -553,17 +555,19 @@ Allocation-free and kernel-callable.
     # the fluid recovered from that `E`.
     E = ohm_E(m, αΔt * best_σ, best_u, E★, B)
     S_f, τ_f = field_budget(m, S, τ, E, B)
-    prim, f, _ = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
+    prim, f, _ = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ,
+                                guesses_of(prim))
     nrec += 1
     return E, prim, OhmStageResult(OHM_FALLBACK | modifiers | repaired, f), nrec
 end
 
 @inline function solve_ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                 proj::EntropyEOS.ProjectionOptions{T},
                                  pol::EntropyEOS.PolicyOptions{T}, ::IdealConductor,
                                  m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
                                  B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T};
                                  stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
-    prim, flags = con2prim_ideal(eos, opts, pol, m, cons★, B, guesses)
+    prim, flags = con2prim_ideal(eos, opts, proj, pol, m, cons★, B, guesses)
     return ideal_E(m, prim_v(prim), B), prim, OhmStageResult(OHM_IDEAL, flags), 1
 end
 

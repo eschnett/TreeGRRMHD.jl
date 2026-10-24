@@ -17,7 +17,7 @@
 # average — so the scheme starts from the solution and nothing else.
 
 """
-    MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), pol,
+    MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
             model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots)
 
 A problem, as data:
@@ -28,8 +28,10 @@ A problem, as data:
   fraction, and the contravariant fields `Eⁱ`, `Bⁱ` the normal observer sees;
 - `potential(x, t) -> (A, Φ̃)` — the covariant vector potential and the gauge
   scalar there, with `[ijk] ∂ⱼA_k + 𝔅̄ⁱ = √γ Bⁱ`;
-- `eos`, `opts`, `pol`: EntropyEOS's EOS, `Con2PrimOptions` and
-  `PolicyOptions`; `model`: the conductivity; `provider`: the metric;
+- `eos`, `opts`, `proj`, `pol`: EntropyEOS's EOS, `Con2PrimOptions`,
+  `ProjectionOptions` (level 1, the valid range) and `PolicyOptions` (level
+  2, the atmosphere), as [`recovery_options`](@ref) builds them; `model`: the
+  conductivity; `provider`: the metric;
 - `𝔅̄`: the constant densitized background field (`src/curl.jl`);
 - `periodic`, `extents`, `roots`: the box, per dimension.
 
@@ -40,11 +42,12 @@ dimension is given Dirichlet boundaries from the same two callbacks
 ([`case_boundary`](@ref), [`DirichletBoundary`](@ref); step 6), so there
 they must also be the solution outside the box for as long as the run lasts.
 """
-struct MHDCase{T,D,FL,PT,EOS,OPT,POL,MOD,MET}
+struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
     fields::FL
     potential::PT
     eos::EOS
     opts::OPT
+    proj::PRJ
     pol::POL
     model::MOD
     provider::MET
@@ -54,7 +57,7 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,POL,MOD,MET}
     roots::NTuple{D,Int}
 end
 
-function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, pol,
+function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
                  periodic, extents, roots) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
@@ -67,9 +70,32 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, pol,
     all(>(0), rs) || throw(ArgumentError("root counts must be positive, got $rs."))
     o = opts === nothing ? EntropyEOS.Con2PrimOptions{T}() : opts
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
-    return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(pol),
-                   typeof(model),typeof(provider)}(fields, potential, eos, o, pol, model,
-                                                   provider, B̄, per, ext, rs)
+    return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
+                   typeof(pol),typeof(model),typeof(provider)}(
+        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs)
+end
+
+"""
+    recovery_options(eos, ρ_min) -> (; proj, pol)
+
+The two levels of EntropyEOS's recovery as every case of this package sets
+them (amended 2026-10-24, EntropyEOS 2.0): the projection
+`default_projection(eos, ρ_min)` — the valid range from `ρ_min` to the top
+of the table's density box, the rapidity capped at `W = 100` — and the
+atmosphere of `apply_policy` at rest at `ρ_min`, at the trigger
+`D < 1.01 ρ_min`, with the electron fraction of the state it replaces, and
+at the entropy `s_atm` stated here: the middle of the window at `ρ_min` and
+the middle of the `Yₑ` range, which is 1.x's atmosphere for an analytic EOS
+(whose window does not depend on `ρ` or `Yₑ`). EntropyEOS 2.0's own default
+is the window's minimum ("Floors, the atmosphere and the magnetosphere" in
+`CODE.md`). Splat it into [`MHDCase`](@ref).
+"""
+function recovery_options(eos::EntropyEOS.AbstractEOS, ρ_min::T) where {T}
+    proj = EntropyEOS.default_projection(eos, ρ_min)
+    lo, hi = EntropyEOS.yₑ_bounds(eos)
+    sr = EntropyEOS.srange(eos, ρ_min, (T(lo) + T(hi)) / 2)
+    pol = EntropyEOS.PolicyOptions{T}(; s_atm=(sr.s_min + sr.s_max) / 2)
+    return (; proj, pol)
 end
 
 # --- initial data and references ----------------------------------------------------
@@ -568,8 +594,9 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
     refine === nothing || refine(forest)
     f = mhd_fields(T, forest; G=G, backend=backend)
-    build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
-                         provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
+    build() = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
+                         model=case.model, provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ,
+                         stage=stage,
                          limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
                          ops_W=ops_W, fixup=fixup, boundary=case_boundary(case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)

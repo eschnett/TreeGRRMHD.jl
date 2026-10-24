@@ -118,12 +118,16 @@ end
     @test worst < 1e-13
     @info "The adapter against the geometric gas, Γ = $Γ, worst relative EOS error" worst
 
-    # And the policy derived from it is the same policy.
-    pa = UNITS_EOS.default_policy(adapted, 1e-10)
-    pg = UNITS_EOS.default_policy(geo, 1e-10)
-    for name in (:ρ_atm, :ρ_ceiling, :w_cap, :D_max, :τ_max)
-        @test isapprox(getfield(pa, name), getfield(pg, name); rtol=1e-13)
+    # And the valid range and the atmosphere derived from it are the same
+    # (amended 2026-10-24, EntropyEOS 2.0: `default_projection` and the
+    # atmosphere's entropy replace 1.x's `default_policy` and its derived
+    # collapse bounds).
+    oa = recovery_options(adapted, 1e-10)
+    og = recovery_options(geo, 1e-10)
+    for name in (:ρ_min, :ρ_max, :w_cap)
+        @test isapprox(getfield(oa.proj, name), getfield(og.proj, name); rtol=1e-13)
     end
+    @test isapprox(oa.pol.s_atm, og.pol.s_atm; rtol=1e-13)
 end
 
 @testset "A table recovered in geometric units agrees with the table in its own units" begin
@@ -143,8 +147,8 @@ end
     @test EOSUnits(g).density == f
 
     opts = UNITS_EOS.Con2PrimOptions{Float64}()
-    pol_geo = UNITS_EOS.default_policy(g, 1e7 / f)
-    pol_cgs = UNITS_EOS.default_policy(view, 1e7)
+    (; proj, pol) = recovery_options(g, 1e7 / f)
+    proj_cgs = UNITS_EOS.default_projection(view, 1e7)
     m = flat_metric(Float64)
     zero3 = zero(SVector{3,Float64})
     rng = Xoshiro(13)
@@ -170,12 +174,12 @@ end
         v = SVector(0.3, -0.2, 0.1) * rand(rng)
         prim = primitive_state(g, m, ρ_cgs / f, v, s, yₑ)
         cons = prim2con(g, m, prim, zero3, zero3)
-        p_geo, fl_geo = con2prim_hydro(g, opts, pol_geo, m, cons, zero3, zero3,
+        p_geo, fl_geo = con2prim_hydro(g, opts, proj, pol, m, cons, zero3, zero3,
                                        cold_guesses(Float64))
         S = TreeGRRMHD.cons_S(cons)
         cin = UNITS_EOS.Con2PrimIn{Float64}(cons[1] * f, cons[5] * f, cons[6] * f, 0.0,
                                             sqrt(sum(abs2, S)) * f, 0.0)
-        out = UNITS_EOS.con2prim_safe(view, cin, opts, pol_cgs, NaN, NaN, NaN)
+        out = UNITS_EOS.con2prim_safe(view, cin, opts, proj_cgs, NaN, NaN, NaN)
         (fl_geo == 0 && out.policy_flags == 0) || (bad += 1)
         # Two solves to the same tolerance from inputs a rounding apart
         # agree as two round trips do: conditioned, as in EntropyEOS's own

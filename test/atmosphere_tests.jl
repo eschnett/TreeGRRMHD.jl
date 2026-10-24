@@ -42,11 +42,11 @@ end
     @test isnan(magnetization(m, B, NaN))
     model = MagnetizationCutoff(Constant(1e3), 10)
     eos = shock_gas(Float64, 5 // 3)
-    pol = AT.EntropyEOS.default_policy(eos, 1e-8)
+    (; proj, pol) = recovery_options(eos, 1e-8)
     opts = AT.EntropyEOS.Con2PrimOptions{Float64}()
     cons★ = (-1e-9, 0.0, 0.0, 0.0, 6e-7, -5e-10, -2e-8, 0.0, 0.0, 0.0)
     E★ = SVector(0.0, 0.0, 1e-5)
-    E, prim, res, nrec = solve_ohm_stage(eos, opts, pol, model, m, cons★, E★, B, 1e-3,
+    E, prim, res, nrec = solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B, 1e-3,
                                          (NaN, NaN, NaN))
     @test res.flags == OHM_SIGMA_ZERO && E === E★
     # The predictor's recovery, repaired to the atmosphere and flagged as
@@ -118,7 +118,7 @@ end
     # 2026-10-22, decided by Erik): see below.
     case = shock_tube_case(Float64; Γ=5 // 3, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, 0, 0)),
                            right=(ρ=1 // 10^8, p=1 // 10^12, v=(0, 0, 0), B=(0, 0, 0)),
-                           ρ_atm=1 // 10^10, roots=20)
+                           ρ_min=1 // 10^10, roots=20)
     ssp = at_run(case; tableau=IRK.IMEXSSP3433())
     ars = at_run(case; tableau=IRK.ARS443())
     @info "Rarefaction into 10⁻⁸: min ρ $(minimum(ssp.pr.ρ)) (SSP3), $(minimum(ars.pr.ρ)) (ARS); " *

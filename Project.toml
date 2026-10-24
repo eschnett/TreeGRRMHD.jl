@@ -16,19 +16,19 @@ TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 # registry, so a clean clone finds them here, from their remotes and never
 # from a sibling checkout; TreeAMR and SpacetimeMetrics are, and need no
 # entry. `[sources]` is a 1.11 feature, below the Julia floor (1.13; see
-# "Julia version" in `CODE.md`). EntropyEOS 1.0 is the first with
-# `AbstractEOS` and the analytic EOSes (EOS-1, EOS-2); IMEXRungeKutta 1.4 is
-# the release the plan's steps 4a–4c ended at. EntropyEOS is pinned to its
-# tag `v1.1.0` (amended 2026-10-23): its `main` is 2.0.0 since then, which
-# `[compat]` excludes until the package takes it up; `v1.1.0`'s source is
-# that of the commit every measurement since 2026-10-21 resolved (43923c7).
+# "Julia version" in `CODE.md`). IMEXRungeKutta 1.4 is the release the
+# plan's steps 4a–4c ended at. EntropyEOS is pinned to its tag `v2.0.0`
+# (7d68ddb; amended 2026-10-24, EntropyEOS 2.0): the two-level projection
+# (`con2prim_safe` onto `ProjectionOptions`, `apply_policy` with
+# `PolicyOptions`), the face flags, EOS-8 and EOS-9 ("Primitive recovery" in
+# `CODE.md`). Until then the tag was `v1.1.0`.
 [sources]
-EntropyEOS = {rev = "v1.1.0", url = "https://github.com/eschnett/EntropyEOS.jl"}
+EntropyEOS = {url = "https://github.com/eschnett/EntropyEOS.jl", rev = "v2.0.0"}
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
 Adapt = "4"
-EntropyEOS = "1.1"
+EntropyEOS = "2"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42, 1"
 SpacetimeMetrics = "1.7"

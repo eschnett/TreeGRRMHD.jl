@@ -19,7 +19,8 @@
 # is marked "landed in <package> <version>" in `PLAN.md`, and its names
 # join the lists below (decided by Erik 2026-10-14). That retired AMR-1 to
 # AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0), SM-1
-# (SpacetimeMetrics 1.7.0) and AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8);
+# (SpacetimeMetrics 1.7.0), AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8), and
+# EOS-8 and EOS-9 (EntropyEOS 1.1.0 and 2.0.0, which had no probe);
 # the behaviour this package relies on from them is tested where it is used
 # (`test/refinement_tests.jl` for the bounded prolongations, the relative
 # hook's fixed point and the conservative transfer of the potentials,
@@ -91,18 +92,23 @@ end
     # in EntropyEOS 1.0.0; their probes were retired 2026-10-14). `κ` stays
     # unexported and is called qualified (amended in step 0). (Amended in
     # step 1: the synthetic table was to stand in for the analytic EOSes
-    # until EOS-2.) EOS-8 (landed in EntropyEOS 1.1.0, guaranteed by
-    # `[compat]`, so no probe) adds `FLAG_POL_ρ_FLOORED`, which the recovery
-    # wrapper branches on, and `policy_atmosphere`, which it writes (decided by
-    # Erik 2026-10-21).
+    # until EOS-2.) *(Amended 2026-10-24, EntropyEOS 2.0:)* the two levels
+    # the recovery calls, `con2prim_safe` onto `ProjectionOptions` (built by
+    # `default_projection`) and `apply_policy` with `PolicyOptions`, which
+    # replace 1.x's `default_policy` and `policy_atmosphere`, and the face
+    # flags the scheme reads (EOS-8 in EntropyEOS 1.1.0, EOS-9 in 2.0.0, both
+    # guaranteed by `[compat]`, so no probe).
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
                  :IdealGasEOS, :HybridEOS, :polytropic_entropy,
                  :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
                  :narrow, :prim2con, :Prim2ConOut, :con2prim, :Con2PrimIn,
                  :Con2PrimOptions, :Con2PrimOut, :con2prim_safe, :Con2PrimSafeOut,
-                 :PolicyOptions, :PrimState, :default_policy, :C2PResult,
-                 :FLAG_POL_ATMOSPHERE, :FLAG_POL_ANY, :FLAG_POL_ρ_FLOORED,
-                 :FLAG_POL_ρ_CLAMPED, :policy_atmosphere,
+                 :ProjectionOptions, :default_projection, :apply_policy, :PolicyOptions,
+                 :PrimState, :check_prim_state, :C2PResult,
+                 :FLAG_POL_ATMOSPHERE, :FLAG_POL_NONFINITE, :FLAG_POL_NOT_CONVERGED,
+                 :FLAG_POL_ρ_FLOORED, :FLAG_POL_ρ_CEILED, :FLAG_POL_YE_FLOORED,
+                 :FLAG_POL_YE_CEILED, :FLAG_POL_S_FLOORED, :FLAG_POL_S_CEILED,
+                 :FLAG_POL_W_CEILED, :FLAG_POL_ANY,
                  :make_synthetic_table, :build_eos)
         @test name in names(EOS)
     end

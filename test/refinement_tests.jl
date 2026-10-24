@@ -251,7 +251,7 @@ end
     # step (8 is the bound), and 2.2·10⁷ without the fixup.
     c = balsara_case(Float64, 1; roots=10)
     case = MHDCase(Float64, Val(1); fields=c.fields, potential=c.potential, eos=c.eos,
-                   pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
+                   proj=c.proj, pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
                    roots=c.roots)
     runs = map((true, false)) do fixup
         r = evolve!(case, Val(1); N=10, t_end=2 // 5, chunk=1 // 80, limiter=:mc, maxlevel=2,

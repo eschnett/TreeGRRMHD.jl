@@ -238,7 +238,7 @@ end
     # wrap-around Riemann problems collide or evacuate and fire the reset.
     c = balsara_case(Float64, 1; roots=10)
     case = MHDCase(Float64, Val(1); fields=c.fields, potential=c.potential, eos=c.eos,
-                   pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
+                   proj=c.proj, pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
                    roots=c.roots)
     r = evolve!(case, Val(1); N=10, t_end=2 // 5, limiter=:mc)
     u0 = exact_state(r.p, case, 0.0)

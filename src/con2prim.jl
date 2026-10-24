@@ -30,15 +30,20 @@
 # (proposed in step 1; measured: the alternative leaves 7e-11 in the conserved
 # `D` round trip, against 4e-14).
 #
-# Both recoveries call `con2prim_safe` here and nowhere else, and use its
-# primitive state and flags, never its conserved output: every caller (the
+# Both recoveries call EntropyEOS's two levels here and nowhere else —
+# `con2prim_safe`, the projection onto the valid range `proj`, and right after
+# it `apply_policy`, the atmosphere of `pol` (EntropyEOS 2.0) — and use their
+# primitive state and flags, never their conserved output: every caller (the
 # reset, the right-hand side's `P`, the stage solve's predictor, iterates and
 # ideal seed) rebuilds the conserved variables with this package's `prim2con`.
-# So the one decision this package adds to EntropyEOS's policy is taken here:
-# a state whose density the policy raised to the atmosphere's
-# (`FLAG_POL_ρ_FLOORED`, EntropyEOS ≥ 1.1) is the atmosphere at rest (decided
-# by Erik 2026-10-21; "Floors, the atmosphere and the magnetosphere" in
-# `CODE.md`).
+# Level 2 is EntropyEOS's reference `apply_policy`, because it is this
+# package's rule: a state whose density the projection had to raise
+# (`FLAG_POL_ρ_FLOORED`), a non-finite input, a failed solve, or a density
+# below the trigger is the atmosphere at rest at `ρ_min`, flagged
+# `FLAG_POL_ATMOSPHERE` on top of level 1's bits, which say why (decided by
+# Erik 2026-10-21; amended 2026-10-24, EntropyEOS 2.0: until then this file
+# put a floored state at rest itself; "Floors, the atmosphere and the
+# magnetosphere" in `CODE.md`).
 
 # `v` rescaled so that `|v|_γ = tanh w`, or zero where it has no direction.
 @inline function velocity_at_rapidity(m::Metric3{T}, v::SVector{3,T}, w::T) where {T}
@@ -47,7 +52,7 @@
 end
 
 """
-    con2prim_hydro(eos, opts, pol, m::Metric3, cons, E, B, guesses) -> (prim, flags)
+    con2prim_hydro(eos, opts, proj, pol, m::Metric3, cons, E, B, guesses) -> (prim, flags)
 
 The primitive state of the densitized evolved state `cons` in the metric `m`,
 with the fields `Eⁱ`, `Bⁱ` (contravariant, undensitized): undensitize, subtract
@@ -60,25 +65,28 @@ call `EntropyEOS.con2prim_safe` in hydrodynamic mode (`S_par = 0`,
 calls this with its iterate `E(v)` (step 3); in an explicit evaluation it is
 `cons_𝔈(cons)/√γ`. `cons`'s `√γ D s` and `𝔈` slots are not read.
 
-`opts` and `pol` are EntropyEOS's `Con2PrimOptions` and `PolicyOptions`, in
-the units of `eos` (wrap a table in [`GeometricEOS`](@ref)); `guesses` is
-`(s, w, u_eos)`, the previous state's [`guesses`](@ref) or
-[`cold_guesses`](@ref).
+`opts`, `proj` and `pol` are EntropyEOS's `Con2PrimOptions`,
+`ProjectionOptions` (level 1, the valid range) and `PolicyOptions` (level 2,
+the atmosphere), in the units of `eos` (wrap a table in
+[`GeometricEOS`](@ref)); `guesses` is `(s, w, u_eos)`, the previous state's
+[`guesses`](@ref) or [`cold_guesses`](@ref).
 
 Returns the [`NPRIM`](@ref)-tuple `(ρ, v¹, v², v³, s, Yₑ, w, p, h, cs², u_eos)`
-and EntropyEOS's policy flags. It never fails: a state the policy repaired
-(atmosphere, ceilings, the rapidity cap, the entropy window, non-finite
-input) has nonzero flags, and `prim2con` of the returned state is the
-repaired conserved state. Where the policy raised the density to the
-atmosphere's without resetting the state (`FLAG_POL_ρ_FLOORED`), the state is
-the atmosphere at rest, flagged `FLAG_POL_ATMOSPHERE | FLAG_POL_ρ_FLOORED`
-(decided by Erik 2026-10-21; the flags amended 2026-10-22). See "Primitive recovery" in `CODE.md`.
+and EntropyEOS's policy flags. It never fails: a state projected onto a face
+of the valid range (the density, `Yₑ` and entropy bounds, the rapidity cap)
+or replaced by the atmosphere has nonzero flags, one bit per face and
+`FLAG_POL_ATMOSPHERE` for the replacement, and `prim2con` of the returned
+state is the repaired conserved state. The atmosphere — at rest, at `ρ_min`
+— replaces a state on the `ρ_min` face, a non-finite input, a failed solve
+and a density below `pol`'s trigger (EntropyEOS's `apply_policy`; amended
+2026-10-24, EntropyEOS 2.0). See "Primitive recovery" in `CODE.md`.
 """
 @inline function con2prim_hydro(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
-    prim, flags, _ = hydro_recovery(eos, opts, pol, m, cons, E, B, guesses)
+    prim, flags, _ = hydro_recovery(eos, opts, proj, pol, m, cons, E, B, guesses)
     return prim, flags
 end
 
@@ -89,6 +97,7 @@ end
 # `fluid_recovery` recovers from what is left. Both are shared with the stage
 # solve, so that its recovery at a field `E` is `con2prim_hydro` bit for bit.
 @inline function hydro_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
@@ -98,7 +107,7 @@ end
     τ = cons_τ(cons) * isg
     DYₑ = cons_DYₑ(cons) * isg
     S_fluid, τ_fluid = field_budget(m, S, τ, E, B)
-    return fluid_recovery(eos, opts, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses)
+    return fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses)
 end
 
 # The fluid's share of the undensitized total momentum `S_i` and energy `τ`:
@@ -108,9 +117,11 @@ end
     (S - cross_down(m, E, B), τ - (dot_up(m, E, E) + dot_up(m, B, B)) / 2)
 
 # The hydrodynamic recovery from the fluid's own undensitized `D`, `S_i`, `τ`
-# and `D Yₑ`: EntropyEOS's `con2prim_safe` at `B² = 0`, and the velocity
-# rebuilt along `Sⁱ` at the returned rapidity.
+# and `D Yₑ`: EntropyEOS's `con2prim_safe` at `B² = 0` and its `apply_policy`
+# right after it, and the velocity rebuilt along `Sⁱ` at the returned
+# rapidity.
 @inline function fluid_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
                                 S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
                                 guesses::NTuple{3,T}) where {T}
@@ -121,46 +132,43 @@ end
     S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
 
     cin = EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T))
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, pol, guesses[1], guesses[2], guesses[3])
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
+    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
+    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
     b = out.base
     v = velocity_at_rapidity(m, Su, b.w)
     prim = pack_prim(b.ρ, v, b.s, b.ye, b.w, b.eos.p, b.eos.h, b.eos.cs², b.eos.u_solved)
     return prim, out.policy_flags, b.eos
 end
 
-# Whether the policy raised the density to the atmosphere's without resetting
-# the state to the atmosphere (EntropyEOS ≥ 1.1, `FLAG_POL_ρ_FLOORED`: the
-# repair has added rest mass and momentum). A fact about what the policy did,
-# not about its internal path: tested alone (decided by Erik 2026-10-21).
-@inline floored(flags::UInt32) = flags & EntropyEOS.FLAG_POL_ρ_FLOORED != zero(UInt32)
+"""
+    atmosphere_prim(eos, proj, pol, Yₑ) -> (ρ, s, Yₑ)
 
-# The atmosphere at rest, for a state the policy floored (decided by Erik
-# 2026-10-21; "Floors, the atmosphere and the magnetosphere" in `CODE.md`):
-# EntropyEOS's own atmosphere state at the input's `Yₑ` — the policy's atmosphere
-# rule, `policy_atmosphere` — with its EOS point (the stage solve's Jacobian
-# reads it), flagged `FLAG_POL_ATMOSPHERE | FLAG_POL_ρ_FLOORED`: the
-# replacement and its cause, not the clamps of the discarded state (amended
-# 2026-10-22, decided by Erik, as EOS-9 asks of EntropyEOS's own atmosphere
-# replacements). Where the
-# policy raised `ρ` to `ρ_atm` it kept the near-light-like rapidity of the
-# coldest state at that momentum, `W ≈ |S|/ρ_atm`, at the edge of the valid
-# range; a density at the atmosphere's takes the atmosphere's velocity. The
-# caller rebuilds the conserved variables from `prim` (EntropyEOS's `cons` is
-# never used here), so the state written is the atmosphere's, with
-# `D = ρ_atm ≤ max(D_in, D_atm)`: this package's rule, not EntropyEOS's (decided
-# by Erik 2026-10-22: EntropyEOS reports facts, the application decides).
-@inline function atmosphere_at_rest(eos::EntropyEOS.AbstractEOS,
-                                    pol::EntropyEOS.PolicyOptions{T}, D::T, DYₑ::T) where {T}
-    a = EntropyEOS.policy_atmosphere(eos, pol, DYₑ / D)
-    pt = EntropyEOS.evaluate(eos, a.ρ, a.s, a.ye, T(NaN))
-    prim = pack_prim(a.ρ, zero(SVector{3,T}), a.s, a.ye, zero(T), pt.p, pt.h, pt.cs²,
-                     pt.u_solved)
-    return prim, EntropyEOS.FLAG_POL_ATMOSPHERE | EntropyEOS.FLAG_POL_ρ_FLOORED, pt
+The thermodynamic state of the atmosphere EntropyEOS's `apply_policy` writes,
+at rest, for an input whose electron fraction is `Yₑ`: `proj.ρ_min`, `Yₑ` (or
+`pol.ye_atm`) clamped into the table's range, and `pol.s_atm` clamped into
+the entropy window there, or the window's minimum where `s_atm` is NaN. For
+initial data that starts in the atmosphere ([`atmosphere_tube_case`](@ref));
+the recovery itself calls `apply_policy`, and a test holds the two to the same
+state bit for bit (amended 2026-10-24, EntropyEOS 2.0, which has no
+`policy_atmosphere`). `proj.ρ_min` must be set: this package's cases always
+state it.
+"""
+function atmosphere_prim(eos::EntropyEOS.AbstractEOS, proj::EntropyEOS.ProjectionOptions{T},
+                         pol::EntropyEOS.PolicyOptions{T}, Yₑ::T) where {T}
+    ρ = proj.ρ_min
+    isfinite(ρ) && ρ > zero(T) || throw(ArgumentError(
+        "atmosphere_prim needs `proj.ρ_min` set (finite and positive), got $ρ: unset, " *
+        "EntropyEOS takes the table's lowest density, which no case of this package " *
+        "means (CODE.md, \"Floors, the atmosphere and the magnetosphere\")."))
+    lo, hi = EntropyEOS.yₑ_bounds(eos)
+    y = clamp(isfinite(pol.ye_atm) ? pol.ye_atm : Yₑ, T(lo), T(hi))
+    sr = EntropyEOS.srange(eos, ρ, y)
+    s = isfinite(pol.s_atm) ? clamp(pol.s_atm, sr.s_min, sr.s_max) : sr.s_min
+    return ρ, s, y
 end
 
 """
-    con2prim_ideal(eos, opts, pol, m::Metric3, cons, B, guesses) -> (prim, flags)
+    con2prim_ideal(eos, opts, proj, pol, m::Metric3, cons, B, guesses) -> (prim, flags)
 
 The ideal-MHD recovery: the primitive state of `cons` on the assumption that
 `E = −v × B`, by `EntropyEOS.con2prim_safe` with `B² = γ_ij Bⁱ Bʲ ≠ 0` on the
@@ -171,8 +179,7 @@ the converged state, scaled to `|v| = tanh w` as in [`con2prim_hydro`](@ref).
 
 `cons`'s `𝔈` slots are not read: the ideal `E` is `ideal_E(m, v, B)`.
 
-A state the policy floored (`FLAG_POL_ρ_FLOORED`) is the atmosphere at rest,
-as in [`con2prim_hydro`](@ref).
+The two levels and the atmosphere are as in [`con2prim_hydro`](@ref).
 
 This is the seed of the implicit stage solve in the `σΔt → ∞` limit, and its
 exact answer for `IdealConductor` — not a second primitive recovery. With
@@ -180,15 +187,17 @@ exact answer for `IdealConductor` — not a second primitive recovery. With
 in `CODE.md`.
 """
 @inline function con2prim_ideal(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
-    prim, flags, _ = ideal_recovery(eos, opts, pol, m, cons, B, guesses)
+    prim, flags, _ = ideal_recovery(eos, opts, proj, pol, m, cons, B, guesses)
     return prim, flags
 end
 
 # `con2prim_ideal`, also returning the EOS point, for the stage solve's seed.
 @inline function ideal_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
                                 guesses::NTuple{3,T}) where {T}
@@ -217,8 +226,8 @@ end
     S_perp = S_perp² < zero(T) ? zero(T) : sqrt(S_perp²)
 
     cin = EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²)
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, pol, guesses[1], guesses[2], guesses[3])
-    floored(out.policy_flags) && return atmosphere_at_rest(eos, pol, D, DYₑ)
+    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
+    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
     b = out.base
     v_perp = S_perp > zero(T) ? (b.v_perp / S_perp) * Su_perp : zero(SVector{3,T})
     v = velocity_at_rapidity(m, b.v_par * b̂ + v_perp, b.w)

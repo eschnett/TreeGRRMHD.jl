@@ -129,8 +129,10 @@ end
 # Over the run, the interior ghosts — those not beyond the domain's faces —
 # whose primitives the policy would repair for anything but the atmosphere
 # (EntropyEOS's `check_prim_state` of `(ρ, s, Yₑ, asinh |u|)`: is the ghost an
-# admissible state as it stands), with their flags, and those below the
-# atmosphere's density or non-finite.
+# admissible state as it stands; a density below `ρ_min`, `ρ_FLOORED`, is the
+# atmosphere's — amended 2026-10-24, EntropyEOS 2.0, where 1.x reported
+# `ATMOSPHERE` alone), with their flags, and those below the atmosphere's
+# density or non-finite.
 mutable struct RFGhosts
     repaired::Int
     flags::UInt32
@@ -146,8 +148,8 @@ function rf_ghost_repairs!(acc, p, u, t)
         (isfinite(ρ) && ρ ≥ (1 - 1e-12) * 1e-8) || (acc.below += 1)
         ps = RF.EntropyEOS.PrimState{Float64}(ρ, P.work[i, RF.P_S, b], P.work[i, RF.P_YE, b],
                                               P.work[i, RF.P_W, b])
-        fl = RF.EntropyEOS.check_prim_state(p.eos, ps, p.pol)
-        if fl & RF.EntropyEOS.FLAG_POL_ANY & ~RF.EntropyEOS.FLAG_POL_ATMOSPHERE != 0
+        fl = RF.EntropyEOS.check_prim_state(p.eos, ps, p.proj)
+        if fl & RF.EntropyEOS.FLAG_POL_ρ_FLOORED == 0 && fl & RF.EntropyEOS.FLAG_POL_ANY != 0
             acc.repaired += 1
             acc.flags |= fl
         end

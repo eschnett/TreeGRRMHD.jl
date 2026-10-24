@@ -81,7 +81,7 @@ function alfven_wave_case(::Type{T}=Float64; ρ=1, p=1, Γ=4 // 3, B0=1, η=1, L
     vA = alfven_speed(T(ρ) * h, T(B0), T(η))
     w = AlfvenWave{T}(; B0=B0, η=η, k=2 * T(π) / T(L), vA=vA, ρ=ρ, s=s, Yₑ=T(1 // 2))
     return MHDCase(T, Val(1); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(1 // 10^9)), model=IdealConductor(),
+                   recovery_options(eos, T(1 // 10^9))..., model=IdealConductor(),
                    𝔅̄=SVector(T(B0), zero(T), zero(T)), periodic=true,
                    extents=((zero(T), T(L)),), roots=roots)
 end

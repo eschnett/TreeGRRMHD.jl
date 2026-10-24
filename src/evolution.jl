@@ -88,7 +88,7 @@ end
 const MHD_SOLVERS = (:llf, :hlle)
 
 """
-    MHDProblem(f::MHDFields; eos, opts, pol, model, provider = Flat(), 𝔅̄ = 0,
+    MHDProblem(f::MHDFields; eos, opts, proj, pol, model, provider = Flat(), 𝔅̄ = 0,
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
@@ -99,8 +99,10 @@ per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
 evolved set, the interface schedules of the fluxes and the EMFs, the per-block
 origins and spacings on the sets' backend, and the physics:
 
-- `eos`, `opts`, `pol`: EntropyEOS's `AbstractEOS`, `Con2PrimOptions` and
-  `PolicyOptions`, in geometric units ("Thermodynamics" in `CODE.md`);
+- `eos`, `opts`, `proj`, `pol`: EntropyEOS's `AbstractEOS`, `Con2PrimOptions`,
+  `ProjectionOptions` (the valid range, `ρ_min`, `ρ_max`, `w_cap`) and
+  `PolicyOptions` (the atmosphere), in geometric units ("Thermodynamics" and
+  "Primitive recovery" in `CODE.md`);
 - `model`: the conductivity ([`Vacuum`](@ref), [`Constant`](@ref),
   [`DensityProfile`](@ref), [`IdealConductor`](@ref),
   [`MagnetizationCutoff`](@ref));
@@ -138,8 +140,8 @@ the hook of `W`, by default derived from the matter's
 ([`primitive_boundary`](@ref)). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
 """
-struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,
-                  RS}
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
+                  LIM,RS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -157,6 +159,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,M
     haswalls::Bool               # whether any block has one
     eos::EOS
     opts::OPT
+    proj::PRJ
     pol::POL
     model::MOD
     provider::MET
@@ -169,7 +172,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,POL,M
     solver::Val{RS}
 end
 
-function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
+function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
                     model::Conductivity, provider::MetricProvider=Flat(),
                     𝔅̄=nothing, ξ=0, stage=nothing, limiter::Union{Symbol,Nothing}=nothing,
                     riemann::Symbol=:hlle,
@@ -239,11 +242,12 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
                       typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
                       typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
-                      typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
+                      typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
+                      typeof(provider),
                       typeof(boundary),limiter,riemann}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
-        eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
+        eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann))
 end
 
@@ -258,7 +262,8 @@ storage in place, so `p.f` still names the sets). A keyword of
 negative control). Added in step 8.
 """
 rebuild(p::MHDProblem; kwargs...) =
-    MHDProblem(p.f; eos=p.eos, opts=p.opts, pol=p.pol, model=p.model, provider=p.provider,
+    MHDProblem(p.f; eos=p.eos, opts=p.opts, proj=p.proj, pol=p.pol, model=p.model,
+               provider=p.provider,
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
                ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup, kwargs...)
@@ -333,7 +338,7 @@ end
 # conserved ghost fill.)*
 @kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
                                    @Const(origins), @Const(spacings), provider, t, eos, opts,
-                                   pol, ::Val{D}, ::Val{GP}, ::Val{GU},
+                                   proj, pol, ::Val{D}, ::Val{GP}, ::Val{GU},
                                    ::Val{GB}) where {D,GP,GU,GB}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
@@ -345,7 +350,7 @@ end
     𝔅 = cell_𝔅((B1, B2, B3), n, b, GB, Val(D))
     B = 𝔅 / m.sqrtγ
     E = cons_𝔈(cons) / m.sqrtγ
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
+    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, state_guesses(cons))
     u = prim_W(prim) * prim_v(prim)
     wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
     Pc = P_from_W(eos, m, wv, B, flags)
@@ -694,7 +699,8 @@ end
 # into `X`. `U` enters holding `u★`.
 @kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw,
                              @Const(origins), @Const(spacings), provider, t, γΔt, eos, opts,
-                             pol, model, stage, ::Val{D}, ::Val{GB}, ::Val{GX}) where {D,GB,GX}
+                             proj, pol, model, stage, ::Val{D}, ::Val{GB},
+                             ::Val{GX}) where {D,GB,GX}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -705,8 +711,8 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E★ = cons_𝔈(cons★) * isg
-    E, _, r, nrec = solve_ohm_stage(eos, opts, pol, model, m, cons★, E★, B, oftype(h, γΔt),
-                                    state_guesses(cons★); stage=stage)
+    E, _, r, nrec = solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
+                                    oftype(h, γΔt), state_guesses(cons★); stage=stage)
     𝔈 = m.sqrtγ * E
     @inbounds for k in 1:3
         Uw[n..., U_E + k - 1, b] = 𝔈[k]
@@ -733,7 +739,7 @@ end
 # written and the change they made to `√γ D` and `√γ τ`, which is what the
 # reset injects into the state (step 6).
 @kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, @Const(origins),
-                               @Const(spacings), provider, t, eos, opts, pol, ::Val{D},
+                               @Const(spacings), provider, t, eos, opts, proj, pol, ::Val{D},
                                ::Val{GB}, ::Val{GX}, ::Val{STEP}) where {D,GB,GX,STEP}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
@@ -745,7 +751,7 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E = cons_𝔈(cons) * isg
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
+    prim, flags = con2prim_hydro(eos, opts, proj, pol, m, cons, E, B, state_guesses(cons))
     if flags & EntropyEOS.FLAG_POL_ANY != 0
         c = prim2con(eos, m, prim, E, B)
         @inbounds for v in 1:(U_E - 1)
@@ -838,7 +844,7 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     GB = Val(GB_of(f))
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
                 f.B[2].work, f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB)
+                p.proj, p.pol, Val(D), Val(f.P.G), Val(f.U.G), GB)
     fill_ghosts!(f.W, p.schedule_W;
                  boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
     map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work, f.B[2].work,
@@ -918,8 +924,8 @@ function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     update_fields!(p, ustar, t)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U),
                 statearray(ustar, p.sets, SEG_U), f.B[1].work, f.B[2].work, f.B[3].work,
-                f.X.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos, p.opts, p.pol,
-                p.model, p.stage, Val(D), Val(GB_of(f)), Val(f.X.G))
+                f.X.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos, p.opts, p.proj,
+                p.pol, p.model, p.stage, Val(D), Val(GB_of(f)), Val(f.X.G))
     return nothing
 end
 
@@ -927,9 +933,10 @@ end
     reset_atmosphere!(u, integ, p::MHDProblem, t)
 
 The reset, with the limiter signature `(u, integrator, p, t)`: recover every
-owned cell of `u` and, where EntropyEOS's policy repaired the state (the
-atmosphere, a ceiling, the entropy window, the rapidity cap, non-finite
-input), write the repaired state's matter variables back into `u`; `𝔈` is
+owned cell of `u` and, where EntropyEOS's two levels repaired the state (a
+face of the valid range — the density, `Yₑ` and entropy bounds, the rapidity
+cap — or the atmosphere: `FLAG_POL_ANY`), write the repaired state's matter
+variables back into `u`; `𝔈` is
 not touched. Passed to the integrator as both the stage limiter and the step
 limiter ("Floors, the atmosphere and the magnetosphere" in `CODE.md`). The
 cells it writes are counted into the diagnostics set.
@@ -970,7 +977,7 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     end
     map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)
+                p.proj, p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)
     return nothing
 end
 

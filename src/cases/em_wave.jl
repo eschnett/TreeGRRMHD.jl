@@ -86,6 +86,6 @@ function em_wave_case(::Type{T}=Float64; a=1 // 10, b=1 // 20, ρ=1, p=1, Γ=5 /
     s = EntropyEOS.polytropic_entropy(eos, T(p) / T(ρ)^T(Γ))
     w = EMWave{T}(; a=a, b=b, k=2 * T(π) / T(L), ρ=ρ, s=s, Yₑ=T(1 // 2))
     return MHDCase(T, Val(1); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(1 // 10^9)), model=Vacuum(),
+                   recovery_options(eos, T(1 // 10^9))..., model=Vacuum(),
                    periodic=true, extents=((zero(T), T(L)),), roots=roots)
 end
