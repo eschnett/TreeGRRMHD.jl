@@ -220,7 +220,18 @@ the clean checkout, last digits only with bounds checks (60 of 256 lines;
 the tracked tube's drift 0.015 → 0.014 ulp). Under the 10-minute budget,
 so no split. The same afternoon 1.12 took 5m22s (6m00s with bounds
 checks, its `Pkg.test()` default) and 1.11 6m05s with bounds checks — see
-`CODE.md`, "Julia version". At the end of step 7
+`CODE.md`, "Julia version". After the parent-centred fill became the only
+one (2026-10-24, on Symmetry's `amddebugq`, TreeAMR 0.2.6 as resolved
+there): **25950 tests** (d456a44 had 25876: +64 from the merged recovery
+test, +10 the new ghost testset), a `Test Summary` time of 10m18s at one
+thread, 8m38s at four and 10m17s for the clean-checkout check on cn112 (EPYC
+8534P), and 14m12s with `--check-bounds=yes` on cn084 (EPYC 7532); every
+printed line identical at one and four threads, from the clean checkout and
+to d456a44's on the same node (but one renamed `@info` label); another CPU
+moves last digits. With bounds checks four allocation assertions fail, as
+they do at d456a44 (since 2aae714): EntropyEOS 1.1's `con2prim_safe`
+allocates 544 B on the floored input there under `--check-bounds=yes`. At
+the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
 `--check-bounds=yes`), on this machine at a load of about 10 with two

@@ -707,8 +707,10 @@ signal, and a failed solve is always repaired and flagged (proposed in step
 this package adds to the policy: where the flags say the policy raised the
 density to the atmosphere's without resetting the state
 (`FLAG_POL_ρ_FLOORED`, EntropyEOS 1.1, EOS-8), both recoveries return the
-atmosphere at rest and add `FLAG_POL_ATMOSPHERE` ("Floors, the atmosphere and
-the magnetosphere"). EntropyEOS's conserved output is never used: every
+atmosphere at rest, flagged `FLAG_POL_ATMOSPHERE | FLAG_POL_ρ_FLOORED` — the
+replacement and its cause (amended 2026-10-22, decided by Erik; until then
+`FLAG_POL_ATMOSPHERE` added to the discarded state's flags) ("Floors, the
+atmosphere and the magnetosphere"). EntropyEOS's conserved output is never used: every
 caller rebuilds the conserved state from the primitive one with this
 package's `prim2con`.
 
