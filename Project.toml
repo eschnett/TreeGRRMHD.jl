@@ -18,9 +18,12 @@ TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 # entry. `[sources]` is a 1.11 feature, below the Julia floor (1.13; see
 # "Julia version" in `CODE.md`). EntropyEOS 1.0 is the first with
 # `AbstractEOS` and the analytic EOSes (EOS-1, EOS-2); IMEXRungeKutta 1.4 is
-# the release the plan's steps 4a–4c ended at.
+# the release the plan's steps 4a–4c ended at. EntropyEOS is pinned to its
+# tag `v1.1.0` (amended 2026-10-23): its `main` is 2.0.0 since then, which
+# `[compat]` excludes until the package takes it up; `v1.1.0`'s source is
+# that of the commit every measurement since 2026-10-21 resolved (43923c7).
 [sources]
-EntropyEOS = {rev = "main", url = "https://github.com/eschnett/EntropyEOS.jl"}
+EntropyEOS = {rev = "v1.1.0", url = "https://github.com/eschnett/EntropyEOS.jl"}
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
