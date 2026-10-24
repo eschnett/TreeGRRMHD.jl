@@ -313,10 +313,12 @@ in step 11. *(Amended with PLAN.md.)*
   projected onto the entropy ceiling (2.0.0, as the two-level projection;
   tag `v2.0.0` through `[sources]`, `[compat]` `"2"`). See "Primitive
   recovery", "The two levels" *(amended 2026-10-24, EntropyEOS 2.0)*.
-- **EOS-10 (wanted; decision for Erik)**: the nested fallback
+- **EOS-10 (wanted)**: the nested fallback
   allocation-free under `--check-bounds=yes` (PLAN.md), where it allocates
   one `MVector{33,T}` (272 B at `Float64`, 144 B at `Float32`) *(added
-  2026-10-24)*.
+  2026-10-24)*. *(Decided by Erik 2026-10-24:)* it stays an upstream
+  request; the bounds-checked run's four allocation failures are known and
+  wait on it.
 
 ### SpacetimeMetrics
 
@@ -812,7 +814,8 @@ What moves against 1.1, and why (EntropyEOS's `HISTORY.md`, 2026-10-23):
   `10⁻¹⁵` apart `1.7·10⁻¹³` apart, against `1.4·10⁻⁴` with the midpoint),
   every other row is the same within the spread ("Floors, the atmosphere
   and the magnetosphere"). The midpoint is kept because it changes no
-  number of the suite; adopting 2.0's default is Erik's call.
+  number of the suite. *(Decided by Erik 2026-10-24:)* `s_atm` stays the
+  explicit 1.x midpoint (`recovery_options`).
 - **Why EOS-9 needs no `collapse_to_atmosphere`.** The collapse branch was
   1.1's answer to "τ above the hottest state": `ρ_ceiling` at `s_max`, the
   blow-ups of the magnetized tube, which the option turned into the
@@ -1428,9 +1431,9 @@ two-level projection") already regresses. In the magnetized ideal tube
 under ARS the `S_CEILED` writes add to it: keeping `S` while lowering τ
 turns heat into bulk motion, `W` 1.08 → 2.99 for one write (75 writes, a
 median 1.11 times the unprojected root's `W`, at most 2.77), where 1.1
-kept the rapidity. **Not resolved; for Erik**, with ARS not the default
-and SSP3 clean: accept, or isolate the change in ab8eb9b first (a
-TreeGRRMHD level 2 of its own cannot undo level 1's choice of face).
+kept the rapidity. *(Decided by Erik 2026-10-24:)* accepted for now —
+ARS is not the default and SSP3 is clean — and being isolated separately
+(a TreeGRRMHD level 2 of its own cannot undo level 1's choice of face).
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
 an experiment for Erik, not decided; `bin/hot_projection.jl`,
@@ -2127,8 +2130,8 @@ at `f ≤ 0.3`, one each at `f = 1` for Γ = 5/3 and 2; the kernel test
 converges 46 of 48 cells at `Float32` (47 under 1.1), 48 at `Float64`.
 `test/stage_solve_tests.jl`'s bound on the seeded fallbacks moved from 3
 to 12 for this (a margin of 1.5), the only assertion of the sweep that
-moved. Whether the stage solve should seed differently under 2.0's faces
-is open, for Erik.
+moved. *(Decided by Erik 2026-10-24:)* the bound of 12 is approved, for
+the uncut sweep only; the cutoff sweep the scheme runs is unchanged.
 
 Cost (measured in step 3, Julia 1.13, Apple M3 Pro, the Γ = 2 gas, one
 call): 1.3 µs on the fixed point (3 recoveries of 0.37 µs), 1.7–2.4 µs for

@@ -81,9 +81,10 @@ EntropyEOS's two levels, `con2prim_safe` onto `ProjectionOptions` (`proj`:
 built by `recovery_options(eos, ρ_min)` (`s_atm` at 1.x's window
 midpoint); no case sets `collapse_to_atmosphere`; the policy flags are
 bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"). Under 2.0
-ARS(4,4,3) near the vacuum regresses and step 3's uncut sweep falls back
-more ("Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0":
-for Erik). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+ARS(4,4,3) near the vacuum regresses (accepted for now, being isolated
+separately) and step 3's uncut sweep falls back more (its bound of 12
+approved); `s_atm` stays the midpoint; EOS-10 stays an upstream request
+(decided by Erik 2026-10-24). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
@@ -253,7 +254,7 @@ One and four threads identical, and the clean checkout identical to the
 one-thread run on the same node (another CPU moves last digits). With
 bounds checks the four allocation assertions of the ρ_min-face testset
 fail, 272 B and 144 B, in EntropyEOS's nested fallback (EOS-10 in
-`PLAN.md`, Erik's decision); every other run passes whole. At
+`PLAN.md`; waiting on it, decided by Erik 2026-10-24); every other run passes whole. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

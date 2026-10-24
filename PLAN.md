@@ -243,7 +243,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
 | EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
-| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (decision for Erik) |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (requested; decided by Erik 2026-10-24) |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -1076,7 +1076,7 @@ the stage solve in a kernel 47 → 48 of 48 at `Float64` and `Float32`).
 **Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
 `claude/atmosphere-at-rest`).
 
-### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (wanted; decision for Erik)
+### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (wanted)
 
 *(Added 2026-10-24, EntropyEOS 2.0.)* **Why.** `test/recovery_tests.jl`, "A state the projection
 put on the ρ_min face is the atmosphere at rest", asserts that both recoveries allocate nothing, at
@@ -1105,9 +1105,9 @@ buffer, or an immutable `NTuple` scratch updated by `Base.setindex`.
 state that reaches the nested fallback.
 
 **Downstream check.** The two `rec_allocations(...) == 0` assertions of that testset pass under
-`--check-bounds=yes` (today 4 failures in that run, the suite's only ones). **Decision for Erik:**
-request this upstream, or accept the bounds-checked run's four failures as known (the assertion is
-not loosened or skipped here).
+`--check-bounds=yes` (today 4 failures in that run, the suite's only ones). *(Decided by Erik
+2026-10-24:)* it stays an upstream request, and the bounds-checked run's four failures are known,
+waiting on it (the assertion is not loosened or skipped here).
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 
