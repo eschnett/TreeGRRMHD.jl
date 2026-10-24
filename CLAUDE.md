@@ -241,7 +241,19 @@ printed line identical at one and four threads, from the clean checkout and
 to d456a44's on the same node (but one renamed `@info` label); another CPU
 moves last digits. With bounds checks four allocation assertions fail, as
 they do at d456a44 (since 2aae714): EntropyEOS 1.1's `con2prim_safe`
-allocates 544 B on the floored input there under `--check-bounds=yes`. At
+allocates 544 B on the floored input there under `--check-bounds=yes`.
+After EntropyEOS 2.0 (2026-10-24, `claude/recovery-pipeline-2`, Symmetry
+`amddebugq`): **26196 tests** (+200 the Jacobian stencil's check, +40 the
+rewritten ρ_min-face testset, +9 the 2.0 names, −3 the units check), a
+`Test Summary` time of 11m50s at one thread and 9m11s at four on cn112
+(EPYC 8534P), the stage-1 baseline (d94bcf5, 25950 tests) 10m17s in the
+same job there; 11m50s for the clean-checkout check on cn112 and 14m14s on
+cn080 (EPYC 7532); 15m50s with `--check-bounds=yes` on cn079 (EPYC 7532).
+One and four threads identical, and the clean checkout identical to the
+one-thread run on the same node (another CPU moves last digits). With
+bounds checks the four allocation assertions of the ρ_min-face testset
+fail, 272 B and 144 B, in EntropyEOS's nested fallback (EOS-10 in
+`PLAN.md`, Erik's decision); every other run passes whole. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
