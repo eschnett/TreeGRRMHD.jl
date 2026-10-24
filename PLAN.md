@@ -13,8 +13,9 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 **Steps 0 to 3 and 5 to 8 are done; step 9 is next, and waits for nothing.** *(Amended at the
 end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
-unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
-(still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
+unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
+EOS-8 in 1.1.0 and EOS-9 in 2.0.0, which the package resolves since 2026-10-24 (still
+unregistered: EOS-0, EOS-3, EOS-4 and EOS-10 waiting). TreeAMR 0.2.1 is registered with AMR-1,
 AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
 (AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
@@ -139,13 +140,17 @@ This is TreeGH's pattern.
     round trip's `D`), and on a repaired state it is not the repaired speed (amended in step 1).
   - The warm-start guesses of `con2prim`/`con2prim_safe` are **positional**, although the
     docstrings show keywords.
-  - *(Added 2026-10-21.)* `con2prim_safe` is called in `src/con2prim.jl` only (`fluid_recovery`,
-    `ideal_recovery`), and its conserved output `cons` is never used: every caller rebuilds the
-    conserved variables from the primitive state with this package's `prim2con`. Where the policy
-    reports `FLAG_POL_ρ_FLOORED` (EntropyEOS ≥ 1.1: ρ raised to `ρ_atm` without an atmosphere
-    reset) the wrapper returns the atmosphere at rest with `FLAG_POL_ATMOSPHERE` added (decided by
-    Erik 2026-10-21). Test flag words with `& … != 0`, never `==` (`FLAG_POL_ρ_CLAMPED` is two
-    bits), and remember bit 16: flags stored as numbers are exact below `2^24` in `Float32`.
+  - *(Added 2026-10-21; amended 2026-10-24, EntropyEOS 2.0.)* EntropyEOS's two levels,
+    `con2prim_safe` (the projection, onto `ProjectionOptions`) and `apply_policy` (the
+    atmosphere, with `PolicyOptions`), are called in `src/con2prim.jl` only (`fluid_recovery`,
+    `ideal_recovery`), the second right after the first, and their conserved output `cons` is
+    never used: every caller rebuilds the conserved variables from the primitive state with this
+    package's `prim2con`. `apply_policy` puts a state on the `ρ_min` face (`FLAG_POL_ρ_FLOORED`),
+    a non-finite input, a failed solve and `D < atm_trigger·ρ_min` at rest at `ρ_min`, adding
+    `FLAG_POL_ATMOSPHERE` to level 1's bits (this package's rule since 2026-10-21). Test flag
+    words with `& … != 0`; `==` only where the whole word is the claim. The bits are 8–17
+    (`FLAG_POL_ANY = 0x3ff00`): flags stored as numbers are exact below `2^24` in `Float32`.
+    The options are `isbits` and travel into the kernels as two arguments, `proj` before `pol`.
 - **TreeGH's conventions.**
   - `h_ab = g_ab − η_ab` is stored as an offset, and `Π_ab = √γ n^μ∂_μ g_ab` is not `∂ₜh`.
   - Components are packed `(tt,tx,ty,tz,xx,xy,xz,yy,yz,zz)`.
@@ -211,7 +216,7 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-21 (added in step 0, amended 2026-10-14, in step 8 and on 2026-10-21): for the items still
+The state column is as of 2026-10-24 (added in step 0, amended 2026-10-14, in step 8, on 2026-10-21 and on 2026-10-24): for the items still
 waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
 what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
@@ -236,8 +241,9 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-5 | EntropyEOS | — | — | withdrawn 2026-10-17 (was: no policy repair creates rest mass); notes kept for Erik | withdrawn |
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17) | superseded 2026-10-21 by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
-| EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0 (unregistered; `[sources]` `rev = "main"`) |
-| EOS-9 | EntropyEOS | proposed (experiment, not decided) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | proposed |
+| EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
+| EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (decision for Erik) |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -920,6 +926,12 @@ downstream check would follow EOS-6's pattern if it were taken up.
 
 ### EOS-8 — Report the density floor (req; landed in EntropyEOS 1.1.0, unregistered)
 
+*(Amended 2026-10-24, EntropyEOS 2.0:)* `[compat]` is `"2"` and `[sources]` pins the tag `v2.0.0`.
+In 2.0 `FLAG_POL_ρ_FLOORED` is bit 11 and means the state lies on the `ρ_min` face (the momentum
+lowered to `w = acosh(D/ρ_min)`, `D` raised only where it was below `ρ_min`); `FLAG_POL_ρ_CLAMPED`
+and `policy_atmosphere` are gone, and the atmosphere at rest on that flag is EntropyEOS's
+`apply_policy`, which this package calls (EOS-9). The text below is 1.1's.
+
 *(Added 2026-10-21; design agreed by Erik with EntropyEOS's review; superseding EOS-6.)* **Why.**
 `con2prim_safe`'s entropy-floor branch (τ below the coldest state at the momentum) raised the density
 to `ρ_atm` at the coldest state's rapidity without saying so, writing `W ≈ |S|/ρ_atm` and adding rest
@@ -945,7 +957,25 @@ through `P` and the diagnostics). `[compat]` `EntropyEOS = "1.1"`; the names joi
 longer satisfies `[compat]`; `Pkg.update("EntropyEOS")` (or deleting the manifest) fixes it. Once
 EntropyEOS is registered, `[compat]` alone guarantees it.
 
-### EOS-9 — Step 4's endpoint branches: edge-consistent, guarded, reporting facts (proposed; experiment)
+### EOS-9 — Step 4's endpoint branches: edge-consistent, guarded, reporting facts (landed in EntropyEOS 2.0.0)
+
+*(Amended 2026-10-24: landed in EntropyEOS 2.0.0, tag `v2.0.0` (7d68ddb), unregistered;
+`[sources]` pins the tag, `[compat]` is `"2"`, so no probe — there never was one.)* It landed as a
+redesign, EntropyEOS's two-level projection (its `CODE.md`, "State policy"; `HISTORY.md`,
+2026-10-22 and 2026-10-23), which subsumes the request: level 1, `con2prim_safe` onto
+`ProjectionOptions(ρ_min, ρ_max, w_cap)`, decides the active faces by one diagnosis along the
+entropy edges (items 1, 2 and 5: the edge-consistent root find, the guards, `check_con_state`
+sharing the diagnosis); the hottest state is projected onto the `s_max` face with `D` and `S` kept
+and τ lowered, `S_CEILED` (item 3, without the density clamp: a density pushed below `ρ_min` is the
+`ρ_min` face instead, `ρ_FLOORED`); `τ_max` and `D_max` are gone (item 6: `D > ρ_max cosh w_cap`
+is the `ρ_max` face, `ρ_CEILED`; `CEILING` is retired). Item 4 was rejected upstream (decided by
+Erik): level 2, `apply_policy(eos, in, out, proj, pol)`, keeps level 1's bits and adds
+`ATMOSPHERE`, since the bits say why. The face rules differ from 1.1 for states 1.1 had repaired
+(w_cap keeps τ, ρ_max keeps S and τ, the s faces keep S), and a failed solve is `NOT_CONVERGED`,
+which `apply_policy` sends to the atmosphere. Downstream: `collapse_to_atmosphere` and
+`case_policy` are gone, and the recovery calls `apply_policy` (`CODE.md`, "Primitive recovery";
+the measurements are in "Floors, the atmosphere and the magnetosphere"). The request as written
+follows.
 
 *(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere` for Erik's question
 whether `collapse_to_atmosphere` can go; rewritten the same day after his review in six questions,
@@ -1045,6 +1075,39 @@ the stage solve in a kernel 47 → 48 of 48 at `Float64` and `Float32`).
 
 **Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
 `claude/atmosphere-at-rest`).
+
+### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (wanted; decision for Erik)
+
+*(Added 2026-10-24, EntropyEOS 2.0.)* **Why.** `test/recovery_tests.jl`, "A state the projection
+put on the ρ_min face is the atmosphere at rest", asserts that both recoveries allocate nothing, at
+`Float64` and `Float32`. Under `--check-bounds=yes` (one of the suite's three standard runs) it
+fails, and only there: measured on the laptop and on Symmetry with `@allocated` on the EntropyEOS
+calls alone, on the input `Con2PrimIn(D = 5·10⁻¹⁰, τ = 10⁻⁹ − 5·10⁻¹³, D_Y = D/2, S_par = 0,
+S_perp = 10⁻⁸, B² = 0)` (Γ = 2 gas, `ρ ∈ [10⁻¹⁰, 10⁻²]`, `default_projection(eos, 10⁻¹⁰)`, cold
+guesses) — level-1 flags `0x8800` (`ρ_FLOORED | S_FLOORED`), solver result `failed_no_bracket` —
+`con2prim_safe` allocates **272 B at `Float64` and 144 B at `Float32`**, all of it in
+`con2prim_safe_finish` → `con2prim_finish` (the nested fallback); `con2prim_safe_start`,
+`con2prim_start` and `apply_policy` allocate nothing, and without bounds checks nothing does.
+272 B and 144 B are the size of one `MVector{33,T}` (`bracket_scan`'s stack scratch: 33·8 = 264 B
+plus a header; 33·4 = 132 B, aligned) — inferred from the size, not traced: with `@inbounds`
+disabled the indexing's `BoundsError` path can capture the vector, so it escapes and is not promoted
+to the stack. EntropyEOS 1.1 allocated twice as much, 544 B and 288 B, on the same testset's input
+of then. EntropyEOS's own `CODE.md` ("Allocation gates") skips its gates under
+`--check-bounds=yes`, saying the property cannot hold there.
+
+**API.** None new. `bracket_scan` (or whatever holds the scratch) non-escaping with bounds checks
+on: e.g. the indices checked explicitly against `NMAX` with a throw that does not capture the
+buffer, or an immutable `NTuple` scratch updated by `Base.setindex`.
+
+**Semantics.** Unchanged results, bit for bit.
+
+**Upstream acceptance.** EntropyEOS's allocation gates run under `--check-bounds=yes` too, on a
+state that reaches the nested fallback.
+
+**Downstream check.** The two `rec_allocations(...) == 0` assertions of that testset pass under
+`--check-bounds=yes` (today 4 failures in that run, the suite's only ones). **Decision for Erik:**
+request this upstream, or accept the bounds-checked run's four failures as known (the assertion is
+not loosened or skipped here).
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 

@@ -308,6 +308,15 @@ in step 11. *(Amended with PLAN.md.)*
   data.
 - **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
   `s_cold(ρ)` for tabulated-EOS stars.
+- **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
+  1.1.0), and the endpoint branches made edge-consistent, the hottest state
+  projected onto the entropy ceiling (2.0.0, as the two-level projection;
+  tag `v2.0.0` through `[sources]`, `[compat]` `"2"`). See "Primitive
+  recovery", "The two levels" *(amended 2026-10-24, EntropyEOS 2.0)*.
+- **EOS-10 (wanted; decision for Erik)**: the nested fallback
+  allocation-free under `--check-bounds=yes` (PLAN.md), where it allocates
+  one `MVector{33,T}` (272 B at `Float64`, 144 B at `Float32`) *(added
+  2026-10-24)*.
 
 ### SpacetimeMetrics
 
@@ -712,7 +721,134 @@ replacement and its cause (amended 2026-10-22, decided by Erik; until then
 `FLAG_POL_ATMOSPHERE` added to the discarded state's flags) ("Floors, the
 atmosphere and the magnetosphere"). EntropyEOS's conserved output is never used: every
 caller rebuilds the conserved state from the primitive one with this
-package's `prim2con`.
+package's `prim2con`. *(Amended 2026-10-24, EntropyEOS 2.0:)* the exception
+is now EntropyEOS's own level 2, below, and the flags of an atmosphere keep
+level 1's bits.
+
+**The two levels** *(amended 2026-10-24, EntropyEOS 2.0; tag `v2.0.0`,
+7d68ddb, through `[sources]`, `[compat]` `"2"`)*. EntropyEOS 2.0 splits its
+policy in two, and both recoveries call both, the second right after the
+first, in `fluid_recovery` and `ideal_recovery` (stage 4 of the recovery
+plan splits them into separate kernels; the two-phase API,
+`con2prim_safe_start`/`is_done`/`con2prim_safe_finish`, is not used yet):
+
+- **Level 1, `con2prim_safe(eos, in, opts, proj, s, w, u)`**, projects onto
+  the valid range `proj = ProjectionOptions(ρ_min, ρ_max, w_cap)`:
+  `ρ ∈ [ρ_min, ρ_max]`, `w ≤ w_cap`, `Yₑ` in the table and `s` in the
+  window. It has no atmosphere and no collapse. Each face fixes one
+  primitive, frees one conservative and keeps the rest, and sets its own
+  bit: `S_CEILED` (τ lowered), `S_FLOORED` (τ raised), `W_CEILED` (S
+  lowered), `ρ_CEILED` (D lowered), `ρ_FLOORED` (S lowered to
+  `w = acosh(D/ρ_min)`, D raised only where it was below `ρ_min`),
+  `YE_FLOORED`/`YE_CEILED` (`D_Y`). `NONFINITE` (no closest state) and
+  `NOT_CONVERGED` (the solve failed, but a valid state lies inside) return a
+  fixed state that level 2 replaces. Which faces are active is decided by
+  one diagnosis along the entropy edges, not by the solve's root, so that a
+  converged and a failed solve of neighbouring states project alike.
+- **Level 2, `apply_policy(eos, in, out, proj, pol)`**, with
+  `pol = PolicyOptions(s_atm, ye_atm, atm_trigger, collapse_to_atmosphere)`,
+  replaces the state by the atmosphere at rest at `ρ_min` on `ρ_FLOORED`,
+  `NONFINITE` or `NOT_CONVERGED`, or where `D < atm_trigger·ρ_min` (1.01),
+  and adds `FLAG_POL_ATMOSPHERE` to level 1's bits. This *is* this package's
+  rule of 2026-10-21 — a state whose density had to be raised to the floor
+  is the atmosphere at rest — so the wrapper's own `atmosphere_at_rest` and
+  `floored` are gone, and `collapse_to_atmosphere` stays off. It holds
+  `D_out ≤ max(D_in, D_atm)` by construction: of level 1's faces only
+  `ρ_min` raises `D`, and that face goes to the atmosphere, whose
+  `D = ρ_min = D_atm` (`test/recovery_tests.jl`, "A state the projection put
+  on the ρ_min face is the atmosphere at rest"). One difference from
+  2026-10-22's decision: the atmosphere's flags are level 1's bits plus
+  `ATMOSPHERE`, not `ATMOSPHERE | ρ_FLOORED` alone (EOS-9's Q4, rejected
+  upstream by Erik: the bits say why); every tally that reads them
+  (`X_POLICY`, the reset's `FLAG_POL_ANY`) is unchanged by that.
+- **The options.** `MHDProblem`, `MHDCase` and every recovery carry `proj`
+  and `pol` (`isbits`, two kernel arguments, `proj` first). 1.x's
+  `ρ_atm` is `ρ_min`, its `ρ_ceiling` `ρ_max`, and `w_cap` moved into
+  `proj`; `default_policy`, `policy_derive_bounds`, `D_max` and `τ_max` are
+  gone (`τ_max` stopped states the table represents, EOS-9), and with them
+  `case_policy`. `recovery_options(eos, ρ_min)` states both for every case:
+  `default_projection(eos, ρ_min)` (`ρ_max` the top of the density box,
+  `W ≤ 100`) and the atmosphere at `s_atm` (below). `atmosphere_prim` gives
+  initial data the state `apply_policy` writes, bit for bit (a test).
+- **The flags** are renumbered to bits 8–17: `ATMOSPHERE` 8, `NONFINITE` 9,
+  `NOT_CONVERGED` 10, `ρ_FLOORED` 11, `ρ_CEILED` 12, `YE_FLOORED` 13,
+  `YE_CEILED` 14, `S_FLOORED` 15, `S_CEILED` 16, `W_CEILED` 17 (1.x's
+  `W_CAPPED`); `CEILING`, `ρ_CLAMPED` and `YE_CLAMPED` are gone;
+  `FLAG_POL_ANY = 0x3ff00`, still exact as a number in `Float32` (below
+  2¹⁸ < 2²⁴; tested through `P` and the diagnostics).
+
+What moves against 1.1, and why (EntropyEOS's `HISTORY.md`, 2026-10-23):
+
+- **The face semantics.** 1.1 clamped primitives and regenerated every
+  conservative; 2.0 keeps each conservative a face does not free. `w_cap`
+  keeps τ (1.1 kept `s`: the capped cell now heats, bounded by the `s_max`
+  face), `ρ_max` keeps `S` and τ (1.1 kept `w` and `s`), the `s` faces keep
+  `S` (1.1 kept `w`). A failed solve with `D ≥ ρ_min` is slowed onto the
+  `ρ_min` face rather than given mass (and so, here, the atmosphere), and an
+  energy above the hottest state keeps `D` and `S` and lowers τ
+  (`S_CEILED`, EOS-9) where 1.1 collapsed it to `ρ_ceiling`.
+- **`seed_passes` 5** (was 3), the cold seed's passes, with a direct seed
+  for tables: every cold recovery starts from a different (better) seed, so
+  every result at the default tolerance moves by up to that tolerance, and
+  the solver's iteration counts move with it; with `tol = 10⁻¹⁴` they do
+  not (measured below).
+- **`s_atm`.** 2.0's default atmosphere entropy is the window's minimum at
+  `ρ_min`; 1.x's was the window's midpoint (20.5 for the shock gas's 1 … 40).
+  *Kept at the midpoint, explicitly* (`recovery_options`, `s_atm` = the
+  middle of the window at `ρ_min` and the middle of the `Yₑ` range — 1.x's
+  value for an analytic EOS, whose window depends on neither). Measured
+  both ways on Symmetry (2026-10-24; the explicit midpoint against 2.0's
+  default, the window's minimum, 1 for the shock gas): with the midpoint
+  every atmosphere-tube number of the suite is 1.1's to the digits printed
+  (the cut-off tube's 12010 step writes, `W` 4.795, `−1.1754·10⁻⁸`,
+  `−7.402·10⁻⁷`; the hydrodynamic tube's 11686 writes and `−8.3518·10⁻¹²`)
+  and the suite passes; with the minimum the initial atmosphere is colder
+  (the hydrodynamic tube `−8.3662·10⁻¹²`), the ideal magnetized
+  atmosphere under ARS injects `3.5·10⁻⁶` (the assertion `≤ 10⁻⁶` fails)
+  and the width-4 negative control of the coarse-fine atmosphere tube no
+  longer fails (`τ` `−2.4·10⁻¹⁰`, not `≥ 10⁻⁵`, the 2026-10-17 sweep's
+  variant C). On the 48 perturbed runs neither is better across the board:
+  the minimum makes the uniform cut-off tube deterministic again (two runs
+  `10⁻¹⁵` apart `1.7·10⁻¹³` apart, against `1.4·10⁻⁴` with the midpoint),
+  every other row is the same within the spread ("Floors, the atmosphere
+  and the magnetosphere"). The midpoint is kept because it changes no
+  number of the suite; adopting 2.0's default is Erik's call.
+- **Why EOS-9 needs no `collapse_to_atmosphere`.** The collapse branch was
+  1.1's answer to "τ above the hottest state": `ρ_ceiling` at `s_max`, the
+  blow-ups of the magnetized tube, which the option turned into the
+  atmosphere. In 2.0 that state is projected onto the `s_max` face with `D`
+  and `S` kept (`S_CEILED`); where keeping `D` at the momentum puts `ρ`
+  below `ρ_min`, the diagnosis takes the `ρ_min` face instead, and level 2
+  writes the atmosphere at rest — the decision 2026-10-22's experiment
+  emulated (`claude/no-collapse-to-atmosphere`), now upstream. Nothing
+  reaches a ceiling the table cannot hold, so the option has nothing to do:
+  the atmosphere tube drops it (measured below and in "Floors, the
+  atmosphere and the magnetosphere").
+
+What moves in the suite (Julia 1.13, one thread, Symmetry cn112, against
+the stage-1 branch at d94bcf5 in the same job; every other printed number
+agrees to the solver's tolerance or better):
+
+- **At the solver's tolerance**, everywhere a cold recovery runs: the
+  round-trip and convergence diagnostics (`con2prim_hydro ∘ prim2con`
+  conditioned errors within 2× either way, the default-tolerance conserved
+  round trip 1.07·10⁻¹², 1.21·10⁻¹², 8.5·10⁻¹³ against 9.8·10⁻¹³,
+  6.8·10⁻¹³, 6.8·10⁻¹³ — `seed_passes` 5), the Alfvén, oblique, Balsara,
+  resistive and current-sheet L1 errors in their 12th digit or beyond, the
+  drift tallies (`0.0046` → `0.0085` ulp a step and the like), the
+  `Float32` smoke run (3.6·10⁻⁵ → 2.3·10⁻⁵).
+- **The face rules**: the Jacobian test's central difference crossed the
+  entropy floor on one draw of 200 (0.17), now stepped off the face
+  (`test/stage_solve_tests.jl`); step 3's sweep (above).
+- **The flags**: the atmosphere tubes' `|` of policy flags reads 2304
+  (`ATMOSPHERE | ρ_FLOORED`, bits 8 and 11) and 100608 (and bits 15, 16)
+  where 1.1 printed 256 and 66816; the tallies are the same.
+- **ARS(4,4,3) near the vacuum** (see "Floors, the atmosphere and the
+  magnetosphere"): the hydrodynamic rarefaction's resets 131/110 →
+  133/116; the ideal magnetized atmosphere `5.6·10⁻⁸` → `−2.0·10⁻⁹` of
+  rest mass, `W` 4.11 → 4.13 (SSP3: `−6.6·10⁻⁹` → `−7.8·10⁻⁹`, `W` 4.01 →
+  3.99); the coarse-fine magnetized tube `−1.4012·10⁻⁸` → `−1.4027·10⁻⁸`.
+- **The bounds-checked run**: EOS-10 (PLAN.md).
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -845,9 +981,10 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
 the rapidity `w` (also the next recovery's warm start), `p`, `h`, `cs²` and
 the EOS's own warm start — then the policy flags (as a number; every bit is
-below 2¹⁷ — `FLAG_POL_ρ_FLOORED` is bit 16 since EntropyEOS 1.1 — so exact
-even in `Float32`, which holds every integer below 2²⁴; amended 2026-10-21,
-and tested at `Float32` with the new bit), `Eⁱ`, `Bⁱ`, `q`, and the metric
+below 2¹⁸ — bits 8–17, `FLAG_POL_W_CEILED` the highest, since EntropyEOS
+2.0; amended 2026-10-21 and 2026-10-24, EntropyEOS 2.0 — so exact even in
+`Float32`, which holds every integer below 2²⁴, and tested at `Float32`
+with bit 17), `Eⁱ`, `Bⁱ`, `q`, and the metric
 `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric derivatives and
 `K_ij` the sources read are not in it yet: step 2 decides the form of the
 sources, and with it whether they are stored or interpolated on the fly
@@ -1076,6 +1213,12 @@ stiff part kept as a function for the stage solve's residual.
 EntropyEOS's policy defines the atmosphere (`ρ_atm`, triggers, ceilings)
 and `con2prim_safe` applies it; a limiter resets `v = 0` in atmosphere
 cells and writes back only those cells, as TreeHydro's does (proposed).
+*(Amended 2026-10-24, EntropyEOS 2.0:)* the valid range is level 1's
+(`ProjectionOptions`: `ρ_min`, what was `ρ_atm`; `ρ_max`, what was
+`ρ_ceiling`; `w_cap`), the atmosphere level 2's (`apply_policy` with
+`PolicyOptions`: at rest at `ρ_min`, at `s_atm`, below `1.01 ρ_min`), and
+there is no collapse ceiling ("Primitive recovery", "The two levels"). The
+text below up to "EntropyEOS 2.0" is 1.1's, kept as the record.
 
 **The reset is both the stage limiter and the step limiter** (proposed;
 amended 2026-09-25). In IMEXRungeKutta a stage limiter's change reaches
@@ -1154,7 +1297,8 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   `D`. The tallies are unchanged by the narrower flags: a floored stage is
   still counted as repaired (`X_POLICY`), its two bits reach the stages' `|`
   (`X_POLICY_OR`), and the reset writes it (`FLAG_POL_ANY`).
-- **The collapse branch:** a hot near-vacuum cell whose energy lies above
+- **The collapse branch** *(gone in EntropyEOS 2.0, and with it the
+  option's use; see "EntropyEOS 2.0" below)*: a hot near-vacuum cell whose energy lies above
   the hottest state of the window is, to the default policy, past the
   collapse ceiling, and is written at `ρ_ceiling` (10⁶ for the shock gas):
   every blow-up of the magnetized tube. The cases with a magnetized
@@ -1210,6 +1354,83 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   hydrodynamic case, ARS's near-vacuum rarefaction, whose undershoot the
   wrapper now puts at rest (`ρ` 2.7·10⁻¹⁰ → 1.0·10⁻¹⁰, resets 161/118 →
   131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged).
+
+**EntropyEOS 2.0** *(amended 2026-10-24, EntropyEOS 2.0; tag `v2.0.0`; stage 2 of the
+recovery plan, `claude/recovery-pipeline-2`; Symmetry, AMD EPYC 7532 and
+7543 nodes, Julia 1.13, `bin/front_investigation.jl` — its new `beyond`
+mode runs the rows beyond the tube, the 1.1 control with this file's
+`beyond` copied onto the stage-1 tree, `HOT_PROJECTION=0`)*. The recovery
+calls `con2prim_safe` and `apply_policy`; the atmosphere tube no longer
+sets `collapse_to_atmosphere`. The rule of 2026-10-21 is unchanged: a
+state whose density had to be raised to the floor is the atmosphere at
+rest, `D_out ≤ max(D_in, D_atm)` — now `apply_policy`'s own rule on 2.0's
+`ρ_FLOORED`, the `ρ_min` face. EOS-9 is level 1's diagnosis: the hottest
+state keeps `D` and `S` on the `s_max` face (`S_CEILED`), or, where that
+would put `ρ` below `ρ_min`, takes the `ρ_min` face and so the
+atmosphere; no state is ever written at a density ceiling the table
+cannot hold, and the option has nothing to act on (`ρ_CEILED` never
+appears in any run below).
+
+The 48 perturbed runs (as before; blow-ups with a 95% Wilson interval;
+injected `D` min / median / max; fallbacks; largest `W` min / median /
+max; two runs `10⁻¹⁵` apart, the largest relative difference of `D`), 2.0
+with `s_atm` at the midpoint (the package's choice), 2.0 with its default
+`s_atm` (the window's minimum), and 1.1 with `collapse_to_atmosphere`
+(the control, reproducing the numbers above to every digit on the uniform
+mesh and beyond the tube; its refined row as recorded above):
+
+| | 2.0, `s_atm` midpoint | 2.0, `s_atm` minimum | 1.1 + collapse (control) |
+|---|---|---|---|
+| uniform | 0/48; −1.2e−8 (all); 0; 4.8 / 4.8 / 7.1; **1.4e−4** | 0/48; −1.2e−8; 0; 4.8 / 4.8 / 6.0; 1.7e−13 | 0/48; −1.2e−8; 0; 4.8; 1.6e−13 |
+| refined, primitive fill | 0/48; −1.4e−8; 0; 5.0 / 5.4 / 11.0; **1.3e−4** | 0/48; −1.4e−8; 0; 5.0 / 5.0 / 11.8; **2.0e−4** | 0/48; −1.4e−8; 0; 5.0; 7.6e−13 |
+| hydrodynamic tube (uniform; refined) | −8.3517666767e−12, `W` 4.9356884465, 11686 writes; −1.6335e−11 | −8.3661885391e−12, `W` 4.9356868767, 11686; −1.5695e−11 | −8.3517666780e−12, 4.9356884465, 11686; −1.6e−11 |
+| ARS(4,4,3) | **48/48** (injected `D` 5.1e−6 … 1.1e−5, 12 runs on the laptop) | **48/48** | 0/48; −1.2e−8; 23; 7.0 |
+| `Bʸ = 10⁻²` | 0/48; −2.1e−8 / −1.1e−8 / −8.7e−9; 0 / 1 / 1; 4.5 / **26** / **100** | 0/48; 0 / 1 / 1; 4.1 / **25** / **100** | 0/48; −8.5e−9; 1; 16 |
+| ideal, SSP3 | 0/48; −9.0e−9 / −7.8e−9 / −7.2e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −8.1e−9 / −7.8e−9 / −1.4e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −6.6e−9; 0; 4.8 |
+| ideal, ARS | **42/48** (injected 5e−7 … 9e−7 where not) ; 14 / 26 / 58 | **47/48** | 0/48; +5.6e−8; 0; 4.3 |
+| 400 cells | 0/48; −1.5e−8; 0; 5.6 | 0/48; −1.5e−8; 0; 5.6 / 5.6 / 10.3 | 0/48; −1.5e−8; 0; 5.6 |
+| `μ_max = 30` | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.2e−8; 0; 4.8 |
+
+"Blow-up" is the harness's: injected `D > 10⁻⁶` or `|τ| > 10⁻³`; under
+ARS it is the rest mass, `10⁻⁶` to `10⁻⁵` of a box holding 0.5, at a
+modest `W` (5–7 in the cut-off tube), not 1.1's runaway to `10⁴`. Step 6's
+tableau comparison re-measured (`bin/tableau_comparison.jl`, unperturbed):
+Balsara, the resistive tube and the current sheet as before to the digits
+of its table but Balsara 3 under ARS (L1 `D`, `τ`, `𝔅ʸ` 0.375, 18.7,
+0.0591 → 0.360, 18.1, 0.0608, plateau 4.20% → 3.34%, resets 3/3 → 8/6, injected τ
+`2.8·10⁻³` → `6.1·10⁻²`: ARS's undershoot at a strong shock, which the
+reset fills, here too); the atmosphere rows SSP3 as before (hydrodynamic
+`−8.4·10⁻¹²`; ideal `−7.8·10⁻⁹`, `W` 3.99; cut off `−1.2·10⁻⁸`, 0
+fallbacks), ARS hydrodynamic `4.4·10⁻⁷` (1.1: `1.2·10⁻⁹`), ideal
+`−2.0·10⁻⁹`, `W` 4.13, cut off `5.6·10⁻⁶` with 22 fallbacks and 33
+recoveries, the rarefaction `1.5·10⁻⁶`, resets 133/116.
+
+So **SSP3(4,3,3), the default, is unchanged on the uniform mesh** (but
+the cut-off tube with the midpoint `s_atm` is no longer the same run in
+every perturbation, though every one is clean), **and ARS(4,4,3) near the
+vacuum regresses**: 1.1 was deterministic in every row; 2.0 puts large
+negative `D` (to `−2.7·10⁻⁴` in the cut-off tube, `−7·10⁻⁵` in the
+hydrodynamic one) into a few cells at the dense front at the end of a
+step, which the reset fills with the atmosphere — all of the injected
+rest mass. What was ruled out, by experiments on the laptop (12 perturbed
+runs each, hydrodynamic and cut-off tube under ARS): the entropy faces on
+the converged path (1.1's rule — `s` clamped, the root's `ρ` and `w` kept
+— emulated in-process changes nothing), `seed_passes` (3 changes
+nothing), `NOT_CONVERGED` (none occurs), a discontinuous recovery (none of
+the stage limiter's recoveries jumps under a `10⁻¹³` perturbation, in
+either version), and the repairs themselves (the states repaired above the
+trigger are the same kinds and counts, 25 `S_FLOORED` and 22 floored to
+the atmosphere against 1.1's 28 and 25, and 1.1's `con2prim_safe` on 2.0's
+inputs returns the same conserved state to `10⁻⁸`). Bisected upstream: the
+stage-1 tree on EntropyEOS 8879f4f (1.1's API, the commit before 2.0's
+projection) is 1.1 to every digit; this tree on ab8eb9b ("Implement the
+two-level projection") already regresses. In the magnetized ideal tube
+under ARS the `S_CEILED` writes add to it: keeping `S` while lowering τ
+turns heat into bulk motion, `W` 1.08 → 2.99 for one write (75 writes, a
+median 1.11 times the unprojected root's `W`, at most 2.77), where 1.1
+kept the rapidity. **Not resolved; for Erik**, with ARS not the default
+and SSP3 clean: accept, or isolate the change in ab8eb9b first (a
+TreeGRRMHD level 2 of its own cannot undo level 1's choice of face).
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
 an experiment for Erik, not decided; `bin/hot_projection.jl`,
@@ -1698,6 +1919,12 @@ the same day, every Balsara and resistive number is the table's to the
 digits shown, and the current sheet's distance reads 9.559·10⁻⁴ and
 9.560·10⁻⁴ (SSP3, ARS), as it has since step 8's walls — rung 1b — and
 untouched by the recovery; the wall times are within the load's noise.)*
+*(Re-measured 2026-10-24, EntropyEOS 2.0, on Symmetry: SSP3's rows as
+above; ARS's atmosphere rows and Balsara 3 move — the hydrodynamic tube
+injects `4.4·10⁻⁷`, the ideal one `−2.0·10⁻⁹` at `W` 4.13, the cut-off one
+`5.6·10⁻⁶` with 22 fallbacks, the rarefaction `1.5·10⁻⁶` with resets
+133/116 — "Floors, the atmosphere and the magnetosphere", "EntropyEOS
+2.0". The decision for SSP3(4,3,3) stands on more, not less.)*
 
 *As built in step 5* (`src/driver.jl`): `evolve!(T, case, Val(D); N,
 t_end, chunk, cfl, limiter, …)` builds the forest of `case.roots` blocks of
@@ -1881,6 +2108,27 @@ stage equation then requires. On `σΔt ∈ 10^{−3…8}` × `b²/ρ ∈ 10^{�
   `∂σ/∂ρ`);
 - 200 inadmissible predictors (the share at `E★` below the coldest state):
   all finite, and where converged the residual is 1.9e−13.
+
+*(Re-measured 2026-10-24, EntropyEOS 2.0; Symmetry, the same numbers on
+the laptop:)* the fallback takes **49, 125 and 150** points (Γ = 4/3, 5/3,
+2; at most 5.8%), still only at `b²/ρ ≥ 10` and `σΔt ≤ 10²`, and **2, 8
+and 4** of them where the ideal seed was a fluid state (1.1: 0, 1, 0);
+another root 4, 3 and 1; the fixed point 1247, 972, 907 points, Newton
+1296, 1495, 1535; residuals unchanged (3.3e−16, 1.5e−12). 168 points fall
+back under 2.0 and not 1.1, 61 the other way. At the fallback points
+1.1's predictor was `S_FLOORED` (with `W_CAPPED`) and its ideal seed the
+collapse (`CEILING`) or `S_CEILED`; 2.0's predictor is `S_FLOORED` (with
+`W_CEILED`) and its ideal seed `S_CEILED` (with `W_CEILED`): the same
+faces, but 2.0's keep the momentum and move the energy where 1.1's kept
+the rapidity (or collapsed to the density ceiling), so the repaired seeds
+and iterates Newton starts from are other states. The magnetization
+cutoff's sweep, which is what the scheme runs, is unchanged: no fallback
+at `f ≤ 0.3`, one each at `f = 1` for Γ = 5/3 and 2; the kernel test
+converges 46 of 48 cells at `Float32` (47 under 1.1), 48 at `Float64`.
+`test/stage_solve_tests.jl`'s bound on the seeded fallbacks moved from 3
+to 12 for this (a margin of 1.5), the only assertion of the sweep that
+moved. Whether the stage solve should seed differently under 2.0's faces
+is open, for Erik.
 
 Cost (measured in step 3, Julia 1.13, Apple M3 Pro, the Γ = 2 gas, one
 call): 1.3 µs on the fixed point (3 recoveries of 0.37 µs), 1.7–2.4 µs for
@@ -2732,6 +2980,10 @@ a floored state is the atmosphere at rest (EntropyEOS 1.1's
 `collapse_to_atmosphere`; measured, all three meshes are deterministic,
 0/48, `W ≤ 5`, no fallback — the table above stays the record of the
 released policy, the ghost fill's choice is unchanged and Erik's.)*
+*(Amended 2026-10-24, EntropyEOS 2.0: without the option, on 2.0's
+projection, the parent-centred fill's 48 runs are 0/48, no fallback, `W`
+5.0 / 5.4 / 11.0, but two runs `10⁻¹⁵` apart differ by `1.3·10⁻⁴` of `D`
+— "Floors, the atmosphere and the magnetosphere".)*
 
 Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
 above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
@@ -3061,7 +3313,10 @@ named as claims.
      atmosphere at rest; the tube's policy sets `collapse_to_atmosphere`),
      under "Floors, the atmosphere and the magnetosphere": the tube is then
      deterministic with no fallback, and the suite's run prints `W` 4.80,
-     injected −1.18·10⁻⁸, −7.4·10⁻⁷.)* The same holds for step 6's
+     injected −1.18·10⁻⁸, −7.4·10⁻⁷. *Amended 2026-10-24, EntropyEOS 2.0:*
+     without the option on 2.0's projection the suite's run prints the
+     same; across 48 perturbed runs every one is clean, but no longer the
+     same run.)* The same holds for step 6's
      tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
      draw from that spread, and the decision for SSP3(4,3,3) rests on its
      other rows (the near-vacuum rarefaction, the ideal atmosphere; *amended

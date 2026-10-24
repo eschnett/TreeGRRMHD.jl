@@ -72,8 +72,18 @@ implicitly; 10 is the measured safe value (`CODE.md`, "Ohm's law and the
 conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
-IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
-unregistered; `[sources]` pins the tag `v1.1.0`, since its `main` is 2.0.0); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), EOS-8
+(1.1.0) and EOS-9 (2.0.0; still unregistered, `[sources]` pins the tag
+`v2.0.0`, `[compat]` `"2"`, since 2026-10-24). The recovery calls
+EntropyEOS's two levels, `con2prim_safe` onto `ProjectionOptions` (`proj`:
+`ρ_min`, `ρ_max`, `w_cap`) and `apply_policy` with `PolicyOptions`
+(`pol`: the atmosphere), both carried by `MHDProblem` and `MHDCase` and
+built by `recovery_options(eos, ρ_min)` (`s_atm` at 1.x's window
+midpoint); no case sets `collapse_to_atmosphere`; the policy flags are
+bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"). Under 2.0
+ARS(4,4,3) near the vacuum regresses and step 3's uncut sweep falls back
+more ("Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0":
+for Erik). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
@@ -136,8 +146,9 @@ the scheme (only `regrid!`'s own fill); `CODE.md`, "Refinement", records the
 three working fills and their branches. Every fill applies the complete outer
 boundary condition in one TreeAMR fill (Erik, 2026-10-15). The magnetic flux
 across levels holds to rounding as a rate and as a state (but at an outer
-face: AMR-11). The magnetized atmosphere tube is chaotic at rounding level
-(fallbacks, injected energy, `W`). `bin/interface_order.jl`,
+face: AMR-11). The magnetized atmosphere tube was chaotic at rounding level
+(fallbacks, injected energy, `W`) until 2026-10-21's atmosphere at rest;
+under EntropyEOS 2.0 its perturbed runs are clean but not all the same run. `bin/interface_order.jl`,
 `bin/gauge_damping.jl`, `bin/field_loop_refined.jl`, `bin/ghost_fill.jl`
 made `CODE.md`'s step-8 tables. Tests: `test/refinement_tests.jl` and
 `test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
