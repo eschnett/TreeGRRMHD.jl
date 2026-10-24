@@ -8,8 +8,6 @@
 # today's. What it may change: the answers, by the recovery's tolerance. See
 # "The step cache" in `CODE.md`.
 
-using Printf: @sprintf
-
 const SK = TreeGRRMHD
 
 # The recovered `ρ`, `s` and rapidity `w` at the owned cells of a final state,
@@ -64,8 +62,9 @@ sk_cells(r) = nblocks(r.p.f.U) * r.p.f.U.forest.N^length(r.p.f.U.forest.roots)
         dρ = maximum(abs.(pw.ρ .- pc.ρ) ./ pc.ρ)
         ds = maximum(abs.(pw.s .- pc.s) ./ abs.(pc.s))
         dw = maximum(abs.(pw.w .- pc.w))
-        @info @sprintf("%s, %d steps: the cache moves the state by %.1e, ρ %.1e, s %.1e, w %.1e",
-                       name, warm.nsteps, du, dρ, ds, dw)
+        r2(x) = round(x; sigdigits=2)
+        @info "$name, $(warm.nsteps) steps: the cache moves the state by $(r2(du)), " *
+              "ρ $(r2(dρ)), s $(r2(ds)), w $(r2(dw))"
         @test warm.nsteps == cold.nsteps
         @test du ≤ 1e-11
         @test max(dρ, ds, dw) ≤ 5e-11
