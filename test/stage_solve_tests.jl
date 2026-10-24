@@ -123,14 +123,20 @@ end
     # linearly or not at all, while every converged answer stayed right — so
     # only this test would see it. Against central differences: of the
     # recovery at a tight tolerance, with a step of `10⁻⁷ τ` so that the
-    # thermal energy of a cold state is not pushed across the entropy window;
-    # and of `ohm_E`.
+    # thermal energy of a cold state is not pushed across the entropy window
+    # — and where it still is, a step shrunk by fours until no perturbed
+    # recovery lies on a face of the valid range: across a face the
+    # difference is the projection's, not the recovery's (amended 2026-10-24,
+    # EntropyEOS 2.0, whose entropy faces keep `S` where 1.1's kept `w`; at
+    # 1.1 the difference across the face still saw the unconstrained
+    # rapidity, at 2.0 one draw of 200 differed by 0.17); and of `ohm_E`.
     eos = rec_gas(2)
     (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     tight = REC_EOS.Con2PrimOptions{Float64}(; tol=1e-14)
     rng = Xoshiro(52)
     e(k) = SVector(ntuple(i -> i == k ? 1.0 : 0.0, 3))
     worst_rec = worst_ohm = 0.0
+    shrunk = 0
     for _ in 1:200
         m = rec_metric(rng)
         prim, _, E★, B, cons, _, _ = st_problem(rng, eos, m, exp10(-3 + 11 * rand(rng)),
@@ -143,6 +149,16 @@ end
         @test f0 == 0
         du_dS, du_dτ = ST.recovery_jacobian(m, D, p0, pt)
         h = 1e-7 * τ_f
+        stencil(h) = [(S_f + σ * h * e(k), τ_f) for k in 1:3, σ in (-1, 1)] ∪
+                     [(S_f, τ_f + σ * h) for σ in (-1, 1)]
+        repaired(h) = any(((S, τ),) -> recover(S, τ)[2] != 0, stencil(h))
+        if repaired(h)
+            shrunk += 1
+            while repaired(h) && h > 1e-10 * τ_f
+                h /= 4
+            end
+        end
+        @test !repaired(h)
         u(S, τ) = ST.four_velocity(recover(S, τ)[1])
         J = hcat([(u(S_f + h * e(k), τ_f) - u(S_f - h * e(k), τ_f)) / 2h for k in 1:3]...)
         jτ = (u(S_f, τ_f + h) - u(S_f, τ_f - h)) / 2h
@@ -158,7 +174,8 @@ end
                    for k in 1:3]...)
         worst_ohm = max(worst_ohm, maximum(abs.(Jo - dE_du)) / maximum(abs.(dE_du)))
     end
-    @info "Analytic Jacobians against central differences: recovery, Ohm" worst_rec worst_ohm
+    @info "Analytic Jacobians against central differences: recovery, Ohm; draws whose " *
+          "step was shrunk off a face" worst_rec worst_ohm shrunk
     # Measured 1.4e-8 and 3.0e-8, the differences' own truncation error.
     @test worst_rec < 1e-6
     @test worst_ohm < 1e-6
@@ -337,9 +354,18 @@ st_branch(f) = f & OHM_FALLBACK != 0 ? "fallback" :
         # state. A few points converge to another root of the stage
         # equations than the one the problem was built from (5, 2 and 2), to
         # the same residual: the stage has more than one solution there.
+        # *(Amended 2026-10-24, EntropyEOS 2.0:)* 49, 125 and 150 fallbacks
+        # (at most 5.8%), 2, 8 and 4 of them where the ideal seed was a fluid
+        # state, still all in that corner. 2.0's faces keep the momentum and
+        # move the energy where 1.1's kept the rapidity (or, for the ideal
+        # seed, collapsed it to the density ceiling), so the repaired seeds
+        # and iterates Newton starts from differ ("The implicit stage solve"
+        # in `CODE.md`); the bound on the seeded ones is raised from 3 to 12
+        # for that, a margin of 1.5 on the largest. The scheme runs with the
+        # magnetization cutoff, whose sweep below is unchanged.
         @test all(p -> p.lb >= 1 && p.lσ <= 2, fb)
         @test length(fb) <= 0.08 * length(pts)
-        @test seeded_fallbacks <= 3
+        @test seeded_fallbacks <= 12
         # And it is flagged as such: no fallback is reported converged.
         @test all(p -> !ST.converged(OhmStageResult(p.flags, 0)), fb)
     end
