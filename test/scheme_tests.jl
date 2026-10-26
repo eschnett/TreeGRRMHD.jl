@@ -311,6 +311,54 @@ end
     @test l3[SC.R_E:end] == q₀[SC.R_E:end] && l3[1:(SC.R_E - 1)] == rm[1:(SC.R_E - 1)]
 end
 
+@testset "The positivity fallback admits every state con2prim_safe returns unflagged" begin
+    # Guards "Reconstruction" (amended 2026-10-26, EntropyEOS 2.1): the face
+    # test is `con2prim_safe`'s own, with its face slack, not the exact window.
+    # `con2prim_safe` returns a root within the slack of an `s` face unflagged;
+    # a cell holding one is a local minimum of `s`, so MC gives it zero slope
+    # and its faces are its own value. An exact test rejected those faces, and
+    # the fallback, which substitutes that same value, could not repair them:
+    # under ARS(4,4,3) the face went to first order at stage 4, whose explicit
+    # weight is −7/4, and every perturbed cut-off atmosphere tube blew up.
+    eos = SC.shock_gas(Float64, 5 // 3)
+    proj = SC.EntropyEOS.default_projection(eos, 1e-8)
+    # A cold re-solve of a state the stage limiter had written onto the
+    # `s_min` face in the atmosphere tube (the reproducer of 2026-10-24).
+    cin = SC.EntropyEOS.Con2PrimIn{Float64}(4.2333535756838405e-5, 8.405767634079503e-5,
+                                             2.116646393435175e-5, 0.0,
+                                             0.00011909076469608308, 0.0)
+    out = SC.EntropyEOS.con2prim_safe(eos, cin, SC.EntropyEOS.Con2PrimOptions{Float64}(), proj,
+                                      1.0, NaN, NaN)
+    b = out.base
+    sr = SC.EntropyEOS.srange(eos, b.ρ, b.ye)
+    @test out.policy_flags == 0 && b.s < sr.s_min       # unflagged, inside the slack
+    rec(ρ, s, Yₑ) = (ρ, s, Yₑ, 0.1, 0.0, 0.0, 0.0, 0.2, 0.0, 1.0, 0.0, 0.3)
+    q₀ = rec(b.ρ, b.s, b.ye)
+    q₋₁ = rec(2b.ρ, 2.0, b.ye)
+    q₊₁ = rec(b.ρ / 2, 3.0, b.ye)
+    r = SC.extrapolate(Val(:mc), q₋₁, q₀, q₊₁, 1)
+    @test r[SC.R_S] == b.s                               # zero slope at the minimum
+    @test SC.limit_face(eos, r, q₀) == r                 # admitted: no fallback
+    # Past the slack (10⁻⁷ of the window's width at `Float64`) it falls back.
+    width = sr.s_max - sr.s_min
+    for (s, ok) in ((sr.s_min - width / 10^8, true), (sr.s_min - width / 10^6, false),
+                    (sr.s_max + width / 10^8, true), (sr.s_max + width / 10^6, false))
+        q = rec(b.ρ, s, b.ye)
+        @test SC.admissible_fluid(eos, q) == ok
+        @test SC.limit_face(eos, q, q₀)[SC.R_S] == (ok ? s : b.s)
+    end
+    # `Yₑ` one ulp outside its range is admitted, as `Yₑ·D/D` can return it;
+    # two ulps are not. And `ρ`, `u` keep this package's own conditions.
+    y_lo, y_hi = SC.EntropyEOS.yₑ_bounds(eos)
+    @test SC.admissible_fluid(eos, rec(b.ρ, 20.0, prevfloat(y_lo)))
+    @test SC.admissible_fluid(eos, rec(b.ρ, 20.0, nextfloat(y_hi)))
+    @test !SC.admissible_fluid(eos, rec(b.ρ, 20.0, prevfloat(y_lo, 2)))
+    @test !SC.admissible_fluid(eos, rec(b.ρ, 20.0, nextfloat(y_hi, 2)))
+    @test !SC.admissible_fluid(eos, rec(0.0, 20.0, 0.5))
+    @test !SC.admissible_fluid(eos, rec(NaN, 20.0, 0.5))
+    @test !SC.admissible_fluid(eos, Base.setindex(rec(b.ρ, 20.0, 0.5), Inf, SC.R_U + 1))
+end
+
 @testset "The reset writes back exactly the cells the policy repaired, and is idempotent" begin
     # Guards the atmosphere reset ("Floors, the atmosphere and the
     # magnetosphere"): a cell whose recovery the policy repaired is replaced
