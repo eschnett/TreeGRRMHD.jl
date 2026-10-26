@@ -217,6 +217,26 @@ end
     m2 = TreeGRRMHD.aux_metric(P)
     @test m2.α == m.α && m2.β == m.β && m2.γ == m.γ && m2.γu == m.γu && m2.sqrtγ == m.sqrtγ
     @test all(isnan, cold_guesses(Float32)) && cold_guesses(Float32) isa NTuple{3,Float32}
+
+    # The step cache's entry, at `Float32`, where a flag word is exact only
+    # below 2²⁴: the `EOSPoint` read back with every evaluation bit — 0–5 and
+    # EntropyEOS 2.2's sound-speed bits 18–19 — and the policy flags (amended
+    # 2026-10-26, EntropyEOS 2.2). The sound-speed bits are the evaluation's,
+    # never the policy's, so `P` and the diagnostics never hold them.
+    @test REC_EOS.FLAG_CS2_OUT_OF_RANGE & REC_EOS.FLAG_POL_ANY == 0
+    @test TreeGRRMHD.C_POLICY == TreeGRRMHD.NC == TreeGRRMHD.C_EOS + 14
+    @test TreeGRRMHD.C_EOS == TreeGRRMHD.C_VPERP + 1 == TreeGRRMHD.C_KEY + 12
+    eval_flags = UInt32(0x3f) | REC_EOS.FLAG_CS2_OUT_OF_RANGE
+    pt = REC_EOS.EOSPoint{Float32}(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, Int32(13), eval_flags)
+    cin = REC_EOS.Con2PrimIn{Float32}(14, 15, 16, 17, 18, 19)
+    out = (; base=(; ρ=20.0f0, s=21.0f0, ye=22.0f0, w=23.0f0, v_par=24.0f0, v_perp=25.0f0,
+                   eos=pt), policy_flags=REC_EOS.FLAG_POL_ANY)
+    e = TreeGRRMHD.make_entry(cin, out)
+    @test e isa NTuple{TreeGRRMHD.NC,Float32}
+    @test TreeGRRMHD.entry_hit(e, cin) && TreeGRRMHD.entry_seed(e) == (21, 23, 12)
+    @test isequal(TreeGRRMHD.entry_point(e), pt)
+    @test TreeGRRMHD.entry_point(e).flags === eval_flags
+    @test TreeGRRMHD.entry_flags(e) === REC_EOS.FLAG_POL_ANY
 end
 
 @testset "con2prim_hydro inverts prim2con on random states: Γ=$Γ" for Γ in REC_GAMMAS

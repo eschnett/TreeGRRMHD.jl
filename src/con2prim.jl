@@ -72,6 +72,13 @@ const C_VPERP = 12
 const C_EOS = 13             # the `EOSPoint`'s fields in order; `iters`, `flags` as numbers
 const C_POLICY = 27          # below 2¹⁸, exact in `Float32`
 
+# The `EOSPoint`'s flags are the evaluation's — bits 0–5 and, since
+# EntropyEOS 2.2, the sound-speed bits 18–19 (`FLAG_CS2_ACAUSAL`,
+# `FLAG_CS2_NONPOSITIVE`) — so below 2²⁰, exact in `Float32` too. Nothing in
+# this package reads them; they are kept so that a reused recovery hands back
+# its `EOSPoint` bit for bit. The policy flags never hold them (amended
+# 2026-10-26, EntropyEOS 2.2).
+
 # An entry with nothing in it.
 @inline invalid_entry(::Type{T}) where {T} = ntuple(_ -> T(NaN), Val(NC))
 

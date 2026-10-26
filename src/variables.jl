@@ -186,7 +186,9 @@ The recovery's policy flags held in `P`, as the `UInt32` EntropyEOS returns.
 They are stored as a number of the working type, which is exact: every
 policy bit is below `2^18` (bits 8–17, `FLAG_POL_W_CEILED` the highest, so
 `FLAG_POL_ANY = 0x3ff00`; amended 2026-10-24, EntropyEOS 2.0), and every
-integer below `2^24` is exact in `Float32`.
+integer below `2^24` is exact in `Float32`. They are the policy's bits only:
+the EOS evaluation's — bits 0–5 and EntropyEOS 2.2's sound-speed bits 18–19 —
+are not stored here (amended 2026-10-26, EntropyEOS 2.2).
 """
 @inline aux_flags(P::NTuple{NP}) = unsafe_trunc(UInt32, P[P_FLAGS])
 """The electric field `Eⁱ` held in `P`."""
