@@ -14,8 +14,8 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
-EOS-8 in 1.1.0 and EOS-9 in 2.0.0, which the package resolves since 2026-10-24 (still
-unregistered: EOS-0, EOS-3, EOS-4 and EOS-10 waiting). TreeAMR 0.2.1 is registered with AMR-1,
+EOS-8 in 1.1.0, EOS-9 in 2.0.0 and EOS-11 in 2.1.0; the package resolves 2.0.0 since 2026-10-24
+and 2.2.0 since 2026-10-26 (still unregistered: EOS-0, EOS-3, EOS-4 and EOS-10 waiting). TreeAMR 0.2.1 is registered with AMR-1,
 AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
 (AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
@@ -229,7 +229,7 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-24 (added in step 0, amended 2026-10-14, in step 8, on 2026-10-21 and on 2026-10-24): for the items still
+The state column is as of 2026-10-26 (added in step 0, amended 2026-10-14, in step 8, on 2026-10-21, on 2026-10-24 and on 2026-10-26): for the items still
 waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
 what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
@@ -256,7 +256,8 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
 | EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
-| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (requested; decided by Erik 2026-10-24) |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (requested; decided by Erik 2026-10-24; still allocating in 2.2.0, re-checked 2026-10-26) |
+| EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction (added 2026-10-26, from the 2026-10-24 discussion) | landed in EntropyEOS 2.1.0, as `inside_window` (decided by Erik); `[compat]` `"2.2"` |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -1121,6 +1122,45 @@ state that reaches the nested fallback.
 `--check-bounds=yes` (today 4 failures in that run, the suite's only ones). *(Decided by Erik
 2026-10-24:)* it stays an upstream request, and the bounds-checked run's four failures are known,
 waiting on it (the assertion is not loosened or skipped here).
+
+*(Re-checked 2026-10-26, EntropyEOS 2.2.0:)* unchanged. The same input still allocates 272 B at
+`Float64` and 144 B at `Float32` under `--check-bounds=yes` (laptop, `@allocated` on
+`con2prim_safe` alone; nothing without bounds checks), and the bounds-checked suite fails the
+same four assertions (Symmetry). 2.1 and 2.2 changed `bracket_scan`'s arguments (the confined
+search's `w_lo`), not its scratch. Still waiting.
+
+### EOS-11 — The validity test of `con2prim_safe`, public (req; landed in EntropyEOS 2.1.0)
+
+*(Added 2026-10-26; the request was point 1 of the 2026-10-24 discussion of EntropyEOS 2.0,
+answered before it was filed here.)* **Why.** Since 2.0.0 `con2prim_safe` accepts a converged
+root unflagged when it lies within the face slack of the entropy window (10⁻⁷ of the window's
+width at `Float64`; one ulp for `Yₑ`) and returns it as it is, so a state with `policy_flags == 0`
+can lie a little outside the exact window — 5.5·10⁻⁹ of the window below `s_min` on the
+reproducer, a cold re-solve of a state the stage limiter had written onto that face. The
+reconstruction tested face states against the exact window, rejected such a cell's faces, and
+its positivity fallback, which substitutes the cell's own value, could not repair them: under
+ARS(4,4,3) every perturbed cut-off atmosphere tube blew up (`CODE.md`, "Reconstruction" and
+"Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0"). Options put to Erik: test with
+`check_prim_state` (also tests `ρ` and `w`, which would change the reconstruction near vacuum);
+export the slack, or a predicate for the `s` and `Yₑ` faces; clamp accepted roots onto the window
+upstream or downstream.
+
+**API** (EntropyEOS 2.1.0, fa50e3c; decided by Erik, HISTORY 2026-10-24): `inside_window(eos, ρ, s,
+yₑ) -> Bool`, exported — `Yₑ` within one ulp of the table's range and `s` within `srange(eos, ρ,
+yₑ)` widened by `face_slack` of its width; `ρ` not tested against a range; non-finite input or
+`ρ ≤ 0` gives `false`. Every state `con2prim_safe` or `project_prim_state` returns passes it, and
+the EOS can be evaluated throughout the band. Rejected upstream: exporting `face_slack` (two
+conventions, and its value would become API) and clamping accepted roots (the primitives would no
+longer reproduce the returned conservatives to the tolerance, and a fed-back clamped output needs
+a Newton step).
+
+**Downstream.** `admissible_fluid` (`src/reconstruction.jl`) calls `inside_window` in place of its
+exact window and `Yₑ`-range tests and keeps its own `ρ > 0`, finite, and finite-`u` conditions;
+`test/scheme_tests.jl`, "The positivity fallback admits every state con2prim_safe returns
+unflagged" (the reproducer's state at an MC minimum, the slack's edges, `Yₑ` one and two ulps
+out). `[compat]` `EntropyEOS = "2.2"`, `[sources]` the tag `v2.2.0`; `inside_window` joins
+`test/prerequisite_tests.jl`'s list, and no probe is kept (the rule above). Measured in `CODE.md`,
+"EntropyEOS 2.0" (re-measured 2026-10-26).
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 

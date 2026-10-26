@@ -73,18 +73,27 @@ conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), EOS-8
-(1.1.0) and EOS-9 (2.0.0; still unregistered, `[sources]` pins the tag
-`v2.0.0`, `[compat]` `"2"`, since 2026-10-24). The recovery calls
+(1.1.0), EOS-9 (2.0.0) and EOS-11 (2.1.0; still unregistered, `[sources]`
+pins the tag `v2.2.0`, `[compat]` `"2.2"`, since 2026-10-26, on
+`claude/entropyeos-2.2`; `v2.0.0` from 2026-10-24). The recovery calls
 EntropyEOS's two levels, `con2prim_safe` onto `ProjectionOptions` (`proj`:
 `ρ_min`, `ρ_max`, `w_cap`) and `apply_policy` with `PolicyOptions`
 (`pol`: the atmosphere), both carried by `MHDProblem` and `MHDCase` and
 built by `recovery_options(eos, ρ_min)` (`s_atm` at 1.x's window
 midpoint); no case sets `collapse_to_atmosphere`; the policy flags are
-bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"). Under 2.0
-ARS(4,4,3) near the vacuum regresses (accepted for now, being isolated
-separately) and step 3's uncut sweep falls back more (its bound of 12
-approved); `s_atm` stays the midpoint; EOS-10 stays an upstream request
-(decided by Erik 2026-10-24). Stage 3 of the recovery plan
+bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"); 2.2's
+sound-speed bits 18–19 are the EOS evaluation's and reach only the step
+cache's copy of the `EOSPoint`. The reconstruction's `admissible_fluid`
+tests `s` and `Yₑ` with EntropyEOS's `inside_window`, `con2prim_safe`'s own
+test with its face slack (EOS-11, 2026-10-26; `CODE.md`, "Reconstruction"):
+under 2.0 the exact test rejected cells `con2prim_safe` returned unflagged
+within the slack, and ARS(4,4,3) near the vacuum regressed (48/48 cut-off
+tubes blew up); with `inside_window` every perturbed tube row is
+deterministic again and the regression is gone (`CODE.md`, "Floors, the
+atmosphere and the magnetosphere", "EntropyEOS 2.0"). Step 3's uncut sweep
+falls back more under 2.x (its bound of 12 approved); `s_atm` stays the
+midpoint; EOS-10 stays an upstream request (decided by Erik 2026-10-24;
+still allocating in 2.2.0). Stage 3 of the recovery plan
 (`claude/recovery-pipeline-3`, 2026-10-24): **the step cache** — inside
 `evolve!`'s steps (`with_step_cache`) every recovery is seeded from the
 cell's latest one in the step and reused where its EntropyEOS input is that
@@ -273,7 +282,18 @@ cn080, 12m26s with `--check-bounds=yes` on cn084. One and four threads
 identical, the clean checkout identical to the one-thread run. **Four
 failures in every run**: the uniform flow's slow cases leave `≤ 10⁻¹¹`
 (`1.1–8.4·10⁻¹¹`, warm seeds answering to EntropyEOS's tolerance; `CODE.md`,
-"The step cache", for Erik); with bounds checks also EOS-10's four. At
+"The step cache", for Erik); with bounds checks also EOS-10's four. On
+EntropyEOS 2.2.0 with `inside_window` (2026-10-26, `claude/entropyeos-2.2`,
+Symmetry, AMD EPYC 7532 throughout): **26296 tests** (+18 the reconstruction's
+slack testset, +8 the step-cache entry read back, +2 names), a `Test Summary`
+time of 10m46s at one thread on cn079 against stage 3's 10m44s in the same
+job (4929c94, 26268 tests), 9m50s at four threads and 10m49s for the
+clean-checkout check on cn080, 12m27s with `--check-bounds=yes` on cn081.
+One and four threads identical, the clean checkout identical to the
+one-thread run; against stage 3 only ARS(4,4,3) near the vacuum moves (three
+lines; `CODE.md`, "EntropyEOS 2.1 and 2.2"). The same **four failures** (the
+uniform flow, stage 3's numbers to every digit), and with bounds checks
+EOS-10's four. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

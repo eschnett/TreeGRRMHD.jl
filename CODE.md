@@ -313,12 +313,20 @@ in step 11. *(Amended with PLAN.md.)*
   projected onto the entropy ceiling (2.0.0, as the two-level projection;
   tag `v2.0.0` through `[sources]`, `[compat]` `"2"`). See "Primitive
   recovery", "The two levels" *(amended 2026-10-24, EntropyEOS 2.0)*.
+  *(Amended 2026-10-26, EntropyEOS 2.2:)* the tag is now `v2.2.0`,
+  `[compat]` `"2.2"`.
+- **EOS-11 (landed)**: `con2prim_safe`'s validity test of the `s` and `Yₑ`
+  faces, with its slack, public for the reconstruction — `inside_window`
+  (EntropyEOS 2.1.0; decided by Erik) *(added 2026-10-26)*. See
+  "Reconstruction" and "Floors, the atmosphere and the magnetosphere",
+  "EntropyEOS 2.0".
 - **EOS-10 (wanted)**: the nested fallback
   allocation-free under `--check-bounds=yes` (PLAN.md), where it allocates
   one `MVector{33,T}` (272 B at `Float64`, 144 B at `Float32`) *(added
   2026-10-24)*. *(Decided by Erik 2026-10-24:)* it stays an upstream
   request; the bounds-checked run's four allocation failures are known and
-  wait on it.
+  wait on it. *(Re-checked 2026-10-26:)* EntropyEOS 2.2.0 allocates the
+  same 272 B and 144 B there; still waiting.
 
 ### SpacetimeMetrics
 
@@ -783,7 +791,17 @@ plan splits them into separate kernels; the two-phase API,
   `YE_CEILED` 14, `S_FLOORED` 15, `S_CEILED` 16, `W_CEILED` 17 (1.x's
   `W_CAPPED`); `CEILING`, `ρ_CLAMPED` and `YE_CLAMPED` are gone;
   `FLAG_POL_ANY = 0x3ff00`, still exact as a number in `Float32` (below
-  2¹⁸ < 2²⁴; tested through `P` and the diagnostics).
+  2¹⁸ < 2²⁴; tested through `P` and the diagnostics). *(Amended
+  2026-10-26, EntropyEOS 2.2:)* bits 18 and 19, `FLAG_CS2_ACAUSAL` and
+  `FLAG_CS2_NONPOSITIVE`, say that the returned `cs²` lies outside `(0, 1)`.
+  They are the EOS evaluation's, like bits 0–5, set in `EOSPoint.flags` by
+  every evaluation (`cs²_flags`), never in `policy_flags`, and `FLAG_POL_ANY`
+  is unchanged. In this package they reach only the step cache's copy of the
+  `EOSPoint` (below 2²⁰, exact in `Float32`; read back in a test), which
+  nothing reads but a reused recovery's caller; `P`, `X` and every tally hold
+  the policy's bits only. No case's ideal gas sets them (`cs² < Γ − 1 ≤ 1`
+  and positive wherever `p > 0`), and the scheme's signal speeds are the
+  light cone's, so `signal_cs²` has nothing to clamp here.
 
 What moves against 1.1, and why (EntropyEOS's `HISTORY.md`, 2026-10-23):
 
@@ -858,6 +876,62 @@ agrees to the solver's tolerance or better):
   rest mass, `W` 4.11 → 4.13 (SSP3: `−6.6·10⁻⁹` → `−7.8·10⁻⁹`, `W` 4.01 →
   3.99); the coarse-fine magnetized tube `−1.4012·10⁻⁸` → `−1.4027·10⁻⁸`.
 - **The bounds-checked run**: EOS-10 (PLAN.md).
+
+**EntropyEOS 2.1 and 2.2** *(amended 2026-10-26; tag `v2.2.0`, f26afca,
+through `[sources]`, `[compat]` `"2.2"`)*. Three changes reach this package:
+
+- **`inside_window`** (2.1.0, EOS-11): `con2prim_safe`'s own test of the `s`
+  and `Yₑ` faces, with its slack, which the reconstruction now calls
+  ("Reconstruction"). It answers point 1 of the 2026-10-24 discussion — a
+  root within the slack is returned unflagged and as it is — in the form
+  Erik chose over exporting the slack or clamping accepted roots.
+- **The search confined to the density box** (2.2.0; HISTORY, 2026-10-24):
+  the seed, the Newton and the fallback stay at `w ≥ acosh(D/ρ_max)`, with
+  `ρ_max` widened by the face slack. Every state with `D ≤ ρ_max` comes back
+  bit for bit; no state of this package's cases comes near `ρ_max` (`10⁴` and
+  `10⁶` for the cases' gases), and no printed number of the suite moved by it
+  (measured below).
+- **The sound-speed flags** (2.2.0), bits 18 and 19 of the evaluation's flags
+  ("The two levels", "The flags").
+
+The C++ 1.2.0 table-building port of 2.2.0 (`crop_table`, `SeamDefect`, the
+`T_HI_ROWS_DROPPED` attribute, the u-high ratio lock) touches only tables
+built or read from files; every case here runs an analytic ideal gas, and the
+tests' synthetic table is built in memory (`make_synthetic_table`), so none of
+it applies.
+
+*Measured 2026-10-26* (Symmetry, AMD EPYC 7532 throughout, Julia 1.13;
+`claude/entropyeos-2.2` against stage 3 at 4929c94 on EntropyEOS 2.0.0, the
+stage-3 one-thread suite in the same job on the same node, cn079). The suite's
+output is stage 3's to every digit but for:
+
+- **The reconstruction's admissibility** (the slack band, "Reconstruction"),
+  which moves only ARS(4,4,3) near the vacuum, chaotic at rounding until now:
+  the ideal magnetized atmosphere under ARS `2.81·10⁻⁹` → `−5.00·10⁻⁹` of rest
+  mass (energy `−2.354·10⁻⁵` → `−2.434·10⁻⁵`, `W` 4.015 → 4.002; SSP3's row is
+  unchanged), the ARS rarefaction's smallest density `2.1433251·10⁻¹⁰` →
+  `2.1433185·10⁻¹⁰` (resets 139/113, unchanged), and the coarse-fine
+  atmosphere tube's unbounded width-4 negative control, a run that goes
+  non-finite, 72 → 71 ghosts below `ρ_atm`. Step 6's tableau comparison
+  (`bin/tableau_comparison.jl`, both trees in one job on cn085) moves in the
+  same rows and in Balsara 3 under ARS, whose undershoot the reset fills (L1
+  `D`, `τ`, `𝔅ʸ` 0.369, 18.3, 0.0572 → 0.366, 18.2, 0.0573, plateau 3.84% →
+  3.62%, injected `τ` `2.26·10⁻²` → `2.31·10⁻²`, resets 6/5 unchanged); its
+  every other line is the same. That these moves are the reconstruction's and
+  not the confined search's is inferred: the search returns every state with
+  `D ≤ ρ_max` bit for bit, and the perturbed tube runs below match the
+  emulation of the slack alone, on 2.0, to every digit.
+- **The test count**, 26268 → 26296 (+18 the new reconstruction testset, +8 the
+  step-cache entry read back, +2 names).
+
+Unchanged to every digit: the uniform flow's four failures (below, "The step
+cache"), step 3's sweep, the shock tubes against their stored references (no
+reference regenerated), every SSP3 atmosphere row, the drift tallies, the
+`Float32` smoke run, the seed tallies of every case of `bin/recovery_cost.jl
+steptime`. The bounds-checked run fails EOS-10's four assertions as before
+(272 B and 144 B). The perturbed tube runs are under "Floors, the atmosphere
+and the magnetosphere", "EntropyEOS 2.0", and the step time under "The step
+cache".
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -1096,6 +1170,42 @@ PPM in the 9th digit. The atmosphere tubes' counts and the resistive
 tube's stage branches are unchanged. The `· inv(√γ)` unification alone
 (3495217) gives the stage-2 output exactly (one thread, cn081, every line).
 
+*Re-measured 2026-10-26, EntropyEOS 2.2* (`bin/recovery_cost.jl steptime`,
+the same script; Symmetry cn086, AMD EPYC 7532, one job, one pinned thread;
+`claude/entropyeos-2.2` against stage 3 at 4929c94, two rounds each,
+interleaved; ms per step as above). The 2.2 tree is **1–3% slower** per step
+with the cache (Alfvén 5–7%, the EM wave 2–3%, the 2D and 3D cases −1 to 4%)
+and 1–5% without; the seed tallies are the same in every case:
+
+| case | stage 3 | 2.2 | change | no cache, stage 3 | no cache, 2.2 |
+|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 1.464, 1.487 | 1.506, 1.517 | +2.9%, +2.0% | 3.072, 3.059 | 3.202, 3.188 |
+| Alfvén wave, ideal, 100 | 1.652, 1.624 | 1.736, 1.740 | +5.1%, +7.2% | 3.489, 3.446 | 3.640, 3.615 |
+| resistive tube σ = 10, 200 | 3.442, 3.472 | 3.527, 3.572 | +2.5%, +2.9% | 8.574, 8.594 | 8.772, 8.761 |
+| resistive tube σ = 10², 200 | 3.415, 3.444 | 3.503, 3.548 | +2.6%, +3.0% | 8.507, 8.501 | 8.626, 8.653 |
+| resistive tube σ = 10³, 200 | 3.211, 3.246 | 3.312, 3.330 | +3.2%, +2.6% | 8.260, 8.279 | 8.393, 8.415 |
+| magnetized atmosphere tube, 200 | 3.183, 3.183 | 3.234, 3.214 | +1.6%, +1.0% | 8.587, 8.589 | 8.733, 8.768 |
+| rotor, 64² | 58.06, 57.54 | 58.73, 58.27 | +1.2%, +1.3% | 159.7, 158.8 | 162.2, 161.7 |
+| Orszag–Tang, 64² | 65.78, 64.18 | 65.60, 65.54 | −0.3%, +2.1% | 171.8, 170.3 | 172.0, 172.8 |
+| spherical blast, 16³ | 103.0, 103.1 | 104.5, 107.4 | +1.5%, +4.1% | 259.2, 260.5 | 262.8, 262.4 |
+| resistive tube σ = 10², two levels | 4.350, 4.335 | 4.422, 4.425 | +1.7%, +2.1% | 10.63, 10.61 | 10.78, 10.76 |
+| rotor, two levels, 7168 cells | 109.2, 106.5 | 108.6, 108.1 | −0.6%, +1.5% | 297.9, 295.0 | 300.0, 299.1 |
+
+Not split between its two candidates: EntropyEOS's confined search, which
+made warm `Float64` calls 2–4% slower on an H200 (its HISTORY, 2026-10-25:
+the `acosh` of the density floor, recovered in the first stage only) and
+which every recovery pays, and `inside_window`, which costs the reconstruction
+what the exact test cost plus one multiplication per face. The cache's saving
+is unchanged (57–64%).
+
+**The uniform flow under 2.2** (re-measured 2026-10-26, every run above):
+`1.0602831660·10⁻¹¹`, `8.1098066854·10⁻¹¹`, `1.6805728171·10⁻¹¹`,
+`8.4017111996·10⁻¹¹` (`vˣ = −½`, `+½`; SSP3, ARS) — stage 3's numbers to every
+digit, so the four failures stand, at one and four threads, in the clean
+checkout and with bounds checks. Nothing in 2.1 or 2.2 addresses warm starts
+returning at the tolerance (point 2 of the 2026-10-24 discussion). **Still
+for Erik**: the bound is kept and fails.
+
 ## The scheme
 
 ### Where the fields live
@@ -1285,6 +1395,33 @@ marked otherwise). `limiter` names the reconstruction: `:none`, `:minmod`,
   `E₀ + δ_a + δ_b`, each offset the method's one-dimensional one along its
   direction, and the face-normal `𝔅` is reconstructed along the transverse
   direction by the method (see "The electromotive force for `A`").
+
+*(Amended 2026-10-26, EntropyEOS 2.1.)* **The reconstruction tests validity
+the way `con2prim_safe` does.** `admissible_fluid` asks EntropyEOS's
+`inside_window(eos, ρ, s, Yₑ)` (EOS-11) whether `s` and `Yₑ` lie inside their
+faces, with the slack `con2prim_safe` allows — `s` within `srange(eos, ρ, Yₑ)`
+widened by 10⁻⁷ of its width at `Float64` (2⁻¹², 2.4·10⁻⁴, at `Float32`),
+`Yₑ` within one ulp of its range —
+and keeps this package's own conditions, `ρ` positive and finite and `u`
+finite. Until then it tested the exact window. But since EntropyEOS 2.0
+`con2prim_safe` returns a converged root within the slack of a face
+unflagged and as it is, so a recovered cell could fail the exact test: on the
+reproducer of 2026-10-24 (a cold re-solve of a state the stage limiter had
+written onto the `s_min` face) `s` lies 5.5·10⁻⁹ of the window below `s_min`
+with `policy_flags == 0`. Every state the recovery returns now passes, and
+the EOS can be evaluated throughout the band (`inside_window`'s contract).
+`ρ` is still not tested against `[ρ_min, ρ_max]` nor `w` against the cap, as
+`check_prim_state` would: that would change the reconstruction near vacuum.
+
+**The positivity fallback substitutes the cell's own value, so it cannot
+repair a face whose cell is itself inadmissible**: that face gets the cell's
+state, which fails the same test. A TVD limiter cannot produce such a face
+from admissible cells (its face values lie between the cells'), so the case
+arises only where a cell holds a state the test rejects — which, since the
+test is `con2prim_safe`'s own, no recovered cell does (test:
+`test/scheme_tests.jl`, "The positivity fallback admits every state
+con2prim_safe returns unflagged"). What it cost while the test was exact is
+under "Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0".
 
 ### Riemann solver
 
@@ -1595,6 +1732,95 @@ median 1.11 times the unprojected root's `W`, at most 2.77), where 1.1
 kept the rapidity. *(Decided by Erik 2026-10-24:)* accepted for now —
 ARS is not the default and SSP3 is clean — and being isolated separately
 (a TreeGRRMHD level 2 of its own cannot undo level 1's choice of face).
+*(Amended 2026-10-26:)* isolated, and fixed by EntropyEOS 2.1's
+`inside_window` (below); no longer accepted, gone.
+
+**The ARS(4,4,3) regression: cause, mechanism and fix** *(amended
+2026-10-26, EntropyEOS 2.1; the investigation of 2026-10-24 on
+`claude/recovery-pipeline-2` and `-3`, Symmetry job 581987)*.
+
+- **Cause.** Since ab8eb9b (2.0's two-level projection) `con2prim_safe`
+  accepts a converged root unflagged when it lies inside every face *to the
+  slack* — 10⁻⁷ of the window's width for `s` at `Float64` — and returns it
+  as it is; 1.1 clamped the same root onto `s_min` and flagged it
+  `S_FLOORED`. The reproducer (ideal gas Γ = 5/3, `s` window (1, 40), `ρ_min =
+  10⁻⁸`, the right-hand side's cold re-solve of a cell the stage limiter had
+  just written onto the `s_min` face): 2.0 returns `s = 0.999999784528953`,
+  5.5·10⁻⁹ of the window below `s_min`, with `policy_flags == 0`, where 1.1
+  returned `s = 1`, `S_FLOORED` (`ρ`, `w` the same). Thermal energy is about
+  10⁻¹⁰ of τ there, so `s` is fixed only to the solve's conditioning. The
+  reconstruction tested face states against the *exact* window.
+- **Mechanism.** A cell in the slack band is a local minimum of `s`; MC gives
+  it zero slope, so its face values are its own value and fail the exact
+  test, and the positivity fallback, which substitutes the cell's value,
+  cannot repair them: the whole fluid group of that face goes to first order.
+  Under ARS(4,4,3) the switch happens at stage 4, whose explicit weight is
+  `b̃₄ = −7/4`: the first-order face raises the `D` flux into the neighbouring
+  cell, and the negative weight subtracts it from a cell holding about
+  `ρ_min`. Every large negative end-of-step `D`, down to `−7·10⁻⁵`, lay one
+  cell downstream of a stage-4 slack cell, and together they accounted for
+  all of the injected mass. Under SSP3 every weight is positive: no blow-up,
+  but the same switch made the runs sensitive at rounding (the uniform
+  cut-off tube's perturbed runs 1.4·10⁻⁴ apart, the `Bʸ = 10⁻²` tube at
+  `W` 26–100).
+- **The emulation** (job 581987, cn112, the stage-2 tree with the exact test
+  widened by a slack of 0 or 10⁻⁷ of the window, 48 perturbed runs a row): at
+  slack 0 (the code as it was) the faces the window test sent to the fallback
+  numbered 1216 (cut-off tube, ARS), 27331 (ideal, ARS), 259 (hydrodynamic,
+  ARS), 85 (cut-off tube, SSP3), 5683 (ideal, SSP3) and 923 (`Bʸ = 10⁻²`) over
+  the 48 runs, with 48/48 and 42/48 blow-ups in the first two and the
+  hydrodynamic ARS tube injecting `1.2·10⁻⁹ … 8.9·10⁻⁷` (median `4.3·10⁻⁷`); at
+  slack 10⁻⁷ none, every row deterministic, the cut-off and ideal ARS rows
+  0/48, hydrodynamic ARS `1.2·10⁻⁹` in every run (1.1's), `Bʸ = 10⁻²` SSP3
+  1.1's `−8.5·10⁻⁹` and `W` 16.
+- **The fix**: the reconstruction tests validity the way `con2prim_safe`
+  does, `inside_window` (EOS-11; "Reconstruction"). Clamping the root onto
+  the window, upstream or here, was rejected upstream: the primitives would
+  no longer reproduce the returned conservatives to the tolerance.
+
+*Re-measured 2026-10-26* (`bin/front_investigation.jl`'s harness, the same
+48 perturbed runs; Symmetry cn082, AMD EPYC 7532, one thread; EntropyEOS
+2.2.0 with `inside_window`; the reconstruction's test instrumented in-process
+to count its fallbacks). Columns as in the table above: blow-ups; injected
+`D`; fallbacks; largest `W`; two runs `10⁻¹⁵` apart. "(all)" where all 48
+runs agree to the digits printed:
+
+| | 2.2, `inside_window` | 2.0, stage 2 (above) | emulation, slack 10⁻⁷ (job 581987) |
+|---|---|---|---|
+| uniform | 0/48; −1.2e−8 (all); 0; 4.8 (all); 3.0e−14 | 0/48; −1.2e−8; 0; 4.8 / 4.8 / 7.1; **1.4e−4** | 0/48; −1.2e−8 (all); 0; 4.8 (all) |
+| refined, primitive fill | 0/48; −1.4e−8 (all); 0; 5.0 (all); 7.4e−13 | 0/48; −1.4e−8; 0; 5.0 / 5.4 / 11.0; **1.3e−4** | — |
+| hydrodynamic tube (uniform; refined) | −8.3517666767e−12, `W` 4.9356884465, 11686 writes; −1.6334932204e−11 | the same | — |
+| ARS(4,4,3) | 0/48; −1.2e−8 (all); 23; 7.0 (all) | **48/48** | 0/48; −1.2e−8 (all); 23; 7.0 |
+| hydrodynamic, ARS(4,4,3) | 0/48; 1.2e−9 (all); 0; 5.0 | 0/48; 1.2e−9 / 4.3e−7 / 8.9e−7 (job 581987's slack 0) | 0/48; 1.2e−9 (all); 0; 5.0 |
+| `Bʸ = 10⁻²` | 0/48; −8.5e−9 (all); 1; 16 (all) | 0/48; −2.1e−8 / −1.1e−8 / −8.7e−9; 0 / 1 / 1; 4.5 / **26** / **100** | 0/48; −8.5e−9 (all); 1; 16 |
+| ideal, SSP3 | 0/48; −7.6e−9 (all); 0; 4.8 (all) | 0/48; −9.0e−9 / −7.8e−9 / −7.2e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −7.6e−9 (all); 0; 4.8 |
+| ideal, ARS | 0/48; −5.0e−9 (all); 0; **100** (all) | **42/48** | 0/48; −5.0e−9 (all); 0; 100 |
+| 400 cells | 0/48; −1.5e−8 (all); 0; 5.6 (all) | 0/48; −1.5e−8; 0; 5.6 | — |
+| `μ_max = 30` | 0/48; −1.2e−8 (all); 0; 4.8 (all) | 0/48; −1.2e−8; 0; 4.8 | — |
+
+The reconstruction's window test sent **no** face to the fallback in any row;
+the faces it admitted that the exact test would have rejected — the slack band
+— numbered 1254 (ARS), 23281 (ideal, ARS), 298 (hydrodynamic, ARS), 67 and 69
+(the cut-off tube under SSP3, in the batch and in the uniform matrix), 93
+(refined), 5248 (ideal, SSP3), 603 (`Bʸ = 10⁻²`), 50 (400 cells) and 12
+(`μ_max = 30`), close to the emulation's slack-0 fallbacks. **Every row is the
+emulation's to every digit it printed**, step-limiter writes and `S_FLOORED`
+counts included (12021 and 17 under ARS, 11687 and 42 ideal under ARS, 11737
+and 5 hydrodynamic under ARS, 12010 and 3, 12028 and 9, 12034 and 10): the
+confined search changes nothing here (no state comes near `ρ_max`), and the
+step cache, which the emulation's tree did not have, nothing at these digits.
+So every row is deterministic again, as on 1.1, and the uniform and refined
+cut-off tube, ARS(4,4,3) (23 fallbacks, `W` 7.0), the hydrodynamic tube under
+ARS (`1.2·10⁻⁹`), `Bʸ = 10⁻²`, 400 cells and `μ_max = 30` are 1.1's to the
+digits printed (the control column of the table above). Two rows still differ from 1.1: the ideal magnetized atmosphere under
+SSP3 (`−7.6·10⁻⁹` against `−6.6·10⁻⁹`), and under ARS, which injects
+`−5.0·10⁻⁹` against 1.1's `+5.6·10⁻⁸` but reaches the `w` cap (`W` = 100) in 3
+cell-steps of every run, where 1.1 peaked at `W` 4.3. That is not the slack: it
+is the same with the emulation, and the cell recoveries that differ between
+the versions agree on identical inputs, so it is a different trajectory — a
+candidate is 2.0's `S_CEILED` keeping `S` while lowering τ (above). Not
+chased; **for Erik**. The suite's assertion on that row (`W ≤ 5` at the end,
+injected mass within 10⁻⁶) holds: its largest `W` at the end is 4.00.
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
 an experiment for Erik, not decided; `bin/hot_projection.jl`,
