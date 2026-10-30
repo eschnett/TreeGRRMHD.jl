@@ -297,7 +297,15 @@ One and four threads identical, the clean checkout identical to the
 one-thread run; against stage 3 only ARS(4,4,3) near the vacuum moves (three
 lines; `CODE.md`, "EntropyEOS 2.1 and 2.2"). The same **four failures** (the
 uniform flow, stage 3's numbers to every digit), and with bounds checks
-EOS-10's four. At
+EOS-10's four. On EntropyEOS 2.2.1 with the uniform flow asserted to the
+recovery's tolerance (2026-10-30, `claude/entropyeos-2.2` at 5e516c6,
+Symmetry, AMD EPYC 7532 throughout): **26304 tests** (+8, the 1000-step
+uniform flows), **every run passing whole**: a `Test Summary` time of
+10m49s at one thread on cn085 against 16c48ed's 10m42s in the same job,
+9m58s at four threads and 10m48s for the clean-checkout check on cn079,
+12m58s with `--check-bounds=yes` on cn080. One and four threads identical,
+the clean checkout identical to the one-thread run, and every printed line
+identical to 16c48ed's (EntropyEOS 2.2.0) but the four new ones. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
