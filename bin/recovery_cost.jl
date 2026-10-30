@@ -9,6 +9,7 @@
 #     julia --project=. bin/recovery_cost.jl identity
 #     julia --project=. -t T bin/recovery_cost.jl threads OUTFILE   # then `threadcmp F1 F4`
 #     julia --project=TREE bin/recovery_cost.jl steptime [CASE...]   # all of `CASES` by default
+#     julia --project=. bin/recovery_cost.jl finish [CASE...]         # all of `CASES` by default
 #
 # One thread unless said (the counting context is global). `bin/recovery_cost_hooks.jl` is
 # evaluated into the TreeGRRMHD module and redefines, in this process only, the recovery's
@@ -44,6 +45,17 @@
 # replace the passes with cache-free ones, so `counts`, `identity` and `threads` measure the
 # 2026-10-23 emulation, never the real cache: with the hooks loaded every recovery is
 # seeded as before the cache, and `identity`'s reference run is `step_cache = false`.
+#
+# *(Added 2026-10-30, stage 4 of the recovery pipeline: the two-phase recovery, "The
+# two-phase recovery" in CODE.md.)* `steptime` on a tree with the two-phase recovery times
+# it ("split") against the same tree fused (`two_phase = false`), both with the step cache;
+# a tree without it gives "cache" and "nocache" as before. `finish`: per case, the share of
+# each site's recoveries that reach `con2prim_safe_finish` — the cells whose
+# `con2prim_safe_start` was not done, from the hand-off after each first pass — and of the
+# stage solve's iterations (its recoveries after the first, which stay fused), counted by
+# redefining, in this process only, the passes' `recovery_start!` and `two_levels` with
+# copies that count (`load_finish_hooks!`; one thread, the counters are global). The
+# counting copies call EntropyEOS exactly as `src/` does, so the run is the run.
 
 # *(Amended 2026-10-24, EntropyEOS 2.0:)* the replays and the pointwise timings call level 1,
 # `con2prim_safe` onto the projection `proj`, alone: level 2 (`apply_policy`) costs nothing to seed.
@@ -556,7 +568,9 @@ end
 
 function steptime(names)
     cached = isdefined(TG, :with_step_cache)
-    variants = cached ? (("cache", (; step_cache=true)), ("nocache", (; step_cache=false))) :
+    split = isdefined(TG, :Handoff)
+    variants = split ? (("split", (; step_cache=true)), ("fused", (; two_phase=false))) :
+               cached ? (("cache", (; step_cache=true)), ("nocache", (; step_cache=false))) :
                (("plain", (;)),)
     for name in names
         for (label, kw) in variants
@@ -569,7 +583,7 @@ function steptime(names)
 ",
                     name, label, best.ms, join([@sprintf("%.4f", x.ms) for x in runs], " "),
                     best.med, r.nsteps, nown, 1e6 * best.ms / nown)
-            if cached && label == "cache"
+            if cached && label in ("cache", "split")
                 per(x) = x / (r.nsteps * nown)
                 for k in (:rhs, :stage, :stage_limiter, :step_limiter)
                     c = map(q -> sum(ch -> getproperty(getproperty(ch.tally.seeds, k), q), r.chunks),
@@ -585,6 +599,104 @@ function steptime(names)
                                       ch.tally.seeds.stage.reused, r.chunks)))
             end
         end
+    end
+    return nothing
+end
+
+# --- finish: the share of recoveries that reach con2prim_safe_finish (2026-10-30) -----------
+
+# The site the integrator's callback in progress recovers for, and per site
+# `[recoveries, reached finish]`; for the stage solve's iterations also the
+# reused ones.
+const FS_SITE = Ref(:none)
+const FS_COUNTS = Dict{Symbol,Vector{Int}}()
+
+function load_finish_hooks!()
+    @eval TG begin
+        # `src/evolution.jl`'s, counting the hand-off's `todo` after the second pass.
+        function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t) where {T,D}
+            sc = p.handoff
+            sc === nothing && return nothing
+            f = p.f
+            map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
+                        p.cache.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.proj,
+                        model, p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G))
+            map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D))
+            site = Main.FS_SITE[]
+            if site !== :none
+                c = get!(() -> zeros(Int, 3), Main.FS_COUNTS, site)
+                c[1] += length(sc.todo)
+                c[2] += count(sc.todo)
+            end
+            return nothing
+        end
+        # `src/con2prim.jl`'s, counting the fused calls inside a stage solve (its
+        # iterations: the first recovery is the hand-off's) that would reach finish.
+        @inline function two_levels(eos::EntropyEOS.AbstractEOS,
+                                    opts::EntropyEOS.Con2PrimOptions{T},
+                                    proj::EntropyEOS.ProjectionOptions{T},
+                                    pol::EntropyEOS.PolicyOptions{T},
+                                    cin::EntropyEOS.Con2PrimIn{T}, guesses::NTuple{3,T},
+                                    entry::NTuple{NC,T}, sc=nothing, idx::Tuple=()) where {T}
+            count = sc === nothing && Main.FS_SITE[] === :stage
+            c = count ? get!(() -> zeros(Int, 3), Main.FS_COUNTS, :iterations) : Int[]
+            if entry_hit(entry, cin)
+                count && (c[1] += 1; c[3] += 1)
+                return entry, true
+            end
+            if sc === nothing
+                o, st = EntropyEOS.con2prim_safe_start(eos, cin, opts, proj, guesses[1],
+                                                       guesses[2], guesses[3])
+                done = EntropyEOS.is_done(st)
+                count && (c[1] += 1; c[2] += !done)
+                out = done ? o : EntropyEOS.con2prim_safe_finish(eos, cin, opts, proj, st)
+            else
+                out = level1(eos, opts, proj, cin, guesses, sc, idx)
+            end
+            out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
+            return make_entry(cin, out), false
+        end
+        # `src/driver.jl`'s, with every callback naming its site.
+        function mhd_integrator(p::MHDProblem{T}, u, t0, t1, nsteps::Integer;
+                                tableau=IRK.IMEXSSP3433(), alias_u0::Bool=false,
+                                reuse=nothing) where {T}
+            t0, t1 = T(t0), T(t1)
+            at(site, f) = (args...) -> (Main.FS_SITE[] = site; f(args...);
+                                        Main.FS_SITE[] = :none; nothing)
+            prob = IRK.IMEXProblem(at(:rhs, mhd_rhs!), at(:stage, ohm_solve!), u, (t0, t1), p)
+            integ = IRK.init(prob, tableau; dt=(t1 - t0) / nsteps,
+                             stage_limiter=at(:stage_limiter, reset_atmosphere!),
+                             step_limiter=at(:step_limiter, reset_step!),
+                             partition=u isa Array ? :even : nothing, alias_u0=alias_u0,
+                             reuse=reuse)
+            integ.nsteps == nsteps || error("step count")
+            return integ
+        end
+    end
+    return nothing
+end
+
+function finish_share(names)
+    load_finish_hooks!()
+    for name in names
+        case, D, ekw, _ = CASES[name]()
+        empty!(FS_COUNTS)
+        r = Base.invokelatest(evolve!, case, Val(D); ekw...)
+        nown = ncells_owned(r)
+        seeds(k) = sum(ch -> getproperty(ch.tally.seeds, k).reused, r.chunks)
+        @printf("finish %-18s %d steps, %d owned cells\n", name, r.nsteps, nown)
+        for (k, sk) in ((:rhs, :rhs), (:stage, :stage), (:stage_limiter, :stage_limiter),
+                        (:step_limiter, :step_limiter))
+            c = get(FS_COUNTS, k, zeros(Int, 3))
+            reused = seeds(sk)
+            @printf("    %-14s recoveries %8d, reused %8d, finish %7d: %6.3f%% of all, %6.3f%% of those started\n",
+                    k, c[1], reused, c[2], 100 * c[2] / max(c[1], 1),
+                    100 * c[2] / max(c[1] - reused, 1))
+        end
+        c = get(FS_COUNTS, :iterations, zeros(Int, 3))
+        @printf("    %-14s recoveries %8d, reused %8d, finish %7d: %6.3f%% of all, %6.3f%% of those started\n",
+                "iterations", c[1], c[3], c[2], 100 * c[2] / max(c[1], 1),
+                100 * c[2] / max(c[1] - c[3], 1))
     end
     return nothing
 end
@@ -612,6 +724,10 @@ elseif cmd == "threads"
     Base.invokelatest(threads, ARGS[2])
 elseif cmd == "threadcmp"
     threadcmp(ARGS[2], ARGS[3])
+elseif cmd == "finish"
+    finish_share(length(ARGS) ≥ 2 ? ARGS[2:end] :
+                 ["emwave", "alfven", "resist10", "resist100", "resist1000", "atmosphere", "rotor",
+                  "orszagtang", "blast3d", "resist100_refined", "rotor_refined"])
 elseif cmd == "steptime"
     steptime(length(ARGS) ≥ 2 ? ARGS[2:end] :
              ["emwave", "alfven", "resist10", "resist100", "resist1000", "atmosphere", "rotor",
