@@ -73,9 +73,10 @@ conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
 IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), EOS-8
-(1.1.0), EOS-9 (2.0.0) and EOS-11 (2.1.0; still unregistered, `[sources]`
-pins the tag `v2.2.0`, `[compat]` `"2.2"`, since 2026-10-26, on
-`claude/entropyeos-2.2`; `v2.0.0` from 2026-10-24). The recovery calls
+(1.1.0), EOS-9 (2.0.0), EOS-11 (2.1.0) and EOS-10 (2.2.1; still
+unregistered, `[sources]` pins the tag `v2.2.1`, `[compat]` `"2.2.1"`,
+since 2026-10-30, on `claude/entropyeos-2.2`; `v2.2.0` from 2026-10-26,
+`v2.0.0` from 2026-10-24). The recovery calls
 EntropyEOS's two levels, `con2prim_safe` onto `ProjectionOptions` (`proj`:
 `ρ_min`, `ρ_max`, `w_cap`) and `apply_policy` with `PolicyOptions`
 (`pol`: the atmosphere), both carried by `MHDProblem` and `MHDCase` and
@@ -92,8 +93,9 @@ tubes blew up); with `inside_window` every perturbed tube row is
 deterministic again and the regression is gone (`CODE.md`, "Floors, the
 atmosphere and the magnetosphere", "EntropyEOS 2.0"). Step 3's uncut sweep
 falls back more under 2.x (its bound of 12 approved); `s_atm` stays the
-midpoint; EOS-10 stays an upstream request (decided by Erik 2026-10-24;
-still allocating in 2.2.0). Stage 3 of the recovery plan
+midpoint; EOS-10 landed in EntropyEOS 2.2.1 (`[sources]` pins `v2.2.1`
+since 2026-10-30), so the bounds-checked run's four allocation failures are
+gone. Stage 3 of the recovery plan
 (`claude/recovery-pipeline-3`, 2026-10-24): **the step cache** — inside
 `evolve!`'s steps (`with_step_cache`) every recovery is seeded from the
 cell's latest one in the step and reused where its EntropyEOS input is that

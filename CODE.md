@@ -320,13 +320,15 @@ in step 11. *(Amended with PLAN.md.)*
   (EntropyEOS 2.1.0; decided by Erik) *(added 2026-10-26)*. See
   "Reconstruction" and "Floors, the atmosphere and the magnetosphere",
   "EntropyEOS 2.0".
-- **EOS-10 (wanted)**: the nested fallback
-  allocation-free under `--check-bounds=yes` (PLAN.md), where it allocates
+- **EOS-10 (landed)**: the nested fallback
+  allocation-free under `--check-bounds=yes` (PLAN.md), where it allocated
   one `MVector{33,T}` (272 B at `Float64`, 144 B at `Float32`) *(added
   2026-10-24)*. *(Decided by Erik 2026-10-24:)* it stays an upstream
   request; the bounds-checked run's four allocation failures are known and
   wait on it. *(Re-checked 2026-10-26:)* EntropyEOS 2.2.0 allocates the
-  same 272 B and 144 B there; still waiting.
+  same 272 B and 144 B there; still waiting. *(Landed 2026-10-30:)*
+  EntropyEOS 2.2.1 keeps the scan's scratch on the stack under bounds
+  checks, bit for bit; `[sources]` pins `v2.2.1`.
 
 ### SpacetimeMetrics
 
@@ -1196,7 +1198,8 @@ made warm `Float64` calls 2–4% slower on an H200 (its HISTORY, 2026-10-25:
 the `acosh` of the density floor, recovered in the first stage only) and
 which every recovery pays, and `inside_window`, which costs the reconstruction
 what the exact test cost plus one multiplication per face. The cache's saving
-is unchanged (57–64%).
+is unchanged (57–64%). *(Decided by Erik 2026-10-30:)* the 1–3% is
+accepted, and not attributed further.
 
 **The uniform flow under 2.2** (re-measured 2026-10-26, every run above):
 `1.0602831660·10⁻¹¹`, `8.1098066854·10⁻¹¹`, `1.6805728171·10⁻¹¹`,

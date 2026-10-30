@@ -14,8 +14,9 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
-EOS-8 in 1.1.0, EOS-9 in 2.0.0 and EOS-11 in 2.1.0; the package resolves 2.0.0 since 2026-10-24
-and 2.2.0 since 2026-10-26 (still unregistered: EOS-0, EOS-3, EOS-4 and EOS-10 waiting). TreeAMR 0.2.1 is registered with AMR-1,
+EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
+2026-10-24, 2.2.0 since 2026-10-26 and 2.2.1 since 2026-10-30 (still unregistered: EOS-0, EOS-3 and
+EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
 AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
 (AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
@@ -256,7 +257,7 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
 | EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
-| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | waiting (requested; decided by Erik 2026-10-24; still allocating in 2.2.0, re-checked 2026-10-26) |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | landed (EntropyEOS 2.2.1, 2026-10-30) |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction (added 2026-10-26, from the 2026-10-24 discussion) | landed in EntropyEOS 2.1.0, as `inside_window` (decided by Erik); `[compat]` `"2.2"` |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
@@ -1090,7 +1091,7 @@ the stage solve in a kernel 47 → 48 of 48 at `Float64` and `Float32`).
 **Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
 `claude/atmosphere-at-rest`).
 
-### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (wanted)
+### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (landed)
 
 *(Added 2026-10-24, EntropyEOS 2.0.)* **Why.** `test/recovery_tests.jl`, "A state the projection
 put on the ρ_min face is the atmosphere at rest", asserts that both recoveries allocate nothing, at
@@ -1122,6 +1123,12 @@ state that reaches the nested fallback.
 `--check-bounds=yes` (today 4 failures in that run, the suite's only ones). *(Decided by Erik
 2026-10-24:)* it stays an upstream request, and the bounds-checked run's four failures are known,
 waiting on it (the assertion is not loosened or skipped here).
+
+**Landed** in EntropyEOS 2.2.1 (2026-10-30; its HISTORY, 2026-10-29): the cause was `MVector`'s
+bounds check passing the buffer to `BoundsError`; both of the scan's buffers are now wrapped in a
+scratch type whose check does not capture them, with bit-identical results, and EntropyEOS's
+allocation gates now run under `--check-bounds=yes` too. `[compat]` requires 2.2.1, so there is no
+probe.
 
 *(Re-checked 2026-10-26, EntropyEOS 2.2.0:)* unchanged. The same input still allocates 272 B at
 `Float64` and 144 B at `Float32` under `--check-bounds=yes` (laptop, `@allocated` on
