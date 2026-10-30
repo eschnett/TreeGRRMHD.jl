@@ -1206,8 +1206,35 @@ accepted, and not attributed further.
 `8.4017111996·10⁻¹¹` (`vˣ = −½`, `+½`; SSP3, ARS) — stage 3's numbers to every
 digit, so the four failures stand, at one and four threads, in the clean
 checkout and with bounds checks. Nothing in 2.1 or 2.2 addresses warm starts
-returning at the tolerance (point 2 of the 2026-10-24 discussion). **Still
-for Erik**: the bound is kept and fails.
+returning at the tolerance (point 2 of the 2026-10-24 discussion).
+
+**The uniform flow: to the tolerance** *(decided by Erik 2026-10-30)*. A
+uniform flow through Dirichlet faces stays uniform to the recovery's
+tolerance, not to rounding, and the testset says so: `≤ 10³·tol` (10⁻⁹)
+after 13 steps, where it was `≤ 10⁻¹¹`. Rejected: a polishing Newton step on
+warm starts in EntropyEOS (it would roughly double every warm call, give back
+much of the cache's saving, and break `con2prim_safe`'s fixed points), and a
+tighter `tol` in the cases (below the energy residual's floor on tables, and
+impossible at `Float32`). Measured on the laptop the same day, how the change
+grows (the testset's own setup, run longer; the worst change of a
+variable's scale, `D·s` mostly, sometimes `D`; cold = `step_cache = false`):
+
+| run | 13 steps | 50 | 250 | 1000 |
+|---|---|---|---|---|
+| SSP3 `vˣ = +½`, cold / cached | 8.8e−13 / 1.7e−11 | 7.0e−12 / 1.5e−11 | 5.5e−11 / 2.6e−11 | 2.0e−10 / 6.6e−11 |
+| SSP3 `vˣ = −½`, cold / cached | 1.2e−12 / 1.1e−11 | 7.3e−12 / 1.1e−11 | 5.5e−11 / 2.9e−11 | 2.1e−10 / 6.5e−11 |
+| ARS `vˣ = +½`, cold / cached | 1.9e−12 / 8.4e−11 | 8.1e−12 / 8.5e−11 | 1.8e−11 / 3.0e−10 | 1.2e−10 / 2.7e−10 |
+| ARS `vˣ = −½`, cold / cached | 1.8e−12 / 8.1e−11 | 5.3e−12 / 7.9e−11 | 1.3e−11 / 3.2e−10 | 1.6e−10 / 3.6e−10 |
+| `vˣ = ±0.999`, either | ≤ 1.1e−12 | | | 3.0–3.7e−11, cold = cached |
+
+The cold seeds were not at rounding either beyond the testset's 13 steps:
+they drift by about 2·10⁻¹³ a step and pass 10⁻¹¹ by 50. The cache's change
+comes mostly in the first steps and then grows slowly — under SSP3 it ends
+3 times closer to the exact state than the cold run; under ARS 2 times
+further — presumably because a cell whose recovery matches its seed keeps it,
+where a cold solve adds fresh rounding every step (not verified). A second
+testset pins that: at `vˣ = ±½` over 1000 steps, `≤ 2·10³·tol`, which the
+first steps' rate kept up (6.5·10⁻¹² a step, 6.5·10⁻⁹) would fail.
 
 ## The scheme
 
@@ -3645,7 +3672,10 @@ named as claims.
      precursors reaching the faces at 100 cells; 3e−14 at 400 — and
      Balsara 1 on a periodic box conserves every total to 0.018 ulp a step.
      A uniform flow at `vˣ = ±0.999` or `±1/2` crosses the box unchanged to
-     1.7e−12 of its scale under either tableau.
+     1.7e−12 of its scale under either tableau. *(Amended 2026-10-30:)*
+     with the step cache, to the recovery's tolerance — at most 8.4e−11
+     after 13 steps and 3.6e−10 after 1000 — asserted `≤ 10³·tol` and
+     `≤ 2·10³·tol` ("The step cache", "The uniform flow").
    - **The stages**: every one of Balsara 1–5 is `OHM_IDEAL`, one recovery;
      no repair, no reset, nothing non-finite.
    - **The resistive tube** (Palenzuela et al. 2009, Dionysopoulou et al.

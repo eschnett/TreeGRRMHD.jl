@@ -283,8 +283,10 @@ passing), 9m42s at four threads and 10m41s for the clean-checkout check on
 cn080, 12m26s with `--check-bounds=yes` on cn084. One and four threads
 identical, the clean checkout identical to the one-thread run. **Four
 failures in every run**: the uniform flow's slow cases leave `≤ 10⁻¹¹`
-(`1.1–8.4·10⁻¹¹`, warm seeds answering to EntropyEOS's tolerance; `CODE.md`,
-"The step cache", for Erik); with bounds checks also EOS-10's four. On
+(`1.1–8.4·10⁻¹¹`, warm seeds answering to EntropyEOS's tolerance); with
+bounds checks also EOS-10's four. *(Both resolved 2026-10-30: the uniform
+flow is asserted to the recovery's tolerance, `≤ 10³·tol`, with a 1000-step
+run besides, decided by Erik; EOS-10 landed in EntropyEOS 2.2.1.)* On
 EntropyEOS 2.2.0 with `inside_window` (2026-10-26, `claude/entropyeos-2.2`,
 Symmetry, AMD EPYC 7532 throughout): **26296 tests** (+18 the reconstruction's
 slack testset, +8 the step-cache entry read back, +2 names), a `Test Summary`

@@ -45,33 +45,66 @@ end
 
 const ST_RUNS = Dict(k => [st_run(k, M) for M in ST_MS] for k in 1:5)
 
-@testset "A uniform flow crosses the Dirichlet boundaries unchanged under either tableau" begin
+# One uniform flow at `vˣ` through Dirichlet faces until `t_end`: the largest
+# change of any evolved variable, relative to its scale, the step count, and
+# the recovery's tolerance.
+function st_uniform(vx, tableau, t_end)
+    state = (ρ=1, p=1 // 10, v=(vx, 0, 0), B=(10, -7, -7))
+    case = shock_tube_case(Float64; Γ=5 // 3, left=state, right=state, roots=10)
+    r = evolve!(case, Val(1); N=10, t_end=t_end, limiter=:mc, tableau=tableau)
+    U = profile_1d(r.p, r.u, r.t).U
+    U0 = profile_1d(r.p, exact_state(r.p, case, 0.0), 0.0).U
+    worst = maximum(v -> maximum(abs, U[:, v] .- U0[:, v]) / max(maximum(abs, U0[:, v]), 1),
+                    1:SHK.NU)
+    return (; worst, nsteps=r.nsteps, tol=r.p.opts.tol)
+end
+
+@testset "A uniform flow crosses the Dirichlet boundaries unchanged to the recovery's tolerance under either tableau" begin
     # Guards the boundary hooks (`DirichletBoundary`, "Boundaries" in
     # `CODE.md`): a uniform state, here Balsara 4's fast flow at
     # `vˣ = ±0.999` (`W = 22`) and a slow one at ±1/2 with the same field,
     # flows in through one face and out through the other, and must stay
-    # uniform to rounding. A Dirichlet *potential* failed exactly this under
+    # uniform. A Dirichlet *potential* failed exactly this under
     # SSP3(4,3,3) (measured in step 6: a fifth of the density gone from the
     # last cell within 0.05): its first implicit stage is told
     # `t = tⁿ + 0.24Δt` while the stage's `A` is at `tⁿ`, and a uniform
     # state's `A` grows as `−tE`. The potentials' hooks therefore fix the
     # field — the difference to the nearest evolved point — and not the
     # level of `A`.
+    #
+    # Uniform to the recovery's tolerance, not to rounding (decided by Erik
+    # 2026-10-30; "The step cache" in `CODE.md`): a warm-seeded recovery
+    # returns its seed once both residuals are within `tol` (10⁻¹²), so the
+    # owned cells next to a face, whose seeds differ from their neighbours',
+    # carry errors of order `tol` against the hook's exact ghosts. Measured
+    # after 13 steps at most 1.7e-11 (SSP3) and 8.4e-11 (ARS) at `vˣ = ±1/2`
+    # (cold seeds: 1.9e-12), 1.1e-12 at ±0.999; the bound is 10³·`tol`, 12
+    # times the worst, and eight decades below the failure it guards.
     for vx in (-999 // 1000, -1 // 2, 1 // 2, 999 // 1000),
         tableau in (IRK.IMEXSSP3433(), IRK.ARS443())
 
-        state = (ρ=1, p=1 // 10, v=(vx, 0, 0), B=(10, -7, -7))
-        case = shock_tube_case(Float64; Γ=5 // 3, left=state, right=state, roots=10)
-        r = evolve!(case, Val(1); N=10, t_end=1 // 20, limiter=:mc, tableau=tableau)
-        U = profile_1d(r.p, r.u, r.t).U
-        U0 = profile_1d(r.p, exact_state(r.p, case, 0.0), 0.0).U
-        worst = maximum(v -> maximum(abs, U[:, v] .- U0[:, v]) / max(maximum(abs, U0[:, v]), 1),
-                        1:SHK.NU)
+        u = st_uniform(vx, tableau, 1 // 20)
         @info "Uniform flow vˣ = $vx through Dirichlet faces, $(tableau.name): worst " *
-              "change $(worst) of a variable's scale after $(r.nsteps) steps"
-        # Measured at most 3.3e-13 (vˣ = 0.999); the bound is rounding over
-        # 20 steps with a factor of 30 to spare.
-        @test worst ≤ 1e-11
+              "change $(u.worst) of a variable's scale after $(u.nsteps) steps"
+        @test u.worst ≤ 1000 * u.tol
+    end
+end
+
+@testset "A slow uniform flow's change through Dirichlet faces does not grow at its first steps' rate over 1000 steps" begin
+    # Guards against a secular drift from the warm-seeded recovery (the
+    # previous testset's mechanism): at `vˣ = ±1/2` most of the change comes in
+    # the first steps — up to 6.5e-12 per step over the first 13 under ARS —
+    # and then grows slowly, as a cell whose recovery matches its seed keeps
+    # it. Measured after 1000 steps (t = 4) at most 6.6e-11 (SSP3) and
+    # 3.6e-10 (ARS), where cold seeds give 2.1e-10 and 1.6e-10. The first
+    # steps' rate kept up would give 6.5e-9; the bound is 2·10³·`tol`, 5.5
+    # times the worst and a third of that.
+    for vx in (-1 // 2, 1 // 2), tableau in (IRK.IMEXSSP3433(), IRK.ARS443())
+        u = st_uniform(vx, tableau, 4)
+        @info "Uniform flow vˣ = $vx through Dirichlet faces, $(tableau.name), long: " *
+              "worst change $(u.worst) of a variable's scale after $(u.nsteps) steps"
+        @test u.nsteps ≥ 1000
+        @test u.worst ≤ 2000 * u.tol
     end
 end
 
