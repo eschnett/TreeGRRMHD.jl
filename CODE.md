@@ -746,9 +746,10 @@ level 1's bits.
 **The two levels** *(amended 2026-10-24, EntropyEOS 2.0; tag `v2.0.0`,
 7d68ddb, through `[sources]`, `[compat]` `"2"`)*. EntropyEOS 2.0 splits its
 policy in two, and both recoveries call both, the second right after the
-first, in `fluid_recovery` and `ideal_recovery` (stage 4 of the recovery
-plan splits them into separate kernels; the two-phase API,
-`con2prim_safe_start`/`is_done`/`con2prim_safe_finish`, is not used yet):
+first, in `fluid_recovery` and `ideal_recovery` *(amended 2026-10-30, stage 4
+of the recovery plan: outside the stage solve's iterations level 1 runs as
+EntropyEOS's two phases and level 2 in a kernel of its own, "The two-phase
+recovery" below)*:
 
 - **Level 1, `con2prim_safe(eos, in, opts, proj, s, w, u)`**, projects onto
   the valid range `proj = ProjectionOptions(ρ_min, ρ_max, w_cap)`:
@@ -1236,7 +1237,116 @@ where a cold solve adds fresh rounding every step (not verified). A second
 testset pins that: at `vˣ = ±½` over 1000 steps, `≤ 2·10³·tol`, which the
 first steps' rate kept up (6.5·10⁻¹² a step, 6.5·10⁻⁹) would fail.
 
-## The scheme
+**The two-phase recovery** *(stage 4 of the recovery plan,
+`claude/recovery-pipeline-4`, 2026-10-30; decided by Erik 2026-10-23: "the
+two-phase con2prim everywhere", CPU only)*. EntropyEOS 2.x defines
+`con2prim_safe` as two phases (its `CODE.md`, "Two stages"):
+`con2prim_safe_start(eos, in, opts, proj, s, w, u) -> (out, stage)`, the
+solve from the seed, done where the Newton converged on a state inside every
+face — the common case — and then `out` is the answer; and, where it is not
+done, `con2prim_safe_finish(eos, in, opts, proj, stage)`: the fallback, the
+diagnosis and the face solves, and the inputs no solve applies to (non-finite,
+below `ρ_min`, above `ρ_max cosh w_cap`). The split is bit for bit the fused
+call, and the hand-off is an `isbits` struct of about 48 B. On a GPU the
+second phase is the divergent one, and a later step can compact it.
+
+- **Where.** Every recovery outside the stage solve's iterations: the
+  right-hand side's (`primitive_kernel!`), both limiters' (`reset_kernel!`)
+  and the stage solve's first one (`ohm_kernel!`: the predictor, or
+  `IdealConductor`'s ideal recovery). The iterations — the iterates, the
+  Newton step's ideal seed, the lagged-velocity fallback — keep the fused
+  `con2prim_safe` and `apply_policy` per call: they are warm, mostly done in
+  the first phase (measured below), and splitting the loop would need a pass
+  per iteration.
+- **Three passes, each a kernel over the owned cells.** (1) **start**
+  (`start_kernel!`): the metric, `B` and `E` of the cell, EntropyEOS's input
+  computed by the very functions the site's own kernel uses (`hydro_input`,
+  or `predictor_input` for the stage: the same arithmetic, so the same bits),
+  the step cache's entry and seed exactly as the third pass reads them, and
+  `con2prim_safe_start`; a reused recovery (the entry's key is the input's)
+  skips it. (2) **finish** (`finish_kernel!`): `con2prim_safe_finish` behind
+  the hand-off's per-cell guard, over every owned cell — no compaction on the
+  CPU, where it would buy nothing and would be the package's first worklist,
+  and every cell's work stays its own, so one thread and four agree. (3)
+  **continuation**: the site's kernel as before, its recovery taking level 1
+  from the hand-off (`two_levels` with a hand-off), then `apply_policy`, the
+  entry, the velocity, and the site's own work — `P_from_W` and the write-back
+  of `P` and `W`, the reset's write-back and tallies, the rest of the stage
+  solve.
+- **The hand-off** (`Handoff`, `src/con2prim.jl`): per owned cell, as four
+  arrays indexed `(n…, b)` — `todo` (finish is needed: not reused, and the
+  first phase not done), `cin` and `stage` (written only where `todo`), and
+  level 1's `out` (`Con2PrimSafeOut`, 232 B at `Float64`, beside 48 B each
+  for `cin` and `stage`; written by
+  the first pass where it was done and by the second where not, and not at
+  all where the entry is reused, whose output the third pass takes from the
+  step cache). Struct-of-arrays, so that a pass reads only what it needs.
+  Owned by `MHDProblem` and built with it, like the step cache: a `rebuild`
+  after a regrid has a fresh one of the new mesh's size, nothing is
+  transferred, and each pass writes what the next reads before it is read.
+- **Level 1 and level 2 in separate kernels.** The structure a GPU step
+  needs, and EntropyEOS's `HISTORY.md` records a CUDA.jl 6.4.2 fault in a
+  kernel that called level 1 and then level 2; the workaround is separate
+  kernels. Level 2 is in the third pass; the first two call only level 1.
+- **The fused path stays.** `MHDProblem(…; two_phase = false)` and
+  `evolve!(…; two_phase = false)` build no hand-off and run each recovery in
+  one kernel, `con2prim_safe` and `apply_policy` together, exactly as before
+  (the same kernels with `nothing` for the hand-off). It is kept for the
+  comparison: `test/two_phase_tests.jl` holds the two bit for bit — every
+  state and every tally of seven runs (the EM wave, Alfvén, the resistive
+  tube, the magnetized atmosphere tube with the step cache on and off, the
+  rotor, the adaptive rotor), and every callback outside a step on a state
+  with a cell below `ρ_min`, one below the coldest state, one beyond the
+  rapidity cap and a non-finite one, under the tube's conductivity and under
+  `IdealConductor`. Whether the CPU keeps the split or fuses is Erik's
+  decision (measured below); no CPU/GPU switch beyond this one.
+
+**Measured 2026-10-30** (`bin/recovery_cost.jl steptime`; Symmetry cn084,
+AMD EPYC 7532, one job, one pinned thread, Julia 1.13; this tree at 0334aed
+split and fused (`two_phase = false`), both with the step cache, against
+`claude/entropyeos-2.2` at fea242a, two rounds each, interleaved; ms per
+step, the mean over steps 2…n, the best of three runs). **The split is
+slower on the CPU**: 1–4% on the 2D, 3D and resistive cases, 3–10% on the
+atmosphere tube (its second round noisy: runs 3.98, 4.79, 3.46), 6–9% on the
+1D waves. The fused path of this tree is as fast as fea242a or faster (the
+1D waves 6–11%; not investigated):
+
+| case | split | fused | fea242a | split / fused | split / fea242a | fused / fea242a |
+|---|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 1.475, 1.455 | 1.348, 1.345 | 1.436, 1.434 | +9.4%, +8.2% | +2.7%, +1.5% | −6.1%, −6.2% |
+| Alfvén wave, ideal, 100 | 1.526, 1.538 | 1.441, 1.437 | 1.609, 1.614 | +5.8%, +7.0% | −5.2%, −4.7% | −10.4%, −10.9% |
+| resistive tube σ = 10, 200 | 3.489, 3.587 | 3.455, 3.464 | 3.489, 3.472 | +1.0%, +3.5% | +0.0%, +3.3% | −0.9%, −0.2% |
+| resistive tube σ = 10², 200 | 3.558, 3.541 | 3.419, 3.431 | 3.449, 3.432 | +4.1%, +3.2% | +3.2%, +3.2% | −0.9%, −0.0% |
+| resistive tube σ = 10³, 200 | 3.356, 3.339 | 3.222, 3.228 | 3.255, 3.243 | +4.2%, +3.4% | +3.1%, +3.0% | −1.0%, −0.5% |
+| magnetized atmosphere tube, 200 | 3.282, 3.457 | 3.164, 3.130 | 3.192, 3.196 | +3.7%, +10.5% | +2.8%, +8.2% | −0.9%, −2.1% |
+| rotor, 64² | 58.53, 59.03 | 57.46, 56.48 | 56.96, 56.85 | +1.9%, +4.5% | +2.8%, +3.8% | +0.9%, −0.7% |
+| Orszag–Tang, 64² | 66.14, 65.78 | 64.73, 65.25 | 64.05, 64.12 | +2.2%, +0.8% | +3.3%, +2.6% | +1.1%, +1.8% |
+| spherical blast, 16³ | 104.8, 105.3 | 103.6, 105.1 | 102.2, 103.7 | +1.2%, +0.2% | +2.6%, +1.6% | +1.4%, +1.4% |
+| resistive tube σ = 10², two levels | 4.404, 4.433 | 4.292, 4.311 | 4.289, 4.303 | +2.6%, +2.8% | +2.7%, +3.0% | +0.1%, +0.2% |
+| rotor, two levels, 7168 cells | 110.7, 110.1 | 107.6, 107.0 | 106.5, 106.9 | +2.9%, +2.9% | +3.9%, +3.0% | +1.0%, +0.1% |
+
+Where the time goes was not profiled; per recovery the split adds two
+kernel launches per site and the hand-off's stores and loads (the 232-B
+`out` at every cell not reused), and the first pass recomputes the
+metric, `B`, `E` and the input that the third computes again — which costs
+most where a step does least else (the 1D waves, whose right-hand side
+recoveries are all reused). *Whether the CPU keeps the split or fuses is
+Erik's decision.*
+
+**The share that reaches finish** (`bin/recovery_cost.jl finish`, the same
+job and cases; per site, the recoveries whose first phase was not done, of
+all and of those not reused): **none** in the EM and Alfvén waves, the three
+resistive tubes, Orszag–Tang and the refined resistive tube; the magnetized
+atmosphere tube 6 of 120000 at the right-hand side (0.025% of those
+started), 1755 of 160000 at the stage's first recovery (1.25%), 882 of 40000
+at the step limiter (2.4%), none at the stage limiter; the spherical blast
+1272 of 131072 at the stage's first recovery (1.3%); the rotor 2 and the two-level rotor 4 there; nothing else. **The
+stage solve's iterations reach finish nowhere**: 0 of their 57846 (the
+atmosphere tube) to 531938 (the two-level resistive tube) recoveries, none
+reused. So a later GPU step sees the second phase in at most about 2% of a
+site's cells, at the sites above; the warm iterations would gain nothing
+from the split.
+
 
 ### Where the fields live
 

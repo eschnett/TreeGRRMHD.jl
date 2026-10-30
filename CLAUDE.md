@@ -104,7 +104,21 @@ so the callbacks are pure in `(u, t)` outside a step and a step is pure in
 `uⁿ` (`CODE.md`, "Primitive recovery", "The step cache"; the entry and
 `two_levels` in `src/con2prim.jl`, the cache on `MHDProblem`, the seed
 tallies in `X`; `evolve!(…; step_cache = false)` the negative control;
-`test/step_cache_tests.jl`; `bin/recovery_cost.jl steptime`). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+`test/step_cache_tests.jl`; `bin/recovery_cost.jl steptime`). Stage 4
+(`claude/recovery-pipeline-4`, 2026-10-30): **the two-phase recovery** —
+every recovery outside the stage solve's iterations (the right-hand side,
+both limiters, the stage's first recovery) runs as three kernels over the
+owned cells: `start_kernel!` (the input and `con2prim_safe_start`),
+`finish_kernel!` (`con2prim_safe_finish` behind the per-cell `todo` guard,
+no compaction) and the site's own kernel (level 2 and the rest), through
+the per-owned-cell `Handoff` on `MHDProblem`; level 1 and level 2 never in
+one kernel; the iterations stay fused. `MHDProblem`/`evolve!(…; two_phase =
+false)` is the fused path, bit for bit the same (`test/two_phase_tests.jl`;
+`CODE.md`, "The two-phase recovery"; `bin/recovery_cost.jl steptime` times
+both, `finish` counts the share that reaches finish). On the CPU the split is
+1–4% slower per step than fused (the 1D waves 6–9%), and the iterations never
+reach finish (measured 2026-10-30); keeping or fusing it on the CPU is Erik's
+call. TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
@@ -305,7 +319,16 @@ uniform flows), **every run passing whole**: a `Test Summary` time of
 9m58s at four threads and 10m48s for the clean-checkout check on cn079,
 12m58s with `--check-bounds=yes` on cn080. One and four threads identical,
 the clean checkout identical to the one-thread run, and every printed line
-identical to 16c48ed's (EntropyEOS 2.2.0) but the four new ones. At
+identical to 16c48ed's (EntropyEOS 2.2.0) but the four new ones. After
+the two-phase recovery (2026-10-30, `claude/recovery-pipeline-4` at 0334aed,
+Symmetry, AMD EPYC 7532 throughout): **26353 tests** (+49,
+`test/two_phase_tests.jl`), **every run passing whole**: a `Test Summary`
+time of 11m17s at one thread on cn082 against fea242a's 11m05s in the same
+job, 10m21s at four threads there, 11m19s for the clean-checkout check and
+13m16s with `--check-bounds=yes` on cn079. One and four threads identical,
+the clean checkout identical to the one-thread run, every printed line
+identical to fea242a's but the nine new ones, and bounds checks moving last
+digits only (68 lines). At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
