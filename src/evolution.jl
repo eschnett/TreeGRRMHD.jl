@@ -227,7 +227,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     solver::Val{RS}
     cache::FC                    # the step cache, NC slots per owned cell (2026-10-24)
     cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
-    handoff::HO                  # the two-phase recovery's scratch, or `nothing`: fused (2026-10-30)
+    handoff::HO                  # the two-phase hand-off, or `nothing`: fused (2026-10-30)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -1089,9 +1089,9 @@ function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     us = statearray(ustar, p.sets, SEG_U)
     recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
-                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings, p.provider, t, γΔt, p.eos,
-                p.opts, p.proj, p.pol, p.model, p.stage, p.cache_on[], Val(D), Val(GB_of(f)),
-                Val(f.X.G), Val(p.cache.G))
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
+                p.provider, t, γΔt, p.eos, p.opts, p.proj, p.pol, p.model, p.stage,
+                p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G), Val(p.cache.G))
     return nothing
 end
 
@@ -1146,9 +1146,9 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     uU = statearray(u, p.sets, SEG_U)
     recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t)
     map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
-                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings, p.provider, t,
-                p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G),
-                Val(p.cache.G), step)
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
+                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D),
+                Val(GB_of(f)), Val(f.X.G), Val(p.cache.G), step)
     return nothing
 end
 

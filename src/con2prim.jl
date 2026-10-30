@@ -234,7 +234,8 @@ end
 # The second pass at the cell `idx`: `con2prim_safe_finish` where the first
 # stage was not done.
 @inline function level1_finish!(sc::Handoff, idx::Tuple, eos::EntropyEOS.AbstractEOS,
-                                opts::EntropyEOS.Con2PrimOptions, proj::EntropyEOS.ProjectionOptions)
+                                opts::EntropyEOS.Con2PrimOptions,
+                                proj::EntropyEOS.ProjectionOptions)
     @inbounds if sc.todo[idx...]
         sc.out[idx...] = EntropyEOS.con2prim_safe_finish(eos, sc.cin[idx...], opts, proj,
                                                          sc.stage[idx...])
