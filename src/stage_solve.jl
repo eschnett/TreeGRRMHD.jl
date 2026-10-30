@@ -452,24 +452,28 @@ end
 # `IdealConductor`'s one) was reused. Seeding is the caller's: `guesses` is
 # the cached seed where there is one; the chaining inside (`guesses_of`) is
 # unchanged.
+#
+# *(Amended 2026-10-30, stage 4 of the recovery pipeline:)* with a hand-off
+# `sc`, the first recovery's level 1 is the one the two-phase passes left at
+# the cell `idx` (`two_levels`); its input is `hydro_input(m, cons★, E★, B)`,
+# or `ideal_input(m, cons★, B)` for `IdealConductor` (`predictor_input`),
+# by the same arithmetic. Every later recovery (the iterates, the ideal seed,
+# the fallback) is the fused call, `sc = nothing`.
 @inline function ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
                            proj::EntropyEOS.ProjectionOptions{T},
                            pol::EntropyEOS.PolicyOptions{T}, model::Conductivity,
                            m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
-                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T};
+                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T},
+                           sc=nothing, idx::Tuple=();
                            stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
-    isg = inv(m.sqrtγ)
-    D = cons_D(cons★) * isg
-    S = cons_S(cons★) * isg
-    τ = cons_τ(cons★) * isg
-    DYₑ = cons_DYₑ(cons★) * isg
+    D, S, τ, DYₑ = undensitize(m, cons★)
     scale = τ + D                            # the total energy density 𝓔
 
     # The predictor: the fluid's share at `E★`, and its recovery — the answer
     # where there is no conductivity, the first iterate otherwise.
     S_f, τ_f = field_budget(m, S, τ, E★, B)
     prim, f, pt, entry, hit = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ, guesses,
-                                             entry)
+                                             entry, sc, idx)
     # The magnetization is the stage's: `B` is explicit, `D` is not changed.
     μ = magnetization(m, B, D)
     σ = conductivity(model, prim, μ)
@@ -587,12 +591,28 @@ end
                            proj::EntropyEOS.ProjectionOptions{T},
                            pol::EntropyEOS.PolicyOptions{T}, ::IdealConductor,
                            m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
-                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T};
+                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T},
+                           sc=nothing, idx::Tuple=();
                            stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
     prim, flags, _, entry, hit = ideal_recovery(eos, opts, proj, pol, m, cons★, B, guesses,
-                                                entry)
+                                                entry, sc, idx)
     return ideal_E(m, prim_v(prim), B), prim, OhmStageResult(OHM_IDEAL, flags), 1, entry, hit
 end
+
+"""
+    predictor_input(model, m, cons★, E★, B) -> Con2PrimIn
+
+EntropyEOS's input of the stage solve's first recovery in a cell, by the
+solve's own arithmetic: the hydrodynamic recovery of the predictor at `E★`
+(`hydro_input`), or for [`IdealConductor`](@ref) the ideal one
+(`ideal_input`). What the first pass of the two-phase recovery hands
+EntropyEOS for the stage (stage 4 of the recovery pipeline).
+"""
+@inline predictor_input(::Conductivity, m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
+                        B::SVector{3,T}) where {T} = first(hydro_input(m, cons★, E★, B))
+@inline predictor_input(::IdealConductor, m::Metric3{T}, cons★::NTuple{NU,T},
+                        E★::SVector{3,T}, B::SVector{3,T}) where {T} =
+    first(ideal_input(m, cons★, B))
 
 # `guesses` the function, under a name the solve's argument does not shadow.
 @inline guesses_of(prim::NTuple) = guesses(prim)

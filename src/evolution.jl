@@ -128,7 +128,7 @@ const MHD_SOLVERS = (:llf, :hlle)
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
-               fixup = true)
+               fixup = true, two_phase = true)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
@@ -184,9 +184,19 @@ the problem (so a [`rebuild`](@ref) after a regrid sizes it to the new mesh,
 and nothing is transferred), and a host-side switch that only
 [`with_step_cache`](@ref) turns on. While it is off, which is always outside
 `evolve!`'s steps, no kernel reads or writes the cache.
+
+`two_phase` *(added 2026-10-30, stage 4 of the recovery pipeline; "The
+two-phase recovery" in `CODE.md`)*: the recoveries outside the stage solve's
+iterations — the right-hand side's, both limiters', the stage predictor's —
+run as three passes over the owned cells, `con2prim_safe_start`,
+`con2prim_safe_finish` where the first was not done, and level 2 with the
+site's own work, through a per-owned-cell hand-off ([`Handoff`](@ref)) the
+problem owns, built and sized with it like the step cache. `two_phase =
+false` runs each of them fused, in one kernel, with no hand-off: the same
+results bit for bit (a test), kept for that comparison and for timing.
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
-                  LIM,RS,FC}
+                  LIM,RS,FC,HO}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -217,6 +227,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     solver::Val{RS}
     cache::FC                    # the step cache, NC slots per owned cell (2026-10-24)
     cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
+    handoff::HO                  # the two-phase recovery's scratch, or `nothing`: fused (2026-10-30)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -225,7 +236,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                     riemann::Symbol=:hlle,
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
-                    boundary=nothing, boundary_W=nothing, fixup::Bool=true) where {D}
+                    boundary=nothing, boundary_W=nothing, fixup::Bool=true,
+                    two_phase::Bool=true) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -287,17 +299,20 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     st = stage === nothing ? OhmStageOptions{T}() : stage
     cache = FieldSet{T}(forest, NC; G=0, centering=cellcentered(D), backend=backend)
     cache.work .= T(NaN)                     # invalid: no recovery in a step yet
+    w = cache.work
+    handoff = two_phase ? Handoff(T, backend, (ntuple(d -> size(w, d), D)..., size(w, ndims(w)))) :
+              nothing
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
                       typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
                       typeof(ischeds_F),
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
-                      typeof(boundary),limiter,riemann,typeof(cache)}(
+                      typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff)}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann), cache, Ref(false))
+        Val(riemann), cache, Ref(false), handoff)
 end
 
 """
@@ -309,14 +324,16 @@ is now: what a [`regrid!`](@ref) leaves stale (it replaces every set's
 storage in place, so `p.f` still names the sets). A keyword of
 [`MHDProblem`](@ref) given here replaces `p`'s (`fixup = false`, the
 negative control). Added in step 8. The new problem has its own step cache,
-sized to the forest and invalid, with the switch off (2026-10-24).
+sized to the forest and invalid, with the switch off (2026-10-24), and its own
+two-phase hand-off where `p` has one (2026-10-30).
 """
 rebuild(p::MHDProblem; kwargs...) =
     MHDProblem(p.f; eos=p.eos, opts=p.opts, proj=p.proj, pol=p.pol, model=p.model,
                provider=p.provider,
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
-               ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup, kwargs...)
+               ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup,
+               two_phase=p.handoff !== nothing, kwargs...)
 
 unval(::Val{X}) where {X} = X
 
@@ -390,10 +407,13 @@ end
 # reused where its input is that one's (in practice the stage limiter's,
 # wherever it wrote nothing) — and `B`, `E` as `· inv(√γ)`, the reset's and
 # the stage solve's arithmetic, so that the inputs agree bit for bit (until
-# then `/ √γ`; the same in flat space).
+# then `/ √γ`; the same in flat space). *(Amended 2026-10-30:)* with a
+# hand-off `sc`, the third pass of the two-phase recovery (`start_kernel!`,
+# `finish_kernel!` before it): level 1 is the hand-off's; with `nothing`, the
+# fused recovery.
 @kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
-                                   Cw, Xw, @Const(origins), @Const(spacings), provider, t, eos,
-                                   opts, proj, pol, active::Bool, ::Val{D}, ::Val{GP},
+                                   Cw, Xw, sc, @Const(origins), @Const(spacings), provider, t,
+                                   eos, opts, proj, pol, active::Bool, ::Val{D}, ::Val{GP},
                                    ::Val{GU}, ::Val{GB}, ::Val{GC},
                                    ::Val{GX}) where {D,GP,GU,GB,GC,GX}
     I = @index(Global, NTuple)                       # local, owned
@@ -409,7 +429,7 @@ end
     ci = stored(n, GC)
     entry = read_entry(Cw, ci, b, active, typeof(h))
     prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
-                                                 seed_of(entry, cons), entry)
+                                                 seed_of(entry, cons), entry, sc, (n..., b))
     if active
         write_entry!(Cw, ci, b, entry2)
         tally_seed!(Xw, stored(n, GX), b, SITE_RHS, entry, hit)
@@ -763,8 +783,10 @@ end
 # into `X`. `U` enters holding `u★`. Through the step cache where it is
 # `active` (2026-10-24): the predictor seeded from the cell's latest recovery
 # in the step, and the cell left holding the recovery of the state the solve
-# returns.
-@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw, Cw,
+# returns. *(Amended 2026-10-30:)* with a hand-off `sc`, the third pass of
+# the two-phase recovery: the solve's first recovery takes its level 1 from
+# it.
+@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw, Cw, sc,
                              @Const(origins), @Const(spacings), provider, t, γΔt, eos, opts,
                              proj, pol, model, stage, active::Bool, ::Val{D}, ::Val{GB},
                              ::Val{GX}, ::Val{GC}) where {D,GB,GX,GC}
@@ -781,8 +803,8 @@ end
     ci = stored(n, GC)
     entry = read_entry(Cw, ci, b, active, typeof(h))
     E, _, r, nrec, entry2, hit = ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
-                                           oftype(h, γΔt), seed_of(entry, cons★), entry;
-                                           stage=stage)
+                                           oftype(h, γΔt), seed_of(entry, cons★), entry, sc,
+                                           (n..., b); stage=stage)
     if active
         write_entry!(Cw, ci, b, entry2)
         tally_seed!(Xw, stored(n, GX), b, SITE_STAGE, entry, hit)
@@ -815,7 +837,9 @@ end
 # `active` (2026-10-24): seeded from the cell's latest recovery in the step,
 # reused where its input is that one's; the stage limiter leaves its recovery
 # in the cache, and the step limiter, which ends the step, invalidates it.
-@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, Cw,
+# *(Amended 2026-10-30:)* with a hand-off `sc`, the third pass of the
+# two-phase recovery.
+@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, Cw, sc,
                                @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
                                pol, active::Bool, ::Val{D}, ::Val{GB}, ::Val{GX}, ::Val{GC},
                                ::Val{STEP}) where {D,GB,GX,GC,STEP}
@@ -832,7 +856,7 @@ end
     ci = stored(n, GC)
     entry = read_entry(Cw, ci, b, active, typeof(h))
     prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
-                                                 seed_of(entry, cons), entry)
+                                                 seed_of(entry, cons), entry, sc, (n..., b))
     if active
         tally_seed!(Xw, stored(n, GX), b, STEP ? SITE_STEP_LIMITER : SITE_STAGE_LIMITER, entry,
                     hit)
@@ -856,6 +880,48 @@ end
             Xw[xi..., X_RESETS, b] += one(h)
         end
     end
+end
+
+# The first pass of the two-phase recovery at the owned cells (stage 4 of the
+# recovery pipeline, 2026-10-30; "The two-phase recovery" in `CODE.md`): the
+# metric, `B` averaged to the cell, `E` from the state `Uw` (ghost width
+# `GU`; zero for a state vector), EntropyEOS's input as the site's own kernel
+# computes it — the hydrodynamic recovery (`model = nothing`: the right-hand
+# side, the limiters), or the stage solve's first recovery
+# (`predictor_input(model, …)`) —, the step cache's entry and seed where it is
+# `active`, exactly as the third pass reads them; and `con2prim_safe_start`
+# into the hand-off `sc`, or nothing where the entry is reused.
+@kernel function start_kernel!(sc, @Const(Uw), @Const(B1), @Const(B2), @Const(B3), @Const(Cw),
+                               @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
+                               model, active::Bool, ::Val{D}, ::Val{GU}, ::Val{GB},
+                               ::Val{GC}) where {D,GU,GB,GC}
+    I = @index(Global, NTuple)                       # local, owned
+    b = I[D + 1]
+    n = ntuple(e -> I[e], Val(D))
+    h = @inbounds spacings[b]
+    x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+    m = point_metric(provider, oftype(h, t), x)
+    cons = read_vars(Uw, stored(n, GU), b, Val(NU))
+    isg = inv(m.sqrtγ)
+    B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
+    E = cons_𝔈(cons) * isg
+    entry = read_entry(Cw, stored(n, GC), b, active, typeof(h))
+    level1_start!(sc, (n..., b), eos, opts, proj, start_input(model, m, cons, E, B),
+                  seed_of(entry, cons), entry)
+end
+
+# The input of the first pass: the hydrodynamic recovery's, or the stage
+# solve's first recovery's.
+@inline start_input(::Nothing, m, cons, E, B) = first(hydro_input(m, cons, E, B))
+@inline start_input(model::Conductivity, m, cons, E, B) = predictor_input(model, m, cons, E, B)
+
+# The second pass: `con2prim_safe_finish` at every owned cell whose first
+# stage was not done, behind the hand-off's per-cell guard — no compaction:
+# on the CPU it would buy nothing, and every cell's work stays independent of
+# the others', so one thread and four give the same result.
+@kernel function finish_kernel!(sc, eos, opts, proj, ::Val{D}) where {D}
+    I = @index(Global, NTuple)                       # local, owned: `(n..., b)`
+    level1_finish!(sc, Tuple(I), eos, opts, proj)
 end
 
 # The fastest coordinate speed of light at the owned cells, over the present
@@ -932,8 +998,10 @@ function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
     curl_A!(f, p.𝔅̄, p.spacings)
     GB = Val(GB_of(f))
+    recovery_start!(p, f.U.work, Val(f.U.G), nothing, t)
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
-                f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.origins, p.spacings,
+                f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.handoff, p.origins,
+                p.spacings,
                 p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
                 Val(f.U.G), GB, Val(p.cache.G), Val(f.X.G))
     fill_ghosts!(f.W, p.schedule_W;
@@ -1018,9 +1086,10 @@ cell's outcome is tallied into the diagnostics set ([`ohm_tally`](@ref)).
 function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
     update_fields!(p, ustar, t)
-    map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U),
-                statearray(ustar, p.sets, SEG_U), f.B[1].work, f.B[2].work, f.B[3].work,
-                f.X.work, p.cache.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos,
+    us = statearray(ustar, p.sets, SEG_U)
+    recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t)
+    map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings, p.provider, t, γΔt, p.eos,
                 p.opts, p.proj, p.pol, p.model, p.stage, p.cache_on[], Val(D), Val(GB_of(f)),
                 Val(f.X.G), Val(p.cache.G))
     return nothing
@@ -1074,10 +1143,28 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
         fill_set!(p, SEG_Φ, t)
         walls_to_state!(p, u)
     end
-    map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
-                f.B[3].work, f.X.work, p.cache.work, p.origins, p.spacings, p.provider, t,
+    uU = statearray(u, p.sets, SEG_U)
+    recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t)
+    map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings, p.provider, t,
                 p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G),
                 Val(p.cache.G), step)
+    return nothing
+end
+
+# The first two passes of the two-phase recovery at every owned cell
+# (`start_kernel!`, `finish_kernel!`), for the state `Uw` of ghost width `GU`
+# and the site whose first recovery `model` names (`nothing`: the
+# hydrodynamic recovery), right before the site's own kernel, the third pass;
+# nothing where the problem recovers fused (`two_phase = false`).
+function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t) where {T,D}
+    sc = p.handoff
+    sc === nothing && return nothing
+    f = p.f
+    map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
+                p.cache.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.proj, model,
+                p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G))
+    map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D))
     return nothing
 end
 

@@ -43,7 +43,11 @@
 # `FLAG_POL_ATMOSPHERE` on top of level 1's bits, which say why (decided by
 # Erik 2026-10-21; amended 2026-10-24, EntropyEOS 2.0: until then this file
 # put a floored state at rest itself; "Floors, the atmosphere and the
-# magnetosphere" in `CODE.md`).
+# magnetosphere" in `CODE.md`). *(Amended 2026-10-30, stage 4 of the recovery
+# pipeline:)* the recoveries outside the stage solve's iterations call level 1
+# as EntropyEOS's two phases, `con2prim_safe_start` and, where it is not done,
+# `con2prim_safe_finish`, each in a pass of its own, and level 2 in a third
+# (below, "the two-phase recovery"); bit for bit the fused call.
 
 # --- the step cache's entry ---------------------------------------------------------
 #
@@ -118,17 +122,124 @@ end
 
 @inline entry_flags(e::NTuple{NC,T}) where {T} = unsafe_trunc(UInt32, e[C_POLICY])
 
+# --- the two-phase recovery ------------------------------------------------------------
+#
+# Stage 4 of the recovery pipeline (decided by Erik 2026-10-23; "The two-phase
+# recovery" in `CODE.md`): the recoveries outside the stage solve's iterations
+# — the right-hand side's, both limiters', the stage predictor's — run as three
+# passes over the owned cells, each a kernel of its own:
+#
+#   1. **start**: the input, the step cache's reuse test and seed, and
+#      `con2prim_safe_start`, whose `(out, stage)` go into the hand-off;
+#   2. **finish**: `con2prim_safe_finish` at the cells whose first stage is not
+#      done, behind a per-cell guard (no compaction on the CPU);
+#   3. **continuation**: the site's own kernel, with the hand-off for level 1
+#      (`two_levels` below): `apply_policy`, then the rest of its work.
+#
+# EntropyEOS guarantees that start and, where needed, finish are
+# `con2prim_safe` bit for bit (that is how it defines it), so the passes are
+# the fused kernel bit for bit. Level 1 and level 2 stay in separate kernels:
+# the structure a GPU step would compact, and EntropyEOS's HISTORY records a
+# CUDA fault with both in one kernel.
+
+"""
+    Handoff
+
+The per-owned-cell scratch of the two-phase recovery (stage 4 of the recovery
+pipeline; "The two-phase recovery" in `CODE.md`), as four arrays indexed by the
+local owned cell and the block, `(n..., b)`:
+
+- `todo`: whether the cell needs `con2prim_safe_finish` — its recovery was not
+  reused from the step cache, and `con2prim_safe_start` was not done;
+- `cin`, `stage`: EntropyEOS's input and the first stage's hand-off, written
+  only where `todo`;
+- `out`: level 1's output, written by the first pass where it was done and
+  by the second where not; not written where the step cache's entry was
+  reused (the third pass takes the entry).
+
+Built with the problem ([`MHDProblem`](@ref)'s `two_phase`), so a `rebuild`
+after a regrid sizes it to the new mesh; never transferred, and every pass
+writes what the next one reads before it reads it.
+"""
+struct Handoff{AT,AI,AS,AO}
+    todo::AT
+    cin::AI
+    stage::AS
+    out::AO
+end
+
+Adapt.@adapt_structure Handoff
+
+# A hand-off of `dims` (the owned cells per dimension and the blocks) on
+# `backend`.
+function Handoff(::Type{T}, backend, dims::Tuple) where {T}
+    return Handoff(allocate(backend, Bool, dims),
+                   allocate(backend, EntropyEOS.Con2PrimIn{T}, dims),
+                   allocate(backend, EntropyEOS.Con2PrimSafeStage{T}, dims),
+                   allocate(backend, EntropyEOS.Con2PrimSafeOut{T}, dims))
+end
+
 # EntropyEOS's two levels for `cin` — `con2prim_safe` from `guesses` onto the
 # projection `proj`, then `apply_policy` — as an entry, and whether it was
-# `entry` reused: the one place the package calls them.
+# `entry` reused: the one place the package calls them. With a hand-off `sc`
+# (above; stage 4 of the recovery pipeline) level 1 is not called here: its
+# output is the one the first two passes left in `sc` at the cell `idx`, and
+# this is the third pass's level 2. With `sc = nothing` it is the fused call.
 @inline function two_levels(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
                             proj::EntropyEOS.ProjectionOptions{T},
                             pol::EntropyEOS.PolicyOptions{T}, cin::EntropyEOS.Con2PrimIn{T},
-                            guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
+                            guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
+                            idx::Tuple=()) where {T}
     entry_hit(entry, cin) && return entry, true
-    out = EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
+    out = level1(eos, opts, proj, cin, guesses, sc, idx)
     out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
     return make_entry(cin, out), false
+end
+
+# Level 1: the fused `con2prim_safe`, or the hand-off's output.
+@inline level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn{T}, guesses::NTuple{3,T}, ::Nothing,
+               idx::Tuple) where {T} =
+    EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
+@inline level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn, guesses::NTuple{3}, sc::Handoff,
+               idx::Tuple) = @inbounds sc.out[idx...]
+
+# The first pass at the cell `idx`: nothing where the step cache's entry is a
+# recovery of `cin` (the third pass reuses it); otherwise
+# `con2prim_safe_start` from `guesses`, its output kept where it is done and
+# its stage where it is not.
+@inline function level1_start!(sc::Handoff, idx::Tuple, eos::EntropyEOS.AbstractEOS,
+                               opts::EntropyEOS.Con2PrimOptions{T},
+                               proj::EntropyEOS.ProjectionOptions{T},
+                               cin::EntropyEOS.Con2PrimIn{T}, guesses::NTuple{3,T},
+                               entry::NTuple{NC,T}) where {T}
+    if entry_hit(entry, cin)
+        @inbounds sc.todo[idx...] = false
+        return nothing
+    end
+    out, st = EntropyEOS.con2prim_safe_start(eos, cin, opts, proj, guesses[1], guesses[2],
+                                             guesses[3])
+    done = EntropyEOS.is_done(st)
+    @inbounds begin
+        sc.todo[idx...] = !done
+        if done
+            sc.out[idx...] = out
+        else
+            sc.cin[idx...] = cin
+            sc.stage[idx...] = st
+        end
+    end
+    return nothing
+end
+
+# The second pass at the cell `idx`: `con2prim_safe_finish` where the first
+# stage was not done.
+@inline function level1_finish!(sc::Handoff, idx::Tuple, eos::EntropyEOS.AbstractEOS,
+                                opts::EntropyEOS.Con2PrimOptions, proj::EntropyEOS.ProjectionOptions)
+    @inbounds if sc.todo[idx...]
+        sc.out[idx...] = EntropyEOS.con2prim_safe_finish(eos, sc.cin[idx...], opts, proj,
+                                                         sc.stage[idx...])
+    end
+    return nothing
 end
 
 # `v` rescaled so that `|v|_γ = tanh w`, or zero where it has no direction.
@@ -199,18 +310,35 @@ end
 # undensitizing here multiplies by the same `inv(√γ)`, so that every site
 # hands EntropyEOS the same input bit for bit for the same state (amended
 # 2026-10-24: the right-hand side divided by `√γ`).
+#
+# *(Amended 2026-10-30, stage 4:)* with a hand-off `sc`, level 1 is the one the
+# first two passes left at the cell `idx` (`two_levels`).
 @inline function hydro_recovery(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
                                 proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, E::SVector{3,T}, B::SVector{3,T},
-                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
-    isg = inv(m.sqrtγ)
-    D = cons_D(cons) * isg
-    S = cons_S(cons) * isg
-    τ = cons_τ(cons) * isg
-    DYₑ = cons_DYₑ(cons) * isg
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
+                                idx::Tuple=()) where {T}
+    D, S, τ, DYₑ = undensitize(m, cons)
     S_fluid, τ_fluid = field_budget(m, S, τ, E, B)
-    return fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses, entry)
+    return fluid_recovery(eos, opts, proj, pol, m, D, S_fluid, τ_fluid, DYₑ, guesses, entry, sc,
+                          idx)
+end
+
+# The undensitized `D`, `S_i`, `τ` and `D Yₑ` of `cons`, each `· inv(√γ)`.
+@inline function undensitize(m::Metric3{T}, cons::NTuple{NU,T}) where {T}
+    isg = inv(m.sqrtγ)
+    return cons_D(cons) * isg, cons_S(cons) * isg, cons_τ(cons) * isg, cons_DYₑ(cons) * isg
+end
+
+# EntropyEOS's input of `hydro_recovery`, and the contravariant fluid
+# momentum the velocity is rebuilt along: what the first pass of a two-phase
+# recovery computes, by the same arithmetic.
+@inline function hydro_input(m::Metric3{T}, cons::NTuple{NU,T}, E::SVector{3,T},
+                             B::SVector{3,T}) where {T}
+    D, S, τ, DYₑ = undensitize(m, cons)
+    S_fluid, τ_fluid = field_budget(m, S, τ, E, B)
+    return fluid_input(m, D, S_fluid, τ_fluid, DYₑ)
 end
 
 # The fluid's share of the undensitized total momentum `S_i` and energy `τ`:
@@ -218,6 +346,18 @@ end
 @inline field_budget(m::Metric3{T}, S::SVector{3,T}, τ::T, E::SVector{3,T},
                      B::SVector{3,T}) where {T} =
     (S - cross_down(m, E, B), τ - (dot_up(m, E, E) + dot_up(m, B, B)) / 2)
+
+# EntropyEOS's input of the hydrodynamic recovery from the fluid's own
+# undensitized `D`, `S_i`, `τ` and `D Yₑ`, and the contravariant `Sⁱ`.
+@inline function fluid_input(m::Metric3{T}, D::T, S_fluid::SVector{3,T}, τ_fluid::T,
+                             DYₑ::T) where {T}
+    Su = raise(m, S_fluid)
+    S² = sum(S_fluid .* Su)
+    # A NaN passes through to the policy, which flags it; a quadratic form
+    # of a positive-definite metric is never negative but by rounding.
+    S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
+    return EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T)), Su
+end
 
 # The hydrodynamic recovery from the fluid's own undensitized `D`, `S_i`, `τ`
 # and `D Yₑ`: EntropyEOS's `con2prim_safe` at `B² = 0` and its `apply_policy`
@@ -239,15 +379,10 @@ end
                                 proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T}, D::T,
                                 S_fluid::SVector{3,T}, τ_fluid::T, DYₑ::T,
-                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
-    Su = raise(m, S_fluid)
-    S² = sum(S_fluid .* Su)
-    # A NaN passes through to the policy, which flags it; a quadratic form
-    # of a positive-definite metric is never negative but by rounding.
-    S_mag = S² < zero(T) ? zero(T) : sqrt(S²)
-
-    cin = EntropyEOS.Con2PrimIn{T}(D, τ_fluid, DYₑ, zero(T), S_mag, zero(T))
-    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry)
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
+                                idx::Tuple=()) where {T}
+    cin, Su = fluid_input(m, D, S_fluid, τ_fluid, DYₑ)
+    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry, sc, idx)
     v = velocity_at_rapidity(m, Su, e[C_W])
     pt = entry_point(e)
     prim = pack_prim(e[C_RHO], v, e[C_S], e[C_YE], e[C_W], pt.p, pt.h, pt.cs², pt.u_solved)
@@ -326,12 +461,22 @@ end
                                 proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T}, m::Metric3{T},
                                 cons::NTuple{NU,T}, B::SVector{3,T},
-                                guesses::NTuple{3,T}, entry::NTuple{NC,T}) where {T}
-    isg = inv(m.sqrtγ)
-    D = cons_D(cons) * isg
-    S = cons_S(cons) * isg
-    τ = cons_τ(cons) * isg
-    DYₑ = cons_DYₑ(cons) * isg
+                                guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
+                                idx::Tuple=()) where {T}
+    cin, b̂, S_perp, Su_perp = ideal_input(m, cons, B)
+    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry, sc, idx)
+    v_perp = S_perp > zero(T) ? (e[C_VPERP] / S_perp) * Su_perp : zero(SVector{3,T})
+    v = velocity_at_rapidity(m, e[C_VPAR] * b̂ + v_perp, e[C_W])
+    pt = entry_point(e)
+    prim = pack_prim(e[C_RHO], v, e[C_S], e[C_YE], e[C_W], pt.p, pt.h, pt.cs², pt.u_solved)
+    return prim, entry_flags(e), pt, e, hit
+end
+
+# EntropyEOS's input of `ideal_recovery` — the total momentum split along and
+# across `B` — with the field's direction `b̂`, `S_⊥` and the contravariant
+# `S⊥ⁱ` the velocity is rebuilt from.
+@inline function ideal_input(m::Metric3{T}, cons::NTuple{NU,T}, B::SVector{3,T}) where {T}
+    D, S, τ, DYₑ = undensitize(m, cons)
 
     Su = raise(m, S)
     B² = dot_up(m, B, B)
@@ -351,11 +496,5 @@ end
     S_perp² = dot_up(m, Su_perp, Su_perp)
     S_perp = S_perp² < zero(T) ? zero(T) : sqrt(S_perp²)
 
-    cin = EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²)
-    e, hit = two_levels(eos, opts, proj, pol, cin, guesses, entry)
-    v_perp = S_perp > zero(T) ? (e[C_VPERP] / S_perp) * Su_perp : zero(SVector{3,T})
-    v = velocity_at_rapidity(m, e[C_VPAR] * b̂ + v_perp, e[C_W])
-    pt = entry_point(e)
-    prim = pack_prim(e[C_RHO], v, e[C_S], e[C_YE], e[C_W], pt.p, pt.h, pt.cs², pt.u_solved)
-    return prim, entry_flags(e), pt, e, hit
+    return EntropyEOS.Con2PrimIn{T}(D, τ, DYₑ, S_par, S_perp, B²), b̂, S_perp, Su_perp
 end
