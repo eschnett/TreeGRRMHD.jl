@@ -65,4 +65,7 @@ using TreeGRRMHD
     # `md_run`; the second the first's meshes).
     include("refinement_tests.jl")
     include("refinement_cases_tests.jl")
+    # Step 9: analytic curved backgrounds — the Wald solution and the magnetized Bondi
+    # flow on a Kerr-Schild hole, with its interior.
+    include("curved_tests.jl")
 end
