@@ -5,8 +5,9 @@
 #
 #     julia --project=. -t T bin/curved_stationarity.jl CASE T_END N... [key=value...]
 #
-# CASE is `wald` or `bondi`; N the cells per block along each dimension (the cases' 2³ roots
-# on `[0, 4]³`, so `h = 2/N`). Keys: `r_in` (the interior's radius, default the case's 1),
+# CASE is `wald` or `bondi`; N the cells per block along each dimension, on `roots³` root
+# blocks (key `roots`, default the case's 2) of `[0, 4]³`, so `h = 4/(roots N)` — more roots,
+# more blocks for the threads to share. Keys: `r_in` (the interior's radius, default the case's 1),
 # `stage`, `step` (`true`/`false`: the interior's limiter roles, default both), `chunk` (the
 # chunk length, default `t_end`), `limiter` (default `mc`), `xi` (the gauge damping,
 # default `evolve!`'s 16/L), `interior` (`false`: none, the inside evolved too). Each
@@ -50,12 +51,13 @@ function main(args)
     chunk = parse(Float64, get(kw, "chunk", string(t_end)))
     limiter = Symbol(get(kw, "limiter", "mc"))
     ξ = haskey(kw, "xi") ? parse(Float64, kw["xi"]) : nothing
-    @info "curved stationarity" name t_end Ns r_in interior chunk limiter ξ Threads.nthreads()
+    roots = parse(Int, get(kw, "roots", "2"))
+    @info "curved stationarity" name t_end Ns roots r_in interior chunk limiter ξ Threads.nthreads()
     hs, rows = Float64[], []
     for N in Ns
         t0 = time()
         r = evolve!(case, Val(3); N=N, t_end=t_end, chunk=chunk, limiter=limiter, ξ=ξ,
-                    interior=interior)
+                    interior=interior, roots=roots)
         wall = time() - t0
         uref = TG.exact_state(r.p, case, r.t)
         l = outside_l1(r.p, r.u .- uref, 0.0)
@@ -69,7 +71,7 @@ function main(args)
         sresets = sum(c -> c.tally.step_resets, r.chunks)
         policy = sum(c -> c.tally.policy, r.chunks)
         injD = sum(c -> c.tally.injected_D, r.chunks)
-        h = 4 / (2N)
+        h = 4 / (roots * N)
         push!(hs, h)
         push!(rows, (; N, l, lout, fl, q, qh))
         @printf("ROW %s N=%d h=%.5f steps=%d wall=%.1fs\n", name, N, h, r.nsteps, wall)

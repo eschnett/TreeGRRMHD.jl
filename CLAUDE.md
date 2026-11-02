@@ -44,8 +44,10 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
-curved backgrounds) is next and waits for nothing (2026-10-16).** `CODE.md` records the reviewed design
+regridding, rung 2b; finished on TreeAMR 0.2.2) and 9 (analytic curved
+backgrounds, rung 3; 2026-11-02, `claude/step-9-curved-backgrounds`) are
+done; step 10 (the vertex metric and the TOV star in the Cowling
+approximation) is next and waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -190,7 +192,22 @@ face: AMR-11). The magnetized atmosphere tube was chaotic at rounding level
 under EntropyEOS 2.0 its perturbed runs are clean but not all the same run. `bin/interface_order.jl`,
 `bin/gauge_damping.jl`, `bin/field_loop_refined.jl`, `bin/ghost_fill.jl`
 made `CODE.md`'s step-8 tables. Tests: `test/refinement_tests.jl` and
-`test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
+`test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers). Step 9:
+`src/cases/kerr_schild.jl` — `MichelFlow` (Michel's accretion flow,
+`michel_density`, `michel_state`), `wald_case` (`Vacuum`, Wald at `a = 0`)
+and `bondi_case` (`IdealConductor`, Michel's flow in a radial monopole) on a
+Schwarzschild hole in Kerr-Schild coordinates (`Analytic(KerrSchild(1))`),
+on the octant `[0, 4M]³` with the hole at its corner and Dirichlet faces
+(the monopole's Dirac string leaves through the corner); `src/interior.jl` —
+`HoleInterior(r_in; stage, step)`, an `MHDCase`'s `interior`, pasted by the
+reset first, as stage and step limiter, position-only (proposed; `r_in = M`),
+and the diagnostics `outside_l1`, `field_l1`, `charge_norms`. Every kernel
+already read the metric at its own point, so the scheme did not change;
+pointwise evaluation is 44% of a step on a 16³ blast (`bin/metric_cost.jl`;
+kept, for Erik). `bin/curved_stationarity.jl` is the `t = 50M` study (CODE.md,
+"Validation ladder" 3). Tests: `test/curved_tests.jl` (~2 min with
+compilation; the right-hand side's truncation error, the drift to `t = M/2`
+at `h = M/4`, `M/8`, the interior, the curved-space bit identity).
 
 ## Commands
 
@@ -341,7 +358,15 @@ identical, the clean checkout identical to the one-thread run, every printed
 line of the scheme identical to fea242a's but the nine new ones; six lines
 of the pointwise metric tests moved at 10⁻¹⁵ because the registry resolved
 ForwardDiff 1.4.7 (and TreeAMR 0.2.7) for the new tree, against 1.4.6 (and
-0.2.6) for fea242a's of 2026-10-30. At
+0.2.6) for fea242a's of 2026-10-30. Step 9 (2026-11-02,
+`claude/step-9-curved-backgrounds` at af0c482, Symmetry, AMD EPYC 7532):
+**26425 tests** (+72, `test/curved_tests.jl`), one failure (the Michel
+`uʳ` bound on the EPYC, fixed in cb41add), a `Test Summary` time of 14m35s
+at one thread on cn082 (the curved file about 3.5 min of it, compilation
+included); the same one failure at four threads (cn080) and with bounds
+checks (cn081). The rerun at cb41add with the 9e686a2 baseline, four
+threads, the clean checkout and bounds checks (jobs 588117–588119) was not
+read: the Symmetry tunnel dropped. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

@@ -10,8 +10,9 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9 is next, and waits for nothing.** *(Amended at the
-end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 9 are done; step 10 is next, and waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended at
+the end of step 9; at the end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10, it read
+"step 9 is next".)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
 EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
@@ -1932,9 +1933,49 @@ Changes:
 
 Accept:
 - **Stationarity:** for both cases, the L1 drift from the exact stationary solution after
-  `t = 50M` converges at ≥ 1.8 **(predicted)**.
+  `t = 50M` converges at ≥ 1.8 **(predicted)**. *(Step 9: still predicted — the `h = M/4` row is
+  measured, `D` 1.0e−2 and 6.8e−3 outside `2M`; the `h = M/8`, `M/16` runs were on Symmetry when
+  the tunnel dropped; `CODE.md`, "Validation ladder" 3. The suite asserts the short form, `t =
+  M/2`, at ≥ 1.6, measured 1.73–2.48.)*
 - **Charge:** `|q|` from `∇·E` is recorded.
 - **∇·B** at round-off.
+
+*(Done, 2026-11-02, on `claude/step-9-curved-backgrounds`; `CODE.md` "Metric providers",
+"The interior" and "Validation ladder" 3 have the details, marked "proposed/measured in
+step 9".)* As built:
+- **The provider** needed nothing new: every kernel already evaluated `point_metric` at its own
+  point (cells, faces, edges, vertices) and `metric_gradient` at the cell since step 5.
+  Measured: 102 ns and 234 ns a call on an EPYC 7532, **44% of a step** on the 16³ spherical
+  blast (`Flat` against a Kerr-Schild hole of mass `10⁻³⁰⁰`); kept pointwise (proposed, for
+  Erik: a per-stage cache or deduplicating the 13 vertex and edge evaluations of the gauge
+  terms per cell would save part of it; `bin/metric_cost.jl`).
+- **The cases** (`src/cases/kerr_schild.jl`): `wald_case` (Wald 1974 at `a = 0`, `Vacuum`) and
+  `bondi_case` (Michel's flow in a radial monopole, `IdealConductor`) on a Schwarzschild hole
+  in Kerr-Schild coordinates, each exact for matter and fields, the matter Michel's
+  accretion flow (`MichelFlow`) in both. **Magnetized Bondi, not the Michel monopole**, and
+  **`a = 0`** (both proposed, reasons in `CODE.md`). On the **octant** `[0, 4M]³` with the hole
+  at its corner and Dirichlet faces from the data (proposed): the monopole's Dirac string
+  leaves through the corner, and the octant is an eighth of the box. No 1D or 2D reduction
+  exists in Cartesian Kerr-Schild.
+- **The interior** (`src/interior.jl`, `HoleInterior`, **proposed**): inside `r < r_in` the
+  reset pastes the case's solution — cell averages, point values — first, as stage and step
+  limiter, position-only; `r_in = M`. Measured at `h = M/4` to `t = 50M`: outside the horizon
+  every variant — both roles, the step limiter alone, the stage limiter alone, `r_in = M/2`,
+  `3M/2`, no interior — drifts alike to 2%; the interior decides only the inside's health (the
+  stage limiter alone or none leave the reset working there every step; `r_in = M/2` resets
+  Bondi cells). Proposed: both limiters, `r_in = M`, for Erik.
+- **Diagnostics**: `outside_l1`, `field_l1` (the error of `𝔅`, free of `A`'s gauge),
+  `charge_norms`. `bin/curved_stationarity.jl` runs the study.
+- **Tests** (`test/curved_tests.jl`, 72): Michel's flow against its definitions, `curl A =
+  √γ B`, the right-hand side of the exact states second order outside `2M`, the drift after
+  `t = M/2` at `h = M/4`, `M/8`, `∇·𝔅` and the charge, the interior after every step, and the
+  curved-space bit identity of the step cache (one integration = two = a restart).
+- **The suite** (Symmetry, EPYC 7532): at af0c482, 26425 tests, one failure (the Michel
+  `uʳ` bound, 1.006e−14 against 1e−14 on the EPYC, fixed in cb41add), `Test Summary` 14m35s at
+  one thread on cn082 — about 3.5 min more than step 8's, the curved file's 72 tests and its
+  four evolutions; close to the 15-minute line, so **a split is proposed** (the curved file
+  into a long set). The rerun at cb41add (jobs 588117 one thread + 9e686a2 baseline, 588118
+  four threads + clean checkout, 588119 bounds checks) was not read: the tunnel dropped.
 
 ## Step 10 — The vertex metric and the TOV star in the Cowling approximation (rung 4)
 
