@@ -18,7 +18,7 @@
 
 """
     MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
-            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots)
+            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots, interior = nothing)
 
 A problem, as data:
 
@@ -33,7 +33,9 @@ A problem, as data:
   2, the atmosphere), as [`recovery_options`](@ref) builds them; `model`: the
   conductivity; `provider`: the metric;
 - `𝔅̄`: the constant densitized background field (`src/curl.jl`);
-- `periodic`, `extents`, `roots`: the box, per dimension.
+- `periodic`, `extents`, `roots`: the box, per dimension;
+- `interior`: `nothing`, or a black hole's [`HoleInterior`](@ref), inside
+  which the limiters replace the state by `fields` and `potential` (step 9).
 
 Both callbacks become kernel arguments, so they must capture `isbits` values
 only. Where `fields` is an exact solution at every `t`, it is also the
@@ -42,7 +44,7 @@ dimension is given Dirichlet boundaries from the same two callbacks
 ([`case_boundary`](@ref), [`DirichletBoundary`](@ref); step 6), so there
 they must also be the solution outside the box for as long as the run lasts.
 """
-struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
+struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET,IN}
     fields::FL
     potential::PT
     eos::EOS
@@ -55,11 +57,12 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
     periodic::NTuple{D,Bool}
     extents::NTuple{D,Tuple{T,T}}
     roots::NTuple{D,Int}
+    interior::IN
 end
 
 function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
-                 periodic, extents, roots) where {T,D}
+                 periodic, extents, roots, interior=nothing) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
     length(extents) == D || throw(ArgumentError(
         "a case needs one extent per dimension, got $(length(extents)) for D = $D."))
@@ -71,8 +74,8 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj
     o = opts === nothing ? EntropyEOS.Con2PrimOptions{T}() : opts
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
-                   typeof(pol),typeof(model),typeof(provider)}(
-        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs)
+                   typeof(pol),typeof(model),typeof(provider),typeof(interior)}(
+        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs, interior)
 end
 
 """
@@ -519,7 +522,8 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing, step_cache = true, two_phase = false) -> NamedTuple
+            after_regrid = nothing, step_cache = true, two_phase = false,
+            interior = case.interior) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -553,7 +557,10 @@ as before (the negative control; "The step cache" in `CODE.md`).
 rather than fused ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
 for bit. Fused is the default on the CPU (decided by Erik 2026-11-02).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
-once after the initial adaptation (added in step 8).
+once after the initial adaptation (added in step 8). `interior` is the
+case's black-hole interior ([`HoleInterior`](@ref)) unless given — another
+radius or role, or `nothing` to evolve the inside too, for a measurement
+(added in step 9).
 
 `limiter` has no default (see [`MHDProblem`](@ref)); `cfl = 2/5` is
 TreeHydro's, under the explicit part of SSP3(4,3,3) — the SSPRK(3,3)
@@ -587,7 +594,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
-                 step_cache::Bool=true, two_phase::Bool=false) where {T,D}
+                 step_cache::Bool=true, two_phase::Bool=false,
+                 interior=case.interior) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -613,7 +621,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                          stage=stage,
                          limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
                          ops_W=ops_W, fixup=fixup, boundary=case_boundary(case),
-                         two_phase=two_phase)
+                         two_phase=two_phase, interior=interior_target(interior, case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0

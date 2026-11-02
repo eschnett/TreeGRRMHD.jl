@@ -117,6 +117,9 @@ export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve
        DirichletBoundary, case_boundary, profile_1d, walls_to_state!
 # Refinement
 export mhd_flags, indicator_scales, regrid_state!
+# Curved backgrounds (step 9)
+export HoleInterior, InteriorTarget, paste_interior!, outside_l1, field_l1, charge_norms
+export MichelFlow, michel_density, michel_state, wald_case, bondi_case
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -148,11 +151,13 @@ include("reconstruction.jl")
 include("evolution.jl")
 include("driver.jl")
 include("refinement.jl")
+include("interior.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")
 include("cases/shocktubes.jl")
 include("cases/geometry.jl")
 include("cases/multid.jl")
 include("cases/gauge.jl")
+include("cases/kerr_schild.jl")
 
 end # module TreeGRRMHD

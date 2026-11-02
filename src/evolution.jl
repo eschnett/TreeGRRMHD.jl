@@ -128,7 +128,7 @@ const MHD_SOLVERS = (:llf, :hlle)
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
-               fixup = true, two_phase = false)
+               fixup = true, two_phase = false, interior = nothing)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
@@ -197,9 +197,15 @@ hand-off: the same results bit for bit (a test). *(Decided by Erik
 2026-11-02:)* fused is the default, since on the CPU the split costs 1–10%
 a step and only 0–2.4% of the recoveries reach the second phase; the split
 stays, tested against fused, for a GPU step to turn on.
+
+`interior` *(added in step 9; "The interior" in `CODE.md`)*: `nothing`, or an
+[`InteriorTarget`](@ref) — a black hole's interior and the case's solution —
+which the reset pastes into the state inside the hole, first, in the roles
+the interior names (stage limiter, step limiter or both). Without one the
+reset is exactly what it was.
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
-                  LIM,RS,FC,HO}
+                  LIM,RS,FC,HO,IN}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -231,6 +237,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     cache::FC                    # the step cache, NC slots per owned cell (2026-10-24)
     cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
     handoff::HO                  # the two-phase hand-off, or `nothing`: fused (2026-10-30)
+    interior::IN                 # a black hole's interior, or `nothing` (step 9)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -240,7 +247,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                     boundary=nothing, boundary_W=nothing, fixup::Bool=true,
-                    two_phase::Bool=false) where {D}
+                    two_phase::Bool=false, interior=nothing) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -311,11 +318,12 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                       typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
-                      typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff)}(
+                      typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff),
+                      typeof(interior)}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann), cache, Ref(false), handoff)
+        Val(riemann), cache, Ref(false), handoff, interior)
 end
 
 """
@@ -336,7 +344,7 @@ rebuild(p::MHDProblem; kwargs...) =
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
                ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup,
-               two_phase=p.handoff !== nothing, kwargs...)
+               two_phase=p.handoff !== nothing, interior=p.interior, kwargs...)
 
 unval(::Val{X}) where {X} = X
 
@@ -1140,6 +1148,9 @@ reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
 
 function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     f = p.f
+    # A black hole's interior first (step 9): the fill and the recovery below
+    # see the pasted state.
+    paste_in_role!(u, p, p.interior, t, step)
     update_fields!(p, u, t)
     if p.haswalls
         scatter!(p.sets[SEG_Φ], stateview(u, p.sets, SEG_Φ))
