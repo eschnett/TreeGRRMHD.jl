@@ -55,9 +55,11 @@ cv3(x) = round(x; sigdigits=3)
     end
     @info "Michel's flow: Bernoulli residual $(cv3(worst_F)) of C₂, |u·u + 1| $(cv3(worst_uu)), " *
           "uʳ to $(cv3(worst_ur))"
+    # Measured: 1.4e-13, 1.0e-14 and 4.6e-15 on the laptop (M3), the last 1.0e-14 on an EPYC
+    # 7532 (ForwardDiff's metric and `exp` round differently).
     @test worst_F ≤ 5e-13
     @test worst_uu ≤ 5e-14
-    @test worst_ur ≤ 1e-14
+    @test worst_ur ≤ 5e-14
     @test michel_density(f, f.r_c) ≈ f.ρ_c rtol = 1e-7
 end
 
