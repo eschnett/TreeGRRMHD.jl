@@ -519,7 +519,7 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing, step_cache = true, two_phase = true) -> NamedTuple
+            after_regrid = nothing, step_cache = true, two_phase = false) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -549,9 +549,9 @@ one's bit for bit is reused; the cache is invalidated at the end of every
 step and whenever stepping starts or stops, so a step is a pure function of
 `uⁿ`, `t` and `Δt`. `step_cache = false` runs every recovery from the state,
 as before (the negative control; "The step cache" in `CODE.md`).
-`two_phase = false` recovers fused rather than in the three passes of the
-two-phase recovery ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
-for bit, the comparison's other side.
+`two_phase = true` recovers in the three passes of the two-phase recovery
+rather than fused ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
+for bit. Fused is the default on the CPU (decided by Erik 2026-11-02).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
 once after the initial adaptation (added in step 8).
 
@@ -587,7 +587,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
-                 step_cache::Bool=true, two_phase::Bool=true) where {T,D}
+                 step_cache::Bool=true, two_phase::Bool=false) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))

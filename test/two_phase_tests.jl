@@ -4,9 +4,9 @@
 # cells: `con2prim_safe_start` into a hand-off, `con2prim_safe_finish` where
 # the first stage was not done, and level 2 with the site's own work. What it
 # must not change: anything. EntropyEOS defines `con2prim_safe` as its two
-# phases, so the split is the fused recovery bit for bit, and
-# `two_phase = false` keeps the fused one for the comparison. See "The
-# two-phase recovery" in `CODE.md`.
+# phases, so the split is the fused recovery bit for bit. Fused is the
+# default (decided by Erik 2026-11-02), so every split run here asks for
+# `two_phase = true`. See "The two-phase recovery" in `CODE.md`.
 
 const TP = TreeGRRMHD
 
@@ -50,7 +50,7 @@ tp_same_tallies(a, b) = length(a.chunks) == length(b.chunks) &&
                coarsen_tol=0.02, buffer=4), false)]
     for (name, case, vD, kw, finishes) in cases
         nfinish = Ref(0)
-        split = evolve!(case, vD; kw...,
+        split = evolve!(case, vD; kw..., two_phase=true,
                         after_step=(p, u, t) -> (nfinish[] += count(p.handoff.todo); nothing))
         fused = evolve!(case, vD; kw..., two_phase=false, after_step=(p, u, t) -> nothing)
         @info "$name, $(split.nsteps) steps, $(split.nregrids) regrids: step-limiter " *
@@ -78,7 +78,7 @@ end
                 Val(1); N=10, t_end=1 // 40, limiter=:mc)
     t = r.t
     for model in (r.p.model, IdealConductor())
-        ps = TP.rebuild(r.p; model=model)
+        ps = TP.rebuild(r.p; model=model, two_phase=true)
         pf = TP.rebuild(r.p; model=model, two_phase=false)
         @test ps.handoff isa TP.Handoff && pf.handoff === nothing
         u = copy(r.u)

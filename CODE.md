@@ -1300,6 +1300,12 @@ second phase is the divergent one, and a later step can compact it.
   rapidity cap and a non-finite one, under the tube's conductivity and under
   `IdealConductor`. Whether the CPU keeps the split or fuses is Erik's
   decision (measured below); no CPU/GPU switch beyond this one.
+  *(Decided by Erik 2026-11-02:)* **fused is the default**
+  (`two_phase = false` in `MHDProblem` and `evolve!`): on the CPU the split
+  costs 1–10% a step and buys nothing, since only 0–2.4% of the recoveries
+  reach the second phase and none of the stage solve's iterations would.
+  The split stays in the code, tested bit for bit against fused, for a GPU
+  step to turn on.
 
 **Measured 2026-10-30** (`bin/recovery_cost.jl steptime`; Symmetry cn084,
 AMD EPYC 7532, one job, one pinned thread, Julia 1.13; this tree at 0334aed
@@ -1961,6 +1967,55 @@ the versions agree on identical inputs, so it is a different trajectory — a
 candidate is 2.0's `S_CEILED` keeping `S` while lowering τ (above). Not
 chased; **for Erik**. The suite's assertion on that row (`W ≤ 5` at the end,
 injected mass within 10⁻⁶) holds: its largest `W` at the end is 4.00.
+
+**The ideal magnetized atmosphere's `W = 100`** *(investigated 2026-10-30
+on EntropyEOS 2.2.1; accepted, decided by Erik 2026-11-02)*. Both
+differences from 1.1 are EntropyEOS 2.0's rule for a converged root hotter
+than `s_max` (its HISTORY, 2026-10-23, "Which faces are active"): 2.x
+projects it onto the `s_max` face keeping `D` and `S` and lowering only τ,
+where 1.1 clamped `s` at the root's `ρ` and `w`, removing energy and momentum
+together. In a hot, tenuous cell the momentum is carried by enthalpy (`h` 10
+to 30); on the `s_max` edge `h` falls with `ρ`, so keeping `S` raises `W`
+until `ρ` reaches `ρ_min`. Shown by running both versions in one process
+(8879f4f renamed beside 2.2.1, chosen per recovery), 48 perturbed runs per
+variant, each variant deterministic: 1.1's answer only where 2.2.1 flags
+`S_CEILED` is 1.1 to every digit under ARS and SSP3, and 2.2.1's answer only
+there is 2.2.1 to every digit; 1.1's answer on all 397,341 unflagged
+recoveries changes nothing (so not the seed, the tolerance or the confined
+search), nor on the `W_CEILED` and `S_FLOORED` ones, nor the reconstruction
+(no fallbacks), nor `s_atm`. Under ARS(4,4,3) the `S_CEILED` writes turn
+removed heat into bulk motion in the precursor (`|S_f|/(τ_f + D)` at p90 0.74
+against 0.55); stage 4's predictors at the front exceed the light cone
+(`|S| > τ + D`) about 100 times a run in both versions, and on 2.x a few more
+of them fall in denser cells, where the `s_min` face (`S_FLOORED`, the same
+answer in both) writes `W ≈ |S|/D`, up to the cap — one cell, one step, `W`
+below 5 the next. The injected mass under ARS (1.1's `+5.6·10⁻⁸` → `−5.0·10⁻⁹`)
+is EOS-9's no-collapse instead, as measured 2026-10-22. Under SSP3 nothing
+amplifies it: 12018 atmosphere writes inject `−7.6·10⁻⁹` against 1.1's 12008
+and `−6.6·10⁻⁹`.
+
+Not worse by any integral measure: the final state at `t = 0.4` against
+1600- and 3200-cell references is within 1.5% of 1.1's in L1 of `D`, `S` and
+τ under both tableaus (ARS against 1.1's 3200-cell run: `D` 4.110·10⁻³ against
+4.117·10⁻³), its largest `W` 4.00 against 4.12 (ARS), the injected energy and
+momentum within 2–10%. Nor is 1.1's `W` 4.3 a property of 1.1: it is that
+of 200 cells. Largest `W` and cell-steps with `W > 20`:
+
+| | 200 cells | 400 | 800 | 1600 | 3200 |
+|---|---|---|---|---|---|
+| ARS, 2.2.1 | 100, 3 | 100, 4 | 100, 32 | 100, 153 | — |
+| ARS, 1.1 | 4.3, 0 | 100, 7 | 100, 40 | 100, 163 | — |
+| SSP3, 2.2.1 | 4.8, 0 | 4.8, 0 | 4.8, 0 | 100, 2 | 100, 537 |
+| SSP3, 1.1 | 4.8, 0 | 4.8, 0 | 5.9, 0 | 25, 2 | 100, 164 |
+
+2.x brings the spikes in about one doubling of resolution earlier and up to
+three times as often; the hydrodynamic and cut-off tubes have none at 1600
+cells (largest `W` 8.0 and 12.7). Not pursued: a TreeGRRMHD level 2 sending
+`S_CEILED` states to the atmosphere still spikes (`W` 27; 65 if limited to
+`ρ < 1.1 ρ_min`). A lead for later, single laptop runs only: `atm_trigger` 2
+or 10 removes the spikes in both versions, and at 10 the two are bit for bit
+the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
+untested elsewhere.
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
 an experiment for Erik, not decided; `bin/hot_projection.jl`,

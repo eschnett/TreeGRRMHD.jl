@@ -113,12 +113,16 @@ owned cells: `start_kernel!` (the input and `con2prim_safe_start`),
 no compaction) and the site's own kernel (level 2 and the rest), through
 the per-owned-cell `Handoff` on `MHDProblem`; level 1 and level 2 never in
 one kernel; the iterations stay fused. `MHDProblem`/`evolve!(…; two_phase =
-false)` is the fused path, bit for bit the same (`test/two_phase_tests.jl`;
+true)` turns it on; **fused is the default** (decided by Erik 2026-11-02),
+bit for bit the same (`test/two_phase_tests.jl`;
 `CODE.md`, "The two-phase recovery"; `bin/recovery_cost.jl steptime` times
 both, `finish` counts the share that reaches finish). On the CPU the split is
 1–4% slower per step than fused (the 1D waves 6–9%), and the iterations never
-reach finish (measured 2026-10-30); keeping or fusing it on the CPU is Erik's
-call. TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+reach finish (measured 2026-10-30), so the CPU runs fused and the split
+waits for a GPU step. The ideal magnetized atmosphere's `W = 100` spikes
+under ARS are EntropyEOS 2.x's `s_max` rule (keep `D` and `S`), accepted
+(Erik, 2026-11-02; `CODE.md`, "Floors, the atmosphere and the
+magnetosphere"). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
 another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
 since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`

@@ -128,7 +128,7 @@ const MHD_SOLVERS = (:llf, :hlle)
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
-               fixup = true, two_phase = true)
+               fixup = true, two_phase = false)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
@@ -192,8 +192,11 @@ run as three passes over the owned cells, `con2prim_safe_start`,
 `con2prim_safe_finish` where the first was not done, and level 2 with the
 site's own work, through a per-owned-cell hand-off ([`Handoff`](@ref)) the
 problem owns, built and sized with it like the step cache. `two_phase =
-false` runs each of them fused, in one kernel, with no hand-off: the same
-results bit for bit (a test), kept for that comparison and for timing.
+false`, the default, runs each of them fused, in one kernel, with no
+hand-off: the same results bit for bit (a test). *(Decided by Erik
+2026-11-02:)* fused is the default, since on the CPU the split costs 1–10%
+a step and only 0–2.4% of the recoveries reach the second phase; the split
+stays, tested against fused, for a GPU step to turn on.
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
                   LIM,RS,FC,HO}
@@ -237,7 +240,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                     boundary=nothing, boundary_W=nothing, fixup::Bool=true,
-                    two_phase::Bool=true) where {D}
+                    two_phase::Bool=false) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *

@@ -569,7 +569,7 @@ end
 function steptime(names)
     cached = isdefined(TG, :with_step_cache)
     split = isdefined(TG, :Handoff)
-    variants = split ? (("split", (; step_cache=true)), ("fused", (; two_phase=false))) :
+    variants = split ? (("split", (; two_phase=true)), ("fused", (; two_phase=false))) :
                cached ? (("cache", (; step_cache=true)), ("nocache", (; step_cache=false))) :
                (("plain", (;)),)
     for name in names
@@ -681,7 +681,7 @@ function finish_share(names)
     for name in names
         case, D, ekw, _ = CASES[name]()
         empty!(FS_COUNTS)
-        r = Base.invokelatest(evolve!, case, Val(D); ekw...)
+        r = Base.invokelatest(evolve!, case, Val(D); ekw..., two_phase=true)
         nown = ncells_owned(r)
         seeds(k) = sum(ch -> getproperty(ch.tally.seeds, k).reused, r.chunks)
         @printf("finish %-18s %d steps, %d owned cells\n", name, r.nsteps, nown)
