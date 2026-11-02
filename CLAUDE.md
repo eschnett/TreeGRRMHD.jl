@@ -332,7 +332,16 @@ job, 10m21s at four threads there, 11m19s for the clean-checkout check and
 13m16s with `--check-bounds=yes` on cn079. One and four threads identical,
 the clean checkout identical to the one-thread run, every printed line
 identical to fea242a's but the nine new ones, and bounds checks moving last
-digits only (68 lines). At
+digits only (68 lines). With fused the default (2026-11-02, 03566f4,
+Symmetry): **26353 tests**, every run passing whole: 11m04s at one thread on
+cn079 (EPYC 7532) against fea242a's 10m54s in the same job, 10m06s at four
+threads and 11m13s for the clean-checkout check on cn080 (EPYC 7532), 9m46s
+with `--check-bounds=yes` on cn093 (EPYC 7543). One and four threads
+identical, the clean checkout identical to the one-thread run, every printed
+line of the scheme identical to fea242a's but the nine new ones; six lines
+of the pointwise metric tests moved at 10⁻¹⁵ because the registry resolved
+ForwardDiff 1.4.7 (and TreeAMR 0.2.7) for the new tree, against 1.4.6 (and
+0.2.6) for fea242a's of 2026-10-30. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
