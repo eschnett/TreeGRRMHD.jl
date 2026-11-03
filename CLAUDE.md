@@ -44,10 +44,11 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b; finished on TreeAMR 0.2.2) and 9 (analytic curved
-backgrounds, rung 3; 2026-11-02, `claude/step-9-curved-backgrounds`) are
-done; step 10 (the vertex metric and the TOV star in the Cowling
-approximation) is next and waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
+regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
+curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) is built but
+open: its `t = 50M` study does not converge at the predicted order, and
+Erik wants the error located first (2026-11-02). Step 10 waits for it and
+for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -207,7 +208,16 @@ pointwise evaluation is 44% of a step on a 16³ blast (`bin/metric_cost.jl`;
 kept, for Erik). `bin/curved_stationarity.jl` is the `t = 50M` study (CODE.md,
 "Validation ladder" 3). Tests: `test/curved_tests.jl` (~2 min with
 compilation; the right-hand side's truncation error, the drift to `t = M/2`
-at `h = M/4`, `M/8`, the interior, the curved-space bit identity).
+at `h = M/4`, `M/8`, the interior, the curved-space bit identity). Round 2
+(2026-11-02): the `t = 50M` study fails the predicted order, and
+`bin/curved_localise.jl` (time series, radial layers, face distances, the
+resets by layer and by EntropyEOS level, diagnostic hooks evaluated in its
+own process) located it: a mode that grows through the potentials' relative
+Dirichlet hook (AMR-7) copying the gauge drift of `A` across the face; with
+the potentials absolute in the ghosts both cases are stationary and second
+order (CODE.md, "Validation ladder" 3, "Where the error lives"; the fix is
+Erik's). Resets deep inside the hole, `r < (r_in + 2M)/2`, are not counted
+(Erik, 2026-11-02; CODE.md, "The interior").
 
 ## Commands
 
@@ -364,9 +374,15 @@ ForwardDiff 1.4.7 (and TreeAMR 0.2.7) for the new tree, against 1.4.6 (and
 `uʳ` bound on the EPYC, fixed in cb41add), a `Test Summary` time of 14m35s
 at one thread on cn082 (the curved file about 3.5 min of it, compilation
 included); the same one failure at four threads (cn080) and with bounds
-checks (cn081). The rerun at cb41add with the 9e686a2 baseline, four
-threads, the clean checkout and bounds checks (jobs 588117–588119) was not
-read: the Symmetry tunnel dropped. At
+checks (cn081). At cb41add (jobs 588117–588119): **26425 tests, every run
+passing whole** — 14m21s at one thread on cn081 (EPYC 7532) against
+9e686a2's 11m08s (26353 tests) in the same job, 11m38s at four threads and
+14m28s for the clean-checkout check on cn092 (EPYC 7532), 12m38s with
+`--check-bounds=yes` on cn093 (EPYC 7543). One and four threads identical,
+the clean checkout identical to the one-thread run, every line of the
+baseline present in the one-thread run (11 new lines); bounds checks, on the
+other CPU, move 70 lines. The split the 14-minute suite calls for is Erik's
+to decide. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

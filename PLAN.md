@@ -10,9 +10,9 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 9 are done; step 10 is next, and waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended at
-the end of step 9; at the end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10, it read
-"step 9 is next".)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 8 are done; step 9 is built but open: its stationarity study fails the
+predicted order, and the error is to be located before it counts as done (Erik, 2026-11-02).
+Step 10 waits for it and for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
 EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
@@ -1933,16 +1933,22 @@ Changes:
 
 Accept:
 - **Stationarity:** for both cases, the L1 drift from the exact stationary solution after
-  `t = 50M` converges at ≥ 1.8 **(predicted)**. *(Step 9: still predicted — the `h = M/4` row is
-  measured, `D` 1.0e−2 and 6.8e−3 outside `2M`; the `h = M/8`, `M/16` runs were on Symmetry when
-  the tunnel dropped; `CODE.md`, "Validation ladder" 3. The suite asserts the short form, `t =
-  M/2`, at ≥ 1.6, measured 1.73–2.48.)*
+  `t = 50M` converges at ≥ 1.8 **(predicted)**. *(Measured in step 9: **fails** — at `h = M/4,
+  M/8, M/16` Wald's `D` 0.94 then 0.08 and its charge −0.11, the magnetized Bondi flow 1.1–1.2.
+  Located in round 2 (`CODE.md`, "Validation ladder" 3, "Where the error lives"): Michel's flow
+  alone converges at 2.4; the field cases carry a mode that grows through the potentials'
+  relative Dirichlet hook (AMR-7), which copies the evolved potential's gauge drift across the
+  face, closed through the Lorenz gauge; with the case's potential itself in the ghosts both
+  cases are stationary and converge at 1.9–2.3 in `D` and `τ` (`M/4 → M/8`). The fix is a
+  boundary design change, proposed for Erik. The suite asserts the short form, `t = M/2`, at
+  ≥ 1.6, measured 1.73–2.48.)*
 - **Charge:** `|q|` from `∇·E` is recorded.
 - **∇·B** at round-off.
 
-*(Done, 2026-11-02, on `claude/step-9-curved-backgrounds`; `CODE.md` "Metric providers",
-"The interior" and "Validation ladder" 3 have the details, marked "proposed/measured in
-step 9".)* As built:
+*(Built, 2026-11-02, on `claude/step-9-curved-backgrounds`, and **open**: the stationarity
+prediction fails — see "Accept" and `CODE.md`, "Validation ladder" 3; Erik wants the error
+located before the step counts as done. `CODE.md` "Metric providers", "The interior" and
+"Validation ladder" 3 have the details, marked "proposed/measured in step 9".)* As built:
 - **The provider** needed nothing new: every kernel already evaluated `point_metric` at its own
   point (cells, faces, edges, vertices) and `metric_gradient` at the cell since step 5.
   Measured: 102 ns and 234 ns a call on an EPYC 7532, **44% of a step** on the 16³ spherical
@@ -1973,9 +1979,11 @@ step 9".)* As built:
 - **The suite** (Symmetry, EPYC 7532): at af0c482, 26425 tests, one failure (the Michel
   `uʳ` bound, 1.006e−14 against 1e−14 on the EPYC, fixed in cb41add), `Test Summary` 14m35s at
   one thread on cn082 — about 3.5 min more than step 8's, the curved file's 72 tests and its
-  four evolutions; close to the 15-minute line, so **a split is proposed** (the curved file
-  into a long set). The rerun at cb41add (jobs 588117 one thread + 9e686a2 baseline, 588118
-  four threads + clean checkout, 588119 bounds checks) was not read: the tunnel dropped.
+  four evolutions; close to the 15-minute line, so a split is proposed (Erik's decision). At
+  cb41add (jobs 588117–588119) every run passes whole: 26425 tests, 14m21s at one thread on
+  cn081 against 9e686a2's 11m08s in the same job, 11m38s at four threads, 14m28s for the clean
+  checkout, 12m38s with bounds checks; one = four threads, clean = one thread, every baseline
+  line present.
 
 ## Step 10 — The vertex metric and the TOV star in the Cowling approximation (rung 4)
 

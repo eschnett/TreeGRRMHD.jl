@@ -3317,7 +3317,47 @@ interior:
   inside every step and its tallies (and the totals) are the singularity's;
   at `r_in = M/2` the Bondi flow's magnetization next to the paste
   (`b²/ρ ≈ 37` at `r = M/2`) still resets the cells between. At `r_in = M`
-  or `3M/2`, in both limiters or the step limiter alone, nothing is reset.
+  or `3M/2`, in both limiters or the step limiter alone, nothing is reset at
+  `h = M/4` and `M/8` — but at `M/16` the Bondi flow resets inside (below).
+**Resets inside the hole** *(decided by Erik 2026-11-02)*:
+1. **Resets deep inside the hole are not counted**: deep inside is `r < (r_in
+   + 2M)/2`, `1.5M` at `r_in = M`; whatever keeps the hydrodynamic scheme
+   stable there is fine. Reported tallies, and any assertion on resets,
+   policy flags or injected rest mass, cover `r ≥ (r_in + 2M)/2` only.
+2. **The resets are counted in radial layers**, to see where they happen:
+   the stage limiter's and the step limiter's resets and the stage solve's
+   policy repairs, in layers of `M/4`, split into level 1 (EntropyEOS's
+   projection: which `FLAG_POL_*` face bits) and level 2 (the atmosphere of
+   `apply_policy`, `FLAG_POL_ATMOSPHERE`). On the host, from `X` after a
+   chunk and, for the reset's bits, a copy of the reset kernel that counts
+   them, evaluated in the measuring process only (`bin/curved_localise.jl`).
+3. **No special cases for resets inside the hole**: the reset there is the
+   reset everywhere — no interior-specific floors, atmosphere rules or
+   thresholds, and `apply_policy`'s options and the atmosphere trigger are
+   not changed without asking. Erik's view: codes reset to the atmosphere
+   mostly because their EOS cannot take high densities and temperatures;
+   with EntropyEOS a reset can go to whatever state the EOS prefers, and the
+   layers report how many resets end in level 1's projection and how many in
+   level 2's atmosphere — the evidence on whether the atmosphere is needed
+   there at all.
+4. The paste stays as built (both limiters, `r_in = M`) for now; its form is
+   not decided.
+
+**The resets by radius** (`bin/curved_localise.jl`, `t = 50M`; jobs 588186
+at `M/8` and 588213, 588214 at `M/16`). At `h = M/8`: Wald none; the
+magnetized Bondi flow no reset at all, and its 9000 stage-solve policy repairs
+— 3 a step — all in the corner layer `0 ≤ r < M/4` (`r ≈ 0.11–0.2M`, the
+cells next to the singularity), each `FLAG_POL_S_FLOORED`: level 1, the
+entropy raised onto the window's floor where the stage's predictor came
+out colder than the gas allows, deep inside and not counted. At `M/16` the
+radial tables (jobs 588213, 588214, the reset kernel's copy counting the
+bits by layer) were at `t = 20M` when the Symmetry tunnel dropped, so where
+the magnetized Bondi flow's 126000/42000 resets of job 588113 sit, and how
+many end in level 1 or level 2, is in
+`/mnt/beegfs/eschnetter/claude/treegrrmhd-step9-588213-part1.log`, unread.
+The whole-octant `τ` of `1.29·10³` against `9.9·10⁻⁴` outside `2M` says
+the resets' states lie inside `2M`.
+
 - **Proposed in step 9: both limiters, `r_in = M`.** The step limiter alone
   gives the same run to the fourth digit; the stage paste costs one kernel
   launch over a ball of 0.4% of the box and keeps every right-hand side
@@ -4318,25 +4358,139 @@ named as claims.
    an `O(1)` remainder.
 
    **Stationarity** (PLAN.md: the L1 drift after `t = 50M` converges at
-   `≥ 1.8`, predicted.) **Not yet
-   measured at more than one resolution** (step 9 ended with the Symmetry tunnel
-   down; for Erik). At `h = M/4` (16³ cells, 1500 steps, EPYC 7532, jobs
-   588101/588102, the default interior) the L1 drift after `t = 50M` outside
-   `r = 2M` is: Wald `D` 1.008e−2, `S` 1.507e−2, 1.507e−2, 5.500e−3, `τ`
-   1.545e−2, `D Yₑ` 5.039e−3, `D s` 0.680, `𝔈` 1.041e−2, 1.041e−2, 2.263e−3,
-   `𝔅` (everywhere) 1.46e−2, 1.46e−2, 2.79e−2; Bondi `D` 6.845e−3, `S`
-   2.885e−3, `τ` 4.413e−3, `D Yₑ` 3.423e−3, `D s` 0.590, `𝔈` 4.660e−4, `𝔅`
-   2.21e−3; no reset, no injected mass, every stage `OHM_SIGMA_ZERO` (Wald)
-   or `OHM_IDEAL` (Bondi). Against `t = M/2` the drift has grown about 3-fold
-   and saturates; `D s` drifts five times further than `s D`'s share of `D`'s
-   drift (the advected entropy does not see the numerical heating the energy
-   does). The rows at `h = M/8` (jobs 588111, 588114: 32 and 16 threads,
-   `roots = 4`) and `h = M/16` (588112, 588113: `roots = 8`, 64 threads, amdq)
-   were running when the step ended; their logs are
-   `/mnt/beegfs/eschnetter/claude/treegrrmhd-step9-5881{11,12,13,14}-part*.log`,
-   and `bin/curved_stationarity.jl` prints the rates (`RATES`) from them. The
-   prediction stays **(predicted)** until then; the suite's short form (below)
-   converges at 1.73–2.48.
+   `≥ 1.8`, **(predicted)**; *(measured in step 9: fails — Wald saturates,
+   the magnetized Bondi flow converges at first order; the cause is located
+   below, and the prediction holds without it at `h = M/4 → M/8`)*.) The L1
+   drift outside `r = 2M` after `t = 50M`, both limiters, `r_in = M`, and the
+   rates `M/4 → M/8` and `M/8 → M/16` (`bin/curved_stationarity.jl`; jobs
+   588101/588102 on cn079 and cn080, 588111 and 588114 on cn079 and cn084,
+   EPYC 7532, 588112 and 588113 on cn108 and cn083, EPYC 7543 and 7532, amdq,
+   about 2 h at 64 threads):
+
+   | | `h = M/4` | `M/8` | `M/16` | rates |
+   |---|---|---|---|---|
+   | Wald `D` | 1.008e−2 | 5.247e−3 | 4.952e−3 | 0.94, 0.08 |
+   | Wald `S_x`, `S_z` | 1.507e−2, 5.500e−3 | 4.913e−3, 2.853e−3 | 4.647e−3, 2.544e−3 | 1.62, 0.08; 0.95, 0.17 |
+   | Wald `τ` | 1.545e−2 | 4.143e−3 | 2.678e−3 | 1.90, 0.63 |
+   | Wald `D Yₑ` | 5.039e−3 | 2.624e−3 | 2.476e−3 | 0.94, 0.08 |
+   | Wald `𝔈ˣ`, `𝔈ᶻ` | 1.041e−2, 2.263e−3 | 2.253e−3, 1.459e−3 | 1.586e−3, 1.365e−3 | 2.21, 0.51; 0.63, 0.10 |
+   | Wald `𝔅ˣ`, `𝔅ᶻ` (all faces) | 1.459e−2, 2.789e−2 | 2.529e−3, 5.777e−3 | 7.098e−4, 1.701e−3 | 2.53, 1.83; 2.27, 1.76 |
+   | Wald `√γ q` | 1.595e−2 | 6.524e−3 | 7.038e−3 | 1.29, −0.11 |
+   | Bondi `D` | 6.845e−3 | 3.284e−3 | 1.412e−3 | 1.06, 1.22 |
+   | Bondi `S_x` | 2.885e−3 | 1.360e−3 | 6.301e−4 | 1.09, 1.11 |
+   | Bondi `τ` | 4.413e−3 | 2.509e−3 | 9.895e−4 | 0.81, 1.34 |
+   | Bondi `𝔈ˣ` | 4.660e−4 | 2.137e−4 | 9.423e−5 | 1.12, 1.18 |
+   | Bondi `𝔅ˣ` (all faces) | 2.206e−3 | 1.090e−3 | 4.814e−4 | 1.02, 1.18 |
+   | Bondi `D s` | 0.590 | 0.174 | 5.43e−2 | 1.76, 1.68 |
+   | Bondi `√γ q` | 8.73e−4 | 5.85e−4 | 4.18e−4 | 0.58, 0.48 |
+
+   No reset and no injected mass at `M/4` and `M/8`; the magnetized Bondi
+   flow at `M/16` resets 126000/42000 cells (stage/step), all deep inside
+   (below), and its `τ` over the whole octant is `1.29·10³` against `9.9·10⁻⁴`
+   outside `2M`.
+
+   **Where the error lives** *(measured in step 9, round 2;
+   `bin/curved_localise.jl`: the drift and the charge every `5M`, binned at
+   the end by radius, by the distance to the octant's faces, and over `r ≥
+   2M` without `k` cells next to every face; jobs 588185–588224, Symmetry,
+   EPYC 7532 and 7543, the node per job in the logs)*:
+
+   - **Michel's flow alone converges at second order.** `wald_case(B₀ = 0)`
+     (no field) and `bondi_case(q = 0)` are the same run bit for bit; the
+     drift settles by `t = 20M` and stays: at `t = 50M`, outside `2M`, `D`
+     2.862e−3 → 5.423e−4 (**2.40**), `τ` 1.181e−3 → 2.148e−4 (**2.46**), `S_x`
+     4.470e−4 → 1.060e−4 (**2.08**) at `h = M/4 → M/8`. Without the limiter
+     (`:none`) 2.407e−3 → 4.730e−4 (2.35). So neither MC at the coordinate
+     planes, nor the Dirichlet planes through the hole, nor the paste's
+     surface, nor the hydrodynamic sources limit the order: the matter's
+     error with the field is the field's.
+   - **Wald's drift is a growing mode, not a saturation.** Its time series
+     (outside `2M`, `D`, `τ`, `𝔈ˣ`):
+
+     | `t/M` | 5 | 10 | 20 | 30 | 40 | 45 | 50 |
+     |---|---|---|---|---|---|---|---|
+     | `M/4` `D` | 2.55e−3 | 2.52e−3 | 2.79e−3 | 3.38e−3 | 4.80e−3 | 6.53e−3 | 1.01e−2 |
+     | `M/4` `𝔈ˣ` | 5.60e−4 | 6.18e−4 | 8.25e−4 | 1.36e−3 | 3.39e−3 | 5.94e−3 | 1.04e−2 |
+     | `M/8` `D` | 4.84e−4 | 5.49e−4 | 1.06e−3 | 2.04e−3 | 3.42e−3 | 4.17e−3 | 5.25e−3 |
+     | `M/8` `𝔈ˣ` | 1.59e−4 | 1.88e−4 | 3.50e−4 | 6.07e−4 | 1.03e−3 | 1.49e−3 | 2.25e−3 |
+
+     At `M/16` (job 588214, read to `20M`): `D` 1.06e−4, 1.50e−4, 2.54e−4,
+     4.14e−4 at 5, 10, 15, 20M. At `t = 5M` it converges (`D` 2.4 and 2.2,
+     `𝔈ˣ` 1.8 and 1.8); then `𝔈ˣ` grows
+     exponentially, about `e^{0.11 t/M}` at `M/4` and `e^{0.08 t/M}` at `M/8`,
+     and at `M/4` on to `t = 100M` without saturating (`𝔈ˣ` 3.2e−2 at 60M,
+     0.25 at 80M, 1.04 at 100M; `τ` 7.9). The `t = 50M` "saturation" of the
+     table is this mode's amplitude, reached from a smaller start at a
+     slower rate on the finer mesh. It fills the volume (the radial layers
+     fall off smoothly from the hole to the outer faces; leaving 1–4 cells
+     next to every face out raises the L1 by at most 12%: the mode is not a
+     layer at a face), and grows in the box
+     around the hole too (`[−3, 3]³`, `τ` 2.3e−3 at 5M to 6.9e−2 at 50M), so it
+     is neither the octant's planes through the hole nor a layer at a face.
+   - **What it is not.** Linear in the field and blind to the fluid: at `B₀
+     = 0.1` the relative error is `B₀ = 1`'s to three digits, and with a fluid
+     a thousand times heavier (`ρ_c = 10³`) the same, so neither the charge's
+     force on the fluid nor the fluid's current is needed (a fluid a thousand
+     times lighter grows somewhat faster). Not the charge's transport: with
+     Ampère's explicit source `−√γ q (αv − β)` replaced by `+√γ q β` alone or
+     by zero (a diagnostic in `bin/curved_localise.jl`, not a scheme), it
+     grows as fast or faster. Not the interior (no interior grows alike), not
+     the limiter (`:none` grows faster), not the Riemann solver (LLF grows
+     alike), not the time step (`cfl = 1/5` gives the same run to five
+     digits). **It depends on the gauge damping**: at `ξ = 0` it grows faster
+     (`𝔈ᶻ` 5.4e−2 at 50M), at `ξ = 16` and 64 slower (`𝔈ˣ` 4.5e−3, 4.6e−3)
+     — against `ξ = 16/L = 4`, `𝔈ˣ` 1.04e−2.
+   - **The cause: the potentials' relative Dirichlet hook** (AMR-7, chosen in
+     step 6 for potentials that grow in time). It fills a ghost or wall point
+     `x_g` with `A_case(x_g) + [A(x_r) − A_case(x_r)]`, copying the evolved
+     potential's offset from its reference point `x_r`. The evolved `A`
+     carries a gauge drift `∇χ` of truncation order — the generalized
+     Lorenz gauge's, which `ξ` damps in `Φ̃` but which leaves a static `χ`
+     undamped. Copied unchanged along the normal, the offset is no longer a
+     gradient across the face: the curl of the filled `A` puts `∂_n∂_⊥χ`
+     into the ghost and wall faces' `𝔅` (an exact gradient's curl vanishes
+     only if every point carries its own). That flux enters the boundary
+     cells' EMFs and Ampère fluxes, the `E` it drives feeds `∂ₜΦ̃ ∋ −∂ⱼ(α√γ
+     Aʲ)` and so `χ` again: a loop, closed through the gauge, which `ξ`
+     slows. **Measured**: with the potentials' hook absolute — the case's `A`
+     and `Φ̃` themselves in every ghost and on every wall, a diagnostic for
+     these time-independent potentials — Wald's drift is stationary from `t
+     = 10M` (outside `2M`, `D` 2.981e−3, `𝔈ˣ` 4.58e−4 at 10M and at 50M), in
+     the octant and in the box around the hole, and so is the magnetized
+     Bondi flow's.
+   - **With the absolute hook the prediction holds** (`t = 50M`, outside
+     `2M`, `M/4 → M/8`): Wald `D` 2.981e−3 → 5.881e−4 (**2.34**), `τ` 1.255e−3
+     → 2.597e−4 (**2.27**), `S_x` 8.50e−4 → 2.19e−4 (1.96), `𝔈ˣ` 4.578e−4 →
+     1.154e−4 (**1.99**), `𝔈ᶻ` 1.95, `√γ q` 1.65; Bondi `D` 6.307e−3 →
+     1.650e−3 (**1.93**), `τ` 3.436e−3 → 8.158e−4 (**2.07**), `S_x` 2.471e−3 →
+     7.677e−4 (1.69), `𝔈ˣ` 3.487e−4 → 1.065e−4 (1.71), `√γ q` 1.49.
+     At `M/16` (jobs 588223, 588224, amdq, 64 threads) the runs were at
+     `t = 10M` when the Symmetry tunnel dropped: Wald `D` 6.035e−4 → 1.328e−4
+     (**2.18**), `𝔈ˣ` 1.179e−4 → 2.937e−5 (2.01), Bondi `D` 1.650e−3 → 4.211e−4
+     (1.97), `𝔈ˣ` 1.068e−4 → 2.995e−5 (1.83), against `M/8` at `10M`; their
+     `t = 50M` rows are in `/mnt/beegfs/eschnetter/claude/
+     treegrrmhd-step9-5882{23,24}-part1.log`, unread.
+   - **Bondi at first order** was the same mode, slower: at `M/4` its drift is
+     flat from `5M`, at `M/8` it grows linearly from `t = 20M` (`D` 1.84e−3 →
+     3.28e−3), so the finer mesh ends further from its own converged value;
+     with the absolute hook both are flat.
+   - **The charge.** Wald's non-converging `√γ q` is the growing mode's
+     (`q` follows `𝔈`'s growth; with the absolute hook it is stationary and
+     converges at 1.65). The matter's saturation in the Wald case is the
+     mode's too, through the total momentum and energy, which carry the
+     field's: with the heavy fluid `D`'s drift stays Michel's own.
+
+   **Proposed in step 9, for Erik**: a Dirichlet boundary for the potentials
+   that does not copy a gauge drift across the face. Options: (a) the case's
+   potential itself (absolute) where it does not depend on time — every
+   rung-3 case — keeping the relative hook for the potentials that grow in
+   time (the shock tubes', step 6); (b) a relative hook that carries the
+   offset's gradient along, `A_case(x_g) + δ(x_r) + (x_g − x_r)·∇δ`, which
+   keeps a gradient a gradient to second order (TreeAMR's hook form, AMR-7,
+   would need it); (c) a gauge that damps the static `χ` too (the damped
+   Lorenz gauge damps only `Φ`). Nothing is changed in `src/`; the
+   diagnostics are `bin/curved_localise.jl`'s `abshook`, `qsource` and the
+   case variants `B0`, `q`, `rho_c`, `box=full`.
 
    **In the suite** (`t = M/2`, `h = M/4` and `M/8`, laptop and Symmetry
    alike): Wald `D` 2.48, `S` 1.86–1.98, `τ` 2.46, `𝔈` 2.10–2.13, `𝔅`
