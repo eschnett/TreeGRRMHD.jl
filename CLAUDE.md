@@ -225,6 +225,11 @@ every other case keeps the relative hook (AMR-7) and its output bit for bit;
 the boundary testset in `test/curved_tests.jl` holds a gauge offset out of
 `𝔅`. The design rule is in CODE.md, "Boundaries". `bin/curved_localise.jl`'s
 `relhook=true` is the negative control, `interior=false` the no-interior run.
+Round 4 (2026-11-03): `spinning_wald_case` (Wald's uncharged field on a Kerr
+hole, `a = M/2`, `0.9M`, a passive floor fluid, `Φ̃ = aB₀`, so
+`gauge_damping = 0`, `MHDCase`'s new field), `kerr_schild_r`; the octant
+shifted by `L/256` in `z` off the `r = 0` disk; `bin/curved_localise.jl kwald`
+(`a`, `rho_fluid`, `ballks`, `watch`).
 
 ## Commands
 
@@ -397,7 +402,14 @@ the same job, 11m51s at four threads and 14m35s for the clean-checkout check
 on cn082, 16m55s with `--check-bounds=yes` on cn080. One and four threads
 identical, the clean checkout identical to the one-thread run, every line of
 cb41add's present but the six curved lines the absolute hook moves (seven new
-ones in their place); bounds checks move 70 lines. At
+ones in their place); bounds checks move 70 lines. With the spinning Wald
+case (round 4, 2026-11-03, 0858776, Symmetry): **26442 tests** (+14), every
+run passing whole — 14m48s at one thread on cn082 (EPYC 7532) against
+5bea724's 14m38s in the same job, 8m60s at four threads and 11m01s for the
+clean-checkout check on cn107 (EPYC 7543), 17m03s with `--check-bounds=yes`
+on cn083 (EPYC 7532); one and four threads identical, the clean checkout
+identical to the one-thread run, every line of 5bea724's present (three
+new); bounds checks move 70 lines. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

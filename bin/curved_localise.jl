@@ -220,6 +220,7 @@ function main(args)
     # The first reset (stage or step limiter) at or beyond the counting radius, and the
     # smallest radius any reset has reached, checked after every step from `X`.
     deep0 = (r_in + rp) / 2
+    dowatch = get(kw, "watch", "true") == "true"     # `false`: no host copy of `X` per step
     first_counted = Ref{Any}(nothing)
     function watch(p, t)
         first_counted[] === nothing || return
@@ -245,7 +246,7 @@ function main(args)
                 interior=interior,
                 after_step=(p, u, t) -> begin
                     cl[] === nothing && (cl[] = cells(p))
-                    watch(p, t)
+                    dowatch && watch(p, t)
                     if t ≥ next[] - 1e-9
                         series(p, u, t)
                         next[] += every
@@ -259,6 +260,7 @@ function main(args)
         qn = charge_norms(p, u, t, rmin)
         @printf("CHARGE r ≥ %.1f: √γ q L1 %.4e max %.4e total %.4e\n", rmin, qn.l1, qn.max, qn.total)
     end
+    @printf("DIVB max |∇·𝔅| h/max|𝔅| = %.3e\n", max_div_B(p, u, t))
     @printf("INJECTED D %.4e τ %.4e (the step limiter's writes, the whole octant)\n",
             sum(c -> c.tally.injected_D, r.chunks), sum(c -> c.tally.injected_τ, r.chunks))
     d = U(u, p) .- uref[]

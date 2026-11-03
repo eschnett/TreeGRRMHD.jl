@@ -4705,6 +4705,63 @@ named as claims.
    `𝔅` is the flat curl of `A` whatever the metric, densitized, and the
    background `𝔅̄` is not used.
 
+   **The spinning Wald case** *(step 9, round 4, asked by Erik 2026-11-03;
+   `spinning_wald_case`, `SpinningWald`)*:
+   - **The field**: Wald's uncharged `𝒜 = (B₀/2)(ψ + 2aη)` (Wald 1974), the
+     Killing vectors `ψ = ∂_φ = (0, −y, x, 0)` and `η = ∂_t` of Kerr-Schild,
+     whose metric rotates with the `(x, y)` plane, lowered by
+     `Analytic(KerrSchild(M, a))`'s metric; `𝔅` the curl of `A_i = 𝒜_i`, and `E`
+     from `A`'s stationarity, `αE_i = ∂_i𝒜_t − ε_ijk βʲBᵏ`, the derivatives from
+     one `dmetric` call. Checked by centred differences
+     (`test/curved_tests.jl`, `a = M/2` and `0.9M`): `curl A = √γ B` to
+     4.7e−10 and 9.4e−10, Gauss and Ampère (the flux of `𝔈` divergence-free)
+     to 1.3e−9 and 3.7e−8, the Lorenz gauge to 3.7e−12; the flux of `𝔈`
+     through a sphere `1.1·10⁻⁴` of `ψ` alone's (the quadrature), against 2 for
+     `ψ − 2aη`: uncharged. SpacetimeMetrics had everything needed.
+   - **`Φ̃ = aB₀` exactly, a constant** (to 2.2e−16): the damped Lorenz gauge
+     `∂ₜΦ̃ = … − ξαΦ̃` is stationary at this `Φ̃` only at `ξ = 0`, so the case
+     declares `gauge_damping = 0` (`MHDCase`'s new field; `nothing`, every other
+     case, keeps `16/L`). With the absolute boundary (option 1) pinning the
+     gauge, a damped `Φ̃` would drive `A` by a gradient the boundary does not
+     share, the round-2 mode's mechanism.
+   - **The box**: the octant shifted by `L/256` in `z`, so that no grid point
+     lies on the equatorial disk `x² + y² < a²`, `z = 0`, where Kerr-Schild's
+     `r = 0` and SpacetimeMetrics' metric is `0/0`.
+   - **The fluid**: passive, at rest, `ρ = 10⁻⁶` (`10²ρ_min`), under `Vacuum`.
+     It does not dominate the field — with a fluid a million times heavier
+     (`ρ = 1`) `𝔈`'s and `𝔅`'s drifts agree to 1–5% — but it **dominates the
+     reset tallies**: the field's energy and momentum, whose truncation error
+     is `10²`–`10³` times the fluid's share of the totals, leave the recovered
+     fluid outside its window in most cells every step: `ρ_FLOORED`,
+     `S_FLOORED`, `S_CEILED` (level 1) and the atmosphere (level 2), from
+     `t = 0.03M` and everywhere in the box (at `M/8`, `a = M/2`, 2.3·10⁸ and
+     8.3·10⁷ counted stage and step resets in 50M). The heavy fluid's run
+     resets nothing beyond the counting radius. Reported, not special-cased.
+   - **The interior: "inside" and the paste's ball.** Kerr-Schild `r` is the
+     spheroidal radius (`kerr_schild_r`): on the axis `r = |x|`, in the
+     equatorial plane `r = √(|x|² − a²)`. The horizon `r₊ = M + √(M² − a²)`
+     (1.87M, 1.44M) lies at `|x| = r₊` on the axis and `√(r₊² + a²)` (1.93M,
+     1.70M) in the plane, so a Euclidean ball of radius `ρ` is inside it for
+     `ρ < r₊`: the paste at `r_in = M` and the uncounted ball `(r_in + r₊)/2`
+     (1.43M, 1.22M, Euclidean) are. "Outside the horizon", for the drift, is
+     `r ≥ r₊` in Kerr-Schild `r`. **But the Euclidean paste at `a = 0.9M` does
+     not contain the inner horizon**: in the plane it reaches `r =
+     √(M² − a²) = 0.44M`, short of `r₋ = M − √(M² − a²) = 0.56M`, and the
+     evolved region then includes a ring of `r₋ > r > 0.44M` where not every
+     characteristic points inward. Measured: at `a = 0.9M` with the Euclidean
+     ball `𝔈ˣ`'s drift grows (`M/8`: 1.8e−3 at 10M, 5.1e−3 at 30M, 3.1e−2 at
+     50M, worse than `M/4`'s 8.1e−3), and with the ball in Kerr-Schild `r`
+     (`r < M`, which contains `r₋`; a process-local measurement,
+     `bin/curved_localise.jl … ballks=true`) it is flat (`M/8`: 1.84e−4 at 10M,
+     1.97e−4 at 50M). At `a = M/2` the Euclidean ball reaches `r = 0.87M >
+     r₋ = 0.13M` and is flat. **For Erik**: the paste's ball in Kerr-Schild
+     `r`, or one Euclidean radius chosen to contain `r₋` in the plane (`|x| <
+     √(r₋'² + a²)`); not decided here.
+   - **Stationarity** (`t = 50M`, outside `r₊`, `bin/curved_localise.jl kwald`;
+     jobs 588687–588689, 588704, 588705; `M/4` and `M/8` on cn079–cn081, EPYC
+     7532): KWALD_TABLE
+   - **∇·𝔅** at rounding in every run (the curl is metric-free).
+
    **Curved-space bit identity** (`test/curved_tests.jl`): with the step
    cache (fused, the default) and the interior, 16 steps of `Δt = 1/64` in
    one integration, in two, and as a restart from the saved state with a
