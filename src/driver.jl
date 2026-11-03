@@ -18,7 +18,8 @@
 
 """
     MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
-            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots, interior = nothing)
+            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots, interior = nothing,
+            static_potential = false)
 
 A problem, as data:
 
@@ -35,7 +36,11 @@ A problem, as data:
 - `𝔅̄`: the constant densitized background field (`src/curl.jl`);
 - `periodic`, `extents`, `roots`: the box, per dimension;
 - `interior`: `nothing`, or a black hole's [`HoleInterior`](@ref), inside
-  which the limiters replace the state by `fields` and `potential` (step 9).
+  which the limiters replace the state by `fields` and `potential` (step 9);
+- `static_potential`: whether `potential` does not depend on `t`, which makes
+  the potentials' Dirichlet hooks absolute ([`DirichletBoundary`](@ref);
+  decided by Erik 2026-11-03). `false` keeps the relative hook (AMR-7), which
+  a potential growing in time needs under IMEX.
 
 Both callbacks become kernel arguments, so they must capture `isbits` values
 only. Where `fields` is an exact solution at every `t`, it is also the
@@ -58,11 +63,13 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET,IN}
     extents::NTuple{D,Tuple{T,T}}
     roots::NTuple{D,Int}
     interior::IN
+    static_potential::Bool
 end
 
 function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
-                 periodic, extents, roots, interior=nothing) where {T,D}
+                 periodic, extents, roots, interior=nothing,
+                 static_potential::Bool=false) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
     length(extents) == D || throw(ArgumentError(
         "a case needs one extent per dimension, got $(length(extents)) for D = $D."))
@@ -75,7 +82,8 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
                    typeof(pol),typeof(model),typeof(provider),typeof(interior)}(
-        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs, interior)
+        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs, interior,
+        static_potential)
 end
 
 """
@@ -202,7 +210,7 @@ exact_state(p::MHDProblem, case::MHDCase, t) = case_state!(statevector(p.sets), 
 # --- Dirichlet boundaries ----------------------------------------------------------------
 
 """
-    DirichletBoundary{R}(fields, potential, eos, provider)
+    DirichletBoundary{R}(fields, potential, eos, provider; absolute = false)
 
 The case's own solution as the boundary of one evolved set (step 6;
 "Boundaries" in `CODE.md`), at the time of each fill. `R` names the set:
@@ -242,6 +250,22 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   the points it fills, from `G+2`, as the high wall is from `G+N`. Until step
   8 this was TreeAMR's region form, CPU-only, with this package's own
   `low_walls!` and `outer_points!` kernels around it.
+- **The potentials of a case whose potential does not depend on `t`**,
+  `absolute = true` (decided by Erik 2026-11-03, "option 1"; the case's
+  `static_potential`): the case's `A_j` and `Φ̃` themselves at every ghost
+  and on every prescribed wall, `CellBoundary(AllVariables(…))`, which under
+  symmetric walls writes the owned low wall too. The relative rule copies
+  the evolved potential's offset from `x_r` to `x_g` unchanged along the
+  normal; a gauge drift `∇χ` of the evolved `A` (truncation order, and a
+  static `χ` the damped Lorenz gauge does not damp) is then no longer a
+  gradient across the face, its curl puts spurious `𝔅` into the ghost and
+  wall faces, and the loop boundary → `𝔅` → `E` → `A` → `χ` grows (measured
+  in step 9 on the Kerr-Schild cases: `e^{0.11 t/M}` at `h = M/4`; "Boundaries"
+  in `CODE.md`). The absolute hook pins the gauge at the boundary. It is
+  valid **only** where `A_case` does not depend on `t`: under IMEX the
+  stage's `A` is at `tⁿ + c̃Δt` while `solve_imp!` is told `tⁿ + cΔt`, and a
+  potential that moves with `t` would be filled at the wrong time (above).
+  Ignored for `R = :U` and `:W`.
 
 As in TreeHydro, a Dirichlet boundary is exact only until a wave arrives; a
 case's `t_end` is chosen before that.
@@ -251,10 +275,11 @@ struct DirichletBoundary{R,FL,PT,EOS,MET}
     potential::PT
     eos::EOS
     provider::MET
+    absolute::Bool
 end
-DirichletBoundary{R}(fields, potential, eos, provider) where {R} =
+DirichletBoundary{R}(fields, potential, eos, provider; absolute::Bool=false) where {R} =
     DirichletBoundary{R,typeof(fields),typeof(potential),typeof(eos),typeof(provider)}(
-        fields, potential, eos, provider)
+        fields, potential, eos, provider, absolute)
 
 # The time-`t` callback of a `DirichletBoundary`, `isbits` whenever the hook
 # is.
@@ -303,7 +328,8 @@ cell's center (added in step 8). Any other matter hook has no primitive
 counterpart this package can derive; pass `boundary_W` to `MHDProblem`.
 """
 primitive_boundary(hook::DirichletBoundary{:U}) =
-    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider)
+    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider;
+                          absolute=hook.absolute)
 primitive_boundary(hook) = throw(ArgumentError(
     "the matter's boundary hook $(typeof(hook)) has no primitive counterpart: since step 8 " *
     "the matter's ghost fill prolongates the primitives (CODE.md, \"Refinement\"), so a " *
@@ -314,9 +340,18 @@ primitive_boundary(hook) = throw(ArgumentError(
 @inline (d::DirichletAt{<:DirichletBoundary})(x::NTuple{D,T}) where {D,T} =
     case_potential(d.hook, x, d.t)
 
+# A static potential, absolute: `g(x, δ) -> (value,)`, the case's potential at
+# the ghost or wall point itself (decided by Erik 2026-11-03).
+struct AbsolutePotentialAt{H}
+    at::H
+end
+@inline (a::AbsolutePotentialAt)(x::NTuple{D,T}, δ) where {D,T} = (a.at(x),)
+
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
-boundary_at(hook::DirichletBoundary, t) = CellBoundary(Relative(DirichletAt(hook, t)))
+boundary_at(hook::DirichletBoundary, t) =
+    hook.absolute ? CellBoundary(AllVariables(AbsolutePotentialAt(DirichletAt(hook, t)))) :
+    CellBoundary(Relative(DirichletAt(hook, t)))
 
 # --- the owned low walls -------------------------------------------------------------
 
@@ -387,11 +422,14 @@ end
 `nothing` for a case periodic in every dimension, and otherwise one
 [`DirichletBoundary`](@ref) per evolved set, in the order `(U, A₁, A₂, A₃,
 Φ̃)` that [`MHDProblem`](@ref)'s `boundary` takes: the case's solution as the
-boundary of every set, through each set's own hook (AMR-2).
+boundary of every set, through each set's own hook (AMR-2). The potentials'
+hooks are absolute where the case declares its potential static
+(`static_potential`, decided by Erik 2026-11-03), and relative otherwise.
 """
-function case_boundary(case::MHDCase)
+function case_boundary(case::MHDCase; static_potential::Bool=case.static_potential)
     all(case.periodic) && return nothing
-    mk(R) = DirichletBoundary{R}(case.fields, case.potential, case.eos, case.provider)
+    mk(R) = DirichletBoundary{R}(case.fields, case.potential, case.eos, case.provider;
+                                 absolute=static_potential)
     return (mk(:U), mk(1), mk(2), mk(3), mk(4))
 end
 

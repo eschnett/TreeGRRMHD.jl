@@ -26,6 +26,12 @@
 # feel the field, so a spinning Wald case could carry a passive fluid at the
 # floor and be measured on `𝔈` and `𝔅` alone — a follow-up for Erik.
 #
+# **Static potentials, absolute boundaries** (decided by Erik 2026-11-03, "option 1"): both
+# potentials are independent of `t`, so the cases declare `static_potential = true` and the
+# potentials' Dirichlet hooks are the case's `A` and `Φ̃` themselves (`DirichletBoundary`).
+# Under the relative hook (AMR-7) the evolved `A`'s gauge drift is copied across the faces,
+# and the loop boundary → `𝔅` → `E` → `A` → gauge grows (`CODE.md`, "Boundaries").
+#
 # **Why the octant** (proposed in step 9). The monopole has no vector potential
 # regular around a whole sphere: `A = q (n̂ × x)/(r (r + n̂·x))` is regular
 # everywhere but on the Dirac string `x = −s n̂`, which carries the return
@@ -276,7 +282,8 @@ function hole_case(::Type{T}, kind::Symbol, b; M, L, roots, r_in, Γ, r_c, ρ_c,
     return MHDCase(T, Val(3); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
                    recovery_options(eos, T(ρ_min))...,
                    model=kind === :wald ? Vacuum() : IdealConductor(), provider=prov,
-                   periodic=false, extents=hole_extents(T, L), roots=roots, interior=hole)
+                   periodic=false, extents=hole_extents(T, L), roots=roots, interior=hole,
+                   static_potential=true)
 end
 
 """

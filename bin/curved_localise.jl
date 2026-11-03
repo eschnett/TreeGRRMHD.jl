@@ -19,8 +19,9 @@
 # Keys: `B0` (Wald's field; 0 is Michel's flow alone), `q` (the monopole's charge; 0 likewise),
 # `limiter` (default `mc`), `r_in` (default 1), `rho_c` (Michel's sonic density, default 1:
 # a heavier fluid feels a spurious charge's force less), `riemann` (`hlle`, `llf`), `cfl`, `xi`
-# (the gauge damping; default `evolve!`'s 16/L), `abshook` (`true`: the potentials' Dirichlet
-# hook absolute, a diagnostic, `install_absolute_potentials!`), `qsource` (`full`, `beta`, `none`: a
+# (the gauge damping; default `evolve!`'s 16/L), `relhook` (`true`: the potentials' relative
+# Dirichlet hook, AMR-7, where the cases' own is absolute since 2026-11-03 — the negative
+# control, which grows), `interior` (`false`: no interior, the inside evolved), `qsource` (`full`, `beta`, `none`: a
 # diagnostic replacement of Ampère's explicit source, `install_charge_source!`), `box` (`full`: Wald in the box `[−3, 3]³`
 # shifted by `1/16`, around the hole, instead of the octant `[0, 4]³`). `h` is the box's side
 # over `ROOTS N`.
@@ -74,27 +75,6 @@ function install_charge_source!(mode)
     return nothing
 end
 
-# A diagnostic, in this process only: the potentials' Dirichlet hook absolute — the case's
-# `A_j`, `Φ̃` themselves at every ghost and wall point (`CellBoundary(AllVariables(…))`) —
-# where it is relative (AMR-7: the nearest evolved point plus the case's difference), so that
-# a gauge drift of the evolved `A` is not copied into the ghosts. Right for these cases only
-# because their potentials do not depend on `t`.
-struct AbsolutePotential{H}
-    h::H
-end
-function install_absolute_potentials!(on)
-    on || return nothing
-    Core.eval(TreeGRRMHD, :(
-        (a::Main.AbsolutePotential)(x, δ) = (a.h(x),)
-    ))
-    Core.eval(TreeGRRMHD, :(
-        boundary_at(hook::DirichletBoundary, t) =
-            CellBoundary(AllVariables(Main.AbsolutePotential(DirichletAt(hook, t))))
-    ))
-    @info "the potentials' Dirichlet hook is absolute"
-    return nothing
-end
-
 const BIT_NAMES = Dict(9 => "ATMOSPHERE", 10 => "NONFINITE", 11 => "NOT_CONVERGED",
                        12 => "ρ_FLOORED", 13 => "ρ_CEILED", 14 => "YE_FLOORED", 15 => "YE_CEILED",
                        16 => "S_FLOORED", 17 => "S_CEILED", 18 => "W_CEILED")
@@ -130,15 +110,19 @@ function main(args)
     ρ_c = parse(Float64, get(kw, "rho_c", "1"))
     case = name == "wald" ? wald_case(Float64; B₀=parse(Float64, get(kw, "B0", "1")), r_in, ρ_c) :
            bondi_case(Float64; q=parse(Float64, get(kw, "q", "9")), r_in, ρ_c)
-    # The same case on another box (Wald only: the monopole's string would cross it).
-    if full
-        name == "wald" || error("box=full is for the Wald case")
+    # The same case on another box (Wald only: the monopole's string would cross it), and/or
+    # with the potentials' relative Dirichlet hook (`relhook=true`, the negative control of
+    # the absolute one; decided by Erik 2026-11-03).
+    full && name != "wald" && error("box=full is for the Wald case")
+    relhook = get(kw, "relhook", "false") == "true"
+    if full || relhook
         c = case
         case = MHDCase(Float64, Val(3); fields=c.fields, potential=c.potential, eos=c.eos,
                        opts=c.opts, proj=c.proj, pol=c.pol, model=c.model, provider=c.provider,
-                       𝔅̄=c.𝔅̄, periodic=false, extents=ext, roots=c.roots,
-                       interior=c.interior)
+                       𝔅̄=c.𝔅̄, periodic=false, extents=full ? ext : c.extents, roots=c.roots,
+                       interior=c.interior, static_potential=!relhook)
     end
+    interior = get(kw, "interior", "true") == "true" ? case.interior : nothing
     lo, hi = full ? (-3 + 1 / 16, 3 + 1 / 16) : (0.0, 4.0)
     L = hi - lo
     h = L / (roots * N)
@@ -146,7 +130,6 @@ function main(args)
     RESET_BITS[] = zeros(Float64, N, N, N, 18, nb, 2)
     install_reset_bits!()
     install_charge_source!(get(kw, "qsource", "full"))
-    install_absolute_potentials!(get(kw, "abshook", "false") == "true")
     @info "curved localise" name N roots h t_end every kw Threads.nthreads()
     uref = Ref{Any}(nothing)
     cl = Ref{Any}(nothing)
@@ -183,6 +166,7 @@ function main(args)
            cfl=haskey(kw, "cfl") ? parse(Float64, kw["cfl"]) : nothing,
            ξ=haskey(kw, "xi") ? parse(Float64, kw["xi"]) : nothing)
     r = Base.invokelatest(evolve!, case, Val(3); ekw..., N=N, roots=roots, t_end=t_end, limiter=limiter,
+                interior=interior,
                 after_step=(p, u, t) -> if t ≥ next[] - 1e-9
                     series(p, u, t)
                     next[] += every
@@ -191,6 +175,12 @@ function main(args)
             time() - t0)
     p, u, t = r.p, r.u, r.t
     uref[] === nothing && series(p, u, t)
+    for rmin in (0.0, 1.5, 2.0)
+        qn = charge_norms(p, u, t, rmin)
+        @printf("CHARGE r ≥ %.1f: √γ q L1 %.4e max %.4e total %.4e\n", rmin, qn.l1, qn.max, qn.total)
+    end
+    @printf("INJECTED D %.4e τ %.4e (the step limiter's writes, the whole octant)\n",
+            sum(c -> c.tally.injected_D, r.chunks), sum(c -> c.tally.injected_τ, r.chunks))
     d = U(u, p) .- uref[]
     q = qcells(p, u, t)
     X = Array(p.f.X.work)

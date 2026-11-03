@@ -11,12 +11,12 @@ const CV = TreeGRRMHD
 const CV_CASES = (("Wald", wald_case(Float64)), ("magnetized Bondi", bondi_case(Float64)))
 
 # A fresh problem over the case's own mesh of `N` cells per block.
-function cv_problem(case, N)
+function cv_problem(case, N; static_potential::Bool=case.static_potential)
     forest = Forest{Float64}(case.roots; N=N, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest; G=3)
     return MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
                       model=case.model, provider=case.provider, limiter=:mc,
-                      boundary=case_boundary(case), ξ=CV.default_ξ(case),
+                      boundary=case_boundary(case; static_potential), ξ=CV.default_ξ(case),
                       interior=CV.interior_target(case.interior, case))
 end
 
@@ -117,6 +117,74 @@ end
         name == "Wald" && @test all(≥(1.8), rU[8:10])
         @test all(≥(1.75), rA)
     end
+end
+
+# The state `u` with a pure-gauge offset `A_j += [χ(x + hₑ/2) − χ(x − hₑ/2)]/h` added at every
+# owned edge: a discrete gradient, whose discrete curl is zero to rounding.
+function cv_gauge_offset(p, u, χ)
+    u = copy(u)
+    o, hs = Array(p.origins), Array(p.spacings)
+    for j in 1:3
+        i = CV.SEG_A + j - 1
+        s = p.sets[i]
+        a = CV.statearray(u, p.sets, i)
+        C = staggers(s)
+        for b in axes(a, 5), I in CartesianIndices(ntuple(_ -> s.forest.N, 3))
+            x = CV.point_x(o[b], hs[b], Tuple(I), Val(C))
+            e = SVector(ntuple(k -> k == j ? hs[b] / 2 : 0.0, 3))
+            a[Tuple(I)..., 1, b] += (χ(x + e) - χ(x - e)) / hs[b]
+        end
+    end
+    return u
+end
+
+@testset "A static potential's boundary is the case's own: a gauge drift stays out of 𝔅" begin
+    # Guards the potentials' Dirichlet hook of a case whose potential does not depend on `t`
+    # (decided by Erik 2026-11-03, "option 1"; "Boundaries" in `CODE.md`). The relative hook
+    # (AMR-7) copies the evolved `A`'s offset from the nearest evolved point across the face,
+    # where a gauge drift `∇χ` is no longer a gradient: its curl puts spurious `𝔅` into the
+    # ghost and wall faces, and on the Kerr-Schild cases that closed a loop through `E` and
+    # the Lorenz gauge that grew as `e^{0.11 t/M}` at `h = M/4` (step 9, round 2). With the
+    # absolute hook every ghost and wall point of `A` and `Φ̃` is the case's whatever the
+    # state — the gauge is pinned, `χ = 0`, on the boundary — so for a drift whose `χ`
+    # vanishes there `𝔅` on every stored face is the exact state's to rounding; with the
+    # relative hook (the negative control) the offset's curl shows in the ghosts.
+    c = CV_CASES[1][2]
+    χ(x) = sinpi(x[1] / 4) * sinpi(x[2] / 4) * sinpi(x[3] / 4) / 10
+    worst = Dict{Bool,Float64}()
+    for static in (true, false)
+        p = cv_problem(c, 8; static_potential=static)
+        u0 = exact_state(p, c, 0.0)
+        u1 = cv_gauge_offset(p, u0, χ)
+        update_fields!(p, u0, 0.0)
+        A0 = map(i -> copy(p.sets[i].work), CV.SEG_A:CV.SEG_Φ)
+        B0 = map(B -> copy(B.work), p.f.B)
+        update_fields!(p, u1, 0.0)
+        # Every point the boundary condition fills — beyond a face of the box, or on its
+        # walls — is the same in both fills under the absolute hook.
+        o, hs = Array(p.origins), Array(p.spacings)
+        lo, hi = c.extents[1]
+        same, nb = true, 0
+        for (k, i) in enumerate(CV.SEG_A:CV.SEG_Φ)
+            s = p.sets[i]
+            C = staggers(s)
+            for b in axes(s.work, 5), I in CartesianIndices(size(s.work)[1:3])
+                x = CV.point_x(o[b], hs[b], Tuple(I) .- s.G, Val(C))
+                outside = any(d -> x[d] < lo || x[d] > hi ||
+                                   (C[d] == 1 && (x[d] == lo || x[d] == hi)), 1:3)
+                outside || continue
+                nb += 1
+                same &= s.work[Tuple(I)..., 1, b] == A0[k][Tuple(I)..., 1, b]
+            end
+        end
+        static && @test nb > 0 && same
+        worst[static] = maximum(d -> maximum(abs, p.f.B[d].work .- B0[d]), 1:3) /
+                        maximum(d -> maximum(abs, B0[d]), 1:3)
+    end
+    @info "Wald, a gauge offset in the evolved A: max |Δ𝔅|/max |𝔅| over every stored face " *
+          "$(cv3(worst[true])) with the absolute hook, $(cv3(worst[false])) with the relative one"
+    @test worst[true] ≤ 1e-14
+    @test worst[false] ≥ 1e-3
 end
 
 const CV_RUNS = Dict{Tuple{String,Int},Any}()
