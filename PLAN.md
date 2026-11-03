@@ -10,11 +10,9 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9 is done but for Erik's open decisions — the
-interior's form (round 3 measured the paste against no interior) and whether Bondi's `S_x`/`𝔈`
-at the coarsest pair (1.69, 1.71; 1.82–1.83 at the next) meets the prediction — with its
-round 4, a spinning Wald case, to follow. Step 10 waits for GH-1 and GH-2 (GH-0 has landed).**
-*(Amended in step 9, rounds 2 and 3.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 8 are done; step 9 is done when its round 4, a spinning Wald case, is
+(the interior, the coarse-pair rates and the deduplication decided by Erik 2026-11-03). Step 10
+waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9, rounds 2–4.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
 EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
@@ -1951,7 +1949,10 @@ Accept:
   static potentials' boundary is the case's own; re-measured at `M/4`, `M/8`, `M/16`: `D`
   1.93–2.34, `τ` 2.06–2.27, Wald `𝔈` and `S_x` 1.94–2.01 — **holds**; Bondi's `S_x` and `𝔈`
   1.69 and 1.71 at `M/4 → M/8` (**fail**, measured, not loosened), 1.82 and 1.83 at `M/8 →
-  M/16`; the charge 1.49–1.68. `CODE.md`, "Validation ladder" 3.)*
+  M/16`; the charge 1.49–1.68. `CODE.md`, "Validation ladder" 3.)* *(Measured in step 9: holds
+  on `M/8 → M/16`, the pair it is judged on (decided by Erik 2026-11-03): `D` 1.98–2.22, `τ`
+  2.06–2.13, `S_x` 1.82–1.96, `𝔈` 1.83–2.01; the `M/4 → M/8` rates stand as measured, `M/4`
+  putting only 8 cells between the hole's centre and the horizon.)*
 - **Charge:** `|q|` from `∇·E` is recorded.
 - **∇·B** at round-off.
 
@@ -1999,6 +2000,25 @@ located before the step counts as done. `CODE.md` "Metric providers", "The inter
   checkout, 12m38s with bounds checks; one = four threads, clean = one thread, every baseline
   line present.
 
+**Round 4: a spinning Wald case** *(asked by Erik 2026-11-03; acceptance written before the
+code)*. Wald's uncharged field `𝒜 = (B₀/2)(ψ + 2a η)` (`ψ = ∂_φ`, `η = ∂_t`, lowered) on a Kerr
+hole in Kerr-Schild coordinates, `Analytic(KerrSchild(M, a))`, `a = M/2` and `0.9M`, under
+`Vacuum`; a passive fluid near the floor, which nothing couples to the field but the charge's
+convection; the potential stationary, so `static_potential = true` (option 1), with `Φ̃ ≠ 0`; the
+interior the default paste at `r_in = M` (decided by Erik 2026-11-03). Accept:
+- **Pointwise:** the field is the curl of the potential (`√γ B`), and Maxwell's equations hold
+  by finite differences of the case's own functions: Gauss (`∂ᵢ𝔈ⁱ = 0`), Ampère (the flux of `𝔈`
+  divergence-free), the Lorenz gauge; the field is uncharged (the flux of `𝔈` through a sphere
+  around the hole vanishes).
+- **Stationarity:** the L1 drift of `𝔈` and `𝔅` outside the horizon after `t = 50M` converges at
+  `≥ 1.8` **(predicted)**, judged on the finest pair.
+- **∇·𝔅** at rounding.
+- **The interior:** `r_in = M` and the uncounted radius `(r_in + r₊)/2` inside the horizon,
+  `r₊ = M + √(M² − a²)`, with the test for "inside" stated (Kerr-Schild `r` is not the Euclidean
+  radius); the paste's ball in Euclidean against Kerr-Schild `r` measured, not decided.
+- **The fluid** must not dominate: resets beyond the uncounted radius reported, not special-cased.
+- **Suite:** a short test within the current budget; the `50M` study in `bin/` on Symmetry.
+
 ## Step 10 — The vertex metric and the TOV star in the Cowling approximation (rung 4)
 
 `CODE.md`: "Metric at cells, faces and edges", "Gauge for the TOV milestones", "Floors, the
@@ -2011,6 +2031,11 @@ Changes:
   Γ = 2, ρ_c = 1.28e−3 (`IdealGasEOS` at `polytropic_entropy`).
 - **`TOVMetric <: SpacetimeMetrics.AbstractMetric`:** `isbits` and dual-generic. The step decides
   its storage (a fixed-size spline, or an Adapt-ed device array) and records it.
+- *(Added in step 9, decided by Erik 2026-11-03:)* **the potentials' outer boundary** is
+  decided here. The Cowling TOV star is static, so if its exterior field comes from an exact
+  static potential, `static_potential = true` (option 1, the case's own potential in the
+  ghosts) applies as is; options 2 (a gradient-extrapolating relative hook) and 3 (a gauge that
+  damps a static `χ`) matter only for dynamic cases (`CODE.md`, "Boundaries").
 - **`src/vertex_metric.jl`:** the frozen `GHMetric` provider. *(Added in step 9, deferred
   by Erik 2026-11-03:)* step 10 decides its caching, frozen (static: once per mesh, at its
   creation and after each regrid) and coupled (every stage) in view; the measured inputs are in

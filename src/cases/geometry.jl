@@ -59,7 +59,8 @@ function turned_case(c::MHDCase{T,D}) where {T,D}
                    proj=c.proj, pol=c.pol, model=c.model, provider=c.provider,
                    𝔅̄=turn_xy(c.𝔅̄),
                    periodic=sw(c.periodic), extents=sw(c.extents), roots=sw(c.roots),
-                   static_potential=c.static_potential)
+                   static_potential=c.static_potential,
+                   gauge_damping=c.gauge_damping)
 end
 
 """
@@ -80,7 +81,8 @@ function extruded_case(c::MHDCase{T,1}, ::Val{D}; N::Integer, roots::Integer=1) 
                    proj=c.proj, pol=c.pol, model=c.model, provider=c.provider, 𝔅̄=c.𝔅̄,
                    periodic=ntuple(d -> d == 1 ? c.periodic[1] : true, Val(D)), extents=ext,
                    roots=ntuple(d -> d == 1 ? c.roots[1] : roots, Val(D)),
-                   static_potential=c.static_potential)
+                   static_potential=c.static_potential,
+                   gauge_damping=c.gauge_damping)
 end
 
 """
@@ -138,5 +140,6 @@ function oblique_case(c::MHDCase{T,1}; direction=(1, 1), N::Integer, roots::Inte
                    proj=c.proj, pol=c.pol, model=c.model, provider=c.provider,
                    𝔅̄=oblique_turn(n, c.𝔅̄), periodic=(true, true),
                    extents=((zero(T), L * nn / a), (zero(T), L * nn / b)),
-                   roots=(roots * b, roots * a), static_potential=c.static_potential)
+                   roots=(roots * b, roots * a), static_potential=c.static_potential,
+                   gauge_damping=c.gauge_damping)
 end

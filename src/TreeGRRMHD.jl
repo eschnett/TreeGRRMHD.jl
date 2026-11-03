@@ -119,7 +119,8 @@ export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve
 export mhd_flags, indicator_scales, regrid_state!
 # Curved backgrounds (step 9)
 export HoleInterior, InteriorTarget, paste_interior!, outside_l1, field_l1, charge_norms
-export MichelFlow, michel_density, michel_state, wald_case, bondi_case
+export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning_wald_case,
+       kerr_schild_r
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,

@@ -19,7 +19,7 @@
 """
     MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
             model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots, interior = nothing,
-            static_potential = false)
+            static_potential = false, gauge_damping = nothing)
 
 A problem, as data:
 
@@ -40,7 +40,10 @@ A problem, as data:
 - `static_potential`: whether `potential` does not depend on `t`, which makes
   the potentials' Dirichlet hooks absolute ([`DirichletBoundary`](@ref);
   decided by Erik 2026-11-03). `false` keeps the relative hook (AMR-7), which
-  a potential growing in time needs under IMEX.
+  a potential growing in time needs under IMEX;
+- `gauge_damping`: the case's own `ξ`, or `nothing` for [`default_ξ`](@ref)'s
+  `16/L` — a static potential with `Φ̃ ≠ 0` is a stationary solution of the
+  damped gauge only at `ξ = 0` (step 9, round 4).
 
 Both callbacks become kernel arguments, so they must capture `isbits` values
 only. Where `fields` is an exact solution at every `t`, it is also the
@@ -64,12 +67,13 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET,IN}
     roots::NTuple{D,Int}
     interior::IN
     static_potential::Bool
+    gauge_damping::Union{Nothing,T}
 end
 
 function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
                  periodic, extents, roots, interior=nothing,
-                 static_potential::Bool=false) where {T,D}
+                 static_potential::Bool=false, gauge_damping=nothing) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
     length(extents) == D || throw(ArgumentError(
         "a case needs one extent per dimension, got $(length(extents)) for D = $D."))
@@ -83,7 +87,7 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj
     return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
                    typeof(pol),typeof(model),typeof(provider),typeof(interior)}(
         fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs, interior,
-        static_potential)
+        static_potential, gauge_damping === nothing ? nothing : T(gauge_damping))
 end
 
 """
@@ -731,10 +735,12 @@ wave's errors moved in the fifth digit at most (measured in step 8,
 `bin/gauge_damping.jl`). On a uniform mesh `−∇(αΦ − β·A)` is a discrete
 gradient whose curl vanishes to rounding, so there `ξ` moves `A`'s gauge
 part and `Φ̃`, and `𝔅` and the matter only at rounding ("Refinement" in
-`CODE.md`).
+`CODE.md`). A case's own `gauge_damping` replaces it (step 9, round 4: the
+spinning Wald case, whose static potential has `Φ̃ ≠ 0`, takes 0).
 """
 default_ξ(case::MHDCase{T,D}) where {T,D} =
-    16 / maximum(e -> case.extents[e][2] - case.extents[e][1], 1:D)
+    case.gauge_damping === nothing ?
+    16 / maximum(e -> case.extents[e][2] - case.extents[e][1], 1:D) : case.gauge_damping
 
 # `evolve!`'s `ξ`: the default, or the caller's in the case's type.
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)

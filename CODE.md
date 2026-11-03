@@ -2856,8 +2856,8 @@ nothing to reuse inside an invocation. Sharing across invocations needs either
 storage (the metric, or `ψ = αΦ − β·A`, at every vertex and edge, which the
 request excludes) or restructured kernels (one invocation per vertex writing
 its three edges' `∂ₜA`, which still evaluates `ψ` at the three far vertices:
-13 → 10). Both change what the kernels compute in which order; the
-deduplication is left for Erik. Its ceiling is about 9 `point_metric`
+13 → 10). Both change what the kernels compute in which order. *(Decided
+by Erik 2026-11-03: leave it; it folds into step 10's caching decision.)* Its ceiling is about 9 `point_metric`
 evaluations per cell and right-hand side, 9 × 102 ns × 3 ≈ 2.8 µs per cell
 and step, 4–6% of the rung-3 cases' 49–72 µs.
 
@@ -3432,7 +3432,17 @@ many end in level 1 or level 2, is in
 The whole-octant `τ` of `1.29·10³` against `9.9·10⁻⁴` outside `2M` says
 the resets' states lie inside `2M`.
 
-- **Proposed in step 9: both limiters, `r_in = M`.** The step limiter alone
+- **Decided by Erik 2026-11-03: the hard paste, both limiters, `r_in = M`,
+  for the analytic rung-3 cases** (proposed in step 9; round 3's measurement
+  below). *The matter alone needs no interior*: the magnetized Bondi flow
+  without one has the paste's outside error at every resolution, and every
+  reset deep inside, all level 1, none to the atmosphere — EntropyEOS's
+  projection absorbs the extreme states, as Erik expected. *A vacuum field
+  near the singularity does need one*: without it Wald fails at `M/8` and
+  `M/16`, earlier on the finer mesh — a spurious charge with no Ohm's law to
+  hold `E`, whose electromagnetic energy and momentum the recovery
+  subtracts from the totals, until the fluid's share is garbage and the
+  reset reaches out. The step limiter alone
   gives the same run to the fourth digit; the stage paste costs one kernel
   launch over a ball of 0.4% of the box and keeps every right-hand side
   reading the solution inside. `r_in = M` keeps the horizon `M/h` cells
@@ -4671,7 +4681,10 @@ named as claims.
    `𝔈` at `M/4 → M/8` (1.69, 1.71 — measured, not loosened) and for the
    charge (1.49–1.68); `M/8 → M/16` Bondi's are 1.82–1.83. Above 1.8 from the
    second pair on, so the coarsest mesh is not yet asymptotic for the
-   monopole's transverse components; whether that suffices is Erik's to say.
+   monopole's transverse components. *(Decided by Erik 2026-11-03: the
+   prediction is judged on the finest pair, `M/8 → M/16`, where it holds for
+   every variable; the `M/4 → M/8` rates 1.69 and 1.71 stand as measured — at
+   `M/4` only 8 cells lie between the hole's centre and the horizon.)*
 
 
    **In the suite** (`t = M/2`, `h = M/4` and `M/8`, laptop and Symmetry
@@ -4748,16 +4761,26 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   further from `D s_exact` than `D` does (see "Validation ladder" 3).
 - *(Added in step 9.)* The interior's form: the hard paste in both
   limiters at `r_in = M` (proposed), against TreeGH's smooth damping layer
-  inside the right-hand side ("The interior").
+  inside the right-hand side ("The interior"). *(Decided by Erik 2026-11-03:
+  the paste, for the analytic rung-3 cases.)*
+- *(Added in step 9, round 3, from Erik's decision on the interior.)* For a
+  hole that forms in a collapse, with no analytic solution inside: a
+  field-only interior — paste or damp `𝔈` and `A` inside, and leave the
+  matter to the ordinary reset, which round 3 found sufficient for the
+  matter. Not measured; for the step that forms a hole.
 - *(Added in step 9.)* The analytic metric pointwise (44% of a step on a
   16³ blast) or cached per stage, or its repeated vertex and edge
-  evaluations deduplicated ("Metric providers").
+  evaluations deduplicated ("Metric providers"). *(Decided by Erik
+  2026-11-03: pointwise, no cache, no deduplication; caching is step 10's.)*
 - *(Added in step 9.)* A spinning Wald case, with a passive fluid at the
   floor (Kerr has no closed-form accretion flow; "Validation ladder" 3).
 - *(Added in step 9, round 3.)* The potentials' outer boundary where no
   exact `A` exists (step 10's star, dynamic cases): a gradient-extrapolating
   relative hook (option 2, upstream) or a gauge that damps a static `χ`
-  (option 3); see "Boundaries", the design rule.
+  (option 3); see "Boundaries", the design rule. *(Decided by Erik
+  2026-11-03: in step 10. The Cowling TOV star is static, so an exterior
+  field from an exact static potential takes `static_potential = true`
+  (option 1) as is; options 2 and 3 matter for dynamic cases only.)*
 - Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
   TOV star, a star in a vacuum, twice: with the reset as both limiters,
   and as the step limiter alone. TreeHydro named this case as the one

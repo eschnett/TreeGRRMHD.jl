@@ -327,3 +327,121 @@ horizon, 6.1 at `r = M` and 0.030 at the far corner of the default box
 bondi_case(::Type{T}=Float64; M=1, q=9, L=4, roots=2, r_in=1, Γ=4 // 3, r_c=8, ρ_c=1,
            ρ_min=1 // 10^8, interior::Bool=true) where {T} =
     hole_case(T, :monopole, q; M, L, roots, r_in, Γ, r_c, ρ_c, ρ_min, interior)
+
+# --- the spinning Wald case (step 9, round 4) ----------------------------------------
+
+"""
+    kerr_schild_r(x, a) -> r
+
+The Kerr-Schild (spheroidal) radius of the point `x` around a hole of spin `a`
+at the origin: the root of `r⁴ − r² (|x|² − a²) − a² z² = 0`, `r = |x|` at
+`a = 0`. The horizon is `r = r₊ = M + √(M² − a²)`; in Euclidean terms it
+reaches `|x| = r₊` on the axis and `√(r₊² + a²)` in the equatorial plane.
+"""
+@inline function kerr_schild_r(x::SVector{3,T}, a::T) where {T}
+    R² = x[1]^2 + x[2]^2 + x[3]^2
+    w = R² - a^2
+    return sqrt((w + sqrt(w^2 + 4 * a^2 * x[3]^2)) / 2)
+end
+
+"""
+    SpinningWald{T,MET}
+
+The data of the spinning Wald case, `isbits`: the provider `Analytic(KerrSchild(M,
+a))`, the spin `a`, the asymptotic field `B₀`, and the passive fluid's density,
+entropy and electron fraction. See [`spinning_wald_case`](@ref).
+"""
+struct SpinningWald{T,MET}
+    provider::MET
+    a::T
+    b::T
+    ρ::T
+    s::T
+    Yₑ::T
+end
+
+# Wald's 4-potential `𝒜_μ = (B₀/2)(g_{μν} ψ^ν + 2a g_{μt})` and its spatial
+# derivatives `∂_j 𝒜_μ` (`d[j, μ]`, `μ = 1` the time), from one `dmetric` call:
+# `ψ = ∂_φ = (0, −y, x, 0)` and `η = ∂_t` are Killing vectors of Kerr-Schild,
+# whose metric rotates with the (x, y) plane and does not depend on `t`.
+@inline function wald_4potential(w::SpinningWald, x::SVector{3,T}, t::T) where {T}
+    g, dg = SpacetimeMetrics.dmetric(w.provider.metric, SVector(t, x[1], x[2], x[3]))
+    ψ = SVector(zero(T), -x[2], x[1], zero(T))
+    c = w.b / 2
+    𝒜 = SVector(ntuple(μ -> c * (sum(ntuple(ν -> g[μ, ν] * ψ[ν], Val(4))) + 2 * w.a * g[μ, 1]),
+                       Val(4)))
+    # ∂_j ψ^ν: ∂_x ψ^y = 1, ∂_y ψ^x = −1.
+    dψ(j, ν) = (j == 1 && ν == 3) ? one(T) : (j == 2 && ν == 2) ? -one(T) : zero(T)
+    d = SMatrix{3,4,T,12}(ntuple(Val(12)) do k
+        j, μ = mod1(k, 3), (k - 1) ÷ 3 + 1
+        c * (sum(ntuple(ν -> dg[μ, ν, j + 1] * ψ[ν] + g[μ, ν] * dψ(j, ν), Val(4))) +
+             2 * w.a * dg[μ, 1, j + 1])
+    end)
+    return 𝒜, d
+end
+
+@inline function wave_fields(w::SpinningWald, x::SVector{3,T}, t::T) where {T}
+    m = point_metric(w.provider, t, x)
+    _, d = wald_4potential(w, x, t)
+    # `𝔅ⁱ = [ijk] ∂ⱼ A_k` (`A_k = 𝒜_k`, `μ = k + 1`), `Bⁱ = 𝔅ⁱ/√γ`; stationarity of
+    # `A` gives `α E_i = ∂_i 𝒜_t − ε_ijk βʲ Bᵏ`, as for `a = 0`.
+    curl = SVector(d[2, 4] - d[3, 3], d[3, 2] - d[1, 4], d[1, 3] - d[2, 2])
+    B = curl / m.sqrtγ
+    dAt = SVector(d[1, 1], d[2, 1], d[3, 1])
+    E = raise(m, (dAt - cross_down(m, m.β, B)) / m.α)
+    return w.ρ, zero(SVector{3,T}), w.s, w.Yₑ, E, B
+end
+
+# `A_i = 𝒜_i` and `Φ̃ = √γ Φ`, `Φ = −n^μ 𝒜_μ = (−𝒜_t + βⁱ A_i)/α`.
+@inline function wave_potential(w::SpinningWald, x::SVector{3,T}, t::T) where {T}
+    m = point_metric(w.provider, t, x)
+    𝒜, _ = wald_4potential(w, x, t)
+    A = SVector(𝒜[2], 𝒜[3], 𝒜[4])
+    Φ = (-𝒜[1] + sum(m.β .* A)) / m.α
+    return A, m.sqrtγ * Φ
+end
+
+"""
+    spinning_wald_case([T]; M = 1, a = 1/2, B₀ = 1, L = 4, roots = 2, r_in = 1,
+                       ρ_fluid = 10⁻⁶, ρ_min = 10⁻⁸, interior = true)
+
+Wald's uncharged field on a Kerr hole (Wald 1974, Phys. Rev. D 10, 1680),
+`𝒜 = (B₀/2)(ψ + 2a η)` with the Killing vectors `ψ = ∂_φ`, `η = ∂_t` lowered
+by the metric, in Kerr-Schild coordinates (`Analytic(KerrSchild(M, a))`), as a
+three-dimensional [`MHDCase`](@ref) under `Vacuum` (step 9, round 4, asked by
+Erik 2026-11-03). Kerr has no closed-form accretion flow, so the fluid is
+passive, at rest with density `ρ_fluid` near the floor `ρ_min` on
+[`shock_gas`](@ref), and nothing couples it to the field but the convection of
+the discrete charge; the run is measured on `𝔈` and `𝔅` alone. The potential
+does not depend on `t` (`static_potential = true`, the case's own potential in
+the ghosts), but `Φ̃ ≠ 0`, so the damped Lorenz gauge's stationary state is the
+exact one only at `ξ = 0`: the case's `gauge_damping` is 0.
+
+On the octant `[0, L]² × [−L/256, L − L/256]`, shifted in `z` so that no
+grid point lies in the equatorial plane, where Kerr-Schild's `r = 0` disk
+`x² + y² < a²` makes SpacetimeMetrics' metric `0/0`; Dirichlet faces from the
+solution; the interior the default paste at `r_in` (decided by Erik
+2026-11-03), a Euclidean ball, which contains the ring singularity (`|x| =
+a`) for `a < r_in` and lies inside the horizon wherever `r_in < r₊`.
+"""
+function spinning_wald_case(::Type{T}=Float64; M=1, a=1 // 2, B₀=1, L=4, roots=2, r_in=1,
+                            ρ_fluid=1 // 10^6, ρ_min=1 // 10^8,
+                            interior::Bool=true) where {T}
+    0 ≤ T(a) < T(M) || throw(ArgumentError("the spin must lie in [0, M), got a = $a."))
+    rp = T(M) + sqrt(T(M)^2 - T(a)^2)
+    0 < T(r_in) < rp || throw(ArgumentError(
+        "the interior's radius must lie inside the horizon (0 < r_in < r₊ = $rp), got " *
+        "r_in = $r_in: on the axis the horizon is at |x| = r₊."))
+    T(a) < T(r_in) || throw(ArgumentError(
+        "the interior must contain the ring singularity at |x| = a = $a, got r_in = $r_in."))
+    eos = shock_gas(T, 4 // 3)
+    opts = recovery_options(eos, T(ρ_min))
+    prov = Analytic(SpacetimeMetrics.KerrSchild{T}(T(M), T(a)))
+    w = SpinningWald{T,typeof(prov)}(prov, T(a), T(B₀), T(ρ_fluid), opts.pol.s_atm, T(1 // 2))
+    δ = T(L) / 256
+    return MHDCase(T, Val(3); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
+                   opts..., model=Vacuum(), provider=prov, periodic=false,
+                   extents=((zero(T), T(L)), (zero(T), T(L)), (-δ, T(L) - δ)), roots=roots,
+                   interior=interior ? HoleInterior(T(r_in)) : nothing,
+                   static_potential=true, gauge_damping=zero(T))
+end

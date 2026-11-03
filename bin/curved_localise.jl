@@ -16,6 +16,10 @@
 #
 #     julia --project=. -t T bin/curved_localise.jl CASE N ROOTS T_END EVERY [key=value...]
 #
+# CASE `kwald` is the spinning Wald case (`spinning_wald_case`; step 9, round 4) with keys `a`
+# (the spin), `rho_fluid` (the passive fluid's density, default 10⁻⁶) and `ballks` (`true`: the
+# paste's ball in Kerr-Schild `r`, a measurement); "outside" is Kerr-Schild `r ≥ r₊` and the
+# counting radius the Euclidean `(r_in + r₊)/2`.
 # Keys: `B0` (Wald's field; 0 is Michel's flow alone), `q` (the monopole's charge; 0 likewise),
 # `limiter` (default `mc`), `r_in` (default 1), `rho_c` (Michel's sonic density, default 1:
 # a heavier fluid feels a spurious charge's force less), `riemann` (`hlle`, `llf`), `cfl`, `xi`
@@ -34,6 +38,8 @@
 using TreeGRRMHD
 using EntropyEOS
 using Printf
+using TreeAMR: staggers
+using TreeAMR: staggers
 
 const TG = TreeGRRMHD
 
@@ -75,6 +81,18 @@ function install_charge_source!(mode)
     return nothing
 end
 
+# A measurement, in this process only (step 9, round 4): the paste's ball in Kerr-Schild's
+# `r` instead of the Euclidean radius, `r(x) < r_in`, for a spinning hole.
+function install_ks_ball!(on, a)
+    on || return nothing
+    Core.eval(TreeGRRMHD, Meta.parse("""
+        @inline in_hole(h::HoleInterior{T}, x::SVector{3,T}) where {T} =
+            kerr_schild_r(x - h.center, T($a)) < h.r_in
+    """))
+    @info "the paste's ball in Kerr-Schild r" a
+    return nothing
+end
+
 const BIT_NAMES = Dict(9 => "ATMOSPHERE", 10 => "NONFINITE", 11 => "NOT_CONVERGED",
                        12 => "ρ_FLOORED", 13 => "ρ_CEILED", 14 => "YE_FLOORED", 15 => "YE_CEILED",
                        16 => "S_FLOORED", 17 => "S_CEILED", 18 => "W_CEILED")
@@ -108,8 +126,16 @@ function main(args)
     # mesh lies at the singularity (at `M/8` a cell centre does: use another shift there).
     ext = ntuple(_ -> (-3 + 1 / 16, 3 + 1 / 16), 3)
     ρ_c = parse(Float64, get(kw, "rho_c", "1"))
+    spin = parse(Float64, get(kw, "a", "0"))
+    ρ_fluid = parse(Float64, get(kw, "rho_fluid", "1e-6"))
     case = name == "wald" ? wald_case(Float64; B₀=parse(Float64, get(kw, "B0", "1")), r_in, ρ_c) :
+           name == "kwald" ? spinning_wald_case(Float64; a=spin, r_in, ρ_fluid) :
            bondi_case(Float64; q=parse(Float64, get(kw, "q", "9")), r_in, ρ_c)
+    name == "kwald" || spin == 0 || error("a ≠ 0 is the spinning Wald case, `kwald`")
+    # Outside the horizon: Kerr-Schild's `r ≥ r₊` (`|x| ≥ 2M` at `a = 0`).
+    rp = 1 + sqrt(1 - spin^2)
+    outside(x) = kerr_schild_r(x, spin) ≥ rp
+    install_ks_ball!(get(kw, "ballks", "false") == "true", spin)
     # The same case on another box (Wald only: the monopole's string would cross it), and/or
     # with the potentials' relative Dirichlet hook (`relhook=true`, the negative control of
     # the absolute one; decided by Erik 2026-11-03).
@@ -120,11 +146,13 @@ function main(args)
         case = MHDCase(Float64, Val(3); fields=c.fields, potential=c.potential, eos=c.eos,
                        opts=c.opts, proj=c.proj, pol=c.pol, model=c.model, provider=c.provider,
                        𝔅̄=c.𝔅̄, periodic=false, extents=full ? ext : c.extents, roots=c.roots,
-                       interior=c.interior, static_potential=!relhook)
+                       interior=c.interior, static_potential=!relhook,
+                       gauge_damping=c.gauge_damping)
     end
     interior = get(kw, "interior", "true") == "true" ? case.interior : nothing
-    lo, hi = full ? (-3 + 1 / 16, 3 + 1 / 16) : (0.0, 4.0)
-    L = hi - lo
+    los = ntuple(d -> case.extents[d][1], 3)
+    his = ntuple(d -> case.extents[d][2], 3)
+    L = his[1] - los[1]
     h = L / (roots * N)
     nb = roots^3
     RESET_BITS[] = zeros(Float64, N, N, N, 18, nb, 2)
@@ -135,16 +163,44 @@ function main(args)
     cl = Ref{Any}(nothing)
     next = Ref(every)
     U(u, p) = Array(TG.statearray(u, p.sets, TG.SEG_U))
+    u0 = Ref{Any}(nothing)
+    Bref = Ref{Any}(nothing)
+    # The mean `|Δ𝔅ᵈ|` over the owned faces outside the horizon, against the exact state's.
+    function field_err(p, u, t)
+        f = p.f
+        if Bref[] === nothing
+            update_fields!(p, u0[], t)
+            Bref[] = map(B -> Array(B.work), f.B)
+        end
+        update_fields!(p, u, t)
+        o, hs = Array(p.origins), Array(p.spacings)
+        return ntuple(3) do d
+            s = f.B[d]
+            w = Array(s.work)
+            acc, n = 0.0, 0
+            for b in axes(w, 5), I in CartesianIndices(ntuple(_ -> s.forest.N, 3))
+                x = TG.point_x(o[b], hs[b], Tuple(I), Val(staggers(s)))
+                outside(x) || continue
+                k = Tuple(I) .+ s.G
+                acc += abs(w[k..., 1, b] - Bref[][d][k..., 1, b])
+                n += 1
+            end
+            acc / n
+        end
+    end
     function series(p, u, t)
-        uref[] === nothing && (uref[] = Array(TG.statearray(exact_state(p, case, 0.0), p.sets, TG.SEG_U));
-                               cl[] = cells(p))
+        if uref[] === nothing
+            u0[] = exact_state(p, case, 0.0)
+            uref[] = Array(TG.statearray(u0[], p.sets, TG.SEG_U))
+            cl[] = cells(p)
+        end
         d = U(u, p) .- uref[]
         q = qcells(p, u, t)
         acc = zeros(length(VARS) + 1, 2)
         vol = zeros(2)
         for c in cl[]
-            sum(abs2, c.x) ≥ 4 || continue
-            inner = minimum(c.x) ≥ lo + 2h && maximum(c.x) ≤ hi - 2h
+            outside(c.x) || continue
+            inner = all(e -> los[e] + 2h ≤ c.x[e] ≤ his[e] - 2h, 1:3)
             for (k, keep) in ((1, true), (2, inner))
                 keep || continue
                 vol[k] += 1
@@ -156,13 +212,14 @@ function main(args)
         end
         acc[:, 1] ./= vol[1]
         acc[:, 2] ./= vol[2]
-        @printf("TS t=%6.2f  r≥2M: D %.4e τ %.4e 𝔈ˣ %.4e 𝔈ᶻ %.4e S_x %.4e q %.4e | 2 cells off faces: D %.4e τ %.4e 𝔈ˣ %.4e 𝔈ᶻ %.4e S_x %.4e q %.4e\n",
-                t, acc[:, 1]..., acc[:, 2]...)
+        fe = field_err(p, u, t)
+        @printf("TS t=%6.2f  r≥r₊: D %.4e τ %.4e 𝔈ˣ %.4e 𝔈ᶻ %.4e S_x %.4e q %.4e 𝔅 %.4e %.4e %.4e | 2 cells off faces: D %.4e τ %.4e 𝔈ˣ %.4e 𝔈ᶻ %.4e S_x %.4e q %.4e\n",
+                t, acc[:, 1]..., fe..., acc[:, 2]...)
         flush(stdout)
     end
     # The first reset (stage or step limiter) at or beyond the counting radius, and the
     # smallest radius any reset has reached, checked after every step from `X`.
-    deep0 = (r_in + 2) / 2
+    deep0 = (r_in + rp) / 2
     first_counted = Ref{Any}(nothing)
     function watch(p, t)
         first_counted[] === nothing || return
@@ -212,14 +269,14 @@ function main(args)
     rb = RESET_BITS[]
 
     # Radial layers of M/4.
-    nl = ceil(Int, sqrt(3) * max(abs(lo), hi) / 0.25)
+    nl = ceil(Int, sqrt(3) * maximum(max.(abs.(los), abs.(his))) / 0.25)
     rows = [zeros(length(VARS) + 1) for _ in 1:nl]
     cnt = zeros(Int, nl)
     res = zeros(nl, 3)                     # stage resets, step resets, stage-solve repairs
     atm = zeros(nl, 2)                     # resets with the atmosphere bit, per role
     bits = [zeros(18, 2) for _ in 1:nl]
     por = fill(UInt32(0), nl)
-    deep = (r_in + 2) / 2
+    deep = (r_in + rp) / 2
     for c in cl[]
         rr = sqrt(sum(abs2, c.x))
         l = min(nl, floor(Int, rr / 0.25) + 1)
@@ -255,10 +312,10 @@ function main(args)
             sum(res[:, 3]) - tot(l -> res[l, 3]))
 
     # Outside 2M, by the distance to the low planes and to the outer faces, in cells.
-    for (label, dist) in (("low faces", c -> minimum(c.x) - lo), ("high faces", c -> hi - maximum(c.x)))
+    for (label, dist) in (("low faces", c -> minimum(c.x .- los)), ("high faces", c -> minimum(his .- c.x)))
         acc = Dict{Int,Vector{Float64}}()
         for c in cl[]
-            sum(abs2, c.x) ≥ 4 || continue
+            outside(c.x) || continue
             k = min(8, floor(Int, dist(c) / h))
             a = get!(acc, k, zeros(length(VARS) + 2))
             a[1] += 1
@@ -278,7 +335,7 @@ function main(args)
         acc = zeros(length(VARS) + 1)
         n = 0
         for c in cl[]
-            sum(abs2, c.x) ≥ 4 && minimum(c.x) ≥ lo + k * h && maximum(c.x) ≤ hi - k * h || continue
+            outside(c.x) && all(e -> los[e] + k * h ≤ c.x[e] ≤ his[e] - k * h, 1:3) || continue
             n += 1
             for (i, (v, _)) in enumerate(VARS)
                 acc[i] += abs(d[c.n..., v, c.b])

@@ -303,3 +303,92 @@ end
         @info "$name: 16 steps of Δt = 1/64, checksum $(sum(abs, one_.u)) (one thread = four)"
     end
 end
+
+# Step 9, round 4 (asked by Erik 2026-11-03): Wald's uncharged field on a spinning hole.
+const CV_SPIN = Dict(a => spinning_wald_case(Float64; a=a) for a in (0.5, 0.9))
+
+@testset "The spinning Wald field is an uncharged vacuum solution, the curl of its potential" begin
+    # Guards the spinning Wald case's data (`SpinningWald` in `src/cases/kerr_schild.jl`):
+    # Wald's `𝒜 = (B₀/2)(ψ + 2aη)` lowered by the Kerr-Schild metric, `𝔅` its curl and `E`
+    # from its stationarity. A wrong Killing vector, a metric derivative in the wrong slot or
+    # the other sign of `2aη` (which charges the hole) would show here. By centred differences
+    # (`δ = 10⁻⁴`) of the case's own functions, at points outside the horizon: `curl A = √γ B`,
+    # Gauss `∂ᵢ𝔈ⁱ = 0`, Ampère (the flux of `𝔈`, `−[ijk]αB_k + βⁱ𝔈ʲ − βʲ𝔈ⁱ`, divergence-free:
+    # no current, no charge), the Lorenz gauge `∂ⱼ(α√γAʲ − βʲΦ̃) = 0`; `Φ̃ = aB₀` everywhere;
+    # and the flux of `𝔈` through a sphere, the charge, zero against `ψ` alone's.
+    lc(d, j, k) = (d, j, k) in ((1, 2, 3), (2, 3, 1), (3, 1, 2)) ? 1.0 :
+                  (d, j, k) in ((1, 3, 2), (3, 2, 1), (2, 1, 3)) ? -1.0 : 0.0
+    δ = 1e-4
+    ê(i) = SVector(ntuple(k -> k == i ? δ : 0.0, 3))
+    for a in (0.5, 0.9)
+        c = CV_SPIN[a]
+        m(x) = point_metric(c.provider, 0.0, x)
+        𝔈(x) = m(x).sqrtγ * c.fields(x, 0.0)[5]
+        flux(x) = (g = m(x); f = c.fields(x, 0.0); Bl = CV.lower(g, f[6]); e = g.sqrtγ * f[5];
+                   [-sum(lc(d, j, k) * g.α * Bl[k] for k in 1:3) + g.β[d] * e[j] - g.β[j] * e[d]
+                    for d in 1:3, j in 1:3])
+        lor(x) = (g = m(x); (A, Φ̃) = c.potential(x, 0.0); g.α * g.sqrtγ * CV.raise(g, A) - g.β * Φ̃)
+        worst = zeros(5)
+        for x in (SVector(2.5, 0.3, 0.7), SVector(1.2, 2.0, 1.5), SVector(3.0, 2.5, 0.4),
+                  SVector(1.7, 1.2, 0.1))
+            J = hcat(ntuple(i -> (c.potential(x + ê(i), 0.0)[1] - c.potential(x - ê(i), 0.0)[1]) / 2δ, 3)...)
+            curl = SVector(J[3, 2] - J[2, 3], J[1, 3] - J[3, 1], J[2, 1] - J[1, 2])
+            worst[1] = max(worst[1], maximum(abs, curl - m(x).sqrtγ * c.fields(x, 0.0)[6]) /
+                                     maximum(abs, curl))
+            worst[2] = max(worst[2], abs(sum((𝔈(x + ê(i))[i] - 𝔈(x - ê(i))[i]) / 2δ for i in 1:3)) /
+                                     maximum(abs, 𝔈(x)))
+            amp = [sum((flux(x + ê(j))[d, j] - flux(x - ê(j))[d, j]) / 2δ for j in 1:3) for d in 1:3]
+            worst[3] = max(worst[3], maximum(abs, amp) / maximum(abs, flux(x)))
+            worst[4] = max(worst[4], abs(sum((lor(x + ê(i))[i] - lor(x - ê(i))[i]) / 2δ for i in 1:3)) /
+                                     maximum(abs, lor(x)))
+            worst[5] = max(worst[5], abs(c.potential(x, 0.0)[2] - a))
+        end
+        w = c.fields.w
+        charge(ww; R=3.0, n=60) = sum(begin
+            θ, φ = (i - 0.5) * π / n, (j - 0.5) * π / n
+            nn = SVector(sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
+            g = point_metric(ww.provider, 0.0, R * nn)
+            sum(g.sqrtγ * CV.wave_fields(ww, R * nn, 0.0)[5] .* nn) * R^2 * sin(θ) * (π / n)^2
+        end for i in 1:n, j in 1:2n) / 4π
+        Q = charge(w)
+        Qψ = charge(CV.SpinningWald(w.provider, 0.0, w.b, w.ρ, w.s, w.Yₑ))
+        @info "spinning Wald a = $a: curl $(cv3(worst[1])), Gauss $(cv3(worst[2])), Ampère " *
+              "$(cv3(worst[3])), Lorenz $(cv3(worst[4])), |Φ̃ − aB₀| $(cv3(worst[5])); charge " *
+              "$(cv3(Q)) against ψ alone's $(cv3(Qψ))"
+        # Measured: curl 4.7e-10 and 9.4e-10, Gauss 1.2e-9 and 1.3e-9, Ampère 3.7e-8 and
+        # 2.4e-8, Lorenz 1.0e-12 and 3.7e-12, `Φ̃` to 2.2e-16; the charge 1.1e-4 and 1.6e-4 of
+        # `ψ` alone's (the quadrature's error), at `a = M/2` and `0.9M`.
+        @test worst[1] ≤ 1e-8
+        @test worst[2] ≤ 1e-8
+        @test worst[3] ≤ 2e-7
+        @test worst[4] ≤ 1e-10
+        @test worst[5] ≤ 1e-14
+        @test abs(Q) ≤ 1e-3 * abs(Qψ)
+    end
+end
+
+@testset "The spinning Wald case's right-hand side is second order outside the horizon" begin
+    # Guards the scheme on a Kerr metric with its potentials' absolute boundary, `Φ̃ ≠ 0` and
+    # `ξ = 0` (the case's `gauge_damping`): the right-hand side of the exact discrete state is
+    # the truncation error. Outside the horizon's largest Euclidean radius `√(r₊² + a²)`, at
+    # `h = M/4` and `M/8`, `a = M/2`. A spin-dependent sign, or a metric read at the wrong
+    # point, leaves an `O(1)` remainder; a damped gauge with `Φ̃ ≠ 0` an `O(ξ)` one in `Φ̃`.
+    # Measured (2026-11-03): `𝔈` 1.69, 1.87, 1.77, `A` 1.93, 1.87, 1.90, `Φ̃` 1.92 — the coarse
+    # pair, near the horizon, as for `a = 0` (`S` 1.66 there).
+    c = CV_SPIN[0.5]
+    rp = 1 + sqrt(1 - 0.25)
+    res = map((8, 16)) do N
+        p = cv_problem(c, N)
+        u = exact_state(p, c, 0.0)
+        du = similar(u)
+        mhd_rhs!(du, u, p, 0.0)
+        outside_l1(p, du, sqrt(rp^2 + 0.25))
+    end
+    rate(f) = log2(f(res[1]) / f(res[2]))
+    r𝔈 = ntuple(v -> rate(r -> r.U[CV.U_E + v - 1]), 3)
+    rA = ntuple(j -> rate(r -> r.A[j]), 3)
+    @info "spinning Wald a = M/2: |d𝔈| at h = M/4 $(map(cv3, res[1].U[8:10])), rates 𝔈 " *
+          "$(map(cv3, r𝔈)), A $(map(cv3, rA)), |dΦ̃| $(cv3(res[1].Φ)) → $(cv3(res[2].Φ))"
+    @test all(≥(1.6), r𝔈)
+    @test all(≥(1.75), rA)
+end
