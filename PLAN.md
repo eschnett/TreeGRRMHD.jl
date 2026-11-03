@@ -10,9 +10,11 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9 is built but open: its stationarity study fails the
-predicted order, and the error is to be located before it counts as done (Erik, 2026-11-02).
-Step 10 waits for it and for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 8 are done; step 9 is done but for Erik's open decisions — the
+interior's form (round 3 measured the paste against no interior) and whether Bondi's `S_x`/`𝔈`
+at the coarsest pair (1.69, 1.71; 1.82–1.83 at the next) meets the prediction — with its
+round 4, a spinning Wald case, to follow. Step 10 waits for GH-1 and GH-2 (GH-0 has landed).**
+*(Amended in step 9, rounds 2 and 3.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
 EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
@@ -887,7 +889,9 @@ rest):
 
 (i) was written out as EOS-6 below, now superseded (EOS-8); (ii) stays a note — the existing
 `collapse_to_atmosphere` does its job in the cases that set it, and the entropy ceiling instead
-remains Erik's call.
+remains Erik's call. *(Resolved 2026-10-24: overtaken by EntropyEOS 2.x's level 1, EOS-9, which
+projects such a state onto the entropy ceiling with `D` kept; no case sets
+`collapse_to_atmosphere`.)*
 
 ### EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (superseded)
 
@@ -995,7 +999,8 @@ follows.
 
 *(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere` for Erik's question
 whether `collapse_to_atmosphere` can go; rewritten the same day after his review in six questions,
-Q1–Q6, with his decisions on Q3 (b) and Q6 (a); proposed, not decided. Measurements:
+Q1–Q6, with his decisions on Q3 (b) and Q6 (a); proposed, not decided. *(Resolved 2026-10-24:
+overtaken by EOS-9, landed in EntropyEOS 2.0.)* Measurements:
 `bin/endpoint_measure.jl`, `bin/front_investigation.jl`; emulation: `bin/hot_projection.jl`,
 `HOT_PROJECTION = 2`; `CODE.md`, "Floors, the atmosphere and the magnetosphere", "Investigation
 (2026-10-22)".)*
@@ -1907,7 +1912,8 @@ marked "amended/measured/proposed in step 8"):*
   ghosts by `prim2con` with the ghost's own `B`; the regrid stays conservative. No ghost
   inadmissible on the atmosphere tubes (magnetized: against 33 repaired with conserved ghosts);
   widths 4 and 6 clamp `ρ` and `s` independently and inject energy (5.4e−4) or blow up; width 2
-  injects 5.6e−9 of rest mass where the conserved fill injected 1.5e−11 — **for Erik**. Smooth
+  injects 5.6e−9 of rest mass where the conserved fill injected 1.5e−11 — **for Erik**
+  *(resolved 2026-10-23, decided by Erik: the parent-centred primitive fill)*. Smooth
   order across coarse-fine faces kept (2D L∞ 1.85 against 2.02).
 - **Found**: the magnetized atmosphere tube is chaotic at rounding level (0 to 144 fallbacks,
   `W` 4.6 to 90 under 10⁻¹⁵ perturbations, before and after); its "no fallback" assertion now
@@ -1941,7 +1947,11 @@ Accept:
   face, closed through the Lorenz gauge; with the case's potential itself in the ghosts both
   cases are stationary and converge at 1.9–2.3 in `D` and `τ` (`M/4 → M/8`). The fix is a
   boundary design change, proposed for Erik. The suite asserts the short form, `t = M/2`, at
-  ≥ 1.6, measured 1.73–2.48.)*
+  ≥ 1.6, measured 1.73–2.48.)* *(Round 3, option 1 as built, decided by Erik 2026-11-03: the
+  static potentials' boundary is the case's own; re-measured at `M/4`, `M/8`, `M/16`: `D`
+  1.93–2.34, `τ` 2.06–2.27, Wald `𝔈` and `S_x` 1.94–2.01 — **holds**; Bondi's `S_x` and `𝔈`
+  1.69 and 1.71 at `M/4 → M/8` (**fail**, measured, not loosened), 1.82 and 1.83 at `M/8 →
+  M/16`; the charge 1.49–1.68. `CODE.md`, "Validation ladder" 3.)*
 - **Charge:** `|q|` from `∇·E` is recorded.
 - **∇·B** at round-off.
 
@@ -1952,15 +1962,18 @@ located before the step counts as done. `CODE.md` "Metric providers", "The inter
 - **The provider** needed nothing new: every kernel already evaluated `point_metric` at its own
   point (cells, faces, edges, vertices) and `metric_gradient` at the cell since step 5.
   Measured: 102 ns and 234 ns a call on an EPYC 7532, **44% of a step** on the 16³ spherical
-  blast (`Flat` against a Kerr-Schild hole of mass `10⁻³⁰⁰`); kept pointwise (proposed, for
-  Erik: a per-stage cache or deduplicating the 13 vertex and edge evaluations of the gauge
-  terms per cell would save part of it; `bin/metric_cost.jl`).
+  blast (`Flat` against a Kerr-Schild hole of mass `10⁻³⁰⁰`); kept pointwise
+  (*decided by Erik 2026-11-03: pointwise, no cache*; caching is step 10's, for `GHMetric`).
+  The asked-for deduplication of the gauge terms' vertex and edge evaluations is not done:
+  no point repeats within a kernel invocation, and sharing across invocations needs storage
+  or restructured kernels (`CODE.md`, "Metric providers"; for Erik). `bin/metric_cost.jl`.
 - **The cases** (`src/cases/kerr_schild.jl`): `wald_case` (Wald 1974 at `a = 0`, `Vacuum`) and
   `bondi_case` (Michel's flow in a radial monopole, `IdealConductor`) on a Schwarzschild hole
   in Kerr-Schild coordinates, each exact for matter and fields, the matter Michel's
   accretion flow (`MichelFlow`) in both. **Magnetized Bondi, not the Michel monopole**, and
-  **`a = 0`** (both proposed, reasons in `CODE.md`). On the **octant** `[0, 4M]³` with the hole
-  at its corner and Dirichlet faces from the data (proposed): the monopole's Dirac string
+  **`a = 0`** (both proposed, reasons in `CODE.md`; accepted by Erik 2026-11-03). On the
+  **octant** `[0, 4M]³` with the hole at its corner and Dirichlet faces from the data (proposed;
+  accepted by Erik 2026-11-03): the monopole's Dirac string
   leaves through the corner, and the octant is an eighth of the box. No 1D or 2D reduction
   exists in Cartesian Kerr-Schild.
 - **The interior** (`src/interior.jl`, `HoleInterior`, **proposed**): inside `r < r_in` the
@@ -1979,7 +1992,8 @@ located before the step counts as done. `CODE.md` "Metric providers", "The inter
 - **The suite** (Symmetry, EPYC 7532): at af0c482, 26425 tests, one failure (the Michel
   `uʳ` bound, 1.006e−14 against 1e−14 on the EPYC, fixed in cb41add), `Test Summary` 14m35s at
   one thread on cn082 — about 3.5 min more than step 8's, the curved file's 72 tests and its
-  four evolutions; close to the 15-minute line, so a split is proposed (Erik's decision). At
+  four evolutions; close to the 15-minute line, where a split was proposed — *decided by Erik
+  2026-11-03: no split*; `test/curved_tests.jl` stays in the main suite. At
   cb41add (jobs 588117–588119) every run passes whole: 26425 tests, 14m21s at one thread on
   cn081 against 9e686a2's 11m08s in the same job, 11m38s at four threads, 14m28s for the clean
   checkout, 12m38s with bounds checks; one = four threads, clean = one thread, every baseline
@@ -1997,7 +2011,12 @@ Changes:
   Γ = 2, ρ_c = 1.28e−3 (`IdealGasEOS` at `polytropic_entropy`).
 - **`TOVMetric <: SpacetimeMetrics.AbstractMetric`:** `isbits` and dual-generic. The step decides
   its storage (a fixed-size spline, or an Adapt-ed device array) and records it.
-- **`src/vertex_metric.jl`:** the frozen `GHMetric` provider.
+- **`src/vertex_metric.jl`:** the frozen `GHMetric` provider. *(Added in step 9, deferred
+  by Erik 2026-11-03:)* step 10 decides its caching, frozen (static: once per mesh, at its
+  creation and after each regrid) and coupled (every stage) in view; the measured inputs are in
+  `CODE.md`, "Metric providers": the analytic provider's 44% of a step on a 16³ blast, about
+  100 floats per cell for every centering, a block of 8³ with `G = 3` storing 5.4 times its
+  owned cells.
   - It is a vertex set in TreeGH's layout, filled via `background_state`.
   - It provides the 64-, 16- and 4-point interpolations, `∂g` at cells, and `K_ij`.
   - It **decides the outermost-ghost-cell option**: GH-5, a 2nd-order layer, or an exchange.

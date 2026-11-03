@@ -45,10 +45,10 @@ physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
 regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
-curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) is built but
-open: its `t = 50M` study does not converge at the predicted order, and
-Erik wants the error located first (2026-11-02). Step 10 waits for it and
-for GH-1 and GH-2.** `CODE.md` records the reviewed design
+curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) is done but for
+Erik's open decisions — the interior's form, and Bondi's `S_x`/`𝔈` at the
+coarsest pair (1.69, 1.71 against the predicted 1.8) — with its round 4, a
+spinning Wald case, to follow (2026-11-03). Step 10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -205,7 +205,7 @@ reset first, as stage and step limiter, position-only (proposed; `r_in = M`),
 and the diagnostics `outside_l1`, `field_l1`, `charge_norms`. Every kernel
 already read the metric at its own point, so the scheme did not change;
 pointwise evaluation is 44% of a step on a 16³ blast (`bin/metric_cost.jl`;
-kept, for Erik). `bin/curved_stationarity.jl` is the `t = 50M` study (CODE.md,
+kept: decided by Erik 2026-11-03, no cache; caching is step 10's). `bin/curved_stationarity.jl` is the `t = 50M` study (CODE.md,
 "Validation ladder" 3). Tests: `test/curved_tests.jl` (~2 min with
 compilation; the right-hand side's truncation error, the drift to `t = M/2`
 at `h = M/4`, `M/8`, the interior, the curved-space bit identity). Round 2
@@ -217,7 +217,14 @@ Dirichlet hook (AMR-7) copying the gauge drift of `A` across the face; with
 the potentials absolute in the ghosts both cases are stationary and second
 order (CODE.md, "Validation ladder" 3, "Where the error lives"; the fix is
 Erik's). Resets deep inside the hole, `r < (r_in + 2M)/2`, are not counted
-(Erik, 2026-11-02; CODE.md, "The interior").
+(Erik, 2026-11-02; CODE.md, "The interior"). Round 3 (2026-11-03, option 1,
+decided by Erik): `MHDCase(…; static_potential = true)` makes the potentials'
+Dirichlet hooks absolute (`DirichletBoundary(…; absolute = true)`), valid only
+for potentials that do not depend on `t`; the Kerr-Schild cases declare it,
+every other case keeps the relative hook (AMR-7) and its output bit for bit;
+the boundary testset in `test/curved_tests.jl` holds a gauge offset out of
+`𝔅`. The design rule is in CODE.md, "Boundaries". `bin/curved_localise.jl`'s
+`relhook=true` is the negative control, `interior=false` the no-interior run.
 
 ## Commands
 
@@ -381,8 +388,16 @@ passing whole** — 14m21s at one thread on cn081 (EPYC 7532) against
 `--check-bounds=yes` on cn093 (EPYC 7543). One and four threads identical,
 the clean checkout identical to the one-thread run, every line of the
 baseline present in the one-thread run (11 new lines); bounds checks, on the
-other CPU, move 70 lines. The split the 14-minute suite calls for is Erik's
-to decide. At
+other CPU, move 70 lines. The suite stays whole at about 14 minutes, the
+curved file in it (decided by Erik 2026-11-03: no split). With option 1,
+the static potentials' absolute hook (2026-11-03, 5bea724, Symmetry, AMD
+EPYC 7532 throughout): **26428 tests** (+3, the boundary testset), every run
+passing whole — 14m20s at one thread on cn079 against cb41add's 14m16s in
+the same job, 11m51s at four threads and 14m35s for the clean-checkout check
+on cn082, 16m55s with `--check-bounds=yes` on cn080. One and four threads
+identical, the clean checkout identical to the one-thread run, every line of
+cb41add's present but the six curved lines the absolute hook moves (seven new
+ones in their place); bounds checks move 70 lines. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

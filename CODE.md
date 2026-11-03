@@ -1016,7 +1016,9 @@ ulp instead of 1 (a face's two blocks see `P` that differ at the
 tolerance): there the ghosts would need their owner's `P` (c). EntropyEOS,
 for Erik: on the synthetic table near rest (`W = 1.005`) 16–26% of states
 end in the nested fallback whatever the seed. *(Measured, for Erik; no
-change to the code, which decision is his.)* *(Amended 2026-10-23,
+change to the code, which decision is his.)* *(Resolved 2026-10-23: overtaken
+by Erik's decision of (a), (b) and (c) below; the share near rest is
+EntropyEOS's.)* *(Amended 2026-10-23,
 decided by Erik:)* (a), (b) and (c) are all to be done; (c) is the
 parent-centred primitive fill, which this tree already ran, now the only
 one ("Refinement"), with the dead `prim2con` of the conserved ghosts
@@ -1161,7 +1163,9 @@ warm seed already within `tol` returns after no step or one, at the
 tolerance, and which depends on the cell's history in the step — at the
 Dirichlet faces, where the ghosts are the exact primitives, that history
 differs, and the flow drifts by the tolerance per step. **The bound is kept
-and fails; for Erik** (accept the tolerance-level drift and say so in the
+and fails; for Erik** *(resolved 2026-10-30, decided by Erik: option (a), the
+drift to the recovery's tolerance, `≤ 10³·tol`, plus the 1000-step run —
+"The uniform flow: to the tolerance" below)* (accept the tolerance-level drift and say so in the
 bound; or ask EntropyEOS for a warm start that always polishes with one
 Newton step after its residual test, which would restore rounding at a
 small cost; or a tighter `tol` in the cases). Besides: the ARS(4,4,3)
@@ -1342,7 +1346,8 @@ kernel launches per site and the hand-off's stores and loads (the 232-B
 metric, `B`, `E` and the input that the third computes again — which costs
 most where a step does least else (the 1D waves, whose right-hand side
 recoveries are all reused). *Whether the CPU keeps the split or fuses is
-Erik's decision.*
+Erik's decision.* *(Resolved 2026-11-02, decided by Erik: fused is the
+default.)*
 
 **The share that reaches finish** (`bin/recovery_cost.jl finish`, the same
 job and cases; per site, the recoveries whose first phase was not done, of
@@ -1768,7 +1773,8 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   `f = 1` goes from 1 to 4 (every row `f ≤ 0.3` stays at none); as set
   now, per case, the sweep is untouched. Writing such a state at the
   entropy ceiling with `D` kept instead (the note in PLAN.md's EOS-5) does
-  not cost the sweep anything, and is Erik's call.
+  not cost the sweep anything, and is Erik's call. *(Resolved 2026-10-24:
+  overtaken by EntropyEOS 2.0's level 1, EOS-9, whose `S_CEILED` keeps `D`.)*
 - **Measured with the real 1.1.0** (`bin/front_investigation.jl`; the same
   48 perturbed runs as before), every number the emulated "B + coll" gave,
   to every digit printed: on the uniform mesh, the refined mesh with the
@@ -1970,7 +1976,8 @@ cell-steps of every run, where 1.1 peaked at `W` 4.3. That is not the slack: it
 is the same with the emulation, and the cell recoveries that differ between
 the versions agree on identical inputs, so it is a different trajectory — a
 candidate is 2.0's `S_CEILED` keeping `S` while lowering τ (above). Not
-chased; **for Erik**. The suite's assertion on that row (`W ≤ 5` at the end,
+chased; **for Erik**. *(Resolved 2026-11-02: investigated 2026-10-30 and
+accepted by Erik, below.)* The suite's assertion on that row (`W ≤ 5` at the end,
 injected mass within 10⁻⁶) holds: its largest `W` at the end is 4.00.
 
 **The ideal magnetized atmosphere's `W = 100`** *(investigated 2026-10-30
@@ -2023,7 +2030,9 @@ the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
 untested elsewhere.
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
-an experiment for Erik, not decided; `bin/hot_projection.jl`,
+an experiment for Erik, not decided — *(resolved 2026-10-24: overtaken by
+EOS-9 in EntropyEOS 2.0, and no case sets `collapse_to_atmosphere`)*;
+`bin/hot_projection.jl`,
 `bin/endpoint_measure.jl`, `bin/front_investigation.jl`; EOS-9 in PLAN.md,
 rewritten the same day after Erik's review in six questions)*: can the
 atmosphere tubes do without `collapse_to_atmosphere`, an excision choice
@@ -2801,7 +2810,8 @@ two agree to 4.3e−16. That local computation was the workaround of SM-1
 `ExtrinsicCurvature(g, dg)` on the same `dmetric` result, and the pointwise
 layer is still bit-identical in a CPU kernel.
 
-*(Measured in step 9; the choice proposed in step 9, for Erik.)* **The
+*(Measured in step 9; the choice proposed in step 9, for Erik — resolved
+2026-11-03, decided by Erik: pointwise, no cache.)* **The
 `Analytic` provider is evaluated pointwise, where each kernel needs it**,
 and nothing is cached. Every kernel since step 5 already called
 `point_metric(provider, t, x)` at its own point — the recovery and the ghost
@@ -2833,12 +2843,33 @@ So the pointwise provider is affordable for rung 3 — the study to `t = 50M`
 runs in hours, not days — and a per-stage cache would save at most that
 share, less what it costs to store and load the metric at four centerings
 (cells, three faces, three edges, vertices: 8 points and about 100 floats
-per cell). The cheapest saving is inside the kernels: the vertex and edge
-evaluations of `∂ₜA` and `∂ₜΦ̃` repeat the same points 13 times per cell
-where 4 would do. Not done: the provider for the stars is step 10's
-interpolated `GHMetric`, whose cost and storage (the cell metric in `P`, faces
-and edges on the fly) are decided there; whether to cache the analytic one,
-or deduplicate, is Erik's call.
+per cell). **Decided by Erik 2026-11-03: pointwise, no cache; the background
+is stationary, but the analytic cases are affordable.**
+
+*Deduplication (asked by Erik 2026-11-03; not done, measured why):* the
+vertex and edge evaluations of `∂ₜA` and `∂ₜΦ̃` come to 13 per cell where 4
+distinct points (a vertex, three edges) exist — but **across** kernel
+invocations, not within one: `potential_rhs_kernel!` evaluates the two
+distinct vertices of its own edge, and `gauge_rhs_kernel!` the six distinct
+edges around its vertex and the vertex itself, each once. So there is
+nothing to reuse inside an invocation. Sharing across invocations needs either
+storage (the metric, or `ψ = αΦ − β·A`, at every vertex and edge, which the
+request excludes) or restructured kernels (one invocation per vertex writing
+its three edges' `∂ₜA`, which still evaluates `ψ` at the three far vertices:
+13 → 10). Both change what the kernels compute in which order; the
+deduplication is left for Erik. Its ceiling is about 9 `point_metric`
+evaluations per cell and right-hand side, 9 × 102 ns × 3 ≈ 2.8 µs per cell
+and step, 4–6% of the rung-3 cases' 49–72 µs.
+
+**Caching is step 10's decision** *(deferred by Erik 2026-11-03)*. The
+production provider is the interpolated vertex metric (`GHMetric`), and step 10
+decides its caching with both of its uses in view: frozen (the Cowling
+approximation), where the metric is static and could be computed once per
+mesh, at its creation and after each regrid; and coupled, where it changes
+every stage. Measured inputs: the analytic provider's 44% of a step on the 16³
+blast; about 100 floats per cell for every centering (cells, three faces,
+three edges, vertices); a block of 8³ with `G = 3` storing 5.4 times the cells
+it owns.
 
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
@@ -2854,7 +2885,9 @@ Interpolated within a block from the vertices (proposed):
 - **Faces**: 2D, 16 points. **Edges**: 1D, 4 points.
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
-edges. The derivatives and `K_ij` are not stored but evaluated where the
+edges. *(Amended in step 9, deferred by Erik 2026-11-03:)* whether the vertex
+metric is cached per mesh (frozen) or per stage (coupled) is step 10's
+decision; "Metric providers" has the measured inputs. The derivatives and `K_ij` are not stored but evaluated where the
 sources are (proposed in step 2; see "Field sets"). One interaction with the ghost widths is (open): a 4th-order
 interpolation to a cell center reaches one vertex beyond the cell on either
 side, so reaching the outermost ghost cell of a `G = 3` cell set needs
@@ -3233,6 +3266,47 @@ asserts it present and bounded (proposed in step 8: nothing in this
 package needs a refined box to be symmetric before the stars of steps 10
 and 12, whose own symmetry tests will say whether upstream must close it).
 
+**The potentials' boundary must pin the gauge or keep a gradient a gradient**
+*(a design rule, from step 9's round 2; decided by Erik 2026-11-03: option 1
+for static potentials)*. A Dirichlet hook that copies the evolved potential
+across a face — the relative hook (AMR-7): `A(x_g) = A_case(x_g) + [A −
+A_case](x_r)` — copies a gauge drift `∇χ` of the evolved `A` unchanged along
+the normal, where it is no longer a gradient, and the filled `A`'s curl puts
+`∂_n∂_⊥χ` into the ghost and wall faces' `𝔅`. That field drives `E`
+(Ampère), `E` drives `A` (Faraday), `A`'s divergence drives `Φ̃` (the
+generalized Lorenz gauge) and so `χ`: a loop, boundary → `𝔅` → `E` → `A` →
+`χ`, which the damping `ξ` slows but does not stop. On the Kerr-Schild cases it
+grew as `e^{0.11 t/M}` at `h = M/4` ("Validation ladder" 3, "Where the error
+lives"); in flat space nothing measured showed it, the shock tubes' and the
+explosions' faces seeing too little of a drift before `t_end`. **Our
+reading, not measured**: a static gauge mode with `Φ̃ = 0` satisfies the
+elliptic `∂ᵢ(α√γ γ^{ij}∂ⱼχ) = 0`, so it is fixed by `χ`'s boundary values;
+the relative hook leaves them free (a Neumann-like copy), the absolute hook
+pins them to zero, and with them the static mode.
+
+- **Static potentials** (`MHDCase(…; static_potential = true)`, decided by
+  Erik 2026-11-03): the hook is absolute, the case's `A_j` and `Φ̃` at every
+  ghost and on every prescribed wall (`DirichletBoundary(…; absolute =
+  true)`, `CellBoundary(AllVariables(…))`). Under `walls = :symmetric`
+  TreeAMR fills the owned low wall with the hook's own rule, absolute or
+  relative (its "the hook's low region becomes `1 … G+1`"), so the walls
+  follow; nothing upstream was needed. Valid only where `A_case` does not
+  depend on `t`: under IMEX the stage's `A` is at `tⁿ + c̃Δt` while
+  `solve_imp!` is told `tⁿ + cΔt`, which a potential that moves with `t` would
+  get wrong (step 6, above). The Kerr-Schild cases declare it; the test
+  "A static potential's boundary is the case's own" checks that a gauge
+  offset vanishing on the boundary leaves `𝔅` on every stored face at the
+  exact state's (1.1e−15) and every boundary-filled point untouched, where
+  the relative hook shows it (5.9e−2).
+- **Potentials that grow in time** keep the relative hook (every flat-space
+  case, `static_potential = false` by default): their outputs are
+  unchanged bit for bit.
+- **Open** (for step 10's outer boundary, and for dynamic cases without an
+  exact `A`): option 2, a relative hook that carries the offset's gradient
+  along, `δ(x_r) + (x_g − x_r)·∇δ`, which keeps a gradient a gradient to second
+  order (TreeAMR's hook form); option 3, a gauge that damps a static `χ` as
+  well. Neither is requested yet.
+
 ## The interior
 
 *(Added in step 9; proposed in step 9 throughout, the form a decision for
@@ -3364,6 +3438,81 @@ the resets' states lie inside `2M`.
   reading the solution inside. `r_in = M` keeps the horizon `M/h` cells
   from the paste (four at `h = M/4`, TreeGH's margin `m ≥ G + 1`), and
   `3M/2` gains nothing.
+
+  *Note (round 2):* the table above was measured under the relative
+  potential hook, whose boundary mode dominated the outside error; with
+  option 1 the outside error is 3–10 times smaller, and round 3 measures the
+  interior again.
+
+**No interior, the ordinary reset inside** *(option 3, measured in step 9,
+round 3, for Erik's open decision on the interior; `bin/curved_localise.jl …
+interior=false` against the default paste from the same tree, the absolute
+potential hook, both cases; jobs 588498–588503, 588592; counting radius
+`1.5M`)*. Outside `2M` at `t = 50M`:
+
+| run | `D` | `𝔈ˣ` | `√γ q` (L1) | resets stage/step, counted at `r ≥ 1.5M` | resets deep inside | injected `D`, `τ` | `∫√γ q` over the octant |
+|---|---|---|---|---|---|---|---|
+| Wald `M/4`, paste | 2.9810e−3 | 4.578e−4 | 8.58e−4 | 0/0 | 0/0 | 0, 0 | 4.9e−13 |
+| Wald `M/4`, none | 2.9798e−3 | 4.622e−4 | 9.46e−4 | 0/0 | 0/0 (2109/1055 by 100M) | 0, 0 (2.1e−12, −1.3e6 by 100M) | 4.2e−2 |
+| Bondi `M/4`, paste | 6.3065e−3 | 3.487e−4 | 9.87e−4 | 0/0 | 0/0 | 0, 0 | −8.8e−17 |
+| Bondi `M/4`, none | 6.3071e−3 | 3.486e−4 | 9.87e−4 | 0/0 | 15307/7019 | 1.7e−12, −1.5e6 | 6.7e−16 |
+| Wald `M/8`, paste | 5.8805e−4 | 1.154e−4 | 2.74e−4 | 0/0 | 0/0 | 0, 0 | 1.4e−12 |
+| Wald `M/8`, none | 6.0775e−4 | 1.373e−4 | 6.10e−4 | **5702/2852** | 564192/291994 | **44.7**, −2.5e6 | −0.65 |
+| Bondi `M/8`, paste | 1.6497e−3 | 1.065e−4 | 3.51e−4 | 0/0 | 0/0 (9000 stage repairs) | 0, 0 | 2.9e−17 |
+| Bondi `M/8`, none | 1.6497e−3 | 1.065e−4 | 3.51e−4 | 0/0 | 68588/36226 | 7.0e−13, −2.9e7 | −9.5e−5 |
+
+- **Every reset inside is level 1 but Wald's at `M/8`.** The radial layers:
+  Bondi without the interior resets only at `r < 0.75M`, every one onto an
+  entropy face — `S_CEILED` in `0 ≤ r < M/4`, `S_FLOORED` from `M/4` to
+  `0.75M` — and never to the atmosphere (level 2: 0); Wald at `M/4` only in
+  the corner layer, `S_CEILED`, from between 50M and 100M on. Wald at `M/8`
+  goes further: resets from the corner out to `1.25M` with every level-1 face
+  (`S_FLOORED`, `S_CEILED`, `W_CEILED`, `ρ_FLOORED`, `NONFINITE`, a few `YE`)
+  and **level 2, the atmosphere**, 3909/1594 of them, from the corner to
+  `1.25M`; and `S_FLOORED` resets at `1.5–2M`, counted. A rerun watching
+  every step (job 588592, cn079, EPYC 7532; the same run to every digit)
+  dates it: outside `2M` the charge leaves its level from `t ≈ 33M` (`L1`
+  2.87e−4 at 33M, 4.6e−4 at 35M, 1.0e−3 at 36M), and **the first counted
+  reset is at `t = 37.65M`, `r = 1.575M`**. **At `M/16` Wald without the
+  interior blows up**: the first counted reset at `t = 10.36M`, `r = 1.501M`
+  (job 588630, cn085, EPYC 7532, watched every step), the charge outside `2M`
+  up eight-fold by 11M (7.3e−4 against 9.2e−5 at 10M), and in the unwatched
+  run (588496) `τ`'s drift outside `2M` 2.2·10² at 15M and 1.9·10¹¹ at 20M. The
+  earlier the finer: 37.65M at `M/8`, 10.36M at `M/16`, none by 100M at `M/4`
+  — the singularity's neighbourhood, resolved further, holds states the
+  reset no longer tames. The magnetized Bondi flow without the interior is
+  stable at `M/16` too (job 588497, cn084, EPYC 7532): outside `2M` the
+  paste's run to five digits (`D` 4.1891e−4 at 50M), 387585/201062 resets
+  all at `r < M/2`, all level 1 (`S_FLOORED`, `S_CEILED`, two `W_CEILED`),
+  none to the atmosphere, injected `τ` `−9.7·10⁷`, the charge's total
+  `−7·10⁻¹⁰`; with the paste it resets 126000/42000 at `r < M/2` as well
+  (jobs 588113, 588503), the cells between the paste and the singularity's
+  corner.
+- **Outside, the paste and none agree** but in Wald at `M/8`: to 0.04% in
+  `D` and to 1–10% in `𝔈ˣ` and the charge at `M/4`, to five digits in Bondi
+  at both resolutions. Wald at `M/8` without the interior is disturbed from
+  between 30M and 40M (`𝔈ˣ` 2.2 times the paste's at 40M, the charge 11
+  times), and partly recovers by 50M (`D` +3%, the charge 2.2 times). So
+  "nothing inside reaches outside" holds for Bondi and for Wald at `M/4`, and
+  **not for Wald at `M/8` and `M/16` without an interior** (at `M/16` it
+  blows up).
+- **The charge's total.** `∫√γ q` over a region is the discrete flux of `𝔈`
+  through its surface (the centred divergence telescopes). With the paste
+  the region's inner surface sits in the exact, uncharged solution and the
+  total is rounding; without it the neighbourhood of the singularity, where
+  the scheme is not consistent, carries a net charge (`|√γ q|` up to 15 at `M/4`
+  and 2·10³ at `M/8` in `r < M/4`), and every total that includes or excludes
+  it shows it: `4.2·10⁻²` over the octant at `M/4` (`−0.65` at `M/8`),
+  `1.3·10⁻³` beyond `1.5M`. Round 1's `−4.0·10⁻³` beyond `r = M`, without the
+  interior, is this. Bondi's charge beyond `1.5M` stays at rounding without
+  the interior (`6·10⁻¹⁵`), and over the octant `−9.5·10⁻⁵` at `M/8` (rounding
+  at `M/4`): `IdealConductor` sets `E = −v × B` in every cell every stage, so
+  little accumulates.
+- **Injected energy**: without the interior the reset removes `10⁶`–`10⁷` of
+  `τ` from the singularity's neighbourhood over the run (the entropy ceiling
+  lowering `τ` where the infall heats the gas without bound), and Wald at `M/8`
+  injects 44.7 of rest mass. Deep inside, not counted (decided by Erik
+  2026-11-02), but the totals carry it.
 
 ## Refinement
 
@@ -3650,7 +3799,9 @@ the primitive fill's owned `P` differs from the recovery's by rounding,
 which moved the uniform row. The hydrodynamic tube is not chaotic: its
 uniform row is the same to every digit in both fills.
 
-What the measurements say *(proposed in step 8, for Erik)*: the primitive
+What the measurements say *(proposed in step 8, for Erik; resolved
+2026-10-23, decided by Erik: the parent-centred primitive fill, the only one
+since)*: the primitive
 fill keeps every ghost admissible — no ghost the policy would repair, none
 below the atmosphere, magnetized as well (the AMR-10 downstream check,
 against 33 repaired recoveries with conserved ghosts) — but on the
@@ -4315,7 +4466,7 @@ named as claims.
      `j = 0`: the flow is Michel's exactly. `q = 9`: `b²/ρ = 0.98` at the
      horizon, 6.1 at `r = M`, 0.030 at the box's far corner.
    - **Magnetized Bondi, not the Michel monopole** (the plan's choice, made
-     here). Both need a monopole field. The Michel monopole (Michel 1973) is
+     here; accepted by Erik 2026-11-03). Both need a monopole field. The Michel monopole (Michel 1973) is
      a force-free solution with negligible matter: at `a = 0` it is static
      and trivial, at `a ≠ 0` Kerr has only the Blandford–Znajek perturbative
      one, and in this package's model it would be electrovacuum or an ideal
@@ -4324,11 +4475,12 @@ named as claims.
      included, is the standard GRMHD test of the literature above, and
      exercises the ideal stage solve, the curved sources and the radial
      inflow through the horizon at once.
-   - **`a = 0`**: a stationary fluid is needed in both cases, and Michel's is
+   - **`a = 0`** (accepted by Erik 2026-11-03): a stationary fluid is needed in both cases, and Michel's is
      Schwarzschild's; Kerr has no closed-form accretion flow. A spinning Wald
      case could carry a passive fluid at the floor and be measured on `𝔈`
      and `𝔅` alone (under `Vacuum` nothing couples) — a follow-up, for Erik.
-   - **The octant** `[0, L]³`, `L = 4M`, the hole at its corner, Dirichlet
+     *(Resolved 2026-11-03: Erik wants it, as step 9's round 4.)*
+   - **The octant** `[0, L]³`, `L = 4M` (accepted by Erik 2026-11-03), the hole at its corner, Dirichlet
      faces from each case's own data on all six faces
      (`DirichletBoundary`). The monopole has no vector potential regular on
      a whole sphere: `A = q (n̂ × x)/(r (r + n̂·x))` is singular on the Dirac
@@ -4480,17 +4632,47 @@ named as claims.
      mode's too, through the total momentum and energy, which carry the
      field's: with the heavy fluid `D`'s drift stays Michel's own.
 
-   **Proposed in step 9, for Erik**: a Dirichlet boundary for the potentials
-   that does not copy a gauge drift across the face. Options: (a) the case's
-   potential itself (absolute) where it does not depend on time — every
-   rung-3 case — keeping the relative hook for the potentials that grow in
-   time (the shock tubes', step 6); (b) a relative hook that carries the
-   offset's gradient along, `A_case(x_g) + δ(x_r) + (x_g − x_r)·∇δ`, which
-   keeps a gradient a gradient to second order (TreeAMR's hook form, AMR-7,
-   would need it); (c) a gauge that damps the static `χ` too (the damped
-   Lorenz gauge damps only `Φ`). Nothing is changed in `src/`; the
-   diagnostics are `bin/curved_localise.jl`'s `abshook`, `qsource` and the
-   case variants `B0`, `q`, `rho_c`, `box=full`.
+   **Decided by Erik 2026-11-03: option 1** — the case's own potential in the
+   ghosts where it does not depend on `t`. *As built* (`static_potential` on
+   `MHDCase`, `absolute` on `DirichletBoundary`, "Boundaries"): `wald_case` and
+   `bondi_case` declare their potentials static, and their potentials'
+   hooks are `CellBoundary(AllVariables(…))` of the case's `A_j` and `Φ̃`;
+   every other case keeps the relative hook. Options 2 (a relative hook that
+   carries the offset's gradient, upstream) and 3 (a gauge that damps a
+   static `χ`) are open questions for step 10's outer boundary and for
+   dynamic cases without an exact `A`. The process-local diagnostic of round
+   2 (`abshook`) is gone; `bin/curved_localise.jl`'s `relhook=true` is the
+   negative control. The M/16 runs of round 2 with the diagnostic hook
+   (jobs 588223 on cn085, EPYC 7532, and 588224 on cn112, EPYC 8534P),
+   outside `2M` at `t = 50M`: Wald `D` 1.2609e−4, `τ` 5.9239e−5, `𝔈ˣ`
+   2.8671e−5, `𝔈ᶻ` 7.7540e−6, `S_x` 5.6127e−5, `√γ q` 8.5733e−5, flat from `15M`
+   to `50M`; Bondi `D` 4.1891e−4, `τ` 1.9593e−4, `𝔈ˣ` 2.9913e−5, `S_x`
+   2.1725e−4, `√γ q` 1.1346e−4. Rates `M/4 → M/8` / `M/8 → M/16`:
+
+   | | `D` | `τ` | `S_x` | `𝔈ˣ` | `𝔈ᶻ` | `√γ q` |
+   |---|---|---|---|---|---|---|
+   | Wald | 2.34 / 2.22 | 2.27 / 2.13 | 1.96 / 1.96 | 1.99 / 2.01 | 1.95 / 1.94 | 1.65 / 1.68 |
+   | Bondi | 1.93 / 1.98 | 2.07 / 2.06 | 1.69 / 1.82 | 1.71 / 1.83 | 1.71 / 1.83 | 1.49 / 1.63 |
+
+   **Re-measured with option 1 as built** *(step 9, round 3; jobs 588498–588503,
+   Symmetry, the node per job in the logs)*: at `M/4` and `M/8` the new default
+   reproduces the round-2 diagnostic to every printed digit (Wald `D`
+   2.9810e−3, 5.8805e−4; Bondi `D` 6.3065e−3, 1.6497e−3 outside `2M` at `t =
+   50M`), the same arithmetic. At `M/16` (jobs 588502 on cn083, EPYC 7532, and
+   588503 on cn107, EPYC 7543, amdq, 64 threads) the same: Wald `D` 1.2609e−4,
+   `τ` 5.9239e−5, `𝔈ˣ` 2.8671e−5, `𝔈ᶻ` 7.7540e−6, `S_x` 5.6127e−5, `√γ q`
+   8.5733e−5; Bondi `D` 4.1891e−4, `𝔈ˣ` 2.9913e−5 — the round-2 rows above, and
+   so the rates of the table. No reset, no injected mass, the charge's total
+   rounding (Wald `−3.4·10⁻¹¹` over the octant). Both drifts are flat in time: Wald's
+   `D` within 2% from `10M` to `50M` and to `100M` at `M/4` (2.9810e−3 at 50M
+   and at 100M), Bondi's to five digits. **Verdict: the prediction holds**
+   for `D` and `τ` (1.93–2.34 and 2.06–2.27 between the three resolutions)
+   and Wald's `𝔈`, `S_x` (1.94–2.01); **it fails** for Bondi's `S_x` and
+   `𝔈` at `M/4 → M/8` (1.69, 1.71 — measured, not loosened) and for the
+   charge (1.49–1.68); `M/8 → M/16` Bondi's are 1.82–1.83. Above 1.8 from the
+   second pair on, so the coarsest mesh is not yet asymptotic for the
+   monopole's transverse components; whether that suffices is Erik's to say.
+
 
    **In the suite** (`t = M/2`, `h = M/4` and `M/8`, laptop and Symmetry
    alike): Wald `D` 2.48, `S` 1.86–1.98, `τ` 2.46, `𝔈` 2.10–2.13, `𝔅`
@@ -4572,6 +4754,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   evaluations deduplicated ("Metric providers").
 - *(Added in step 9.)* A spinning Wald case, with a passive fluid at the
   floor (Kerr has no closed-form accretion flow; "Validation ladder" 3).
+- *(Added in step 9, round 3.)* The potentials' outer boundary where no
+  exact `A` exists (step 10's star, dynamic cases): a gradient-extrapolating
+  relative hook (option 2, upstream) or a gauge that damps a static `χ`
+  (option 3); see "Boundaries", the design rule.
 - Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
   TOV star, a star in a vacuum, twice: with the reset as both limiters,
   and as the step limiter alone. TreeHydro named this case as the one
