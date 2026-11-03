@@ -160,6 +160,25 @@ function main(args)
                 t, acc[:, 1]..., acc[:, 2]...)
         flush(stdout)
     end
+    # The first reset (stage or step limiter) at or beyond the counting radius, and the
+    # smallest radius any reset has reached, checked after every step from `X`.
+    deep0 = (r_in + 2) / 2
+    first_counted = Ref{Any}(nothing)
+    function watch(p, t)
+        first_counted[] === nothing || return
+        X = Array(p.f.X.work)
+        GX = p.f.X.G
+        for c in cl[]
+            n = X[(c.n .+ GX)..., TG.X_RESETS, c.b] + X[(c.n .+ GX)..., TG.X_STEP_RESETS, c.b]
+            if n > 0 && sum(abs2, c.x) ≥ deep0^2
+                first_counted[] = (t, sqrt(sum(abs2, c.x)))
+                @printf("FIRST counted reset (r ≥ %.2f) at t = %.3f, r = %.3f\n", deep0, t,
+                        sqrt(sum(abs2, c.x)))
+                flush(stdout)
+                return
+            end
+        end
+    end
     t0 = time()
     # `invokelatest`: the hooks above were evaluated after `main` began, in a newer world.
     ekw = (; riemann=Symbol(get(kw, "riemann", "hlle")),
@@ -167,9 +186,13 @@ function main(args)
            ξ=haskey(kw, "xi") ? parse(Float64, kw["xi"]) : nothing)
     r = Base.invokelatest(evolve!, case, Val(3); ekw..., N=N, roots=roots, t_end=t_end, limiter=limiter,
                 interior=interior,
-                after_step=(p, u, t) -> if t ≥ next[] - 1e-9
-                    series(p, u, t)
-                    next[] += every
+                after_step=(p, u, t) -> begin
+                    cl[] === nothing && (cl[] = cells(p))
+                    watch(p, t)
+                    if t ≥ next[] - 1e-9
+                        series(p, u, t)
+                        next[] += every
+                    end
                 end)
     @printf("RUN %s N=%d roots=%d h=%.5f steps=%d wall=%.1fs\n", name, N, roots, h, r.nsteps,
             time() - t0)
