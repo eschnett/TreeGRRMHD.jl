@@ -44,12 +44,14 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
-curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) has its
-round 4, a spinning Wald case, built and measured: its `50M` drift fails the
-prediction on the finest pair at both spins, and whether step 9 closes on it
-is Erik's (the interior — the paste —, the coarse-pair rates and the
-deduplication decided by Erik 2026-11-03). Step
+regridding, rung 2b; finished on TreeAMR 0.2.2) and 9 (analytic curved
+backgrounds, rung 3; `claude/step-9-curved-backgrounds`) are done. Step 9 was
+accepted as is by Erik on 2026-11-05, including round 4's spinning Wald case,
+whose `50M` drift fails the prediction on the finest pair. **Spacetimes with
+black holes are not expected to work out of the box** (as in
+TreeGeneralizedHarmonic); further work on black holes is left for the
+future (`CODE.md`, "Known risks"). The interior (the paste), the coarse-pair
+rates and the deduplication were decided by Erik 2026-11-03. Step
 10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact

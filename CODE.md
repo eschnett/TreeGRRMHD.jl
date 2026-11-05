@@ -4754,7 +4754,8 @@ named as claims.
      (`r < M`, which contains `r₋`; a process-local measurement,
      `bin/curved_localise.jl … ballks=true`) it is flat (`M/8`: 1.84e−4 at 10M,
      1.97e−4 at 50M). At `a = M/2` the Euclidean ball reaches `r = 0.87M >
-     r₋ = 0.13M` and is flat. **For Erik**: the paste's ball in Kerr-Schild
+     r₋ = 0.13M` and is flat. *(Left for future black-hole work, Erik
+     2026-11-05; "Known risks".)* **For Erik**: the paste's ball in Kerr-Schild
      `r`, or one Euclidean radius `ρ` chosen to contain `r₋` in the plane
      (`√(r₋² + a²) < ρ < r₊`, 1.06M to 1.44M at `a = 0.9M`); not decided here.
      At `t = 50M` outside `r₊`, `𝔈ˣ`: Euclidean 8.08e−3 (`M/4`), 3.13e−2
@@ -4813,7 +4814,9 @@ named as claims.
      spinning case differs in `ξ = 0` (nothing damps the gauge, the charge
      or `Φ̃`), the frame dragging, the inner horizon and the shifted box.
      **Not localised further; for Erik** (round 4 asked for the measurement,
-     not a fix). The runs that would separate the causes: Wald at `a = 0`
+     not a fix). *(Accepted as measured by Erik 2026-11-05: step 9 closes
+     on it, and the runs below are left for future black-hole work; "Known
+     risks".)* The runs that would separate the causes: Wald at `a = 0`
      with `ξ = 0` at `M/8` and `M/16` to `50M` (the gauge damping alone, about
      45 min and 2.7 h on 64 threads); `a = M/2` with the heavy fluid at `M/16`
      (the fluid at the finest mesh); and a damping of `Φ̃ − aB₀`, the
@@ -4904,7 +4907,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   *(Built in step 9, round 4; its `t = 50M` drift fails the prediction on
   the finest pair at both spins, not localised further — "Validation
   ladder" 3, "The spinning Wald case". For Erik: whether step 9 closes on
-  it, and the paste's ball at `a = 0.9M`.)*
+  it, and the paste's ball at `a = 0.9M`.)* *(Resolved by Erik 2026-11-05:
+  step 9 is accepted as is; the late drift, the paste's ball at high spin
+  and the floor fluid's resets are left for future black-hole work, "Known
+  risks".)*
 - *(Added in step 9, round 3.)* The potentials' outer boundary where no
   exact `A` exists (step 10's star, dynamic cases): a gradient-extrapolating
   relative hook (option 2, upstream) or a gauge that damps a static `χ`
@@ -4929,6 +4935,22 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 
 ## Known risks
 
+- **Spacetimes with black holes are not expected to work out of the
+  box** *(decided by Erik 2026-11-05; the same holds for
+  TreeGeneralizedHarmonic)*. Step 9 validated the scheme on analytic
+  Kerr-Schild backgrounds with the hard paste: Wald at `a = 0` and the
+  magnetized Bondi flow converge at second order to `t = 50M`. What it also
+  showed is left for future work on black holes:
+  - Without an interior, a vacuum field near the singularity fails: Wald at
+    `M/8` and `M/16`, earlier on the finer mesh.
+  - The spinning Wald case's drift grows late (`a = M/2` after `35M`) or
+    steps near the ergoregion (`a = 0.9M`), so its `50M` rates on the
+    finest pair fall below 1.8.
+  - At `a = 0.9M` the Euclidean paste ball misses the inner horizon.
+  - A floor fluid under `Vacuum` is reset in almost every cell every stage.
+  - The potentials need a boundary where no exact `A` exists.
+
+  See "Validation ladder" 3 and "The interior".
 - No MPI yet: single node, although TreeAMR now has its M7 (amended in
   step 0).
 - Unlimited conservative prolongation at a stellar surface floors cells.

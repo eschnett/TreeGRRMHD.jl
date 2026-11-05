@@ -10,10 +10,12 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9's round 4, a spinning Wald case, is built and
-measured, and its `50M` drift fails the prediction on the finest pair at both spins (for Erik:
-whether step 9 closes on it; the interior, the coarse-pair rates and the deduplication decided by
-Erik 2026-11-03). Step 10
+**Steps 0 to 3 and 5 to 9 are done. Step 9 was accepted as is by Erik on 2026-11-05, including
+round 4's spinning Wald case, whose `50M` drift fails the prediction on the finest pair at both
+spins. Spacetimes with black holes are not expected to work out of the box, as in
+TreeGeneralizedHarmonic; further work on black holes is left for the future (`CODE.md`, "Known
+risks"). The interior, the coarse-pair rates and the deduplication were decided by Erik
+2026-11-03. Step 10
 waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9, rounds 2–4.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
@@ -1961,7 +1963,10 @@ Accept:
 *(Built, 2026-11-02, on `claude/step-9-curved-backgrounds`, and **open**: the stationarity
 prediction fails — see "Accept" and `CODE.md`, "Validation ladder" 3; Erik wants the error
 located before the step counts as done. `CODE.md` "Metric providers", "The interior" and
-"Validation ladder" 3 have the details, marked "proposed/measured in step 9".)* As built:
+"Validation ladder" 3 have the details, marked "proposed/measured in step 9".)* *(Done,
+2026-11-05: the error was located and fixed in round 3, option 1. Step 9 was accepted as is by
+Erik, round 4's spinning Wald drift included. Black holes are left for future work; see
+`CODE.md`, "Known risks".)* As built:
 - **The provider** needed nothing new: every kernel already evaluated `point_metric` at its own
   point (cells, faces, edges, vertices) and `metric_gradient` at the cell since step 5.
   Measured: 102 ns and 234 ns a call on an EPYC 7532, **44% of a step** on the 16³ spherical
@@ -2018,15 +2023,16 @@ interior the default paste at `r_in = M` (decided by Erik 2026-11-03). Accept:
   Kerr-Schild `r`) `𝔈` 1.80, 1.80, `𝔅` 1.34, 1.93, 1.12. Second order at `10M` for both, and to
   `35M` at `a = M/2`; the coarse pair 1.81–2.46 throughout. `a = M/2` grows late in the outer
   region, `a = 0.9M` steps up between `10M` and `15M` near the ergoregion; `CODE.md`, "The
-  spinning Wald case". Not localised further; for Erik.)*
+  spinning Wald case". Not localised further. *Accepted as measured by Erik 2026-11-05; its
+  localisation is left for future black-hole work.*)*
 - **∇·𝔅** at rounding. *(Measured: 1.05–1.47e−16 of `max |𝔅|`.)*
 - **The interior:** `r_in = M` and the uncounted radius `(r_in + r₊)/2` inside the horizon,
   `r₊ = M + √(M² − a²)`, with the test for "inside" stated (Kerr-Schild `r` is not the Euclidean
   radius); the paste's ball in Euclidean against Kerr-Schild `r` measured, not decided.
   *(Measured: at `a = M/2` both are inside `r₊` and contain `r₋`; at `a = 0.9M` the Euclidean
   ball misses `r₋` in the plane and the drift grows — `𝔈ˣ` 8.1e−3 and 3.1e−2 at `M/4`, `M/8`
-  after `50M`, against 7.8e−4 and 2.0e−4 in Kerr-Schild `r`. The default stays Euclidean; for
-  Erik.)*
+  after `50M`, against 7.8e−4 and 2.0e−4 in Kerr-Schild `r`. The default stays Euclidean.
+  *Left for future black-hole work, Erik 2026-11-05.*)*
 - **The fluid** must not dominate: resets beyond the uncounted radius reported, not special-cased.
   *(Measured: it does not dominate the field — `ρ = 1` moves `𝔈`, `𝔅` by 1–5% at `M/8` — but its
   resets fill the box, about 2.7·10⁹/1.0·10⁹ stage/step at `M/16`; none with `ρ = 1`.)*
