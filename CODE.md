@@ -98,17 +98,20 @@ suite against the new releases), as `[compat]` guarantees it for what has
 landed, as `test/prerequisite_tests.jl` reports it for what is waiting,
 and, for TreeGH, as its `main` reads. A landed item whose release the
 compat floor requires has no probe any more (decided by Erik 2026-10-14;
-the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-6,
-EOS-1, EOS-2 and SM-1. Their names are in the prerequisite test's name
+the rule is in `PLAN.md`, "Upstream requirements"): AMR-1 to AMR-10,
+EOS-1, EOS-2 and SM-1 (AMR-7 to AMR-10 since step 8, TreeAMR 0.2.2). Their names are in the prerequisite test's name
 lists; what this package relies on from them and does not yet exercise
 through its own code is in `test/upstream_behaviour_tests.jl` (empty, and
 removed, since step 8 took the bounded prolongation into its refinement
 tests; it returns when a landed item needs it).
 
-- TreeAMR **0.2.1**, registered, and the compat floor (`TreeAMR = "0.2.1"`)
-  so that what landed is guaranteed: **AMR-1, AMR-2, AMR-3 and AMR-5 have
-  landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a different form (below).
-  Step 5, which needed AMR-1, is done on it (amended in step 5).
+- TreeAMR **0.2.2**, registered, and the compat floor (`TreeAMR = "0.2.2"`,
+  amended in step 8; 0.2.3, which only raises its floor to Julia 1.13, is
+  released upstream and admitted by it) so that what landed is guaranteed:
+  **AMR-1, AMR-2, AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and
+  AMR-6 in a different form (below), and **AMR-7 to AMR-10 in TreeAMR
+  0.2.2** (commit 624c99a). Step 5, which needed AMR-1, is done on it
+  (amended in step 5).
 - EntropyEOS **1.0.0** on its `main`, not registered (EOS-0 waiting):
   **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0** (`EntropyEOS =
   "1"`); EOS-3 and EOS-4 have not.
@@ -167,7 +170,8 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   surface refined everywhere stays positive and within range and keeps its
   total, where the unbounded operator overshoots (moved there from
   `test/upstream_behaviour_tests.jl` in step 8), and the matter's ghost
-  fill and regrid use it since step 8. See [Refinement](#refinement)
+  fill and regrid use it since step 8 — the ghost fill on the primitives
+  `W` since 2026-10-23 (decided by Erik). See [Refinement](#refinement)
   for what upstream's design assumes of this package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
   TreeGH's list).
@@ -180,19 +184,28 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   value (zero-gradient, first order at the face), on every backend and
   across ranks. A nonlinear condition, such as forbidding inflow, stays
   with the application.
+- **AMR-7 (later, step 14) A device-capable boundary hook relative to the
+  nearest evolved point** *(added in step 6)*, for the potentials'
+  Dirichlet data in the field ("Boundaries"). *(Landed in TreeAMR 0.2.2 as
+  `CellBoundary(Relative(f))`, which also applies the complete condition in
+  every fill; the region-form workaround and `outer_points!` are gone since
+  step 8.)*
 - **AMR-8 (wanted, no step blocked) Symmetric walls** *(added in step 8)*:
   an opt-in per field set under which `fill_ghosts!` fills the owned low
   wall of a vertex-like dimension by the rule of the high one — the hook,
   the reflecting derivation, the outflow clamp — so that a closed box is
   mirror-symmetric. Workaround: `low_walls!` and `outer_points!`, this
-  package's kernels ("Boundaries").
+  package's kernels ("Boundaries"). *(Landed in TreeAMR 0.2.2 as
+  `FieldSet(…; walls = :symmetric)`; the workaround is gone since step 8.)*
 - **AMR-9 (wanted, no step blocked) A flux-conservative transfer of edge
   sets** *(added in step 8)*: conservative along an edge's own (cell-like)
   direction, point-value along the others, so that the magnetic flux
   through a coarse face is the sum through its fine faces in the state,
   not only in its rate ("Conservation at coarse-fine faces"). No
   workaround: until then the state's flux across levels holds to the
-  potentials' interpolation error.
+  potentials' interpolation error. *(Landed in TreeAMR 0.2.2 as
+  `Operators(…; family = Conservative, vertex_prolongation = w)`; the
+  potentials take it since step 8.)*
 - **AMR-10 (req: step 8's ghost-fill re-measurement; steps 10, 12)
   Bounded PointValue interpolation** *(added in step 8; decided by Erik
   2026-10-15)*: `Operators(; prolongation=w, restriction=r,
@@ -200,7 +213,18 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   the ghost fill and the regrid — every value within the range of the `2^D`
   points that enclose it — for the matter's ghost fill of the primitives
   ("Refinement"). No workaround: the conserved, bounded ghost fill runs
-  until it lands.
+  until it lands. *(Landed in TreeAMR 0.2.2, `bounded = true` with
+  `PointValue` at every even width; the matter's ghost fill took the
+  primitives with it in step 8, at width 2. Amended 2026-10-23: the fill
+  now takes the bounded conservative operator, AMR-4, centred on the
+  parent — decided by Erik; "Refinement". The PointValue fill stays for
+  measurements and as the width-4 control of the suite.)*
+- **AMR-11 (wanted, no step blocked) The relative hook consistent across
+  levels where an outer face meets a coarse-fine face** *(added in step
+  8)*: there each level's hook writes its own wall edges, so the magnetic
+  flux through a coarse face touching an outer face is its fine faces' sum
+  only to 1.2e−5 of the largest flux, where everywhere else it is to
+  rounding ("Conservation at coarse-fine faces"). No workaround needed.
 - *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
   and point interpolation (M11), all three of which TreeAMR has; none is
   an upstream item any more. *(Amended in step 0.)*
@@ -208,7 +232,8 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
 This is a **physics package** in TreeAMR's sense (its `CODE.md`,
 "Companion interface", 2026-10-08): it uses TreeAMR's exports only, and
 bounds TreeAMR by a minor series, `TreeAMR = "0.2"` (since 2026-10-14
-`"0.2.1"`, the release the landed items are in). The prerequisite
+`"0.2.1"`, since step 8 `"0.2.2"`, the releases the landed items are
+in). The prerequisite
 tests check the names it calls against the exports, and `src/device.jl`
 uploads its own metadata with `KernelAbstractions.allocate` rather than
 reaching for TreeAMR's internal `todevice` (proposed in step 0).
@@ -283,6 +308,27 @@ in step 11. *(Amended with PLAN.md.)*
   data.
 - **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
   `s_cold(ρ)` for tabulated-EOS stars.
+- **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
+  1.1.0), and the endpoint branches made edge-consistent, the hottest state
+  projected onto the entropy ceiling (2.0.0, as the two-level projection;
+  tag `v2.0.0` through `[sources]`, `[compat]` `"2"`). See "Primitive
+  recovery", "The two levels" *(amended 2026-10-24, EntropyEOS 2.0)*.
+  *(Amended 2026-10-26, EntropyEOS 2.2:)* the tag is now `v2.2.0`,
+  `[compat]` `"2.2"`.
+- **EOS-11 (landed)**: `con2prim_safe`'s validity test of the `s` and `Yₑ`
+  faces, with its slack, public for the reconstruction — `inside_window`
+  (EntropyEOS 2.1.0; decided by Erik) *(added 2026-10-26)*. See
+  "Reconstruction" and "Floors, the atmosphere and the magnetosphere",
+  "EntropyEOS 2.0".
+- **EOS-10 (landed)**: the nested fallback
+  allocation-free under `--check-bounds=yes` (PLAN.md), where it allocated
+  one `MVector{33,T}` (272 B at `Float64`, 144 B at `Float32`) *(added
+  2026-10-24)*. *(Decided by Erik 2026-10-24:)* it stays an upstream
+  request; the bounds-checked run's four allocation failures are known and
+  wait on it. *(Re-checked 2026-10-26:)* EntropyEOS 2.2.0 allocates the
+  same 272 B and 144 B there; still waiting. *(Landed 2026-10-30:)*
+  EntropyEOS 2.2.1 keeps the scan's scratch on the stack under bounds
+  checks, bit for bit; `[sources]` pins `v2.2.1`.
 
 ### SpacetimeMetrics
 
@@ -588,7 +634,13 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
   cell on the Alfvén wave (measured in step 5, below). A table's `log₁₀ T`
   is the warm start this loses; if step 13 finds it matters, the state can
-  carry it the way it carries `D s`.
+  carry it the way it carries `D s`. *(Amended 2026-10-24, decided by Erik
+  2026-10-23:)* the right-hand side is pure in `(u, t)` **outside a step**;
+  **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
+  every recovery is seeded from the cell's latest recovery in that step,
+  and a recovery whose input is that one's is reused — [the step
+  cache](#primitive-recovery), invalidated at the end of every step, so a
+  restart from `uⁿ`, which holds no cache, still reproduces the run.
 - **Analytic EOSes come from EntropyEOS** (decided; EOS-1, EOS-2). They are
   needed from the first evolution (step 5) on, not only from rung 4: the
   synthetic ideal-gas table is `Γ = 5/3` only, in cgs, with `T ≤ 50 MeV`,
@@ -678,7 +730,211 @@ which iterates on that share, calls the same recovery bit for bit.
 `con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
 them: `policy_flags`, not the solver's result, is EntropyEOS's validity
 signal, and a failed solve is always repaired and flagged (proposed in step
-1).
+1). *(Amended 2026-10-21, decided by Erik:)* one exception, the one decision
+this package adds to the policy: where the flags say the policy raised the
+density to the atmosphere's without resetting the state
+(`FLAG_POL_ρ_FLOORED`, EntropyEOS 1.1, EOS-8), both recoveries return the
+atmosphere at rest, flagged `FLAG_POL_ATMOSPHERE | FLAG_POL_ρ_FLOORED` — the
+replacement and its cause (amended 2026-10-22, decided by Erik; until then
+`FLAG_POL_ATMOSPHERE` added to the discarded state's flags) ("Floors, the
+atmosphere and the magnetosphere"). EntropyEOS's conserved output is never used: every
+caller rebuilds the conserved state from the primitive one with this
+package's `prim2con`. *(Amended 2026-10-24, EntropyEOS 2.0:)* the exception
+is now EntropyEOS's own level 2, below, and the flags of an atmosphere keep
+level 1's bits.
+
+**The two levels** *(amended 2026-10-24, EntropyEOS 2.0; tag `v2.0.0`,
+7d68ddb, through `[sources]`, `[compat]` `"2"`)*. EntropyEOS 2.0 splits its
+policy in two, and both recoveries call both, the second right after the
+first, in `fluid_recovery` and `ideal_recovery` *(amended 2026-10-30, stage 4
+of the recovery plan: outside the stage solve's iterations level 1 runs as
+EntropyEOS's two phases and level 2 in a kernel of its own, "The two-phase
+recovery" below)*:
+
+- **Level 1, `con2prim_safe(eos, in, opts, proj, s, w, u)`**, projects onto
+  the valid range `proj = ProjectionOptions(ρ_min, ρ_max, w_cap)`:
+  `ρ ∈ [ρ_min, ρ_max]`, `w ≤ w_cap`, `Yₑ` in the table and `s` in the
+  window. It has no atmosphere and no collapse. Each face fixes one
+  primitive, frees one conservative and keeps the rest, and sets its own
+  bit: `S_CEILED` (τ lowered), `S_FLOORED` (τ raised), `W_CEILED` (S
+  lowered), `ρ_CEILED` (D lowered), `ρ_FLOORED` (S lowered to
+  `w = acosh(D/ρ_min)`, D raised only where it was below `ρ_min`),
+  `YE_FLOORED`/`YE_CEILED` (`D_Y`). `NONFINITE` (no closest state) and
+  `NOT_CONVERGED` (the solve failed, but a valid state lies inside) return a
+  fixed state that level 2 replaces. Which faces are active is decided by
+  one diagnosis along the entropy edges, not by the solve's root, so that a
+  converged and a failed solve of neighbouring states project alike.
+- **Level 2, `apply_policy(eos, in, out, proj, pol)`**, with
+  `pol = PolicyOptions(s_atm, ye_atm, atm_trigger, collapse_to_atmosphere)`,
+  replaces the state by the atmosphere at rest at `ρ_min` on `ρ_FLOORED`,
+  `NONFINITE` or `NOT_CONVERGED`, or where `D < atm_trigger·ρ_min` (1.01),
+  and adds `FLAG_POL_ATMOSPHERE` to level 1's bits. This *is* this package's
+  rule of 2026-10-21 — a state whose density had to be raised to the floor
+  is the atmosphere at rest — so the wrapper's own `atmosphere_at_rest` and
+  `floored` are gone, and `collapse_to_atmosphere` stays off. It holds
+  `D_out ≤ max(D_in, D_atm)` by construction: of level 1's faces only
+  `ρ_min` raises `D`, and that face goes to the atmosphere, whose
+  `D = ρ_min = D_atm` (`test/recovery_tests.jl`, "A state the projection put
+  on the ρ_min face is the atmosphere at rest"). One difference from
+  2026-10-22's decision: the atmosphere's flags are level 1's bits plus
+  `ATMOSPHERE`, not `ATMOSPHERE | ρ_FLOORED` alone (EOS-9's Q4, rejected
+  upstream by Erik: the bits say why); every tally that reads them
+  (`X_POLICY`, the reset's `FLAG_POL_ANY`) is unchanged by that.
+- **The options.** `MHDProblem`, `MHDCase` and every recovery carry `proj`
+  and `pol` (`isbits`, two kernel arguments, `proj` first). 1.x's
+  `ρ_atm` is `ρ_min`, its `ρ_ceiling` `ρ_max`, and `w_cap` moved into
+  `proj`; `default_policy`, `policy_derive_bounds`, `D_max` and `τ_max` are
+  gone (`τ_max` stopped states the table represents, EOS-9), and with them
+  `case_policy`. `recovery_options(eos, ρ_min)` states both for every case:
+  `default_projection(eos, ρ_min)` (`ρ_max` the top of the density box,
+  `W ≤ 100`) and the atmosphere at `s_atm` (below). `atmosphere_prim` gives
+  initial data the state `apply_policy` writes, bit for bit (a test).
+- **The flags** are renumbered to bits 8–17: `ATMOSPHERE` 8, `NONFINITE` 9,
+  `NOT_CONVERGED` 10, `ρ_FLOORED` 11, `ρ_CEILED` 12, `YE_FLOORED` 13,
+  `YE_CEILED` 14, `S_FLOORED` 15, `S_CEILED` 16, `W_CEILED` 17 (1.x's
+  `W_CAPPED`); `CEILING`, `ρ_CLAMPED` and `YE_CLAMPED` are gone;
+  `FLAG_POL_ANY = 0x3ff00`, still exact as a number in `Float32` (below
+  2¹⁸ < 2²⁴; tested through `P` and the diagnostics). *(Amended
+  2026-10-26, EntropyEOS 2.2:)* bits 18 and 19, `FLAG_CS2_ACAUSAL` and
+  `FLAG_CS2_NONPOSITIVE`, say that the returned `cs²` lies outside `(0, 1)`.
+  They are the EOS evaluation's, like bits 0–5, set in `EOSPoint.flags` by
+  every evaluation (`cs²_flags`), never in `policy_flags`, and `FLAG_POL_ANY`
+  is unchanged. In this package they reach only the step cache's copy of the
+  `EOSPoint` (below 2²⁰, exact in `Float32`; read back in a test), which
+  nothing reads but a reused recovery's caller; `P`, `X` and every tally hold
+  the policy's bits only. No case's ideal gas sets them (`cs² < Γ − 1 ≤ 1`
+  and positive wherever `p > 0`), and the scheme's signal speeds are the
+  light cone's, so `signal_cs²` has nothing to clamp here.
+
+What moves against 1.1, and why (EntropyEOS's `HISTORY.md`, 2026-10-23):
+
+- **The face semantics.** 1.1 clamped primitives and regenerated every
+  conservative; 2.0 keeps each conservative a face does not free. `w_cap`
+  keeps τ (1.1 kept `s`: the capped cell now heats, bounded by the `s_max`
+  face), `ρ_max` keeps `S` and τ (1.1 kept `w` and `s`), the `s` faces keep
+  `S` (1.1 kept `w`). A failed solve with `D ≥ ρ_min` is slowed onto the
+  `ρ_min` face rather than given mass (and so, here, the atmosphere), and an
+  energy above the hottest state keeps `D` and `S` and lowers τ
+  (`S_CEILED`, EOS-9) where 1.1 collapsed it to `ρ_ceiling`.
+- **`seed_passes` 5** (was 3), the cold seed's passes, with a direct seed
+  for tables: every cold recovery starts from a different (better) seed, so
+  every result at the default tolerance moves by up to that tolerance, and
+  the solver's iteration counts move with it; with `tol = 10⁻¹⁴` they do
+  not (measured below).
+- **`s_atm`.** 2.0's default atmosphere entropy is the window's minimum at
+  `ρ_min`; 1.x's was the window's midpoint (20.5 for the shock gas's 1 … 40).
+  *Kept at the midpoint, explicitly* (`recovery_options`, `s_atm` = the
+  middle of the window at `ρ_min` and the middle of the `Yₑ` range — 1.x's
+  value for an analytic EOS, whose window depends on neither). Measured
+  both ways on Symmetry (2026-10-24; the explicit midpoint against 2.0's
+  default, the window's minimum, 1 for the shock gas): with the midpoint
+  every atmosphere-tube number of the suite is 1.1's to the digits printed
+  (the cut-off tube's 12010 step writes, `W` 4.795, `−1.1754·10⁻⁸`,
+  `−7.402·10⁻⁷`; the hydrodynamic tube's 11686 writes and `−8.3518·10⁻¹²`)
+  and the suite passes; with the minimum the initial atmosphere is colder
+  (the hydrodynamic tube `−8.3662·10⁻¹²`), the ideal magnetized
+  atmosphere under ARS injects `3.5·10⁻⁶` (the assertion `≤ 10⁻⁶` fails)
+  and the width-4 negative control of the coarse-fine atmosphere tube no
+  longer fails (`τ` `−2.4·10⁻¹⁰`, not `≥ 10⁻⁵`, the 2026-10-17 sweep's
+  variant C). On the 48 perturbed runs neither is better across the board:
+  the minimum makes the uniform cut-off tube deterministic again (two runs
+  `10⁻¹⁵` apart `1.7·10⁻¹³` apart, against `1.4·10⁻⁴` with the midpoint),
+  every other row is the same within the spread ("Floors, the atmosphere
+  and the magnetosphere"). The midpoint is kept because it changes no
+  number of the suite. *(Decided by Erik 2026-10-24:)* `s_atm` stays the
+  explicit 1.x midpoint (`recovery_options`).
+- **Why EOS-9 needs no `collapse_to_atmosphere`.** The collapse branch was
+  1.1's answer to "τ above the hottest state": `ρ_ceiling` at `s_max`, the
+  blow-ups of the magnetized tube, which the option turned into the
+  atmosphere. In 2.0 that state is projected onto the `s_max` face with `D`
+  and `S` kept (`S_CEILED`); where keeping `D` at the momentum puts `ρ`
+  below `ρ_min`, the diagnosis takes the `ρ_min` face instead, and level 2
+  writes the atmosphere at rest — the decision 2026-10-22's experiment
+  emulated (`claude/no-collapse-to-atmosphere`), now upstream. Nothing
+  reaches a ceiling the table cannot hold, so the option has nothing to do:
+  the atmosphere tube drops it (measured below and in "Floors, the
+  atmosphere and the magnetosphere").
+
+What moves in the suite (Julia 1.13, one thread, Symmetry cn112, against
+the stage-1 branch at d94bcf5 in the same job; every other printed number
+agrees to the solver's tolerance or better):
+
+- **At the solver's tolerance**, everywhere a cold recovery runs: the
+  round-trip and convergence diagnostics (`con2prim_hydro ∘ prim2con`
+  conditioned errors within 2× either way, the default-tolerance conserved
+  round trip 1.07·10⁻¹², 1.21·10⁻¹², 8.5·10⁻¹³ against 9.8·10⁻¹³,
+  6.8·10⁻¹³, 6.8·10⁻¹³ — `seed_passes` 5), the Alfvén, oblique, Balsara,
+  resistive and current-sheet L1 errors in their 12th digit or beyond, the
+  drift tallies (`0.0046` → `0.0085` ulp a step and the like), the
+  `Float32` smoke run (3.6·10⁻⁵ → 2.3·10⁻⁵).
+- **The face rules**: the Jacobian test's central difference crossed the
+  entropy floor on one draw of 200 (0.17), now stepped off the face
+  (`test/stage_solve_tests.jl`); step 3's sweep (above).
+- **The flags**: the atmosphere tubes' `|` of policy flags reads 2304
+  (`ATMOSPHERE | ρ_FLOORED`, bits 8 and 11) and 100608 (and bits 15, 16)
+  where 1.1 printed 256 and 66816; the tallies are the same.
+- **ARS(4,4,3) near the vacuum** (see "Floors, the atmosphere and the
+  magnetosphere"): the hydrodynamic rarefaction's resets 131/110 →
+  133/116; the ideal magnetized atmosphere `5.6·10⁻⁸` → `−2.0·10⁻⁹` of
+  rest mass, `W` 4.11 → 4.13 (SSP3: `−6.6·10⁻⁹` → `−7.8·10⁻⁹`, `W` 4.01 →
+  3.99); the coarse-fine magnetized tube `−1.4012·10⁻⁸` → `−1.4027·10⁻⁸`.
+- **The bounds-checked run**: EOS-10 (PLAN.md).
+
+**EntropyEOS 2.1 and 2.2** *(amended 2026-10-26; tag `v2.2.0`, f26afca,
+through `[sources]`, `[compat]` `"2.2"`)*. Three changes reach this package:
+
+- **`inside_window`** (2.1.0, EOS-11): `con2prim_safe`'s own test of the `s`
+  and `Yₑ` faces, with its slack, which the reconstruction now calls
+  ("Reconstruction"). It answers point 1 of the 2026-10-24 discussion — a
+  root within the slack is returned unflagged and as it is — in the form
+  Erik chose over exporting the slack or clamping accepted roots.
+- **The search confined to the density box** (2.2.0; HISTORY, 2026-10-24):
+  the seed, the Newton and the fallback stay at `w ≥ acosh(D/ρ_max)`, with
+  `ρ_max` widened by the face slack. Every state with `D ≤ ρ_max` comes back
+  bit for bit; no state of this package's cases comes near `ρ_max` (`10⁴` and
+  `10⁶` for the cases' gases), and no printed number of the suite moved by it
+  (measured below).
+- **The sound-speed flags** (2.2.0), bits 18 and 19 of the evaluation's flags
+  ("The two levels", "The flags").
+
+The C++ 1.2.0 table-building port of 2.2.0 (`crop_table`, `SeamDefect`, the
+`T_HI_ROWS_DROPPED` attribute, the u-high ratio lock) touches only tables
+built or read from files; every case here runs an analytic ideal gas, and the
+tests' synthetic table is built in memory (`make_synthetic_table`), so none of
+it applies.
+
+*Measured 2026-10-26* (Symmetry, AMD EPYC 7532 throughout, Julia 1.13;
+`claude/entropyeos-2.2` against stage 3 at 4929c94 on EntropyEOS 2.0.0, the
+stage-3 one-thread suite in the same job on the same node, cn079). The suite's
+output is stage 3's to every digit but for:
+
+- **The reconstruction's admissibility** (the slack band, "Reconstruction"),
+  which moves only ARS(4,4,3) near the vacuum, chaotic at rounding until now:
+  the ideal magnetized atmosphere under ARS `2.81·10⁻⁹` → `−5.00·10⁻⁹` of rest
+  mass (energy `−2.354·10⁻⁵` → `−2.434·10⁻⁵`, `W` 4.015 → 4.002; SSP3's row is
+  unchanged), the ARS rarefaction's smallest density `2.1433251·10⁻¹⁰` →
+  `2.1433185·10⁻¹⁰` (resets 139/113, unchanged), and the coarse-fine
+  atmosphere tube's unbounded width-4 negative control, a run that goes
+  non-finite, 72 → 71 ghosts below `ρ_atm`. Step 6's tableau comparison
+  (`bin/tableau_comparison.jl`, both trees in one job on cn085) moves in the
+  same rows and in Balsara 3 under ARS, whose undershoot the reset fills (L1
+  `D`, `τ`, `𝔅ʸ` 0.369, 18.3, 0.0572 → 0.366, 18.2, 0.0573, plateau 3.84% →
+  3.62%, injected `τ` `2.26·10⁻²` → `2.31·10⁻²`, resets 6/5 unchanged); its
+  every other line is the same. That these moves are the reconstruction's and
+  not the confined search's is inferred: the search returns every state with
+  `D ≤ ρ_max` bit for bit, and the perturbed tube runs below match the
+  emulation of the slack alone, on 2.0, to every digit.
+- **The test count**, 26268 → 26296 (+18 the new reconstruction testset, +8 the
+  step-cache entry read back, +2 names).
+
+Unchanged to every digit: the uniform flow's four failures (below, "The step
+cache"), step 3's sweep, the shock tubes against their stored references (no
+reference regenerated), every SSP3 atmosphere row, the drift tallies, the
+`Float32` smoke run, the seed tallies of every case of `bin/recovery_cost.jl
+steptime`. The bounds-checked run fails EOS-10's four assertions as before
+(272 B and 144 B). The perturbed tube runs are under "Floors, the atmosphere
+and the magnetosphere", "EntropyEOS 2.0", and the step time under "The step
+cache".
 
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
@@ -687,9 +943,416 @@ The only coupling back to the fields is the implicit Ohm step, which is
 small difference of large numbers (electromagnetically dominated cells, the
 magnetosphere) or the energy inversion fails, invert at the advected `s`
 instead (EOS-3). The switch is a threshold on
-`½(E² + B²) / τ` (open).
+`½(E² + B²) / τ` (open). *(Investigation 2026-10-16, "Floors, the
+atmosphere and the magnetosphere": measured on the magnetized atmosphere
+tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
+the advected `s` in those cells is itself noise.)*
 
-## The scheme
+**Measurement (2026-10-23): recovery counts and costs** (branch
+`claude/recovery-cost`, not a PLAN.md step; `bin/recovery_cost.jl`, which
+redefines the recovery's two `con2prim_safe` calls and the passes in-process
+and is the code bit for bit with its counters off; Julia 1.13, Apple M3 Pro,
+one thread, load 4–15 on 12 cores; ideal gases as the cases set them). Per
+owned cell and SSP3(4,3,3) step the scheme makes **11 recoveries that run
+EntropyEOS's cold seed** — 3 right-hand sides, 3 stage limiters, 1 step
+limiter, 4 stage predictors (or `IdealConductor`'s single ideal recovery):
+`state_guesses` gives `s` but no `w`, and `con2prim` runs `cold_seed`
+whenever `s` or `w` is missing — plus the stage iterations, which are warm
+(0 to 5.5 a step). The conserved bounded ghost fill (emulated: step 8's
+first fill, the tree at 7605986) adds `3((N + 2G)/N)^D − 3` ghost recoveries
+(1.8 in 1D at `N = 10`, 2.7 in 2D at 16, 13.1 in 3D at 8: the 5.36 holds);
+the primitive fill (this tree's) none. A cold-seeded call costs 0.75–1.3 µs
+(2.0–2.2 µs in the 3D blast, with about 4 Newton iterations and 4% nested
+fallbacks), a warm iteration 0.22–0.25 µs; recoveries are 48–53% of the
+step on the 1D waves (100 cells, where kernel launches dominate the rest),
+67–75% on the tubes and in 2D, 73% in 3D, and 51–82% with the conserved
+fill (whose step is 5–15% longer in 1D and 2D, 64–74% in 3D). Pointwise,
+`con2prim_safe` from a warm start 10⁻³–10⁻² away costs 0.4–0.7 µs on the
+Γ = 5/3 gas against 1.4–1.7 µs cold (median) and 2.4–3.5 µs on EntropyEOS's
+synthetic table through `GeometricEOS` against 10–11 µs; the advected `s`
+alone saves nothing (the same time and iterations as fully cold). Estimated
+savings, as a fraction of the step, primitive fill / conserved fill (the
+recorded calls of three steps replayed both ways):
+
+| case | recoveries / cell / step | share of step | (a) step-local seeds | (b) reuse: RHS, first predictor | (c) ghost copies |
+|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 11 / 12.8 | 48% / 51% | 36% / 37% | 13%, 4% | — / 7% |
+| Alfvén wave, ideal, 100 | 11 / 12.8 | 53% / 56% | 39% / 40% | 14%, — | — / 8% |
+| resistive tube σ = 10, 10², 10³, 200 | 13.7–16.0 / +1.8 | 70–75% / 73–76% | 52–56% / 52–55% | 17–19%, 6% | — / 9–10% |
+| magnetized atmosphere tube, 200 | 12.5 (3.3 no solve) / 14.3 | 67% / 70% | 48% / 49% | ≤ 19%, 6% | — / 9% |
+| rotor, 64² | 11 / 13.7 | 75% / 79% | 60% / 59% | 20%, — | — / 11% |
+| Orszag–Tang, 64² | 11 / 13.7 | 75% / 79% | 58% / 56% | 20%, — | — / 15% |
+| spherical blast, 16³, `N = 8`, `G = 3` | 11 / 24.1 | 73% / 82% | 69% / 64% | 22%, — | — / 26% |
+| resistive tube σ = 10², two levels | 16.5 / 18.4 | 70% / 77% | 49% / 48% | 16%, 5% | — / 8% |
+| rotor, two levels, 7168 cells | 11 / 13.7 | 74% / 80% | 60% / 61% | 20%, — | — / 10% |
+
+(a) seeds every recovery but the step limiter's from the cell's latest one
+in the step (the cache started by the step limiter's cold recovery of
+`uⁿ⁺¹`): the right-hand side's then costs 0.1 µs (its input is the stage
+limiter's bit for bit), the stage limiter's 0.1 µs (0–0.2 Newton iterations
+from the stage solve's last recovery, whose input is within 10⁻¹⁰ of
+`τ + D` of it everywhere — bit for bit where σ = 0, in 7–12% of the
+resistive tubes' cells), a predictor 0.14–0.28 µs. (b) needs no
+seed: the right-hand side's owned recoveries have the stage limiter's
+input bit for bit wherever the limiter wrote nothing (100% off the
+atmosphere tube, 80% on it), and the first predictor the step limiter's
+(non-ideal σ), so reusing those recoveries changes no result; (a) includes
+most of (b). (c) every same-level ghost of the conserved fill holds its
+source's `U`, and recovers its `P`, bit for bit but the sign of a zero (1.8
+million checks), so exchanging `P` would replace those recoveries.
+Correctness: warm-seeded answers differ from today's by at most 10⁻¹¹ in
+`ρ`, `s`, `w`, never in the policy's flags, except where the thermal energy
+is a tiny part of `τ` (`s` up to 1.3·10⁻⁴ at the atmosphere tube's front,
+within EntropyEOS's conditioned bound); run with real step-local seeds the
+final states move by 4·10⁻¹⁴ (tube), 6·10⁻¹³ (rotor), 1·10⁻¹² (atmosphere
+tube), stage counts and the injected mass unchanged, and under the
+primitive fill 1D = 2D, the turned run, one chunk = two and one thread =
+four stay bit for bit. Under the conserved fill, ghosts seeded from their
+own history break 1D = 2D and the turn, and Orszag–Tang's totals drift 26
+ulp instead of 1 (a face's two blocks see `P` that differ at the
+tolerance): there the ghosts would need their owner's `P` (c). EntropyEOS,
+for Erik: on the synthetic table near rest (`W = 1.005`) 16–26% of states
+end in the nested fallback whatever the seed. *(Measured, for Erik; no
+change to the code, which decision is his.)* *(Amended 2026-10-23,
+decided by Erik:)* (a), (b) and (c) are all to be done; (c) is the
+parent-centred primitive fill, which this tree already ran, now the only
+one ("Refinement"), with the dead `prim2con` of the conserved ghosts
+removed.
+
+**The step cache** *(stage 3 of the recovery plan, `claude/recovery-pipeline-3`,
+2026-10-24; (a) and (b) above, decided by Erik 2026-10-23)*. The only true
+input of a Runge–Kutta step is `uⁿ`; every recovery after the first is of a
+state a little way from one the cell has just recovered. So inside a step:
+
+- **What it holds.** One entry per owned cell (`MHDProblem`'s `cache`, a
+  cell set with `G = 0` and 27 slots, `src/con2prim.jl`): EntropyEOS's input
+  to the cell's latest recovery in the step — the key `(D, τ, D_Y, S_∥, S_⊥,
+  B²)` that `Con2PrimIn` gets — and the output of its two levels: `(ρ, s,
+  Yₑ, w, v_∥, v_⊥)`, the whole `EOSPoint` and the policy flags. An entry is
+  valid while its `s` is a number. Built with the problem, invalid, so a
+  `rebuild` after a regrid has a fresh one of the new mesh's size and
+  nothing is transferred.
+- **(a) Seeds.** Every recovery inside a step — the right-hand side's, both
+  limiters', the stage solve's predictor and `IdealConductor`'s ideal
+  recovery — is seeded with the entry's `(s, w, u_eos)` where the cell has
+  one, and from the state (`state_guesses`) otherwise. The stage solve's
+  chaining inside (`guesses_of`) is unchanged; it leaves the cell holding
+  the recovery of the state it returns (its final iterate's, or the
+  predictor's at `σ = 0`).
+- **(b) Reuse.** A recovery whose key is the entry's bit for bit (`===` on
+  the six floats) takes the entry's output and does not call EntropyEOS.
+  `−0.0` is not `0.0` there, a conservative miss; a NaN matches only the
+  same NaN, which EntropyEOS, a function of its input's bits, would answer
+  the same way; an invalid entry never matches (its `s` is NaN, whatever its
+  key). Every recovery, called or reused, hands its caller its state from
+  an entry (`two_levels`), so a reused recovery is the one it replaces bit
+  for bit, and outside a step (an invalid entry, nothing written) the code
+  is the code before the cache. In practice the reuse is the right-hand
+  side after a stage limiter that wrote nothing (the same state, recovered
+  with the same arithmetic), the limiter after a stage at `σ = 0` (the stage
+  writes `E★` back), the second stage's predictor where the first stage's
+  increment is zero (vacuum) or the ideal recovery reads only the matter
+  (`IdealConductor`), and uniform regions, where nothing changes in a step.
+  For the keys to agree in curved space, every site computes `B`, `E` and
+  the undensitized `D`, `S`, `τ` as `· inv(√γ)` (amended 2026-10-24: the
+  right-hand side's recovery and the ghosts divided by `√γ`; in flat space
+  `√γ = 1` exactly and the two are the same numbers, so the change moved
+  nothing — the flat-space suite's output is the same with and without it).
+- **Rule 1: the cache lives within one step.** The step limiter
+  (`reset_step!`) invalidates every cell's entry as it ends the step, and
+  `with_step_cache` invalidates it before and after `evolve!`'s stepping. So
+  every step starts with an invalid cache, its first recovery (the first
+  stage's predictor, or the right-hand side of a trivial first stage) is
+  cold, and **a step is a pure function of `uⁿ`, `t` and `Δt`**: one chunk
+  or two, a restart from a saved `u` with a rebuilt problem, one thread or
+  four reproduce the run bit for bit (tests). This rests on IMEXRungeKutta
+  1.4's step semantics, read in its source: `step!` runs the stages, the
+  update and the step limiter once, with no retry, rejection or adaptive
+  step, and `solve!` is `step!` until `t1`; an exception from a callback
+  propagates out of `step!` leaving `integ.u = uⁿ` (after the step limiter,
+  undefined), and out of `with_step_cache`, whose `finally` switches the
+  cache off and invalidates it. No step-begin hook is needed, so no IMEX
+  request: the step limiter is the step's end, and `with_step_cache` the
+  only way into a step with the cache on. (It relies on the integrator's
+  step limiter being `reset_step!`, as `mhd_integrator` builds it.)
+- **Rule 2: the cache is active only inside `evolve!`'s `step!`/`solve!`
+  calls.** A host-side switch on the problem (`cache_on`, a `Ref{Bool}`;
+  the kernels get a plain `Bool`), set by `with_step_cache` around them and
+  cleared in its `finally`. Outside — a callback called directly, an
+  `after_step` monitor (which runs between steps), `update_primitives!`
+  before a regrid, the regrid's reset, an integrator a test builds and
+  steps itself — no kernel reads or writes the cache, every recovery is
+  seeded from the state, and the callbacks are pure in `(u, t)` as before
+  (the step-5 purity testset is unchanged). `evolve!(…; step_cache = false)`
+  is the negative control.
+- **No ghost is ever recovered** (stage 1), so the cache has owned cells
+  only.
+- **Tallies.** `X` counts, per site — the right-hand side, the stage solve's
+  first recovery, the stage limiter, the step limiter — the recoveries made
+  inside a step as cold (from the state), warm (from the cache) and reused
+  (`ohm_tally(p).seeds`); the stage solve's later recoveries stay in
+  `X_RECOVERIES`, which still counts every recovery the stages make,
+  reused or not. Per SSP3(4,3,3) step and cell that is 11 counted
+  recoveries, of which exactly one is cold.
+- **Dropped: reuse across steps** (the step limiter's recovery of `uⁿ⁺¹`
+  feeding the next step's first predictor, column (b)'s second number
+  above). A cache that outlives a step either breaks restart
+  reproducibility (a restart from `uⁿ⁺¹` has no cache) or forces the step
+  limiter cold to keep the entry canonical; it would save at most about
+  0.2 µs per cell and step, 4–6% of a step and only where σ is neither zero
+  nor ideal, against a rule set twice as complex. *A possible follow-up,
+  for Erik.*
+
+**Measured 2026-10-24** (`bin/recovery_cost.jl steptime`; Symmetry cn086,
+AMD EPYC 7532, one job, one pinned thread, Julia 1.13; stage 3 at 1462923
+against stage 2 at a9cd482, two rounds each, interleaved; ms per step, the
+mean over steps 2…n, the best of three runs; "no cache" is this tree with
+`step_cache = false`). Seeds per owned cell and step as cold / warm /
+reused, from `X`; "iter." the stage solve's recoveries after its first:
+
+| case | stage 2 | stage 3 | saving | no cache | RHS | stage solve | stage limiter | step limiter | iter. |
+|---|---|---|---|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 3.408, 3.408 | 1.450, 1.435 | **57%, 58%** | 3.020, 3.088 | 0/0/3 | 1/2/1 | 0/0/3 | 0/1/0 | 0 |
+| Alfvén wave, ideal, 100 | 3.904, 3.869 | 1.657, 1.673 | **58%, 57%** | 3.468, 3.480 | 0/0/3 | 1/2/1 | 0/3/0 | 0/1/0 | 0 |
+| resistive tube σ = 10, 200 | 8.810, 8.698 | 3.461, 3.487 | **61%, 60%** | 8.582, 8.607 | 0/0/3 | 1/2.78/0.22 | 0/2.74/0.26 | 0/0.93/0.07 | 4.99 |
+| resistive tube σ = 10², 200 | 8.698, 8.682 | 3.430, 3.454 | **61%, 60%** | 8.481, 8.500 | 0/0/3 | 1/2.86/0.14 | 0/2.74/0.26 | 0/0.96/0.04 | 5.04 |
+| resistive tube σ = 10³, 200 | 8.464, 8.466 | 3.245, 3.252 | **62%, 62%** | 8.263, 8.300 | 0/0/3 | 1/2.88/0.12 | 0/2.62/0.38 | 0/0.96/0.04 | 2.73 |
+| magnetized atmosphere tube, 200 | 8.843, 8.822 | 3.202, 3.216 | **64%, 64%** | 8.621, 8.644 | 0/0.60/2.40 | 1/2.50/0.51 | 0/1.23/1.77 | 0/0.93/0.07 | 1.45 |
+| rotor, 64² | 158.9, 159.3 | 57.8, 58.1 | **64%, 64%** | 159.1, 160.1 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.76/0.24 | 0 |
+| Orszag–Tang, 64² | 170.5, 171.0 | 65.0, 66.3 | **62%, 61%** | 172.0, 172.6 | 0/0/3 | 1/2/1 | 0/3/0 | 0/1/0 | 0 |
+| spherical blast, 16³ | 257.2, 257.3 | 106.6, 104.2 | **59%, 60%** | 260.9, 259.7 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.88/0.12 | 0 |
+| resistive tube σ = 10², two levels | 10.54, 10.56 | 4.357, 4.370 | **59%, 59%** | 10.63, 10.65 | 0/0/3 | 1/2.84/0.16 | 0/2.76/0.24 | 0/0.95/0.05 | 5.54 |
+| rotor, two levels, 7168 cells | 293.7, 294.4 | 108.3, 109.1 | **63%, 63%** | 296.5, 297.5 | 0/0/3 | 1/2/1 | 0/3/0 | 0/0.85/0.15 | 0 |
+
+The saving is 57–64%, at and a little above the top of the 2026-10-23
+estimate (36–60% for (a), most of (b) inside it): of the 11 counted
+recoveries per cell and step one is cold, the right-hand side's three are
+reused everywhere the stage limiter wrote nothing (100% but on the
+atmosphere tube, 80% there, as estimated), and reuse also covers what the
+estimate counted as warm — the second stage's predictor in vacuum and under
+`IdealConductor`, the limiter after a stage at `σ = 0`, uniform regions —
+on a CPU (Zen 2) where a cold seed costs relatively more than on the M3 the
+estimate was made on. The whole suite runs 25% faster (14m00s → 10m32s at
+one thread on cn079). The tree with the cache off is 0–11% faster than
+stage 2 (the 1D waves most); not investigated. Correctness:
+`test/step_cache_tests.jl` (warm against cold — the final states 1.0·10⁻¹⁴
+to 2.5·10⁻¹² apart, the recovered `ρ`, `s`, `w` at most 9.9·10⁻¹², the same
+branches, resets and injected mass; one chunk = two; a restart = the run;
+monitors change nothing; the reuse counts exactly), and the suite's 1D =
+2D, turned, closed-box mirror, Orszag–Tang and one- = four-thread claims,
+unchanged.
+
+**What moves, against stage 2 on the same node** (every printed number of
+the suite; the rest of them move in their last digits, as warm seeds answer
+to the tolerance rather than to rounding): the uniform-flow testset's slow
+flows (`vˣ = ±1/2`) **break their bound**: `1.06·10⁻¹¹`, `8.1·10⁻¹¹`,
+`1.68·10⁻¹¹`, `8.4·10⁻¹¹` of a variable's scale (SSP3, ARS) against
+`≤ 10⁻¹¹`, where stage 2 had `0.9–1.9·10⁻¹²` (the fast flows are
+unchanged, `≤ 1.0·10⁻¹²`). Measured why (laptop, the same numbers): with
+EntropyEOS's `tol = 10⁻¹⁴` instead of `10⁻¹²` the cached runs give
+`0.7–2.9·10⁻¹²` again. A cold Newton solve ends with a quadratic step that
+lands near rounding, and a uniform state's cells all take the same one; a
+warm seed already within `tol` returns after no step or one, at the
+tolerance, and which depends on the cell's history in the step — at the
+Dirichlet faces, where the ghosts are the exact primitives, that history
+differs, and the flow drifts by the tolerance per step. **The bound is kept
+and fails; for Erik** (accept the tolerance-level drift and say so in the
+bound; or ask EntropyEOS for a warm start that always polishes with one
+Newton step after its residual test, which would restore rounding at a
+small cost; or a tighter `tol` in the cases). Besides: the ARS(4,4,3)
+near-vacuum rows, chaotic at rounding (2026-10-24, above), move as they do
+under any perturbation — the rarefaction's min ρ `1.0·10⁻¹⁰` →
+`2.1·10⁻¹⁰` and resets 133/116 → 139/113, the ideal magnetized atmosphere
+`−7.85·10⁻⁹`, `−2.03·10⁻⁹` → `−7.64·10⁻⁹`, `+2.81·10⁻⁹` (SSP3, ARS), `W`
+3.99, 4.13 → 4.00, 4.01; the coarse-fine magnetized tube `−1.4027·10⁻⁸` →
+`−1.4012·10⁻⁸`; the `Float32` Alfvén smoke `8.5575·10⁻⁵` → `8.5421·10⁻⁵`;
+drift tallies within their spread (static two-level 0.146 → 0.122 ulp,
+tracked Balsara 0.015 → 0.011, oblique 1.49 → 1.31, adaptive rotor 0.040 →
+0.054, Orszag–Tang's asymmetry `3.9·10⁻¹³` → `1.4·10⁻¹³`); Balsara 3 with
+PPM in the 9th digit. The atmosphere tubes' counts and the resistive
+tube's stage branches are unchanged. The `· inv(√γ)` unification alone
+(3495217) gives the stage-2 output exactly (one thread, cn081, every line).
+
+*Re-measured 2026-10-26, EntropyEOS 2.2* (`bin/recovery_cost.jl steptime`,
+the same script; Symmetry cn086, AMD EPYC 7532, one job, one pinned thread;
+`claude/entropyeos-2.2` against stage 3 at 4929c94, two rounds each,
+interleaved; ms per step as above). The 2.2 tree is **1–3% slower** per step
+with the cache (Alfvén 5–7%, the EM wave 2–3%, the 2D and 3D cases −1 to 4%)
+and 1–5% without; the seed tallies are the same in every case:
+
+| case | stage 3 | 2.2 | change | no cache, stage 3 | no cache, 2.2 |
+|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 1.464, 1.487 | 1.506, 1.517 | +2.9%, +2.0% | 3.072, 3.059 | 3.202, 3.188 |
+| Alfvén wave, ideal, 100 | 1.652, 1.624 | 1.736, 1.740 | +5.1%, +7.2% | 3.489, 3.446 | 3.640, 3.615 |
+| resistive tube σ = 10, 200 | 3.442, 3.472 | 3.527, 3.572 | +2.5%, +2.9% | 8.574, 8.594 | 8.772, 8.761 |
+| resistive tube σ = 10², 200 | 3.415, 3.444 | 3.503, 3.548 | +2.6%, +3.0% | 8.507, 8.501 | 8.626, 8.653 |
+| resistive tube σ = 10³, 200 | 3.211, 3.246 | 3.312, 3.330 | +3.2%, +2.6% | 8.260, 8.279 | 8.393, 8.415 |
+| magnetized atmosphere tube, 200 | 3.183, 3.183 | 3.234, 3.214 | +1.6%, +1.0% | 8.587, 8.589 | 8.733, 8.768 |
+| rotor, 64² | 58.06, 57.54 | 58.73, 58.27 | +1.2%, +1.3% | 159.7, 158.8 | 162.2, 161.7 |
+| Orszag–Tang, 64² | 65.78, 64.18 | 65.60, 65.54 | −0.3%, +2.1% | 171.8, 170.3 | 172.0, 172.8 |
+| spherical blast, 16³ | 103.0, 103.1 | 104.5, 107.4 | +1.5%, +4.1% | 259.2, 260.5 | 262.8, 262.4 |
+| resistive tube σ = 10², two levels | 4.350, 4.335 | 4.422, 4.425 | +1.7%, +2.1% | 10.63, 10.61 | 10.78, 10.76 |
+| rotor, two levels, 7168 cells | 109.2, 106.5 | 108.6, 108.1 | −0.6%, +1.5% | 297.9, 295.0 | 300.0, 299.1 |
+
+Not split between its two candidates: EntropyEOS's confined search, which
+made warm `Float64` calls 2–4% slower on an H200 (its HISTORY, 2026-10-25:
+the `acosh` of the density floor, recovered in the first stage only) and
+which every recovery pays, and `inside_window`, which costs the reconstruction
+what the exact test cost plus one multiplication per face. The cache's saving
+is unchanged (57–64%). *(Decided by Erik 2026-10-30:)* the 1–3% is
+accepted, and not attributed further.
+
+**The uniform flow under 2.2** (re-measured 2026-10-26, every run above):
+`1.0602831660·10⁻¹¹`, `8.1098066854·10⁻¹¹`, `1.6805728171·10⁻¹¹`,
+`8.4017111996·10⁻¹¹` (`vˣ = −½`, `+½`; SSP3, ARS) — stage 3's numbers to every
+digit, so the four failures stand, at one and four threads, in the clean
+checkout and with bounds checks. Nothing in 2.1 or 2.2 addresses warm starts
+returning at the tolerance (point 2 of the 2026-10-24 discussion).
+
+**The uniform flow: to the tolerance** *(decided by Erik 2026-10-30)*. A
+uniform flow through Dirichlet faces stays uniform to the recovery's
+tolerance, not to rounding, and the testset says so: `≤ 10³·tol` (10⁻⁹)
+after 13 steps, where it was `≤ 10⁻¹¹`. Rejected: a polishing Newton step on
+warm starts in EntropyEOS (it would roughly double every warm call, give back
+much of the cache's saving, and break `con2prim_safe`'s fixed points), and a
+tighter `tol` in the cases (below the energy residual's floor on tables, and
+impossible at `Float32`). Measured on the laptop the same day, how the change
+grows (the testset's own setup, run longer; the worst change of a
+variable's scale, `D·s` mostly, sometimes `D`; cold = `step_cache = false`):
+
+| run | 13 steps | 50 | 250 | 1000 |
+|---|---|---|---|---|
+| SSP3 `vˣ = +½`, cold / cached | 8.8e−13 / 1.7e−11 | 7.0e−12 / 1.5e−11 | 5.5e−11 / 2.6e−11 | 2.0e−10 / 6.6e−11 |
+| SSP3 `vˣ = −½`, cold / cached | 1.2e−12 / 1.1e−11 | 7.3e−12 / 1.1e−11 | 5.5e−11 / 2.9e−11 | 2.1e−10 / 6.5e−11 |
+| ARS `vˣ = +½`, cold / cached | 1.9e−12 / 8.4e−11 | 8.1e−12 / 8.5e−11 | 1.8e−11 / 3.0e−10 | 1.2e−10 / 2.7e−10 |
+| ARS `vˣ = −½`, cold / cached | 1.8e−12 / 8.1e−11 | 5.3e−12 / 7.9e−11 | 1.3e−11 / 3.2e−10 | 1.6e−10 / 3.6e−10 |
+| `vˣ = ±0.999`, either | ≤ 1.1e−12 | | | 3.0–3.7e−11, cold = cached |
+
+The cold seeds were not at rounding either beyond the testset's 13 steps:
+they drift by about 2·10⁻¹³ a step and pass 10⁻¹¹ by 50. The cache's change
+comes mostly in the first steps and then grows slowly — under SSP3 it ends
+3 times closer to the exact state than the cold run; under ARS 2 times
+further — presumably because a cell whose recovery matches its seed keeps it,
+where a cold solve adds fresh rounding every step (not verified). A second
+testset pins that: at `vˣ = ±½` over 1000 steps, `≤ 2·10³·tol`, which the
+first steps' rate kept up (6.5·10⁻¹² a step, 6.5·10⁻⁹) would fail.
+
+**The two-phase recovery** *(stage 4 of the recovery plan,
+`claude/recovery-pipeline-4`, 2026-10-30; decided by Erik 2026-10-23: "the
+two-phase con2prim everywhere", CPU only)*. EntropyEOS 2.x defines
+`con2prim_safe` as two phases (its `CODE.md`, "Two stages"):
+`con2prim_safe_start(eos, in, opts, proj, s, w, u) -> (out, stage)`, the
+solve from the seed, done where the Newton converged on a state inside every
+face — the common case — and then `out` is the answer; and, where it is not
+done, `con2prim_safe_finish(eos, in, opts, proj, stage)`: the fallback, the
+diagnosis and the face solves, and the inputs no solve applies to (non-finite,
+below `ρ_min`, above `ρ_max cosh w_cap`). The split is bit for bit the fused
+call, and the hand-off is an `isbits` struct of about 48 B. On a GPU the
+second phase is the divergent one, and a later step can compact it.
+
+- **Where.** Every recovery outside the stage solve's iterations: the
+  right-hand side's (`primitive_kernel!`), both limiters' (`reset_kernel!`)
+  and the stage solve's first one (`ohm_kernel!`: the predictor, or
+  `IdealConductor`'s ideal recovery). The iterations — the iterates, the
+  Newton step's ideal seed, the lagged-velocity fallback — keep the fused
+  `con2prim_safe` and `apply_policy` per call: they are warm, mostly done in
+  the first phase (measured below), and splitting the loop would need a pass
+  per iteration.
+- **Three passes, each a kernel over the owned cells.** (1) **start**
+  (`start_kernel!`): the metric, `B` and `E` of the cell, EntropyEOS's input
+  computed by the very functions the site's own kernel uses (`hydro_input`,
+  or `predictor_input` for the stage: the same arithmetic, so the same bits),
+  the step cache's entry and seed exactly as the third pass reads them, and
+  `con2prim_safe_start`; a reused recovery (the entry's key is the input's)
+  skips it. (2) **finish** (`finish_kernel!`): `con2prim_safe_finish` behind
+  the hand-off's per-cell guard, over every owned cell — no compaction on the
+  CPU, where it would buy nothing and would be the package's first worklist,
+  and every cell's work stays its own, so one thread and four agree. (3)
+  **continuation**: the site's kernel as before, its recovery taking level 1
+  from the hand-off (`two_levels` with a hand-off), then `apply_policy`, the
+  entry, the velocity, and the site's own work — `P_from_W` and the write-back
+  of `P` and `W`, the reset's write-back and tallies, the rest of the stage
+  solve.
+- **The hand-off** (`Handoff`, `src/con2prim.jl`): per owned cell, as four
+  arrays indexed `(n…, b)` — `todo` (finish is needed: not reused, and the
+  first phase not done), `cin` and `stage` (written only where `todo`), and
+  level 1's `out` (`Con2PrimSafeOut`, 232 B at `Float64`, beside 48 B each
+  for `cin` and `stage`; written by
+  the first pass where it was done and by the second where not, and not at
+  all where the entry is reused, whose output the third pass takes from the
+  step cache). Struct-of-arrays, so that a pass reads only what it needs.
+  Owned by `MHDProblem` and built with it, like the step cache: a `rebuild`
+  after a regrid has a fresh one of the new mesh's size, nothing is
+  transferred, and each pass writes what the next reads before it is read.
+- **Level 1 and level 2 in separate kernels.** The structure a GPU step
+  needs, and EntropyEOS's `HISTORY.md` records a CUDA.jl 6.4.2 fault in a
+  kernel that called level 1 and then level 2; the workaround is separate
+  kernels. Level 2 is in the third pass; the first two call only level 1.
+- **The fused path stays.** `MHDProblem(…; two_phase = false)` and
+  `evolve!(…; two_phase = false)` build no hand-off and run each recovery in
+  one kernel, `con2prim_safe` and `apply_policy` together, exactly as before
+  (the same kernels with `nothing` for the hand-off). It is kept for the
+  comparison: `test/two_phase_tests.jl` holds the two bit for bit — every
+  state and every tally of seven runs (the EM wave, Alfvén, the resistive
+  tube, the magnetized atmosphere tube with the step cache on and off, the
+  rotor, the adaptive rotor), and every callback outside a step on a state
+  with a cell below `ρ_min`, one below the coldest state, one beyond the
+  rapidity cap and a non-finite one, under the tube's conductivity and under
+  `IdealConductor`. Whether the CPU keeps the split or fuses is Erik's
+  decision (measured below); no CPU/GPU switch beyond this one.
+  *(Decided by Erik 2026-11-02:)* **fused is the default**
+  (`two_phase = false` in `MHDProblem` and `evolve!`): on the CPU the split
+  costs 1–10% a step and buys nothing, since only 0–2.4% of the recoveries
+  reach the second phase and none of the stage solve's iterations would.
+  The split stays in the code, tested bit for bit against fused, for a GPU
+  step to turn on.
+
+**Measured 2026-10-30** (`bin/recovery_cost.jl steptime`; Symmetry cn084,
+AMD EPYC 7532, one job, one pinned thread, Julia 1.13; this tree at 0334aed
+split and fused (`two_phase = false`), both with the step cache, against
+`claude/entropyeos-2.2` at fea242a, two rounds each, interleaved; ms per
+step, the mean over steps 2…n, the best of three runs). **The split is
+slower on the CPU**: 1–4% on the 2D, 3D and resistive cases, 3–10% on the
+atmosphere tube (its second round noisy: runs 3.98, 4.79, 3.46), 6–9% on the
+1D waves. The fused path of this tree is as fast as fea242a or faster (the
+1D waves 6–11%; not investigated):
+
+| case | split | fused | fea242a | split / fused | split / fea242a | fused / fea242a |
+|---|---|---|---|---|---|---|
+| EM wave, `Vacuum`, 100 | 1.475, 1.455 | 1.348, 1.345 | 1.436, 1.434 | +9.4%, +8.2% | +2.7%, +1.5% | −6.1%, −6.2% |
+| Alfvén wave, ideal, 100 | 1.526, 1.538 | 1.441, 1.437 | 1.609, 1.614 | +5.8%, +7.0% | −5.2%, −4.7% | −10.4%, −10.9% |
+| resistive tube σ = 10, 200 | 3.489, 3.587 | 3.455, 3.464 | 3.489, 3.472 | +1.0%, +3.5% | +0.0%, +3.3% | −0.9%, −0.2% |
+| resistive tube σ = 10², 200 | 3.558, 3.541 | 3.419, 3.431 | 3.449, 3.432 | +4.1%, +3.2% | +3.2%, +3.2% | −0.9%, −0.0% |
+| resistive tube σ = 10³, 200 | 3.356, 3.339 | 3.222, 3.228 | 3.255, 3.243 | +4.2%, +3.4% | +3.1%, +3.0% | −1.0%, −0.5% |
+| magnetized atmosphere tube, 200 | 3.282, 3.457 | 3.164, 3.130 | 3.192, 3.196 | +3.7%, +10.5% | +2.8%, +8.2% | −0.9%, −2.1% |
+| rotor, 64² | 58.53, 59.03 | 57.46, 56.48 | 56.96, 56.85 | +1.9%, +4.5% | +2.8%, +3.8% | +0.9%, −0.7% |
+| Orszag–Tang, 64² | 66.14, 65.78 | 64.73, 65.25 | 64.05, 64.12 | +2.2%, +0.8% | +3.3%, +2.6% | +1.1%, +1.8% |
+| spherical blast, 16³ | 104.8, 105.3 | 103.6, 105.1 | 102.2, 103.7 | +1.2%, +0.2% | +2.6%, +1.6% | +1.4%, +1.4% |
+| resistive tube σ = 10², two levels | 4.404, 4.433 | 4.292, 4.311 | 4.289, 4.303 | +2.6%, +2.8% | +2.7%, +3.0% | +0.1%, +0.2% |
+| rotor, two levels, 7168 cells | 110.7, 110.1 | 107.6, 107.0 | 106.5, 106.9 | +2.9%, +2.9% | +3.9%, +3.0% | +1.0%, +0.1% |
+
+Where the time goes was not profiled; per recovery the split adds two
+kernel launches per site and the hand-off's stores and loads (the 232-B
+`out` at every cell not reused), and the first pass recomputes the
+metric, `B`, `E` and the input that the third computes again — which costs
+most where a step does least else (the 1D waves, whose right-hand side
+recoveries are all reused). *Whether the CPU keeps the split or fuses is
+Erik's decision.*
+
+**The share that reaches finish** (`bin/recovery_cost.jl finish`, the same
+job and cases; per site, the recoveries whose first phase was not done, of
+all and of those not reused): **none** in the EM and Alfvén waves, the three
+resistive tubes, Orszag–Tang and the refined resistive tube; the magnetized
+atmosphere tube 6 of 120000 at the right-hand side (0.025% of those
+started), 1755 of 160000 at the stage's first recovery (1.25%), 882 of 40000
+at the step limiter (2.4%), none at the stage limiter; the spherical blast
+1272 of 131072 at the stage's first recovery (1.3%); the rotor 2 and the two-level rotor 4 there; nothing else. **The
+stage solve's iterations reach finish nowhere**: 0 of their 57846 (the
+atmosphere tube) to 531938 (the two-level resistive tube) recoveries, none
+reused. So a later GPU step sees the second phase in at most about 2% of a
+site's cells, at the sites above; the warm iterations would gain nothing
+from the split.
+
 
 ### Where the fields live
 
@@ -722,21 +1385,26 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | set | centering | nvars | `G` | operators / at `regrid!` |
 |---|---|---|---|---|
 | GH `U` (TreeGH) | vertex | 20 | 3 | PointValue width 6 / `=> schedule` |
-| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8) / `=> schedule` |
-| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
-| `Φ̃` | vertex | 1 | 3 | PointValue, width as `A` / `=> schedule` |
+| matter `U` | cell | 10 | 3 | Conservative width 3, bounded (decided in step 8), in the regrid; its ghosts are not written by the scheme (2026-10-23) / `=> schedule` |
+| `A_d`, `d = 1…3` | edge `d` | 1 each | 3 | Conservative width 3 along the edge, point values of width 4 across it (AMR-9; decided in step 8) / `=> schedule` |
+| `Φ̃` | vertex | 1 | 3 | PointValue, width 4 (decided in step 8) / `=> schedule` |
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
+| `W` — `ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`, the matter's ghost fill *(added in step 8)* | cell | 9 | 3 | Conservative width 3, bounded, centred on the parent (decided by Erik 2026-10-23; step 8's was PointValue width 2) / `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Tsrc` — `T_ab` for GH | vertex | 10 | 0 | `=> nothing` |
-| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)* | cell | 19 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)*, the recoveries' seeds per site *(2026-10-24)* | cell | 31 | 0 | `=> nothing` |
+| step cache — the cell's latest recovery in the step: EntropyEOS's input and output *(2026-10-24)*; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
 `P`'s 30 slots are laid out in `src/variables.jl` (amended in step 1: the
 table said "~25"): the eleven the recovery returns — `ρ★`, `vⁱ`, `s`, `Yₑ`,
 the rapidity `w` (also the next recovery's warm start), `p`, `h`, `cs²` and
 the EOS's own warm start — then the policy flags (as a number; every bit is
-below 2¹⁶, so exact even in `Float32`), `Eⁱ`, `Bⁱ`, `q`, and the metric
+below 2¹⁸ — bits 8–17, `FLAG_POL_W_CEILED` the highest, since EntropyEOS
+2.0; amended 2026-10-21 and 2026-10-24, EntropyEOS 2.0 — so exact even in
+`Float32`, which holds every integer below 2²⁴, and tested at `Float32`
+with bit 17), `Eⁱ`, `Bⁱ`, `q`, and the metric
 `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric derivatives and
 `K_ij` the sources read are not in it yet: step 2 decides the form of the
 sources, and with it whether they are stored or interpolated on the fly
@@ -782,7 +1450,16 @@ write and a read; the source kernel asks the provider for them
   checks; they are `MHDProblem`'s `ops_U` and `ops_A`. *(Decided in step
   8:)* width 4 for `A` and `Φ̃` by the interface-order table, and the
   matter's width 3 **bounded** (TreeAMR's MC-bounded prolongation) in the
-  ghost fill and the regrid — see "Refinement".
+  ghost fill and the regrid — see "Refinement". *(Amended in step 8, when
+  TreeAMR 0.2.2 landed AMR-9:)* `A_j` take the conservative family on a
+  staggered set, `Operators(; prolongation=3, restriction=2, family =
+  Conservative, vertex_prolongation=4)` — the two-edge mean and a width-3
+  conservative prolongation along the edge's own (cell-like) direction,
+  point values of width 4 across it — so that the magnetic flux through a
+  coarse face is the sum through its fine faces as a state; `Φ̃`, a vertex
+  set with no cell-like dimension, would get the very same operators from
+  that family and stays PointValue width 4 (`ops_Φ`, its own keyword since
+  step 8). The width 4 was re-measured under the new family (unchanged).
 
 Operator widths follow TreeAMR's convention: the order of an operator is
 its stencil width `w` per dimension and it is exact to degree `w − 1`;
@@ -864,6 +1541,33 @@ marked otherwise). `limiter` names the reconstruction: `:none`, `:minmod`,
   `E₀ + δ_a + δ_b`, each offset the method's one-dimensional one along its
   direction, and the face-normal `𝔅` is reconstructed along the transverse
   direction by the method (see "The electromotive force for `A`").
+
+*(Amended 2026-10-26, EntropyEOS 2.1.)* **The reconstruction tests validity
+the way `con2prim_safe` does.** `admissible_fluid` asks EntropyEOS's
+`inside_window(eos, ρ, s, Yₑ)` (EOS-11) whether `s` and `Yₑ` lie inside their
+faces, with the slack `con2prim_safe` allows — `s` within `srange(eos, ρ, Yₑ)`
+widened by 10⁻⁷ of its width at `Float64` (2⁻¹², 2.4·10⁻⁴, at `Float32`),
+`Yₑ` within one ulp of its range —
+and keeps this package's own conditions, `ρ` positive and finite and `u`
+finite. Until then it tested the exact window. But since EntropyEOS 2.0
+`con2prim_safe` returns a converged root within the slack of a face
+unflagged and as it is, so a recovered cell could fail the exact test: on the
+reproducer of 2026-10-24 (a cold re-solve of a state the stage limiter had
+written onto the `s_min` face) `s` lies 5.5·10⁻⁹ of the window below `s_min`
+with `policy_flags == 0`. Every state the recovery returns now passes, and
+the EOS can be evaluated throughout the band (`inside_window`'s contract).
+`ρ` is still not tested against `[ρ_min, ρ_max]` nor `w` against the cap, as
+`check_prim_state` would: that would change the reconstruction near vacuum.
+
+**The positivity fallback substitutes the cell's own value, so it cannot
+repair a face whose cell is itself inadmissible**: that face gets the cell's
+state, which fails the same test. A TVD limiter cannot produce such a face
+from admissible cells (its face values lie between the cells'), so the case
+arises only where a cell holds a state the test rejects — which, since the
+test is `con2prim_safe`'s own, no recovered cell does (test:
+`test/scheme_tests.jl`, "The positivity fallback admits every state
+con2prim_safe returns unflagged"). What it cost while the test was exact is
+under "Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0".
 
 ### Riemann solver
 
@@ -956,6 +1660,12 @@ stiff part kept as a function for the stage solve's residual.
 EntropyEOS's policy defines the atmosphere (`ρ_atm`, triggers, ceilings)
 and `con2prim_safe` applies it; a limiter resets `v = 0` in atmosphere
 cells and writes back only those cells, as TreeHydro's does (proposed).
+*(Amended 2026-10-24, EntropyEOS 2.0:)* the valid range is level 1's
+(`ProjectionOptions`: `ρ_min`, what was `ρ_atm`; `ρ_max`, what was
+`ρ_ceiling`; `w_cap`), the atmosphere level 2's (`apply_policy` with
+`PolicyOptions`: at rest at `ρ_min`, at `s_atm`, below `1.01 ρ_min`), and
+there is no collapse ceiling ("Primitive recovery", "The two levels"). The
+text below up to "EntropyEOS 2.0" is 1.1's, kept as the record.
 
 **The reset is both the stage limiter and the step limiter** (proposed;
 amended 2026-09-25). In IMEXRungeKutta a stage limiter's change reaches
@@ -998,6 +1708,669 @@ and `σ = 0` there), and the fields outside a star are those of the
 initial vector potential evolved by the vacuum Maxwell equations. The
 initial dipole is analytic in `A`, which makes it exactly divergence-free
 on the mesh.
+
+**A density raised to the atmosphere's is the atmosphere at rest**
+*(decided by Erik 2026-10-21, with EntropyEOS's review; EOS-5 withdrawn,
+EOS-6 superseded, the decision kept in this package and keyed on a flag
+that reports a fact — the investigation below)*. EntropyEOS 1.1.0 (EOS-8,
+unregistered, through `[sources]`; `[compat]` `"1.1"`) reports
+`FLAG_POL_ρ_FLOORED` (bit 16) where a repair raised `ρ` to `ρ_atm` without
+an atmosphere reset, i.e. wrote `ρ cosh w > D` — its entropy-floor branch,
+which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
+(The rapidity cap raises `ρ` too but keeps `D`, and does not set it.)
+- **Where:** `src/con2prim.jl`, the one wrapper around `con2prim_safe` —
+  `fluid_recovery` (under `con2prim_hydro`) and `ideal_recovery` (under
+  `con2prim_ideal`) are its only two calls, so the reset, the right-hand
+  side's `P`, the stage solve's predictor, iterates and ideal seed, and
+  `IdealConductor`'s stages all see it; none of them uses EntropyEOS's
+  conserved output, every one rebuilds the conserved state with this
+  package's `prim2con` (checked 2026-10-21).
+- **What:** `flags & FLAG_POL_ρ_FLOORED != 0`, tested alone — not tied to
+  `S_FLOORED`, EntropyEOS's internal path — returns the atmosphere at rest,
+  `policy_atmosphere(eos, pol, D Yₑ/D)`, its EOS point by `evaluate` (the
+  stage solve's Jacobian reads it), flagged `FLAG_POL_ATMOSPHERE |
+  FLAG_POL_ρ_FLOORED` — the replacement and its cause, not the discarded
+  state's clamps (amended 2026-10-22, decided by Erik: as EOS-9 asks of
+  EntropyEOS's own atmosphere replacements; on the branch
+  `claude/no-collapse-to-atmosphere`). A branch, no mask multiplied;
+  `isbits`, allocation-free, inferred, and the same bit for bit in a CPU
+  kernel at `Float64` and `Float32` (`test/recovery_tests.jl`).
+- **This package's rule** *(decided by Erik 2026-10-22, option (b):
+  EntropyEOS reports facts, the application decides)*: a density the policy
+  floored is the atmosphere at rest, so every state this package writes
+  holds `D_out ≤ max(D_in, D_atm)` (`D_atm = ρ_atm`, the atmosphere at
+  rest). The criterion is TreeGRRMHD's, enforced by this wrapper — not a
+  property EntropyEOS promises; EntropyEOS's floored output itself raises
+  `D`. The tallies are unchanged by the narrower flags: a floored stage is
+  still counted as repaired (`X_POLICY`), its two bits reach the stages' `|`
+  (`X_POLICY_OR`), and the reset writes it (`FLAG_POL_ANY`).
+- **The collapse branch** *(gone in EntropyEOS 2.0, and with it the
+  option's use; see "EntropyEOS 2.0" below)*: a hot near-vacuum cell whose energy lies above
+  the hottest state of the window is, to the default policy, past the
+  collapse ceiling, and is written at `ρ_ceiling` (10⁶ for the shock gas):
+  every blow-up of the magnetized tube. The cases with a magnetized
+  atmosphere set EntropyEOS's existing `collapse_to_atmosphere`
+  (`case_policy` in `src/cases/shocktubes.jl`; today `atmosphere_tube_case`,
+  hydrodynamic or magnetized — without a field the branch never fires and
+  the hydrodynamic tube is the same bit for bit). Not the other cases: the
+  shock tubes, the current sheet, the waves and the 2D/3D cases hold no
+  near vacuum, and the near-vacuum rarefaction is hydrodynamic and never
+  reaches the branch (its numbers below are unchanged by it); a star's
+  magnetosphere (steps 10 and 12) will need it and states it in its case.
+  Its cost, measured with the option set in every policy of the suite
+  (2026-10-17): step 3's sweep gains fallbacks — without the cutoff 36,
+  78, 103 → 35, 69, 92, and with it at `μ_max = 10` the row `Γ = 2`,
+  `f = 1` goes from 1 to 4 (every row `f ≤ 0.3` stays at none); as set
+  now, per case, the sweep is untouched. Writing such a state at the
+  entropy ceiling with `D` kept instead (the note in PLAN.md's EOS-5) does
+  not cost the sweep anything, and is Erik's call.
+- **Measured with the real 1.1.0** (`bin/front_investigation.jl`; the same
+  48 perturbed runs as before), every number the emulated "B + coll" gave,
+  to every digit printed: on the uniform mesh, the refined mesh with the
+  parent-centred primitive fill and with the conserved bounded fill, 0/48
+  blow-ups, no fallback, largest `W` 4.8, 5.0, 5.0, injected `D`
+  −1.2·10⁻⁸, −1.4·10⁻⁸, −1.4·10⁻⁸ and `τ` −7.4·10⁻⁷, −1.5·10⁻⁶,
+  −1.5·10⁻⁶ in every run; two runs 10⁻¹⁵ apart 1.6·10⁻¹³, 7.6·10⁻¹³,
+  2.9·10⁻¹³ apart; 12010, 27973, 28057 step-limiter writes a run; the
+  hydrodynamic tube bit for bit on all three. Beyond the tube (uniform):
+  ARS(4,4,3) 0/48, `W` 7.0, 23 fallbacks; `Bʸ = 10⁻²` 0/48, `W` 16; the
+  ideal magnetized atmosphere 0/48 under SSP3 (`W` 4.8) and under ARS
+  (`W` 4.3, where the reset-only form reached 53); 400 cells 0/48, `W`
+  5.6; `μ_max = 30` 0/48, `W` 4.8. The only differences from the emulation
+  are its reach and a reported bit: the stages' `|` of policy flags now
+  carries bit 16 (66816 where it was 1280), and step 3's sweep, whose
+  policies no longer set `collapse_to_atmosphere`, prints what it did
+  before.
+- **The suite** (Julia 1.13, one thread; and the clean-checkout check,
+  which resolves EntropyEOS 1.1.0 from `main`): 25873 pass and one broken —
+  the ARS row of the ideal magnetized atmosphere (`ars.t.injected_D ≥ 1`;
+  ARS now injects 5.6·10⁻⁸ at `W` 4.1), marked `@test_broken` pending
+  Erik's decision. *(Decided by Erik 2026-10-22:)* that row now asserts
+  what is true — neither tableau runs away there: injected rest mass
+  within 10⁻⁶ (measured −6.6·10⁻⁹ and 5.6·10⁻⁸), energy within 3·10⁻⁴
+  (−1.7·10⁻⁵, −2.4·10⁻⁵), final `W ≤ 5` (4.01, 4.11) — a regression check of
+  this recovery ("The partition" has the re-measured comparison); and the
+  magnetized tube asserts no fallback again, on the uniform mesh and on the
+  refined one of `test/refinement_cases_tests.jl` (none in any of 48
+  perturbed runs on all three meshes). The suite then passes whole, 25876
+  tests (Julia 1.13, one thread). What moves against the released policy: the magnetized
+  tube (`W` 6.63 → 4.80, fallbacks 92 → 0, injected `5.0·10⁻⁸`,
+  `1.7·10⁻⁶` → `−1.18·10⁻⁸`, `−7.4·10⁻⁷`) and its coarse-fine run
+  (`−1.4·10⁻⁸`, `−1.5·10⁻⁶`); SSP3's ideal magnetized atmosphere
+  (`1.56·10⁻⁹` → `−6.63·10⁻⁹`, `W` 4.83 → 4.01); and the one
+  hydrodynamic case, ARS's near-vacuum rarefaction, whose undershoot the
+  wrapper now puts at rest (`ρ` 2.7·10⁻¹⁰ → 1.0·10⁻¹⁰, resets 161/118 →
+  131/110; its assertion, `≤ 10⁻⁹`, holds; SSP3's row is unchanged).
+
+**EntropyEOS 2.0** *(amended 2026-10-24, EntropyEOS 2.0; tag `v2.0.0`; stage 2 of the
+recovery plan, `claude/recovery-pipeline-2`; Symmetry, AMD EPYC 7532 and
+7543 nodes, Julia 1.13, `bin/front_investigation.jl` — its new `beyond`
+mode runs the rows beyond the tube, the 1.1 control with this file's
+`beyond` copied onto the stage-1 tree, `HOT_PROJECTION=0`)*. The recovery
+calls `con2prim_safe` and `apply_policy`; the atmosphere tube no longer
+sets `collapse_to_atmosphere`. The rule of 2026-10-21 is unchanged: a
+state whose density had to be raised to the floor is the atmosphere at
+rest, `D_out ≤ max(D_in, D_atm)` — now `apply_policy`'s own rule on 2.0's
+`ρ_FLOORED`, the `ρ_min` face. EOS-9 is level 1's diagnosis: the hottest
+state keeps `D` and `S` on the `s_max` face (`S_CEILED`), or, where that
+would put `ρ` below `ρ_min`, takes the `ρ_min` face and so the
+atmosphere; no state is ever written at a density ceiling the table
+cannot hold, and the option has nothing to act on (`ρ_CEILED` never
+appears in any run below).
+
+The 48 perturbed runs (as before; blow-ups with a 95% Wilson interval;
+injected `D` min / median / max; fallbacks; largest `W` min / median /
+max; two runs `10⁻¹⁵` apart, the largest relative difference of `D`), 2.0
+with `s_atm` at the midpoint (the package's choice), 2.0 with its default
+`s_atm` (the window's minimum), and 1.1 with `collapse_to_atmosphere`
+(the control, reproducing the numbers above to every digit on the uniform
+mesh and beyond the tube; its refined row as recorded above):
+
+| | 2.0, `s_atm` midpoint | 2.0, `s_atm` minimum | 1.1 + collapse (control) |
+|---|---|---|---|
+| uniform | 0/48; −1.2e−8 (all); 0; 4.8 / 4.8 / 7.1; **1.4e−4** | 0/48; −1.2e−8; 0; 4.8 / 4.8 / 6.0; 1.7e−13 | 0/48; −1.2e−8; 0; 4.8; 1.6e−13 |
+| refined, primitive fill | 0/48; −1.4e−8; 0; 5.0 / 5.4 / 11.0; **1.3e−4** | 0/48; −1.4e−8; 0; 5.0 / 5.0 / 11.8; **2.0e−4** | 0/48; −1.4e−8; 0; 5.0; 7.6e−13 |
+| hydrodynamic tube (uniform; refined) | −8.3517666767e−12, `W` 4.9356884465, 11686 writes; −1.6335e−11 | −8.3661885391e−12, `W` 4.9356868767, 11686; −1.5695e−11 | −8.3517666780e−12, 4.9356884465, 11686; −1.6e−11 |
+| ARS(4,4,3) | **48/48** (injected `D` 5.1e−6 … 1.1e−5, 12 runs on the laptop) | **48/48** | 0/48; −1.2e−8; 23; 7.0 |
+| `Bʸ = 10⁻²` | 0/48; −2.1e−8 / −1.1e−8 / −8.7e−9; 0 / 1 / 1; 4.5 / **26** / **100** | 0/48; 0 / 1 / 1; 4.1 / **25** / **100** | 0/48; −8.5e−9; 1; 16 |
+| ideal, SSP3 | 0/48; −9.0e−9 / −7.8e−9 / −7.2e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −8.1e−9 / −7.8e−9 / −1.4e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −6.6e−9; 0; 4.8 |
+| ideal, ARS | **42/48** (injected 5e−7 … 9e−7 where not) ; 14 / 26 / 58 | **47/48** | 0/48; +5.6e−8; 0; 4.3 |
+| 400 cells | 0/48; −1.5e−8; 0; 5.6 | 0/48; −1.5e−8; 0; 5.6 / 5.6 / 10.3 | 0/48; −1.5e−8; 0; 5.6 |
+| `μ_max = 30` | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.2e−8; 0; 4.8 |
+
+"Blow-up" is the harness's: injected `D > 10⁻⁶` or `|τ| > 10⁻³`; under
+ARS it is the rest mass, `10⁻⁶` to `10⁻⁵` of a box holding 0.5, at a
+modest `W` (5–7 in the cut-off tube), not 1.1's runaway to `10⁴`. Step 6's
+tableau comparison re-measured (`bin/tableau_comparison.jl`, unperturbed):
+Balsara, the resistive tube and the current sheet as before to the digits
+of its table but Balsara 3 under ARS (L1 `D`, `τ`, `𝔅ʸ` 0.375, 18.7,
+0.0591 → 0.360, 18.1, 0.0608, plateau 4.20% → 3.34%, resets 3/3 → 8/6, injected τ
+`2.8·10⁻³` → `6.1·10⁻²`: ARS's undershoot at a strong shock, which the
+reset fills, here too); the atmosphere rows SSP3 as before (hydrodynamic
+`−8.4·10⁻¹²`; ideal `−7.8·10⁻⁹`, `W` 3.99; cut off `−1.2·10⁻⁸`, 0
+fallbacks), ARS hydrodynamic `4.4·10⁻⁷` (1.1: `1.2·10⁻⁹`), ideal
+`−2.0·10⁻⁹`, `W` 4.13, cut off `5.6·10⁻⁶` with 22 fallbacks and 33
+recoveries, the rarefaction `1.5·10⁻⁶`, resets 133/116.
+
+So **SSP3(4,3,3), the default, is unchanged on the uniform mesh** (but
+the cut-off tube with the midpoint `s_atm` is no longer the same run in
+every perturbation, though every one is clean), **and ARS(4,4,3) near the
+vacuum regresses**: 1.1 was deterministic in every row; 2.0 puts large
+negative `D` (to `−2.7·10⁻⁴` in the cut-off tube, `−7·10⁻⁵` in the
+hydrodynamic one) into a few cells at the dense front at the end of a
+step, which the reset fills with the atmosphere — all of the injected
+rest mass. What was ruled out, by experiments on the laptop (12 perturbed
+runs each, hydrodynamic and cut-off tube under ARS): the entropy faces on
+the converged path (1.1's rule — `s` clamped, the root's `ρ` and `w` kept
+— emulated in-process changes nothing), `seed_passes` (3 changes
+nothing), `NOT_CONVERGED` (none occurs), a discontinuous recovery (none of
+the stage limiter's recoveries jumps under a `10⁻¹³` perturbation, in
+either version), and the repairs themselves (the states repaired above the
+trigger are the same kinds and counts, 25 `S_FLOORED` and 22 floored to
+the atmosphere against 1.1's 28 and 25, and 1.1's `con2prim_safe` on 2.0's
+inputs returns the same conserved state to `10⁻⁸`). Bisected upstream: the
+stage-1 tree on EntropyEOS 8879f4f (1.1's API, the commit before 2.0's
+projection) is 1.1 to every digit; this tree on ab8eb9b ("Implement the
+two-level projection") already regresses. In the magnetized ideal tube
+under ARS the `S_CEILED` writes add to it: keeping `S` while lowering τ
+turns heat into bulk motion, `W` 1.08 → 2.99 for one write (75 writes, a
+median 1.11 times the unprojected root's `W`, at most 2.77), where 1.1
+kept the rapidity. *(Decided by Erik 2026-10-24:)* accepted for now —
+ARS is not the default and SSP3 is clean — and being isolated separately
+(a TreeGRRMHD level 2 of its own cannot undo level 1's choice of face).
+*(Amended 2026-10-26:)* isolated, and fixed by EntropyEOS 2.1's
+`inside_window` (below); no longer accepted, gone.
+
+**The ARS(4,4,3) regression: cause, mechanism and fix** *(amended
+2026-10-26, EntropyEOS 2.1; the investigation of 2026-10-24 on
+`claude/recovery-pipeline-2` and `-3`, Symmetry job 581987)*.
+
+- **Cause.** Since ab8eb9b (2.0's two-level projection) `con2prim_safe`
+  accepts a converged root unflagged when it lies inside every face *to the
+  slack* — 10⁻⁷ of the window's width for `s` at `Float64` — and returns it
+  as it is; 1.1 clamped the same root onto `s_min` and flagged it
+  `S_FLOORED`. The reproducer (ideal gas Γ = 5/3, `s` window (1, 40), `ρ_min =
+  10⁻⁸`, the right-hand side's cold re-solve of a cell the stage limiter had
+  just written onto the `s_min` face): 2.0 returns `s = 0.999999784528953`,
+  5.5·10⁻⁹ of the window below `s_min`, with `policy_flags == 0`, where 1.1
+  returned `s = 1`, `S_FLOORED` (`ρ`, `w` the same). Thermal energy is about
+  10⁻¹⁰ of τ there, so `s` is fixed only to the solve's conditioning. The
+  reconstruction tested face states against the *exact* window.
+- **Mechanism.** A cell in the slack band is a local minimum of `s`; MC gives
+  it zero slope, so its face values are its own value and fail the exact
+  test, and the positivity fallback, which substitutes the cell's value,
+  cannot repair them: the whole fluid group of that face goes to first order.
+  Under ARS(4,4,3) the switch happens at stage 4, whose explicit weight is
+  `b̃₄ = −7/4`: the first-order face raises the `D` flux into the neighbouring
+  cell, and the negative weight subtracts it from a cell holding about
+  `ρ_min`. Every large negative end-of-step `D`, down to `−7·10⁻⁵`, lay one
+  cell downstream of a stage-4 slack cell, and together they accounted for
+  all of the injected mass. Under SSP3 every weight is positive: no blow-up,
+  but the same switch made the runs sensitive at rounding (the uniform
+  cut-off tube's perturbed runs 1.4·10⁻⁴ apart, the `Bʸ = 10⁻²` tube at
+  `W` 26–100).
+- **The emulation** (job 581987, cn112, the stage-2 tree with the exact test
+  widened by a slack of 0 or 10⁻⁷ of the window, 48 perturbed runs a row): at
+  slack 0 (the code as it was) the faces the window test sent to the fallback
+  numbered 1216 (cut-off tube, ARS), 27331 (ideal, ARS), 259 (hydrodynamic,
+  ARS), 85 (cut-off tube, SSP3), 5683 (ideal, SSP3) and 923 (`Bʸ = 10⁻²`) over
+  the 48 runs, with 48/48 and 42/48 blow-ups in the first two and the
+  hydrodynamic ARS tube injecting `1.2·10⁻⁹ … 8.9·10⁻⁷` (median `4.3·10⁻⁷`); at
+  slack 10⁻⁷ none, every row deterministic, the cut-off and ideal ARS rows
+  0/48, hydrodynamic ARS `1.2·10⁻⁹` in every run (1.1's), `Bʸ = 10⁻²` SSP3
+  1.1's `−8.5·10⁻⁹` and `W` 16.
+- **The fix**: the reconstruction tests validity the way `con2prim_safe`
+  does, `inside_window` (EOS-11; "Reconstruction"). Clamping the root onto
+  the window, upstream or here, was rejected upstream: the primitives would
+  no longer reproduce the returned conservatives to the tolerance.
+
+*Re-measured 2026-10-26* (`bin/front_investigation.jl`'s harness, the same
+48 perturbed runs; Symmetry cn082, AMD EPYC 7532, one thread; EntropyEOS
+2.2.0 with `inside_window`; the reconstruction's test instrumented in-process
+to count its fallbacks). Columns as in the table above: blow-ups; injected
+`D`; fallbacks; largest `W`; two runs `10⁻¹⁵` apart. "(all)" where all 48
+runs agree to the digits printed:
+
+| | 2.2, `inside_window` | 2.0, stage 2 (above) | emulation, slack 10⁻⁷ (job 581987) |
+|---|---|---|---|
+| uniform | 0/48; −1.2e−8 (all); 0; 4.8 (all); 3.0e−14 | 0/48; −1.2e−8; 0; 4.8 / 4.8 / 7.1; **1.4e−4** | 0/48; −1.2e−8 (all); 0; 4.8 (all) |
+| refined, primitive fill | 0/48; −1.4e−8 (all); 0; 5.0 (all); 7.4e−13 | 0/48; −1.4e−8; 0; 5.0 / 5.4 / 11.0; **1.3e−4** | — |
+| hydrodynamic tube (uniform; refined) | −8.3517666767e−12, `W` 4.9356884465, 11686 writes; −1.6334932204e−11 | the same | — |
+| ARS(4,4,3) | 0/48; −1.2e−8 (all); 23; 7.0 (all) | **48/48** | 0/48; −1.2e−8 (all); 23; 7.0 |
+| hydrodynamic, ARS(4,4,3) | 0/48; 1.2e−9 (all); 0; 5.0 | 0/48; 1.2e−9 / 4.3e−7 / 8.9e−7 (job 581987's slack 0) | 0/48; 1.2e−9 (all); 0; 5.0 |
+| `Bʸ = 10⁻²` | 0/48; −8.5e−9 (all); 1; 16 (all) | 0/48; −2.1e−8 / −1.1e−8 / −8.7e−9; 0 / 1 / 1; 4.5 / **26** / **100** | 0/48; −8.5e−9 (all); 1; 16 |
+| ideal, SSP3 | 0/48; −7.6e−9 (all); 0; 4.8 (all) | 0/48; −9.0e−9 / −7.8e−9 / −7.2e−9; 0; 4.7 / 4.8 / 5.1 | 0/48; −7.6e−9 (all); 0; 4.8 |
+| ideal, ARS | 0/48; −5.0e−9 (all); 0; **100** (all) | **42/48** | 0/48; −5.0e−9 (all); 0; 100 |
+| 400 cells | 0/48; −1.5e−8 (all); 0; 5.6 (all) | 0/48; −1.5e−8; 0; 5.6 | — |
+| `μ_max = 30` | 0/48; −1.2e−8 (all); 0; 4.8 (all) | 0/48; −1.2e−8; 0; 4.8 | — |
+
+The reconstruction's window test sent **no** face to the fallback in any row;
+the faces it admitted that the exact test would have rejected — the slack band
+— numbered 1254 (ARS), 23281 (ideal, ARS), 298 (hydrodynamic, ARS), 67 and 69
+(the cut-off tube under SSP3, in the batch and in the uniform matrix), 93
+(refined), 5248 (ideal, SSP3), 603 (`Bʸ = 10⁻²`), 50 (400 cells) and 12
+(`μ_max = 30`), close to the emulation's slack-0 fallbacks. **Every row is the
+emulation's to every digit it printed**, step-limiter writes and `S_FLOORED`
+counts included (12021 and 17 under ARS, 11687 and 42 ideal under ARS, 11737
+and 5 hydrodynamic under ARS, 12010 and 3, 12028 and 9, 12034 and 10): the
+confined search changes nothing here (no state comes near `ρ_max`), and the
+step cache, which the emulation's tree did not have, nothing at these digits.
+So every row is deterministic again, as on 1.1, and the uniform and refined
+cut-off tube, ARS(4,4,3) (23 fallbacks, `W` 7.0), the hydrodynamic tube under
+ARS (`1.2·10⁻⁹`), `Bʸ = 10⁻²`, 400 cells and `μ_max = 30` are 1.1's to the
+digits printed (the control column of the table above). Two rows still differ from 1.1: the ideal magnetized atmosphere under
+SSP3 (`−7.6·10⁻⁹` against `−6.6·10⁻⁹`), and under ARS, which injects
+`−5.0·10⁻⁹` against 1.1's `+5.6·10⁻⁸` but reaches the `w` cap (`W` = 100) in 3
+cell-steps of every run, where 1.1 peaked at `W` 4.3. That is not the slack: it
+is the same with the emulation, and the cell recoveries that differ between
+the versions agree on identical inputs, so it is a different trajectory — a
+candidate is 2.0's `S_CEILED` keeping `S` while lowering τ (above). Not
+chased; **for Erik**. The suite's assertion on that row (`W ≤ 5` at the end,
+injected mass within 10⁻⁶) holds: its largest `W` at the end is 4.00.
+
+**The ideal magnetized atmosphere's `W = 100`** *(investigated 2026-10-30
+on EntropyEOS 2.2.1; accepted, decided by Erik 2026-11-02)*. Both
+differences from 1.1 are EntropyEOS 2.0's rule for a converged root hotter
+than `s_max` (its HISTORY, 2026-10-23, "Which faces are active"): 2.x
+projects it onto the `s_max` face keeping `D` and `S` and lowering only τ,
+where 1.1 clamped `s` at the root's `ρ` and `w`, removing energy and momentum
+together. In a hot, tenuous cell the momentum is carried by enthalpy (`h` 10
+to 30); on the `s_max` edge `h` falls with `ρ`, so keeping `S` raises `W`
+until `ρ` reaches `ρ_min`. Shown by running both versions in one process
+(8879f4f renamed beside 2.2.1, chosen per recovery), 48 perturbed runs per
+variant, each variant deterministic: 1.1's answer only where 2.2.1 flags
+`S_CEILED` is 1.1 to every digit under ARS and SSP3, and 2.2.1's answer only
+there is 2.2.1 to every digit; 1.1's answer on all 397,341 unflagged
+recoveries changes nothing (so not the seed, the tolerance or the confined
+search), nor on the `W_CEILED` and `S_FLOORED` ones, nor the reconstruction
+(no fallbacks), nor `s_atm`. Under ARS(4,4,3) the `S_CEILED` writes turn
+removed heat into bulk motion in the precursor (`|S_f|/(τ_f + D)` at p90 0.74
+against 0.55); stage 4's predictors at the front exceed the light cone
+(`|S| > τ + D`) about 100 times a run in both versions, and on 2.x a few more
+of them fall in denser cells, where the `s_min` face (`S_FLOORED`, the same
+answer in both) writes `W ≈ |S|/D`, up to the cap — one cell, one step, `W`
+below 5 the next. The injected mass under ARS (1.1's `+5.6·10⁻⁸` → `−5.0·10⁻⁹`)
+is EOS-9's no-collapse instead, as measured 2026-10-22. Under SSP3 nothing
+amplifies it: 12018 atmosphere writes inject `−7.6·10⁻⁹` against 1.1's 12008
+and `−6.6·10⁻⁹`.
+
+Not worse by any integral measure: the final state at `t = 0.4` against
+1600- and 3200-cell references is within 1.5% of 1.1's in L1 of `D`, `S` and
+τ under both tableaus (ARS against 1.1's 3200-cell run: `D` 4.110·10⁻³ against
+4.117·10⁻³), its largest `W` 4.00 against 4.12 (ARS), the injected energy and
+momentum within 2–10%. Nor is 1.1's `W` 4.3 a property of 1.1: it is that
+of 200 cells. Largest `W` and cell-steps with `W > 20`:
+
+| | 200 cells | 400 | 800 | 1600 | 3200 |
+|---|---|---|---|---|---|
+| ARS, 2.2.1 | 100, 3 | 100, 4 | 100, 32 | 100, 153 | — |
+| ARS, 1.1 | 4.3, 0 | 100, 7 | 100, 40 | 100, 163 | — |
+| SSP3, 2.2.1 | 4.8, 0 | 4.8, 0 | 4.8, 0 | 100, 2 | 100, 537 |
+| SSP3, 1.1 | 4.8, 0 | 4.8, 0 | 5.9, 0 | 25, 2 | 100, 164 |
+
+2.x brings the spikes in about one doubling of resolution earlier and up to
+three times as often; the hydrodynamic and cut-off tubes have none at 1600
+cells (largest `W` 8.0 and 12.7). Not pursued: a TreeGRRMHD level 2 sending
+`S_CEILED` states to the atmosphere still spikes (`W` 27; 65 if limited to
+`ρ < 1.1 ρ_min`). A lead for later, single laptop runs only: `atm_trigger` 2
+or 10 removes the spikes in both versions, and at 10 the two are bit for bit
+the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
+untested elsewhere.
+
+**Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
+an experiment for Erik, not decided; `bin/hot_projection.jl`,
+`bin/endpoint_measure.jl`, `bin/front_investigation.jl`; EOS-9 in PLAN.md,
+rewritten the same day after Erik's review in six questions)*: can the
+atmosphere tubes do without `collapse_to_atmosphere`, an excision choice
+meant for collapsing stars? **Yes, with one EntropyEOS change, EOS-9:** step
+4's two endpoint branches made edge-consistent and guarded, the hot one
+projecting onto the entropy ceiling with `D` and the momentum kept (up to
+the rapidity cap) and the density clamped into the box and reported —
+never `pol_collapse`. With it and the option off, every measured row is as
+clean as with the option and the hydrodynamic tube is bit for bit; without
+it the ideal magnetized atmosphere and `Bʸ = 10⁻²` blow up in every run.
+
+*What 1.1.0 does* (origin/main 43923c7). When the solve fails, step 4 solves
+the momentum at the two edges of the window `sr_ref = srange(D/cosh w_ref)`
+(`w_ref` the failed solve's rapidity). τ below the coldest state there
+(`f₂ > 0` at `s_min`): the state is written at `ρ₁ = D/cosh w₁`, clamped
+into `[ρ_atm, ρ_ceiling]` (reported since 1.1.0), at `s_min` of
+`srange(ρ₁)`; τ above the hottest (`f₂ < 0` at `s_max`): `pol_collapse`,
+`ρ_ceiling` at `s_max`, unless `collapse_to_atmosphere`. Step 1 sends
+`D > D_max` and `τ − B² > τ_max` to `pol_collapse` before any solve.
+`D_max = ρ_ceiling W_cap`, `τ_max = max ρh(s_max) W_cap²` over a 5×3 grid:
+`10⁸` and `1.5·10²⁰` for the shock gas, `10⁶` and `1.6·10¹¹` for the waves'
+gas, 0.1 and 21 for EntropyEOS's test `HybridEOS`, `10¹⁷` and `1.2·10¹⁹` in
+g/cm³ for the synthetic table (0.16 and 19.6 through `GeometricEOS`) — no
+state of this package's cases comes near them.
+
+*Measured on the synthetic table* (`bin/endpoint_measure.jl table`; its
+window depends on `ρ`, the analytic EOSes' does not; random valid states
+across the box, hydrodynamic and MHD, `τ` scaled down or up; about 4000
+inputs reaching step 4 per branch and mode, the same in g/cm³ and through
+`GeometricEOS`):
+
+| | cold branch (hydro / MHD) | hot branch (hydro / MHD) |
+|---|---|---|
+| edge at `ρ₁` against at `ρ_ref`, fraction of the window (median / max) | 1.5·10⁻⁵ / 2.1·10⁻⁵, both | 2.1·10⁻³ / 0.11; 2.1·10⁻³ / 0.27 |
+| diagnosis flips at `ρ₁`; with a solve 1000× tighter and 10× longer | 0; 0 | 0; 0 |
+| endpoint solve: converged / at the precision floor / capped / non-finite | all / 0 / 0 / 0 | 99.1% / 0.9% (≤ 8 tol) / 0 / 0; 99.8% / 0.2% / 0 / 0 |
+| 1.1.0: output, `\|ΔS\|/\|S\|` (median / max) | at `s_min(ρ_out)`, 1.7·10⁻⁸ / 3·10⁻⁸ | `ρ_ceiling` for every input |
+| first EOS-9 emulation (`sr_ref`'s ceiling, then projected): `\|ΔS\|/\|S\|`; `s_out` below the edge | — | 0.43% / 5.5%; 0.33% / 5.6%, `s_out` up to 0.27 of the window below the edge (MHD) |
+| fixed point `ρ ↦ s_edge(ρ) ↦ w ↦ D/cosh w`: passes; `\|ΔS\|/\|S\|` max | 4; 6.5·10⁻¹², 1.1·10⁻¹¹ | 13–17; 3.3·10⁻¹⁰, 1.0·10⁻⁹ |
+| edge solve (one root find, `s = s_edge(D/cosh w)` inside): evaluations; `\|ΔS\|/\|S\|` max; agrees with the fixed point | 20–30; 1.3·10⁻¹⁰, 3.6·10⁻¹¹; all | 20–30; 4.6·10⁻¹⁰, 6.7·10⁻¹⁰; all |
+| EOS-9 as rewritten (emulated): `s_out` at the edge; `\|ΔS\|/\|S\|` median / max; flags | yes; 7·10⁻¹⁶ / 1.3·10⁻¹⁰; `S_FLOORED`, `\| ρ_FLOORED` on 3 and 5 | yes; 2·10⁻¹⁵ / 6.7·10⁻¹⁰; `S_CEILED`, `\| ρ_CEILED` on 17 and 9 |
+
+Step 1's `τ_max` stopped 8% (hydro) and 11% (MHD) of the inputs aimed at the
+hot branch, writing `ρ_ceiling` for states the table represents. In the
+tubes (`bin/endpoint_measure.jl tubes`) every endpoint solve converged — 584
+diagnoses in the cut-off tube, 1042 at `Bʸ = 10⁻²`, 875 and 1318 in the
+ideal atmosphere under SSP3 and ARS — and no diagnosis flipped with the
+longer solve. The endpoint solves that missed the tolerance on the table
+all sat at the residual's floating-point floor (`|f₁|/cosh w ≤ 8 tol`, 93
+of 166 out of iterations with the bracket already collapsed, the rest
+collapsed earlier): the guards accept a bracket collapsed around a sign
+change as a root.
+
+*The formulation chosen*, the edge solve: one root find gives the diagnosis
+and the projection at the same density, the momentum to the solver's
+tolerance, `s` exactly at the edge, in 20–30 evaluations, where the fixed
+point needs 4 (cold) to 17 (hot) full solves for the same answer; the
+first emulation, at `sr_ref`'s ceiling, missed the momentum by up to 5.6%.
+Erik's decisions are in the request: the density clamped and reported in
+the hot branch as in the cold one, never the atmosphere (Q3 (b)); flags
+that describe the returned state both ways, the atmosphere replacing a
+state carrying only `ATMOSPHERE` and its cause (Q4); `check_con_state`
+sharing the diagnosis (Q5); step 1 on `D_max` only, the `D_max` collapse
+reporting `ρ_CEILED` (Q6 (a)).
+
+*Measured in the tubes* (48 perturbed runs each; the recovery wrapper's
+atmosphere at rest on in every column; blow-ups; largest `W` median/max;
+fallbacks; injected rest mass; two runs 10⁻¹⁵ apart):
+
+| | option on, 1.1.0 (470e8d9) | **option off, EOS-9 as rewritten** | option off, first EOS-9 emulation | option off, 1.1.0 (control) |
+|---|---|---|---|---|
+| uniform | 0/48; 4.8; 0; −1.2e−8; 1.6e−13 | same; 4.4e−14 | same; 1.6e−13 | same |
+| refined, primitive fill | 0/48; 5.0; 0; −1.4e−8; 7.6e−13 | same; 2.4e−12 | same | same |
+| refined, conserved fill | 0/48; 5.0; 0; −1.4e−8; 2.9e−13 | same; 1.6e−13 | same | same |
+| hydrodynamic tube (3 meshes) | −8.4e−12, −1.6e−11, −1.5e−11 | bit for bit | bit for bit | bit for bit |
+| ARS(4,4,3) | 0/48; 7.0; 23; −1.2e−8 | same | same | same |
+| `Bʸ = 10⁻²` | 0/48; 16; 1; −8.5e−9 | same (8928 hot projections, all floored and capped) | same | **48/48** |
+| ideal, SSP3 | 0/48; 4.8; 0; −6.6e−9 | 0/48; 4.8; 0; −6.7e−9 (8976, 8448 floored) | same | **48/48** |
+| ideal, ARS | 0/48; 4.3; 0; +5.6e−8 | 0/48; 4.3; 0; −4.5e−9 (17,856, 17,040 floored) | same | **48/48** |
+| 400 cells; `μ_max = 30` | 0/48; 5.6; 0 — 0/48; 4.8; 0 | same | same | same |
+| step 3's sweep without the cutoff: fallbacks Γ = 4/3, 5/3, 2 | 36, 78, 103 | **33, 74, 90**; the kernel test 48 of 48 at `Float64` and `Float32` (47) | 33, 74, 90 | 36, 78, 103 |
+| step 3's sweep with the cutoff | 0 at `f ≤ 0.3`; 1 at Γ = 5/3 and 2, `f = 1` | same | same | same |
+| suite (Julia 1.13, one thread) | 25876 pass | **25940 pass** (with this branch's tightened recovery test) | 25876 pass | 3 fail: the ideal magnetized atmosphere blows up |
+
+In the cut-off tube, at 400 cells, at `μ_max = 30` and under ARS the hot
+branch never fires: there the option was already idle. Where it fires, the
+rewritten projection floors the density (the cell's `D/cosh w` lies below
+`ρ_atm` nearly always) and reports it; this package's wrapper then writes
+the atmosphere at rest — the same states the first emulation sent to the
+atmosphere inside EntropyEOS, so the tubes' numbers agree to the digits
+printed, but the decision is now ours. On this branch the plain suite
+(without the emulation) fails those three assertions: it is an experiment,
+and EOS-9 is what it waits for.
+
+**Investigation (2026-10-16)** *(branch `claude/front-investigation`, not a
+PLAN.md step; `bin/front_investigation.jl`, and the 2026-10-17 sweep's
+`bin/policy_variants.jl`, removed 2026-10-21 with the decision above —
+commit ec4f044 has it; nothing in `src/` changed until the decision)*: why the magnetized
+atmosphere tube (rung 1b; `Bʸ = 10⁻³`, `Constant(10³)` cut off at
+`μ_max = 10`, 200 cells, SSP3(4,3,3)) is chaotic at rounding level, with
+`W` spiking to 30–100 at the front and fallbacks there, while the
+hydrodynamic tube is not. The harness is `bin/ghost_robustness.jl`'s (its
+48 perturbed initial states, and its numbers to every digit for the
+baseline).
+
+- **The first cause: the field's truncation error lands in the fluid's
+  share.** `τ` and `S_i` are totals and the recovery subtracts
+  `½(E² + B²)` and `ε E × B` of the cell's own `E` and `B`; the scheme does
+  not conserve the quadratic field energy of cell values, so the
+  numerical dissipation of `E` and `B` becomes fluid energy and momentum —
+  as kinetic energy dissipated by a total-energy hydro scheme becomes
+  heat. For a field moving with the front the deposit is nearly null
+  (`δτ ≈ |δS|`), and where the fluid's own energy is small against the
+  field's it *is* the fluid's share. Ahead of the dense front the
+  light-cone HLLE flux leaves cells a little above the atmosphere trigger
+  (`D ≈ 2–50 ρ_atm`) inside the electrovacuum (`μ = B²/D ≈ 30–500`,
+  `σ = 0`) where the front piles up its field (`Bʸ` to 7·10⁻³,
+  `Eᶻ ≈ −vBʸ`). Over the unperturbed run's 1894 such cell-steps
+  (`1.02 ρ_atm < D < 10⁻⁴`) the share's `|S_f|/(τ_f + D)` has median 0.979
+  (max 0.9999) and `s` median 38.9, up to the window's ceiling 40 (456
+  `S_CEILED` writes), `e_em/τ_f` median 2.0, max 8.7·10⁴; the hydrodynamic
+  tube has 370 such cell-steps at median 0.818 and `s ≤ 36.4`. The
+  mechanism alone: `em_wave_case` (`σ = 0`, whose exact solution leaves the
+  fluid at rest) with `½b² = 5·10⁻⁷` over a gas at `ρ = 10⁻⁷`, `s = 1`:
+  after one period at 50 cells `s` is at the window's ceiling (3/2)
+  everywhere and `|vˣ|` reaches 0.25 (200 cells: 1.1·10⁻³, `s` ≥ 1.28; 800
+  cells: 7·10⁻⁵, `s` ≥ 1.18); at `ρ = 10⁻³` `vˣ ≤ 6·10⁻⁶`, at `ρ = 1`
+  10⁻⁹.
+- **What turns it into spikes, mass and chaos: EntropyEOS's repairs of an
+  inadmissible share.** (a) `τ` below the coldest state at the momentum
+  (`S_FLOORED`, the share crossed the light cone): the policy keeps the
+  momentum at `s_min` and clamps `ρ = D/cosh w` *up* to `ρ_atm`, so the
+  written state has `W = |S_f|/ρ_atm` (to the cap) and `D = ρ_atm W`.
+  The `W` spikes are these states and their next steps (`D/W ≈ ρ_atm`; 23
+  of the unperturbed run's 34 cell-steps with `W > 20` are that step's
+  write), and its 115 `S_FLOORED` writes inject `+4.8·10⁻⁸` of rest mass
+  and `+1.8·10⁻⁶` of energy, more than the run's total (`4.5·10⁻⁸`,
+  `1.1·10⁻⁶`; the atmosphere and entropy-ceiling writes take some back).
+  The same state 1% lower in `D` is reset to the atmosphere at rest.
+  (b) `τ` above the hottest state with the solve failed: the policy
+  diagnoses a collapse and writes `ρ_ceiling = 10⁶` — every blow-up traced
+  (`D ≈ 5·10³ = 10⁶ h`), e.g. at `D = 2.3·10⁻⁸`, `τ_f = 3.9·10⁻⁶`,
+  `e_em = 8.6·10⁻⁵`, an advected `s` of −4.7.
+- **The chaos is numerical, one discrete switch.** Two runs 10⁻¹⁵ apart
+  agree to 10⁻¹² for 32 steps (rounding growth, nothing exponential);
+  at step 33 (`t = 0.066`) the stage-4 predictor of the cell at
+  `x = 0.0675` is below the trigger in one run and `S_FLOORED` in the
+  other; one run writes the atmosphere, the other `W = 7.2` and seven
+  times the mass, and the relative difference of `D` jumps from 1.1·10⁻¹²
+  to 0.86 in that step. The front's foot then differs at O(1) for the rest
+  of the run (`bin/front_investigation.jl diverge`).
+- **The fallbacks are a symptom.** All 100 of the unperturbed run are
+  taper cells beside that foot, `μ ∈ [6.9, 10]`, at
+  `f = |E★ + v × B|/|B| ∈ [0.71, 0.96]` — beyond step 3's sweep — every one
+  with repaired iterates; scanning `u = Wvˣ` (W ≤ 200), none has an
+  admissible root (7 have no admissible share at any velocity, 93 have
+  admissible shares and no root): the stage has no solution, and the
+  lagged velocity is the right answer. Re-solved under B + hot they still
+  fall back; they do not arise once (a) is consistent.
+- **Not the cause:** the `q v` current (`q = ∇·E ≡ 0` here, `E = Eᶻ(x)`;
+  removing it changes nothing, bit for bit); the ghost fill (the uniform
+  mesh too); resolution (400 cells: 2/48 blow-ups, fallbacks 0 / 197 /
+  547).
+
+Controls, uniform mesh, 48 runs each, the released policy (blow-ups;
+largest `W` min / median / max; fallbacks):
+
+| control | blow-ups | max `W` | fallbacks | chaotic |
+|---|---|---|---|---|
+| the tube (baseline) | 0/48 (0–7.4%) | 29.8 / 81.8 / 100 | 0 / 26 / 238 | yes |
+| `Vacuum` everywhere | 0/48 | 4.94 | 0 | no: the hydrodynamic tube to every digit (no current, no pulse) |
+| `Bʸ = 0` under the cutoff | 0/48 | 4.94 | 325* | no |
+| `IdealConductor` | 0/48 | 18.6 | 0 | no |
+| `Bʸ = 10⁻⁴` | 0/48 | 4.9 | 366* | no |
+| `Bʸ = 10⁻²` | 47/48 | 100 | 0 | — |
+| `ρ_atm = 10⁻⁶` / `10⁻⁴` | 0/48 | 4.8 / 3.9 | 367* / 580* | no |
+| `μ_max = 30` / `100` | 0/48 | 19.9 / 32 / 100; 15 / 21 / 37 | 6 / 34 / 244; 325* … 344 | yes |
+| ARS(4,4,3) | 15/48 (20–45%) | 75 / 100 / 100 | 14 / 42 / 358 | yes |
+| ideal, ARS(4,4,3) | 48/48 | — | — | — |
+
+\* Atmosphere predictors where σ > 0: a predictor below the trigger is
+repaired, its share never equals the totals', and the stage cannot
+converge (all 325 at `Bʸ = 0`, where `E★ = 0` and the fallback's `E` is
+`E★`: harmless, but counted). Where `B²/ρ_atm < μ_max/10` the atmosphere
+conducts under the cutoff. A predictor in the atmosphere could take
+`OHM_SIGMA_ZERO` (proposed, for Erik).
+
+Candidates (48 runs each; uniform; refined `[0, 0.2)` with this tree's
+parent-centred primitive fill; refined with the conserved bounded fill,
+`git archive 7605986`): blow-ups, injected `D` (median; one value where all
+48 agree to the digits printed), fallbacks (median / max), largest `W`
+(median / max), and what the hydrodynamic tube does:
+
+| candidate | uniform | refined, primitive fill | refined, conserved fill | hydrodynamic tube |
+|---|---|---|---|---|
+| baseline | 0/48; 3.9e−8; 26 / 238; 82 / 100 | 0/48; 3.6e−8; 72 / 279; 92 / 100 | 3/48; 3.4e−8; 49 / 425; 87 / 100 | — |
+| B + hot (EOS-5 as first proposed; withdrawn, see below) | 0/48; **−1.2e−8**; 0; **4.8** | 0/48; −1.4e−8; 0; 5.0 | 0/48; −1.4e−8; 0; 5.0 | bit for bit |
+| Breset + coll (B in our reset, `collapse_to_atmosphere`) | as B + hot | as B + hot | as B + hot (2026-10-17) | bit for bit |
+| `collapse_to_atmosphere` alone | as baseline | as baseline | 0/48, else as baseline | bit for bit |
+| `w_cap` at `W = 10` | 0/48; 1.7e−8 (1.3 … 2.0); 0; 10 | 0/48; 1.3e−8; 0 / 1; 10 | **13/48**; 1.2e−8; 0 / 1; 10 | bit for bit |
+| `atm_trigger = 10` | 0/48; −1.1e−8; 0; 4.8 | 0/48; −1.4e−8; 0; 4.9 | 0/48; −1.3e−8; 0; 5.0 | moves: −1.2e−8, `W` 4.87 |
+| magnetization ceiling `B²/D ≤ 100` (mass added at rest) | 0/48; +7.8e−8; 0; 5.9 | 0/48; +1.2e−7; 0; 19.3 / 19.5 | 0/48; +1.2e−7; 0; 18.8 | bit for bit |
+| the atmosphere where `B²/D > μ_max` | 0/48; −1.1e−8; 0; 4.8 | 0/48; **−3.0e−7**; 0; 4.9 | 0/48; **−4.6e−7**; 0; 4.9 | bit for bit |
+| fixed-`s` recovery where `e_em > τ_f` (EOS-3's route) | 0/48; −1.2e−8; 0; 4.8 | 0/48; −1.4e−8; 0; 5.0 | 0/48; −1.4e−8; 0; 5.0 | bit for bit |
+
+(A ceiling at `B²/D ≤ 10 = μ_max` went non-finite in every run; not
+pursued.) Every row but the baseline,
+`collapse_to_atmosphere` alone and the `W` cap is the same run in all 48
+perturbations: two runs 10⁻¹⁵ apart differ by 1.6·10⁻¹³ (uniform),
+7.6·10⁻¹³ (refined) and 2.9·10⁻¹³ (conserved) of `D` under B + hot — and by
+0.8, 4.2 and 3.7 times `D` (relative, in a cell of the foot) under the
+released policy; 1.4·10⁻¹⁰ under the ceiling.
+
+**EOS-5, as first proposed here, is withdrawn** (Erik, 2026-10-17): its
+criterion, "no policy repair creates rest mass" (`D_out ≤ D_in`),
+contradicts EntropyEOS's design — a well-defined range of allowed states,
+inside which `con2prim`/`prim2con` always succeed, with every state
+outside projected back into it, very low densities raised back to the
+atmosphere — and broke it itself for `D_in < ρ_atm`. The criterion
+consistent with that design is `D_out ≤ max(D_in, D_atm)`. The defect is
+narrower: the `S_FLOORED` branch raises `ρ` to `ρ_atm` but keeps the
+near-light-like rapidity `w₁`, writing `(ρ_atm, W ≈ |S|/ρ_atm)` at the
+edge of the valid range. Its two parts stay as notes in PLAN.md's EOS-5;
+the first part is variant B below (EOS-6); the second is "hot". The
+2026-10-16 measurements under that emulation are the rows "B + hot"
+below (identical code), and the suite's verdict on it (one failure, the
+ARS row of the ideal magnetized atmosphere) stands.
+
+**The sweep of 2026-10-17** *(Erik's variants; proposed reading below,
+Erik decides)*. `bin/policy_variants.jl` emulates every variant in-process
+— it redefines `EntropyEOS.default_policy` and `con2prim_safe`, so it
+reaches every recovery: the right-hand side's, the stage solve's
+predictor and iterates, the reset's — and `bin/front_investigation.jl
+matrix MESH VARIANT` runs it (the conserved fill from `git archive
+7605986` with both files copied in). The variants:
+- **A`k`**: `atm_trigger = k` (EntropyEOS's existing over-correcting
+  reset: the atmosphere where `D < k ρ_atm`; default 1.01);
+- **B**: where the `S_FLOORED` branch would raise the density to `ρ_atm`,
+  the atmosphere at rest (EOS-6) — in-process; **Breset**: the same in
+  our reset only (a repair holding more rest mass than the cell is
+  written as the atmosphere), which does not reach the stage solve;
+- **C**: the entropy reset in the atmosphere — a state whose density,
+  after the policy's projection, lies in the band `ρ < atm_trigger ρ_atm`
+  takes the atmosphere's entropy, and `s_atm` is set cold (the window's
+  floor). Today EntropyEOS's `default_policy` leaves `s_atm = NaN`, which
+  `policy_atmosphere` takes as the *middle* of the physical window (20.5
+  of the shock gas's 1 … 40, not cold); every atmosphere write already
+  sets `s` (and `D s`) to it, so advected hot entropy survives only in
+  cells above the trigger, and the `S_FLOORED` branch writes `s_min`;
+- **coll**: `collapse_to_atmosphere = true` (an existing option);
+  **hot**: "τ above the hottest state" goes to `s_max` with `D` kept.
+
+Per mesh (48 runs; uniform; refined `[0, 0.2)` with the parent-centred
+primitive fill; refined with the conserved bounded fill), each cell:
+blow-ups (95% Wilson where not 0/48) · fallbacks median / max · largest `W`
+median / max · injected `D` and `τ` (the reset's net writes over the run)
+median / max · how far two runs 10⁻¹⁵ apart drift (largest relative `D`
+difference at `t = 0.4`) · the reset's step-limiter writes per run
+(median). One value where all 48 agree to the digits printed.
+
+| variant | change needed | uniform | refined, primitive fill | refined, conserved fill | hydrodynamic tube | suite (25405 tests) |
+|---|---|---|---|---|---|---|
+| released (A1.01) | — | 0/48 · 26/238 · 82/100 · 3.9e−8/7.6e−8, 8.5e−7/3.5e−6 · **0.8** · 10876 | 0/48 · 72/279 · 92/100 · 3.6e−8/5.1e−8, 1.3e−7/1.3e−6 · **4.2** · 25696 | **3/48** (2.1–17%) · 49/425 · 87/100 · 3.4e−8/5.6e−8, 8.6e−8/1.7e−6 · **3.7** · 25877 | `D` −8.4e−12, `W` 4.936, 11686 writes (refined −1.6e−11, 5.104; conserved −1.5e−11, 5.116) | pass |
+| A2 | option | 0/48 · 0/1 · 22/61 · 7.8e−9/1.4e−8, −5.0e−7/−1.7e−7 · 0.82 · 11984 | 0/48 · 0/33 · 24/100 · −3.2e−9/3.0e−9, −1.4e−6/−8.4e−7 · 8.9e−3 · 27976 | 3/48 (2.1–17%) · 0/20 · 26/100 · −3.0e−9/8.2e−9, −1.4e−6/−5.9e−7 · 7.3e−4 · 28080 | moves: −2.7e−9, `W` 4.856 (refined −9.5e−9) | 3 fail: the SSP3 ideal magnetized atmosphere **blows up** (4.6e3); the two coarse-fine atmosphere assertions |
+| A2.5 | option | 0/48 · 0/0 · 12/100 · −5.6e−9/1.1e−8, −6.8e−7/4.6e−7 · 4.5 · 12022 | — | — | moves: −8.1e−9, `W` 4.865 | — |
+| **A3** (= A5 = A10 = A20, every digit) | option | 0/48 · 0 · 4.8 · −1.1e−8, −7.3e−7 · 4.7e−14 · 12031 | 0/48 · 0 · 4.9 · −1.4e−8, −1.5e−6 · 2.8e−13 · 28036 | 0/48 · 0 · 5.0 · −1.3e−8, −1.5e−6 · 8.1e−14 · 28143 | **moves**: −1.17e−8, `τ` −4.1e−8, `W` 4.869, 12031 writes (refined −1.41e−8, 5.048; conserved −1.40e−8, 5.046) | 3 fail: the ARS ideal row (5.1e−9, not ≥ 1); the coarse-fine hydrodynamic injection (−1.4e−8, not ≤ 1e−10); the width-4 control (`τ` −7.2e−8, not ≥ 1e−5) |
+| B | EntropyEOS (EOS-6) | 0/48 · 0 · 4.8 · −1.2e−8, −7.4e−7 · 1.6e−13 · 12010 | 0/48 · 0 · 5.0 · −1.4e−8, −1.5e−6 · 7.6e−13 · 27973 | 0/48 · 0 · 5.0 · −1.4e−8, −1.5e−6 · 2.9e−13 · 28057 | bit for bit | 1 fail: the SSP3 ideal magnetized atmosphere **blows up** (1.1e4) |
+| Breset | our reset | as B, every digit | as B | as B | bit for bit | 1 fail: as B (9.6e3) |
+| **B + coll** | EOS-6 + option | as B | as B | as B | bit for bit | 1 fail: the ARS ideal row (5.6e−8) |
+| **Breset + coll** | our reset + option | as B | as B | as B | bit for bit | 1 fail: the ARS ideal row (4.9e−8) |
+| B + hot (2026-10-16's EOS-5) | EntropyEOS | as B | as B | as B | bit for bit | 1 fail: the ARS ideal row (−4.5e−9) |
+| C | EntropyEOS (EOS-7) + option | 0/48 · 17/188 · 100/100 · 4.2e−8/6.9e−8, 1.2e−6/3.4e−6 · 0.85 · 10882 | 1/48 (0.4–11%) · 71/479 · 100/100 · 3.7e−8/5.7e−8, 1.8e−7/1.9e−6 · 0.78 · 25848 | **5/48** (4.5–22%) · 91/300 · 100/100 · 3.5e−8/6.4e−8, 9.9e−8/6.3e−6 · 3.8 · 25968 | the colder initial atmosphere: −8.3496e−12, `W` 4.9356869 | 1 fail: the width-4 control (`τ` −2.5e−10) |
+| B + C | EOS-6, EOS-7 + option | 0/48 · 0 · 4.8 · −1.2e−8, −7.4e−7 · 1.4e−13 · 12000 | 0/48 · 0 · 5.0 · −1.4e−8, −1.5e−6 · 9.0e−13 · 28000 | 0/48 · 0 · 5.0 · −1.4e−8, −1.5e−6 · 6.9e−14 · 28077 | as C | 2 fail: B's and C's |
+| A3 + C | option + EOS-7 | 0/48 · 0 · 4.8 · −1.1e−8, −7.3e−7 · 1.8e−13 · 12031 | 0/48 · 0 · 4.9 · −1.3e−8, −1.5e−6 · 8.3e−13 · 28037 | 0/48 · 0 · 5.0 · −1.3e−8, −1.5e−6 · 7.1e−14 · 28143 | as A3, to 8 digits | 3 fail: as A3 |
+| A2 + B | option + EOS-6 | 0/48 · 0 · 4.8 · −1.2e−8, −7.3e−7 · 1.3e−13 · 12031 | 0/48 · 0 · 4.9 · −1.4e−8, −1.5e−6 · 1.1e−12 · 28033 | 0/48 · 0 · 5.0 · −1.4e−8, −1.5e−6 · 1.5e−13 · 28138 | as A2 | — |
+
+Beyond the tube (uniform, 48 runs each: blow-ups; largest `W` median /
+max; every entry deterministic but the released policy's and A3's under
+ARS):
+
+| variant | ARS(4,4,3) | `Bʸ = 10⁻²` | ideal, SSP3 | ideal, ARS | 400 cells | `μ_max = 30` |
+|---|---|---|---|---|---|---|
+| released | 15/48; 100/100 | 47/48 | 0/48; 18.6 | 48/48 | 2/48; 100/100 | 0/48; 32/100 (chaotic) |
+| A2 | — | — | **48/48** | — | — | — |
+| A3 | **1/48** (0.4–11%); 100/100, chaotic | 0/48; 16 | 0/48; 4.0 | 0/48; 100/100 | 0/48; 5.6 | 0/48; 4.8 |
+| B, B + C | 0/48; 7.0 (7.8) | **48/48** | **48/48** | **48/48** | 0/48; 5.6 | 0/48; 4.8 |
+| Breset | — | — | **48/48** | **48/48** | — | — |
+| B + coll | 0/48; 7.0 | 0/48; 16 | 0/48; 4.8 | 0/48; 4.3 | 0/48; 5.6 | — |
+| Breset + coll | 0/48; 7.0 | 0/48; 16 | 0/48; 5.5 | 0/48; **53** | 0/48; 5.6 | — |
+| B + hot | 0/48; 7.0 | 0/48; 16 | 0/48; 4.8 | 0/48; 4.3 | 0/48; 5.6 | 0/48; 4.8 |
+| A3 + C | 2/48; 68/100 | 0/48; 16 | 0/48; 4.0 | 0/48; 100/100 | 0/48; 5.6 | 0/48; 4.8 |
+
+What else moves in the suite (Julia 1.13, one thread; the released
+policy through the emulation reproduces every printed number): under
+every variant with a working reset the magnetized tube (`W` 6.63 → 4.76
+… 4.80, fallbacks 92 → 0, injected rest mass `5.0·10⁻⁸` → `−1.1 …
+−1.2·10⁻⁸`) and its coarse-fine run; the ARS rarefaction's floor
+(2.7·10⁻¹⁰ → 1.0·10⁻¹⁰ under B and A5, 2.2·10⁻¹⁰ under A10, unchanged
+under A3); SSP3's ideal magnetized atmosphere (1.56·10⁻⁹ → about
+−6.7·10⁻⁹, `W` 4.83 → 4.0); under A`k` the hydrodynamic tube and its
+coarse-fine run. Step 3's sweep moves only where the collapse branch is
+changed: under hot (fallbacks without the cutoff 36, 78, 103 → 33, 74,
+90; the `Float64` kernel test 47 → 48 of 48) and under coll (35, 69, 92,
+and in the cutoff sweep at `μ_max = 10` the row `Γ = 2`, `f = 1` from 1
+to 4 fallbacks; *corrected 2026-10-21*, this said `Γ = 4/3`, 0 → 4 — every
+row `f ≤ 0.3` stays at none under both).
+
+**Reading** *(proposed, for Erik; decided 2026-10-21 as B + coll, with B
+in this package's recovery wrapper on EntropyEOS's new flag — above)*:
+- **The smallest trigger that works is 3.** A2 and A2.5 keep the chaos
+  (two runs drift 0.8 and 4.5 times `D` apart on the uniform mesh, `W` to
+  100) and A2 blows up the ideal magnetized atmosphere; A3, A5, A10 and
+  A20 are the same run to every digit printed, deterministic on all three
+  meshes, `W ≤ 5`, no fallback, and hold at 400 cells, `Bʸ = 10⁻²`,
+  `μ_max = 30` and under ideal SSP3. It works by resetting the HLLE
+  precursor before it builds up (a cell next to a reset one never reaches
+  `3 ρ_atm` in one step here), not by touching the defect — a margin
+  between 2.5 and 3 that depends on the flux and the step. It needs no
+  change but the cases' policy, but it moves the hydrodynamic tube
+  (−1.2·10⁻⁸ … −1.4·10⁻⁸ of rest mass, 3% more writes), fails three
+  assertions written for the released policy, and leaves ARS chaotic
+  (1/48 blow-ups; the ideal atmosphere at `W = 100`).
+- **B is the defect's own fix** and leaves the hydrodynamic tube and
+  every result without a magnetized atmosphere bit for bit — but **not on
+  its own**: the collapse branch then fires (the ideal magnetized
+  atmosphere and `Bʸ = 10⁻²` blow up in 48 of 48 runs), so it needs
+  `collapse_to_atmosphere` (an existing option) or hot. **B + coll** is
+  clean in every case measured, ARS included, deterministic everywhere,
+  and fails only the ARS row of the ideal atmosphere — which every working
+  variant fails, since that row was this policy artefact.
+  **Breset + coll** needs no upstream change and is the in-process form
+  to every digit on the tube on all three meshes and in the suite, but it
+  does not reach the stage solve: the ideal atmosphere under ARS reaches
+  `W = 53` (4.3 in-process).
+- **C does nothing** for the tube on its own (0, 1 and 5 of 48 blow-ups,
+  `W` at the cap) nor on top of A3 or B: the precursor's trouble is its
+  momentum, not its entropy.
+- So: **Breset + coll now** (TreeGRRMHD-side, the existing option in the
+  cases' policy, no upstream wait), with EOS-6 upstream if Erik agrees that
+  a density raised to the atmosphere's should take the atmosphere's
+  velocity; hot instead of coll if the cutoff sweep's 4 fallbacks matter.
+  A3 if Erik prefers EntropyEOS's existing reset and accepts the moved
+  hydrodynamic tube. Either way the ARS assertion (`ars.t.injected_D ≥ 1`)
+  and, under A3, the two coarse-fine atmosphere assertions are Erik's to
+  restate.
+
+Step 3's pointwise sweep need not be extended to decide this: the front's
+fallbacks have no admissible root, and a sweep built backwards from known
+solutions cannot contain them; nor does the safe `μ_max` depend on them.
+It could add (proposed) a class of predictors whose fluid share is
+near-null and at the entropy ceiling in the taper band, asserting a
+finite, flagged fallback — what the front produced.
 
 ## Time integration
 
@@ -1063,13 +2436,27 @@ the density positive and the reset idle while ARS(4,4,3)'s does not:
   (3 and 2 cells, injecting `2.8·10⁻³` and `0.22` of energy) where
   SSP3(4,3,3) fires none;
 - into a near vacuum its explicit part undershoots: a rarefaction into a
-  medium at `10⁻⁸` reaches `2.1·10⁻¹⁰` (the reset writes 114 cells) where
-  SSP3(4,3,3) never goes below the medium, and in the magnetized ideal
-  atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) the undershoots, repaired where
-  the field's energy dwarfs the fluid's, inject `2.6·10⁴` of rest mass
-  into a box that holds 0.5, and the flow runs away to `W = 49`;
-- with the magnetization cutoff it takes 7 fallbacks and 33 recoveries in a
-  stage, SSP3(4,3,3) none and 6;
+  medium at `10⁻⁸` reaches the atmosphere, `10⁻¹⁰` (the reset writes 110
+  cells as the step limiter), where SSP3(4,3,3) never goes below the medium,
+  and the hydrodynamic atmosphere tube injects `1.2·10⁻⁹` of rest mass
+  against SSP3(4,3,3)'s `−8.4·10⁻¹²`;
+- *(amended 2026-10-22, decided by Erik: the decision stands)* in the
+  magnetized ideal atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) ARS(4,4,3) was
+  recorded injecting `2.6·10⁴` of rest mass into a box that holds 0.5 and
+  running away to `W = 49`. That was EntropyEOS's repairs, not ARS: the
+  entropy-floor branch wrote `ρ_atm` at `W ≈ |S|/ρ_atm`, the collapse
+  branch `ρ_ceiling` ("Floors, the atmosphere and the magnetosphere"). With
+  a floored recovery put at rest and the tube's `collapse_to_atmosphere`
+  (2026-10-21) neither tableau runs away there — ARS injects `5.6·10⁻⁸` and
+  ends at `W = 4.1`, SSP3(4,3,3) `−6.6·10⁻⁹` and 4.0 — and the row no
+  longer argues either way. The others still do, and the default stands on
+  them: Balsara 4's accuracy and plateau, the resets on Balsara 3 and 4,
+  the hydrodynamic rarefaction's undershoot to the atmosphere and the
+  hydrodynamic tube's injection, the cut-off tube's stages (below), and the
+  cost;
+- with the magnetization cutoff it takes 23 fallbacks and 33 recoveries in
+  a stage, SSP3(4,3,3) none and 6 (both now deterministic; before
+  2026-10-21: 7 and 33 against none and 6 in step 6's draw);
 - it costs 10–17% more wall time.
 
 SSP3(4,3,3)'s price is the one step 5 measured: each step's stored `𝔈` is
@@ -1104,10 +2491,25 @@ either side, as a fraction of its total range):
 | resistive tube, L1(`𝔅ʸ` − ideal) at σ = 0, 10, 10², 10³, 10⁶ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ | 0.392, 0.202, 0.0611, 0.0134, 1.729·10⁻⁵ |
 | resistive tube, stages fixed point / Newton at σ = 10² | 94,930 / 65,070 | 39,867 / 120,133 |
 | current sheet to `t = 9`, L1 to the erf profile; wall | 9.30·10⁻⁴; 5.6 s | 9.30·10⁻⁴; 6.4 s |
-| rarefaction into `10⁻⁸` (atmosphere `10⁻¹⁰`): min ρ; resets | 1.0·10⁻⁸; 0/0 | 2.1·10⁻¹⁰; 152/114 |
-| atmosphere tube, `B = 0`: injected `D`, `τ` | −8.4·10⁻¹², −2.2·10⁻¹⁰ | 2.4·10⁻⁹, 1.2·10⁻⁸ |
-| atmosphere tube, ideal, `Bʸ = 10⁻³`: injected `D`, `τ`; max W | 1.6·10⁻⁹, −2.5·10⁻⁷; 4.83 | 2.6·10⁴, 5.3·10¹³; 48.9 |
-| atmosphere tube, `Constant(10³)` cut off at `μ_max = 10`: injected `D`, `τ`; fallbacks; most recoveries | 2.5·10⁻⁸, 6.9·10⁻⁸; 0; 6 | 4.6·10⁻⁸, 1.5·10⁻⁶; 7; 33 |
+| rarefaction into `10⁻⁸` (atmosphere `10⁻¹⁰`): min ρ; resets stage/step | 1.0·10⁻⁸; 0/0 | 1.0·10⁻¹⁰; 131/110 (before 2026-10-21: 2.1·10⁻¹⁰; 152/114 in step 6, 2.7·10⁻¹⁰; 161/118 since step 8) |
+| atmosphere tube, `B = 0`: injected `D`, `τ` | −8.4·10⁻¹², −2.2·10⁻¹⁰ | 1.2·10⁻⁹, 6.0·10⁻⁹ (before 2026-10-21: 2.4·10⁻⁹, 1.2·10⁻⁸) |
+| atmosphere tube, ideal, `Bʸ = 10⁻³`: injected `D`, `τ`; max W at the end | −6.6·10⁻⁹, −1.7·10⁻⁵; 4.01 (before 2026-10-21: 1.6·10⁻⁹, −2.5·10⁻⁷; 4.83) | 5.6·10⁻⁸, −2.4·10⁻⁵; 4.11 (before 2026-10-21: 2.6·10⁴, 5.3·10¹³; 48.9 in step 6, 1.6·10⁴, 2.7·10¹³; 100 since step 8 — the policy artefact) |
+| atmosphere tube, `Constant(10³)` cut off at `μ_max = 10`: injected `D`, `τ`; fallbacks; most recoveries | −1.2·10⁻⁸, −7.4·10⁻⁷; 0; 6 (before 2026-10-21: 2.5·10⁻⁸, 6.9·10⁻⁸; 0; 6 in step 6, 5.0·10⁻⁸, 1.7·10⁻⁶; 92; 33 since step 8 — chaotic) | −1.2·10⁻⁸, −7.9·10⁻⁷; 23; 33 (before 2026-10-21: 4.6·10⁻⁸, 1.5·10⁻⁶; 7; 33 in step 6, 6.8·10³, 2.4·10¹³; 725; 33 on the step-8 tree — chaotic) |
+
+*(Re-measured 2026-10-22, `bin/tableau_comparison.jl atmosphere`, with the
+atmosphere-at-rest recovery and EntropyEOS 1.1.0: the four atmosphere
+rows; the "before" values are step 6's and, where they differ, the tree
+just before 2026-10-21's decision, measured the same day. Re-run in full
+the same day, every Balsara and resistive number is the table's to the
+digits shown, and the current sheet's distance reads 9.559·10⁻⁴ and
+9.560·10⁻⁴ (SSP3, ARS), as it has since step 8's walls — rung 1b — and
+untouched by the recovery; the wall times are within the load's noise.)*
+*(Re-measured 2026-10-24, EntropyEOS 2.0, on Symmetry: SSP3's rows as
+above; ARS's atmosphere rows and Balsara 3 move — the hydrodynamic tube
+injects `4.4·10⁻⁷`, the ideal one `−2.0·10⁻⁹` at `W` 4.13, the cut-off one
+`5.6·10⁻⁶` with 22 fallbacks, the rarefaction `1.5·10⁻⁶` with resets
+133/116 — "Floors, the atmosphere and the magnetosphere", "EntropyEOS
+2.0". The decision for SSP3(4,3,3) stands on more, not less.)*
 
 *As built in step 5* (`src/driver.jl`): `evolve!(T, case, Val(D); N,
 t_end, chunk, cfl, limiter, …)` builds the forest of `case.roots` blocks of
@@ -1292,6 +2694,27 @@ stage equation then requires. On `σΔt ∈ 10^{−3…8}` × `b²/ρ ∈ 10^{�
 - 200 inadmissible predictors (the share at `E★` below the coldest state):
   all finite, and where converged the residual is 1.9e−13.
 
+*(Re-measured 2026-10-24, EntropyEOS 2.0; Symmetry, the same numbers on
+the laptop:)* the fallback takes **49, 125 and 150** points (Γ = 4/3, 5/3,
+2; at most 5.8%), still only at `b²/ρ ≥ 10` and `σΔt ≤ 10²`, and **2, 8
+and 4** of them where the ideal seed was a fluid state (1.1: 0, 1, 0);
+another root 4, 3 and 1; the fixed point 1247, 972, 907 points, Newton
+1296, 1495, 1535; residuals unchanged (3.3e−16, 1.5e−12). 168 points fall
+back under 2.0 and not 1.1, 61 the other way. At the fallback points
+1.1's predictor was `S_FLOORED` (with `W_CAPPED`) and its ideal seed the
+collapse (`CEILING`) or `S_CEILED`; 2.0's predictor is `S_FLOORED` (with
+`W_CEILED`) and its ideal seed `S_CEILED` (with `W_CEILED`): the same
+faces, but 2.0's keep the momentum and move the energy where 1.1's kept
+the rapidity (or collapsed to the density ceiling), so the repaired seeds
+and iterates Newton starts from are other states. The magnetization
+cutoff's sweep, which is what the scheme runs, is unchanged: no fallback
+at `f ≤ 0.3`, one each at `f = 1` for Γ = 5/3 and 2; the kernel test
+converges 46 of 48 cells at `Float32` (47 under 1.1), 48 at `Float64`.
+`test/stage_solve_tests.jl`'s bound on the seeded fallbacks moved from 3
+to 12 for this (a margin of 1.5), the only assertion of the sweep that
+moved. *(Decided by Erik 2026-10-24:)* the bound of 12 is approved, for
+the uncut sweep only; the cutoff sweep the scheme runs is unchanged.
+
 Cost (measured in step 3, Julia 1.13, Apple M3 Pro, the Γ = 2 gas, one
 call): 1.3 µs on the fixed point (3 recoveries of 0.37 µs), 1.7–2.4 µs for
 Newton (3–4 recoveries), 0.7 µs at `σ = 0` and 0.5 µs for
@@ -1323,7 +2746,12 @@ package relies on it for:
   re-weight it by `b_k/a_kk`, 2.758 at SSP3(4,3,3)'s last stage;
 - explicit evaluations only where the tableau uses them: three right-hand
   sides (TreeGH plus MHD) per SSP3(4,3,3) step;
-- fixed `Δt`, generic arrays and Julia 1.10.
+- fixed `Δt`, generic arrays and Julia 1.10;
+- *(2026-10-24, the step cache)* a step that is never retried or rejected,
+  whose step limiter is its last call, and an exception that leaves
+  `integ.u = uⁿ`: with these the step limiter is where a step ends, and the
+  step cache needs no step-begin hook ([Primitive
+  recovery](#primitive-recovery), "The step cache").
 
 Per SSP3(4,3,3) step, IMEXRungeKutta 1.4.0 makes 3 explicit evaluations,
 4 stage solves, 3 stage-limiter calls (its first stage is implicit, so no
@@ -1414,13 +2842,25 @@ gauge driver (GH-6).
 
 ## The right-hand side
 
-In the order the explicit part of each stage evaluates it (proposed):
+In the order the explicit part of each stage evaluates it (proposed;
+*amended in step 8*, when AMR-10 let the matter's ghost fill take the
+primitives, decided by Erik 2026-10-15):
 
-1. `scatter!` the multi-set state; `fill_ghosts!` every evolved set.
+1. `scatter!` the multi-set state; `fill_ghosts!` the potentials `A_j`, `Φ̃`
+   (each fill applying the complete outer boundary condition). The matter's
+   conserved state is not exchanged.
 2. Metric to cells (into `P`); `B_d = curl A + 𝔅̄` on all stored faces;
    `B` averaged to cells.
-3. `con2prim` over all stored cells, in hydrodynamic mode (the ghost
-   exchange is in conserved variables, as TreeHydro decided).
+3. `con2prim` over the **owned** cells, in hydrodynamic mode, into `P` and
+   the primitive set `W` (`ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`); `fill_ghosts!` on `W`
+   (copies at same-level faces, the bounded conservative prolongation
+   centred on the parent at refinement boundaries, with its own Dirichlet
+   hook, the case's primitives); at every ghost cell `P` from `W` by one
+   forward EOS evaluation, no inversion, with the ghost's own `B` and
+   metric. No ghost is recovered and the conserved ghosts are not written
+   ("Refinement"). (Until step 8 the exchange was in conserved variables, as
+   TreeHydro decided, and `con2prim` ran over every stored cell; amended
+   2026-10-23, decided by Erik.)
 4. `q = ∇·E` at cells.
 5. `T_ab` at cells, averaged to vertices into `Tsrc`; TreeGH's right-hand
    side (if evolved).
@@ -1434,7 +2874,10 @@ In the order the explicit part of each stage evaluates it (proposed):
 The implicit stage solve then runs on owned cells between explicit
 evaluations, and the atmosphere stage limiter after it. The same reset runs
 once more on each step's result, as the step limiter. The right-hand side
-never mutates `u`.
+never mutates `u`. It is pure in `(u, t)` outside a step; inside a step of
+`evolve!` its recovery goes through [the step cache](#primitive-recovery),
+and a step is pure in `uⁿ` (amended 2026-10-24, decided by Erik
+2026-10-23).
 
 *As built in step 5* (`src/evolution.jl`, `mhd_rhs!`; the kernels are
 written for `D = 1, 2, 3` and step 5 validates `D = 1`):
@@ -1444,7 +2887,19 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   recovery from `state_guesses` (see "Thermodynamics"), all thirty slots of
   `P`. `q` is a second kernel over the owned cells, by centered differences
   of the ghost-filled `𝔈`, `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h`
-  (proposed in step 5).
+  (proposed in step 5). *(Amended in step 8:)* step 3 is three passes:
+  `primitive_kernel!` over the owned cells (the recovery, `W`, and `P`
+  through `P_from_W`), the fill of `W`, and `ghost_kernel!` over every
+  stored cell that is not owned (`P` through the same `P_from_W` with the
+  ghost's `B`; until 2026-10-23 also the conserved ghost by `prim2con`,
+  which nothing read). Owned cells take `P`
+  through `P_from_W` too, rather than straight from the recovery (proposed
+  in step 8): where a ghost is a copy of its owner — every ghost on a
+  uniform mesh — the two blocks then hold the same `P` bit for bit and
+  compute the same flux at their common face, as they did when both
+  recovered the same conserved state; the two differ by rounding only
+  (`v = u/W` from `u = cosh(w) v`, the rapidity `asinh |u|`, one forward EOS
+  call). `q` is taken from `P`'s `√γ E` (the same numbers in flat space).
 - Step 7 for `A_j` is `−EMF_j − (ψ[n + e_j] − ψ[n])/h` with
   `ψ = αΦ − βᵏA_k` evaluated at the two vertices that bound the edge, `A_k`
   averaged to a vertex from the two `k`-edges that meet there; along a
@@ -1458,7 +2913,9 @@ written for `D = 1, 2, 3` and step 5 validates `D = 1`):
   and ghost fill of the three `A` sets and the curl — and calls
   `solve_ohm_stage` in every owned cell with that `B`, the provider's
   metric and `state_guesses(u★)`, writing `√γ E` into `𝔈` and nothing else
-  and tallying the outcome into `X`.
+  and tallying the outcome into `X`. *(Amended 2026-10-24:)* inside a step
+  every site's first recovery is seeded from the step cache where the cell
+  has an entry, and reused where its input is the entry's.
 - Cost (measured in step 5, Julia 1.13, Apple M3 Pro, one thread, the
   Alfvén wave on 400 cells in 40 blocks): 0.77 ms for a right-hand side, of
   which the recovery over the 640 stored cells is 0.55 ms; 0.39 ms for an
@@ -1507,7 +2964,13 @@ static two-level meshes and adaptive ones):
   telescopes in floating point — and 0.025 of 0.029 and 0.0037 of 0.0078
   without it (proposed in step 8: the claim of PLAN.md's step 8, "the flux
   through a coarse face equals the sum through its fine faces", made as
-  the rate it is made by).
+  the rate it is made by). *(Re-measured at the end of step 8, with the
+  potentials' conservative transfer and the matter's ghost fill in
+  primitives:)* 8.7e−19 of 5.4e−3 (2D) and of 5.5e−3 (3D) with the
+  correction, 0.025 of 0.029 and 0.0017 of 0.0055 without; the totals
+  0.013 (1D) and 0.12 (2D) ulp a step with the fixup, 1.8·10¹⁰ and
+  5.4·10¹¹ without; tracked Balsara 1 0.015 (2.2·10⁷ without), the rotor
+  0.037.
 - **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
   block across whose *face* the finer neighbour lies (TreeAMR's face
   directions only). An edge at the end of a coarse-fine face is also an
@@ -1519,25 +2982,51 @@ static two-level meshes and adaptive ones):
   fluxes on either side are the same numbers, and `∇·𝔅 = 0` is structural;
   it is the one place a coarse estimate of the EMF drives a value on a
   coarse-fine face (proposed in step 8: accepted, not corrected).
-- **The magnetic flux, as a state** — not to rounding. In 2D the flux
-  through a face on the coarse-fine face is a difference of `A_z` at two
-  vertices the levels share, which the exchange copies, so the two sides
-  agree exactly. But the flux through the plane, `Σ hᴰ 𝔅ᶻ = ∮ A · dl`
-  around the periodic box, telescopes across a coarse-fine face only if
-  the coarse `A_y` on it is the mean of the fine ones beside it, and the
-  PointValue operators interpolate along an edge's own direction where a
-  conservative transfer would average: on the oblique Alfvén wave it drifts
-  5.8e−4 of its scale over an eighth of a period (5.1e−17 on the uniform
-  mesh), with the EMF correction or without (7.1e−4 and 7.2e−4 absolute at
-  `ξ = 0`), 1.4e−3 at width 2 — the operators', not the EMFs'. In 3D the
-  flux through a face on a coarse-fine face is the circulation of `A_y`,
-  `A_z` in its plane and inherits the same interpolation. A transfer that
-  is conservative along an edge's cell-like direction and point-value
-  along its vertex-like ones makes both exact; TreeAMR refuses
-  `Conservative` along a vertex-like dimension, so that is **AMR-9** in
-  `PLAN.md` (added in step 8; wanted, no step blocked). Rung 2's "magnetic
-  flux conserved across levels to round-off" holds for the rate, and waits
-  for AMR-9 for the state.
+- **The magnetic flux, as a state** — not to rounding under the PointValue
+  operators step 8 began with. In 2D the flux through a face on the
+  coarse-fine face is a difference of `A_z` at two vertices the levels
+  share, which the exchange copies, so the two sides agree exactly. But the
+  flux through the plane, `Σ hᴰ 𝔅ᶻ = ∮ A · dl` around the periodic box,
+  telescopes across a coarse-fine face only if the coarse `A_y` on it is
+  the mean of the fine ones beside it, and the PointValue operators
+  interpolate along an edge's own direction where a conservative transfer
+  would average: on the oblique Alfvén wave it drifted 5.8e−4 of its scale
+  over an eighth of a period (5.1e−17 on the uniform mesh), with the EMF
+  correction or without, 1.4e−3 at width 2 — the operators', not the EMFs'.
+  In 3D the flux through a face on a coarse-fine face is the circulation of
+  `A_y`, `A_z` in its plane and inherited the same interpolation. That was
+  **AMR-9**, which landed in TreeAMR 0.2.2.
+
+  *(Measured in step 8, with the potentials' conservative transfer, AMR-9;
+  `test/refinement_tests.jl`:)* **the flux holds as a state, to rounding,
+  after every fill and every regrid.** The flux through the plane of the
+  oblique wave on the two-level box drifts 2.2e−16 of its scale (5.8e−4
+  with the PointValue operators), and 1.5e−16 after a regrid that coarsens
+  the refined root and refines the opposite one (5.8e−4 with PointValue).
+  In 3D, on every face of a coarse block on a coarse-fine face of the
+  periodic spherical blast (192 faces, then 384 after a regrid), the flux
+  from the coarse block's own `𝔅` equals the sum through the fine faces
+  covering it to 1.4e−16 of the largest flux (1.5e−3 with PointValue). That
+  is the transfer's property, not the EMF correction's: without the
+  correction it holds to 1.4e−16 too, since after every fill the edges the
+  non-owning level holds are derived from the owner's (the restriction's
+  mean, or a prolongation whose two children average to the parent). So
+  PLAN.md's negative control "and does not without [the EMF correction]"
+  applies to the rate, where it is asserted (above), and the state's
+  negative control is the PointValue family (proposed in step 8).
+
+  **Not at an outer face** *(measured in step 8; proposed: accepted,
+  recorded)*. In the same blast's closed box the 147 faces away from the
+  walls agree to rounding, but the 45 whose perimeter lies on an outer face
+  miss by 1.2e−5 of the largest flux (2.7e−5 after the regrid): there each
+  level's relative hook writes its own wall edges, the nearest evolved point
+  of that level plus the case's difference, so a coarse wall edge is not
+  the sum of the fine ones beside it. The flux through a face at a Dirichlet
+  boundary is the boundary condition's, not conserved by anything, so
+  nothing in this package relies on it; a relative hook that fills a point
+  on both an outer face and a coarse-fine face from the level that owns it
+  (a transfer, not the hook) would make it exact — **AMR-11** in `PLAN.md`
+  (added in step 8; wanted, no step blocked).
 
 ## Boundaries
 
@@ -1574,6 +3063,12 @@ a stage's, a reset's — knows its time):
   cell every step (measured in step 6); with the field's Dirichlet data it
   stays uniform to 3.3e−13 under either tableau (a test). This hook reads
   the interior, TreeAMR's region form, CPU-only: AMR-7 in `PLAN.md`.
+  *(Amended in step 8:)* since TreeAMR 0.2.2 it is TreeAMR's relative hook,
+  `CellBoundary(Relative(f))` with `f` the case's potential at the fill's
+  time (`boundary_at`): a kernel, so **every case, periodic or not, runs on
+  every backend** — the CPU-only restriction came from the region form
+  alone and is gone (not exercised on a device here: the machine has none
+  this package targets; step 14's).
 
 *(Measured in step 7:)* the potentials' hooks are not mirror-symmetric. The
 box's low boundary vertex is a block's first owned point and is evolved,
@@ -1593,73 +3088,68 @@ are prescribed.** At every outer face of a case with Dirichlet hooks, the
 owned low wall of each potential (`A_j`, `Φ̃`; a vertex-like dimension's
 first owned point `G+1`) is set by the mirror of the hook's high-wall rule —
 the nearest evolved point (`G+2`) plus the case's difference between the
-two points, at the time of the fill — by a `map_blocks!` kernel of this
-package, `low_walls!` (`src/driver.jl`), which runs on every backend and
-reads only in-block points. It runs in the state vector inside the limiter
-passed as both `stage_limiter` and `step_limiter`, beside the atmosphere
-reset, so the walls persist in the state; and in each potential's working
-array before every ghost fill, so every fill — a right-hand side's, a
-stage's, a reset's, at its own time — sees both walls alike. It is the
-workaround of **AMR-8** (`PLAN.md`), which asks TreeAMR for an opt-in under
-which `fill_ghosts!` fills the owned low wall of every vertex-like
-dimension by the high wall's rule for every face kind; once it lands the
-kernel is deleted. Periodic faces have no walls, and reflecting and
-outflow faces are TreeAMR's machinery and are not touched. The face kinds
-come from exported API (the block's origin against the extent, the
-forest's `periodic`, `reflecting` and `outflow` properties).
+two points, at the time of the fill. And every point beyond an outer face
+takes its nearest evolved point across a block face from the block's own
+(filled) ghost along the dimensions it does not leave the domain through:
+TreeAMR's region form clamped along every outward direction, so a corner
+row where a wall meets another block came from the block's own last column
+and the point two blocks share held a different value in each (the cell
+next to it had a block-dependent `𝔅`, and the two blocks computed
+different fluxes at their common face next to the wall). Both were this
+package's kernels until TreeAMR 0.2.2 (`low_walls!`, `outer_points!`, and on
+a multilevel mesh a second, hookless fill and `outer_points!` again); both
+are TreeAMR's now (amended in step 8):
+- the potentials' field sets are built with **`walls = :symmetric`** (AMR-8),
+  under which the fill writes the owned low wall of a vertex-like dimension
+  at a low domain face by the high wall's rule;
+- their hook is the **relative hook** (AMR-7), which reads `x_r` across a
+  block face from the block's own ghost and runs each region after the
+  stage that fills what it reads, so that **one fill applies the complete
+  condition** — `fill_ghosts!`, `regrid!`'s fill before its transfer and
+  `adapt_to_initial_data!`'s alike (decided by Erik 2026-10-15: "an outer
+  boundary condition needs to be applied always"). `fill_set!` is that one
+  fill; `regrid_state!` hands `regrid!` every set's own hook; the initial
+  adaptation's criterion reads what the cycle filled.
 
-Making the box symmetric bit for bit found a second, older asymmetry in the
-hook itself: TreeAMR's region form clamps the nearest evolved point along
-every *outward* direction, and a corner region that leaves the domain
-through one face and crosses into the next block through another (the
-wall's row beside a block face) was filled from the block's own last
-column rather than from its neighbour's — so the point two blocks share
-held a different value in each, the cell next to it had a block-dependent
-`𝔅`, and the two blocks computed different fluxes at their common face next
-to the wall. The hook runs before the prolongations and may read only its
-own block, so this package refills every point beyond an outer face after
-each fill (`outer_points!`, `src/driver.jl`): from the nearest evolved
-point, clamped only along the dimensions the point leaves the domain
-through and read from the now-filled ghosts along the others (amended
-AMR-7 in `PLAN.md`, which asks for that of a device-capable relative hook).
+Measured (`test/refinement_tests.jl`, the closed `[−2, 2]²` explosion with a
+wall root refined, to `t = 1/4`): a second fill changes nothing bit for bit,
+and one fill of working arrays prefilled with `NaN` writes the same — every
+stored point, from the state alone; a hookless fill leaves it; and a regrid
+through `regrid_state!` transfers bit for bit what step 8's first
+arrangement (a complete fill of this package's, then `regrid!` with no hook
+for the potentials) transferred. The hook evaluates `f(x_g) + (u(x_r) −
+f(x_r))` where `outer_points!` evaluated `u(x_r) + (f(x_g) − f(x_r))`, so the
+potentials' outer points moved by rounding: every number the suite prints
+for a non-periodic case moved in its last digits at most (see "Validation
+ladder").
 
-*(Amended in step 8, decided by Erik 2026-10-15: "an outer boundary
-condition needs to be applied always".)* **Every fill leaves the potentials
-in the state the complete condition defines** — the prescribed low walls,
-and every point beyond an outer face the nearest evolved point plus the
-case's difference, the wall's rows next to another block included — and
-nothing reads a ghost before that:
-- `fill_set!` (the right-hand side's, the stage's, the reset's,
-  `update_fields!`'s fills): the low walls, TreeAMR's fill with the hook,
-  `outer_points!`; and on a mesh with more than one level a hookless fill
-  (TreeAMR then leaves every point beyond an outer face as it is) and
-  `outer_points!` once more, because a fine ghost prolongated next to a
-  wall reads a coarse block's corner row, which the first `outer_points!`
-  corrected, and a fine corner row reads that ghost. After it a further
-  fill and refill change nothing, bit for bit (`test/refinement_tests.jl`):
-  the fill is the condition's fixed point. On a single level there is no
-  prolongation and the first pass is it. A low wall's row in a ghost column
-  across another block's face is TreeAMR's: the exchange copies it from the
-  neighbour's own prescribed wall (rewriting it from this block's clamped
-  point, as a first form of `outer_points!` did, disagreed with the
-  exchange across a coarse-fine face, where the two levels' nearest evolved
-  points differ).
-- `regrid_state!`: the complete fill of every evolved set, then `regrid!`
-  with no hook for a potential that has the case's — its pre-transfer fill
-  recomputes every other ghost bit for bit from the same data and leaves
-  the outer points, so the transfer reads the complete condition. Before
-  this (step 8's first form, `regrid!` filling with the hook alone), a
-  regrid refining a wall root next to coarse ones in the closed `[−2, 2]²`
-  explosion transferred potentials 1.8e−10 off (of 1.2e−2); now exactly
-  what a complete fill gives (a test).
-- `adapt_case!`: the cycle fills with the hooks, and the criterion fills the
-  potentials completely before it reads them; with `transfer = false`
-  nothing else reads them.
+**The low walls in the state** *(proposed in step 8, at the reviewer's
+request)*. The low wall is owned, so it is in the integrator's
+state vector, but TreeAMR writes it during the fill — into the set's working
+array after `scatter!`, not into `u`. `map_blocks!`'s owned range is
+unchanged by symmetric walls (the trimmed range `G+2 …` is the fill's
+regions' only), so the right-hand side would compute an evolved value there
+and `u`'s wall entries would drift from the condition. So:
+- the right-hand side writes **zero** into `du` at an owned low wall of
+  `A_j` and `Φ̃` (`on_low_wall`, a branch, never a multiplied mask): the wall
+  is algebraic, prescribed by the fill, and the implicit part never touches
+  the potentials;
+- the reset, in both its roles, after its own fill of the potentials,
+  copies the filled walls — those points and no other — into `u`
+  (`walls_to_state!`), so that after every step `u` holds the condition's
+  walls for everything that reads `u` without a fill: output, error norms,
+  `gather!`-based comparisons, a regrid's `gather!` (whose new state the
+  post-regrid reset then corrects where a new block's wall was
+  prolongated), a checkpoint and restart.
 
-No ghost TreeAMR reads internally is left with the hook's partial values.
-What remains upstream is that the hook cannot express the condition itself
-(AMR-7, amended in step 8), so an application must do the above, and pays
-a second fill of each potential on a multilevel mesh.
+Nothing in the scheme reads `u`'s walls without a fill first. Tested on the
+closed box, uniform and with a wall root refined: after every step `u`'s
+190 (214) wall entries are what a complete fill writes, bit for bit, and
+`du` is exactly zero there; and one step from a state whose wall entries are
+all perturbed by 1 gives the same state, bit for bit, as from the true one.
+`low_walls(forest, T)` lists, per block, the low domain faces (any
+non-periodic one, since TreeAMR fills the wall at outer, reflecting and
+outflow faces alike).
 
 *Measured in step 8:* the explosion in a box its precursors reach — `[−2,
 2]²` at 32², minmod, `t = 1/4` — was 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`,
@@ -1679,6 +3169,25 @@ precursors before `t_end`; the one exception is the current sheet run on to
 `t = 9`, whose field has diffused to the faces by then: its L1 distance to
 the erf profile went from 9.30e−4 to 9.56e−4 of `B₀`, the low face's `𝔅`
 now the profile's as the high one's was.
+
+*(Measured in step 8, with TreeAMR 0.2.2's symmetric walls and relative
+hook:)* both closed boxes are still their own mirror images bit for bit,
+and nothing printed by a uniform-mesh case moved — the uniform flows, the
+shock tubes' budgets, the current sheet (9.56e−4) and the atmosphere tubes
+to every digit. On a refined mesh a closed box is **not** mirror-symmetric:
+the explosion in its closed box with the middle 2 × 2 roots refined (a mesh
+symmetric under both reflections, whose coarse-fine faces cut the blast's
+transition region), to `t = 1/4`, is 1.0e−2 (`x → −x`) and 8.8e−3 (`y → −y`)
+of a variable's scale from its mirror image in `U`, 1.1e−2 and 1.3e−2 in
+`A_z` (3.2e−4 and 6.3e−3 in `A_z` after one step). That is TreeAMR's open
+item (its `CODE.md`, "Centerings": a plane on a coarse-fine face is the fine
+block's owned plane when the face is the fine block's low face, and the
+coarse block's, interpolated at the fine points between, when it is its high
+face; 4.7e−5 upstream on smooth data, one fill), here at a discontinuity
+and through 20 steps. Recorded, not hidden: `test/refinement_tests.jl`
+asserts it present and bounded (proposed in step 8: nothing in this
+package needs a refined box to be symmetric before the stars of steps 10
+and 12, whose own symmetry tests will say whether upstream must close it).
 
 ## Refinement
 
@@ -1765,6 +3274,20 @@ proposed in step 8 unless marked otherwise):
   to three digits, as a second-order scheme makes it. The two-level errors
   lie between the uniform coarse and fine ones (1D at 256 cells: L1 3.6e−4
   against 5.8e−4 and 1.4e−4). The matter's bound changed no rate.
+
+  *(Re-measured in step 8 with `A_j` in the conservative family, AMR-9 —
+  width 3 along the edge, the table's `w` across it — and `Φ̃` PointValue
+  width `w`; `bin/interface_order.jl`:)* the 1D rows are the same to every
+  digit printed — in 1D `A_y`, `A_z` are vertex sets, for which the two
+  families are the same operators, and `A_x` is a constant — and in 2D
+  width 2 gives 1.49 / **0.33**, width 4 2.14 / 2.02 and width 6 2.14 /
+  2.01 (L1 errors at 32² 1.71e−3 at width 4 and 6, against 1.85e−3 and
+  3.10e−4 uniform). **The width stays 4** (decided in step 8 again): the
+  conservative direction changes nothing the reconstruction at the face
+  sees to three digits, and width 2 still loses the order across it. With
+  the matter's ghost fill in primitives at width 2 as well (AMR-10, below)
+  the potentials' widths 2, 4, 6 give 1.91 / 0.88, 2.09 / 1.97, 2.08 / 1.97
+  in 1D and 1.45 / 0.08, 2.13 / 1.85, 2.13 / 1.84 in 2D: width 4 again.
 - **The gauge damping** *(decided in step 8; amended in step 8, decided
   by Erik 2026-10-15: "choose the same ξ on all meshes")*: `evolve!` uses
   `ξ = 16/L` on every mesh, uniform or refined, `L` the longest side of the
@@ -1780,7 +3303,8 @@ proposed in step 8 unless marked otherwise):
   prolongation of a coarse gradient is not a fine one. A pure gauge pulse
   (`gauge_pulse_case`: `A = 0`, `Φ̃` a Gaussian, nothing else;
   `bin/gauge_damping.jl`) on the periodic unit box, 2 × 2 roots of 16² with
-  one refined, to `t = 2`:
+  one refined, to `t = 2` (measured with the PointValue potentials of step
+  8's first form; below the table, with AMR-9's):
 
   | `ξ` | 0 | 1 | 4 | 16 | 64 |
   |---|---|---|---|---|---|
@@ -1802,69 +3326,275 @@ proposed in step 8 unless marked otherwise):
   16Δt/L ≪ 1` at any resolution a box of side `L` is run at, far inside
   the explicit part's stability.
 
-**The ghost fill of the matter** *(decided by Erik 2026-10-15)*: **the
-ghost fill prolongates the primitives** — `ρ`, `s`, `Yₑ`, `uⁱ = Wvⁱ`, `Eⁱ` —
-with a bounded (no new extrema) Lagrange interpolation, and builds each
-conserved ghost by `prim2con` with the ghost's own `B`, the curl of the
-prolongated `A`; **the regrid stays conservative**, Conservative width 3,
-bounded, on the conserved variables. TreeAMR has no bounded PointValue
-operator: that is **AMR-10** (`PLAN.md`; req for step 8's re-measurement
-below, and for steps 10 and 12). It implies a restructuring of the
-right-hand side, done when AMR-10 lands:
-- the recovery runs on the owned cells *before* the exchange, into a
-  primitive field set with its own ghost schedule (PointValue, bounded) and
-  its own Dirichlet hooks — which must apply the complete outer boundary
-  condition, as the potentials' do ("Boundaries", decided by Erik
-  2026-10-15);
-- the conserved ghosts are rebuilt from the prolongated primitives by
-  `prim2con` with the ghost's own `B` and metric, and `P`'s other slots by
-  one EOS evaluation per ghost;
-- steps 1 to 3 of "The right-hand side" change order accordingly (the
-  exchange is no longer in conserved variables, as TreeHydro decided).
+  *(Re-measured at the end of step 8 with the potentials' conservative
+  transfer, AMR-9, and the matter's ghost fill in primitives, AMR-10:)*
+  the spurious field is much smaller, since a coarse edge's mean is
+  what the fine edges along it carry and the prolongated gradient is closer
+  to a fine one:
 
-Until then the ghost fill below runs: what is measured and runs now, not a
-workaround to keep. *As built in step 8 (proposed in step 8):* **the ghost
-fill prolongates the conserved state, bounded** (`Operators(…; bounded =
-true)`), and so does the regrid; `P` is refilled after every fill by the
-one recovery, in every stored cell, as since step 5; and the reset after a
-regrid writes what the recovery repaired. Its measurements, which AMR-10's
-downstream check re-measures with the primitives:
+  | `ξ` | 0 | 1 | 4 | 16 | 64 |
+  |---|---|---|---|---|---|
+  | `max |𝔅|` over the run | 3.6e−2 | 1.6e−2 | 4.8e−3 | 3.9e−4 | 2.0e−5 |
+  | `max |𝔅|` at `t = 2` | 1.6e−2 | 6.2e−3 | 3.5e−4 | 7.2e−6 | 5.7e−6 |
+  | `max |Φ̃|` at `t = 2` | 0.25 | 8.4e−2 | 4.0e−3 | 8.0e−5 | 5.3e−4 |
 
-- Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
-  atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; the
-  interior ghosts' recoveries over the run, those the policy repaired for
-  anything but the atmosphere):
+  (uniform: at most 5.3e−15). The oblique wave's L1 errors again move in
+  the fifth digit at most. At `ξ = 16` the remainder falls by 2200 within
+  two light crossings and `Φ̃` by 3100; beyond it `Φ̃` is overdamped as
+  before. `ξ = 16/L` stands (Erik's decision of one `ξ` on every mesh, and
+  this table agrees). In the suite's 8² version the undamped field at
+  `t = 2` went from 0.18 to 0.049 and the damped one from 1.2e−3 to 1.6e−5
+  (0.044 and 1.9e−5 with AMR-9 alone).
 
-  | | uniform | two-level, unbounded | two-level, bounded |
-  |---|---|---|---|
-  | hydrodynamic: repaired ghosts; injected `D`, `τ` | 0; −8.4e−12, −2.2e−10 | 9 (non-finite: `D < 0`); 2.0e−9, 1.5e−8 | 0; −1.5e−11, −2.5e−10 |
-  | magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`) | 8; 2.5e−8, 6.9e−8 | 120 (non-finite); 4.2e−8, 8.6e−7 | 33 (`W` capped, entropy window); 3.5e−8, −6.1e−8 |
+**The ghost fill of the matter** *(decided by Erik 2026-10-15: in
+primitives; amended 2026-10-23, decided by Erik: the parent-centred
+primitive fill, the only one)*: **the ghost fill exchanges the
+primitives** `W = (ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ)` — copied at same-level faces,
+exactly, and at refinement boundaries prolongated with TreeAMR's bounded
+conservative operator centred on the parent (`default_ops_W()` =
+`Operators(; prolongation=3, restriction=2, family=Conservative,
+bounded=true)`, AMR-4: the parent plus an MC-limited linear slope, scaled so
+that every child stays within the parent and its face neighbours —
+Athena++'s prolongation of the primitives, Stone et al. 2020, ApJS 249, 4,
+§2.1.5, with MC for its minmod; a coarse ghost the `2^D` mean of the fine
+cells it covers). **`P` in every ghost comes from `W` by one forward EOS
+evaluation (`P_from_W`), with the ghost's own `B`; no ghost is ever
+recovered**: the recovery runs on the owned cells only. **The conserved
+ghosts are not written by the scheme.** Nothing reads them — the fluxes,
+the EMFs, the sources, `q` and the indicator (`mhd_flags`) read `P`; the
+stage solve and the reset read the owned cells of the state vector; the
+totals and the L1 errors the owned cells — so `U`'s ghosts hold only what
+TreeAMR's own fills of `U` leave there: `regrid!`'s before its transfer,
+and the initial adaptation's (each with the case's conserved hook). **The
+regrid stays conservative**, Conservative width 3, bounded, on the
+conserved variables. *(Amended 2026-10-23: until then `ghost_kernel!` also
+rebuilt every conserved ghost by `prim2con`, which nothing read; step 8's
+PointValue width-2 fill of `W` was the default until the parent-centred
+operator replaced it after the experiments below, and the experimental
+density forms of `W` — `ghost_vars = :density`, `:mass` — are gone from
+`src/`.)*
 
-  Bounded, the hydrodynamic front crosses with no repaired ghost and the
-  uniform mesh's injection; unbounded, the overshoot makes `D < 0` in fine
-  ghosts and injects 250 times the rest mass. So bounded is the default,
-  and the claim is asserted (`test/refinement_cases_tests.jl`).
-- **Conservation does not depend on it.** At a coarse-fine face it is
-  `restrict_interfaces!` on the fluxes, which makes the coarse flux the
-  fine average whatever the ghosts held; the regrid's bounded transfer is
-  exactly conservative. Primitives in the regrid would not be.
-- **`B` is never state, either way** — neither variant prolongates `B`; a
-  fine ghost's `B` is the curl of the prolongated `A`. But a conserved
-  ghost carries the electromagnetic energy and momentum of the *coarse*
-  field in its `τ` and `S`, from which the recovery subtracts those of the
-  ghost's own `B`: where the field dominates (the magnetized atmosphere
-  above), that difference lands in the fluid's energy, and the bounded fill
-  still repairs 33 ghost recoveries where the uniform mesh repairs 8 — no
-  non-finite one, and the uniform mesh's injection. Primitives
-  (`ρ`, `s`, `uⁱ`, `Eⁱ` bounded, then `prim2con` with the ghost's own `B`)
-  would remove that mismatch.
-- **What primitives in the ghost fill would cost**: a primitive field set
-  with its own schedule and its own Dirichlet hooks, the recovery before
-  the exchange instead of after it (on the owned cells only), and an EOS
-  evaluation per ghost to rebuild `P`'s thermodynamic slots — the RHS's
-  order of "The right-hand side" changes. (In step 8 this was left
-  **(open)**; decided by Erik 2026-10-15 for the primitives, above.)
+**Three working fills, to revisit when the physics gets harder**
+*(recorded 2026-10-23 at Erik's request)*. Each ran the atmosphere tube
+across a coarse-fine face and the suite. The one-line result is the 48
+perturbed magnetized atmosphere tubes of `bin/ghost_robustness.jl` (the
+table below; `Bʸ = 10⁻³`, cut off at `μ_max = 10`) under EntropyEOS 1.0's
+policy, and in brackets under the atmosphere-at-rest recovery with
+`collapse_to_atmosphere` (EntropyEOS 1.1, 2026-10-21;
+`bin/front_investigation.jl`, "Floors, the atmosphere and the
+magnetosphere"):
 
+1. **Conserved, bounded**: `U` filled with Conservative width 3, bounded,
+   and the recovery in every stored cell, ghosts included — step 8's first
+   fill (`claude/step-8-finish` at 7605986; run as `git archive 7605986`):
+   3/48 blow-ups (2.1–17%), fallbacks median 49, 83 repaired ghost
+   recoveries median [0/48, no fallback, largest `W` 5.0, injected `D`
+   −1.4·10⁻⁸]. It costs `3((N + 2G)/N)^D − 3` more recoveries per cell and
+   right-hand side: a 3D step 64–74% longer ("Primitive recovery",
+   2026-10-23).
+2. **Parent-centred primitives** (**the code**): `W` with the specific
+   `s`, `Yₑ`, Conservative width 3, bounded (`claude/step-8-ghost-athena`,
+   1f014c8; the runs on `claude/step-8-ghost-robustness`, 6b0a72e, method
+   `prim-cons3-specific`): 0/48 (0–7.4%), fallbacks median 72, no repaired
+   ghost, a ghost pressure outside its neighbours' range 9 times a run
+   (median) [0/48, no fallback, largest `W` 5.0, injected `D` −1.4·10⁻⁸].
+3. **Density-form primitives, parent copy**: `W` holding `ρ★ s`, `ρ★ Yₑ`
+   (`ghost_vars = :density`, from `claude/step-8-ghost-entropy-density`,
+   19f4563), Conservative width 1 — every child its parent
+   (`claude/step-8-ghost-robustness`, 6b0a72e, method
+   `prim-cons1-density`): 0/48 (0–7.4%), no ghost pressure or entropy out
+   of range, but fallbacks median 155 and `W` at its cap of 100 in most
+   runs [not re-measured].
+
+No difference in blow-ups is significant at 48 runs (below). What the code
+lost is the second and third: they run on their branches, and
+`bin/ghost_entropy.jl`, `bin/ghost_robustness.jl` and
+`bin/interface_order.jl` say so when asked for them.
+
+*As built in step 8, when AMR-10 landed* *(history: superseded 2026-10-23
+by the fill above; the measurements stand as measured)* (`primitives_from_sets!`,
+`P_from_W`, `ghost_kernel!` in `src/evolution.jl`; "The right-hand side"):
+- **The set** `W`, cell-centred, 9 variables: `ρ★`, `s`, `Yₑ`, the
+  contravariant `uⁱ = Wvⁱ` and the contravariant, undensitized `Eⁱ` — Erik's
+  list, with `uⁱ` rather than `vⁱ` so that any interpolated value is a
+  subluminal velocity, and `E` undensitized, as a primitive (proposed in
+  step 8). Scratch: resized, never transferred by a regrid.
+- **The recovery runs on the owned cells only**, before the exchange, and
+  writes `W` and `P`; `W`'s fill has its own hook, the case's primitives at
+  each ghost centre (`DirichletBoundary{:W}`, a function of position, so the
+  fill applies the complete condition); at every ghost cell `P` comes from
+  `W` by one forward EOS evaluation, no inversion, with the ghost's own `B`
+  (and no recovery flags), and the conserved ghost from `prim2con`. Owned
+  cells take `P` through the same function, so that a copied ghost is its
+  owner bit for bit (see "The right-hand side").
+- **The width** *(proposed in step 8, by the measurements below)*: **2**,
+  with `bounded = true` (which width 2 does not need: it is the multilinear
+  interpolation, accepted with the flag so that a width can be tried
+  without touching it). Width 2 interpolates every variable with the same
+  convex weights, so a ghost is a mixture of the states that bracket it. At
+  widths 4 and 6 the bound clamps each variable on its own, which keeps
+  every primitive in range but not the *state* consistent: where the
+  atmosphere tube's front starts on a coarse-fine face, a coarse ghost
+  restricted from a dense cell (`ρ = 0.088`, `s = 23.7`) and a heated
+  atmosphere cell (`ρ = 10⁻⁸`, `s = 31.4`) took a density of 0.028 and the
+  bracket's highest entropy, a pressure of 5.1 between neighbours at 0.2
+  and 10⁻¹⁰; the reset then injected 5.4e−4 of energy (width 6: 1.8e−3),
+  and the magnetized tube blew up at width 4. A per-variable bound does
+  not make a thermodynamically admissible state out of a mixture; only
+  common weights do. That costs the smooth interface order a little in L∞
+  in 2D (below).
+- **Conservation does not depend on it**: at a coarse-fine face it is
+  `restrict_interfaces!` on the fluxes; the regrid's bounded transfer of the
+  conserved variables is exactly conservative.
+
+Measured on the atmosphere tube (a gas at `ρ = p = 1` into a `10⁻⁸`
+atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses; over the
+run: the interior ghosts the policy would repair for anything but the
+atmosphere — with conserved ghosts the recovery of the ghost's conserved
+state, with primitive ghosts `check_prim_state` of the ghost's primitives —
+and the rest mass and energy the reset injected; `bin/ghost_fill.jl`, the
+conserved rows from the tree before this change, `git archive 7605986`):
+
+| | hydrodynamic: repaired ghosts; injected `D`, `τ` | magnetized (`Bʸ = 10⁻³`, cut off at `μ_max = 10`) |
+|---|---|---|
+| uniform (conserved fill) | 0; −8.4e−12, −2.2e−10 | 8; 2.5e−8, 6.9e−8 |
+| uniform (primitive fill) | 0; −8.4e−12, −2.2e−10 | 0; 5.0e−8, 1.7e−6 |
+| conserved, unbounded | 9 (non-finite: `D < 0`); 2.0e−9, 1.5e−8 | 120 (non-finite); 4.2e−8, 8.6e−7 |
+| conserved, bounded (step 8's first) | 0; −1.5e−11, −2.5e−10 | 33 (`W` capped, entropy window); 3.5e−8, −6.1e−8 |
+| primitives, width 2 (**chosen**) | 0; 5.6e−9, 2.4e−9 | 0; 5.4e−8, 1.3e−6 |
+| primitives, width 4 | 0; −6.5e−12, **5.4e−4** | 0; **2.5e3, 5.3e12** |
+| primitives, width 6 | 0; 1.9e−12, **1.8e−3** | 0; 4.6e−8, 1.2e−6 |
+| primitives, width 4 unbounded | 71 below `ρ_atm`; −2.4e−6, non-finite | 17 (+ 72 below `ρ_atm`); non-finite |
+
+The magnetized injections are not comparable between rows below 10⁻⁶: the
+magnetized tube is chaotic at that level — perturbing its initial state by
+10⁻¹⁵ moves the uniform run's injected energy between 3.9e−8 and 2.1e−6
+(measured in step 8, on the tree before and after the change alike) — and
+the primitive fill's owned `P` differs from the recovery's by rounding,
+which moved the uniform row. The hydrodynamic tube is not chaotic: its
+uniform row is the same to every digit in both fills.
+
+What the measurements say *(proposed in step 8, for Erik)*: the primitive
+fill keeps every ghost admissible — no ghost the policy would repair, none
+below the atmosphere, magnetized as well (the AMR-10 downstream check,
+against 33 repaired recoveries with conserved ghosts) — but on the
+hydrodynamic tube it injects 5.6e−9 of rest mass where the bounded
+conserved fill injected 1.5e−11 and the uniform mesh 8.4e−12: mixing
+primitives (a coarse ghost restricted from a dense and an atmosphere cell)
+makes more internal energy than mixing the conserved state, which is the
+energy-conserving mixture. Not an error — the reset's injection is a
+correction the scheme accounts — but larger than step 8's first fill, and
+an argument for prolongating the pressure instead of the entropy, which
+needs the entropy from `(ρ, p)` (EOS-3), or for keeping width 2. The fill
+runs as Erik decided, at width 2, until that is settled. *(Settled
+2026-10-23 by Erik: the parent-centred fill, above.)*
+
+*Experiment (branch `claude/step-8-ghost-entropy-density`; decided against
+2026-10-23):*
+`W` holding the densities `ρ★ s`, `ρ★ Yₑ` (`ghost_vars = :density`, the
+default on that branch), and also `ρ★ uⁱ` (`:mass`), so that with common
+weights the ghost's entropy is mass-weighted; `bin/ghost_entropy.jl` has the
+measurements, reported to Erik. In short: at width 2 every ghost's pressure
+and entropy stay within their neighbours' range and the magnetized tube
+never blew up in twelve perturbed runs (the specific-`s` fill did, twice),
+but the hydrodynamic tube injects 1.6e−8 of rest mass, more than
+the specific fill — the injection is not the entropy's but any point-value
+fill's: a fine ghost inside a coarse cell at a front holds mass the coarse
+cell does not (2.96e−6 against 1e−8), which the light-cone HLLE flux draws
+out of the coarse cell through the coarse-fine face. Widths 4 and 6 are not
+robust in either form.
+
+*Second experiment (branch `claude/step-8-ghost-athena`; the code since,
+decided by Erik 2026-10-23):*
+`W` filled with TreeAMR's bounded conservative operator, `Operators(;
+prolongation=3, restriction=2, family=Conservative, bounded=true)` — a
+linear reconstruction centred on the parent with MC slopes, scaled to keep
+every child within the parent and its face neighbours: Athena++'s ghost
+prolongation of the primitives (Stone et al. 2020, §2.1.5) but for MC
+against minmod. At the foot of a jump a child takes its parent's value, so
+the dense neighbour no longer leaks into an atmosphere cell's children. On
+the specific `s`, `Yₑ`: the hydrodynamic tube injects −1.6e−11 of rest mass
+(the conserved fill −1.5e−11), nothing is refilled beyond the face, no
+magnetized run of twelve blew up, the interface order is the conserved
+fill's (1D 2.11 / 2.04, 2D 2.14 / 1.98). `bin/ghost_entropy.jl` has the
+table, reported to Erik.
+
+*Third experiment (branch `claude/step-8-ghost-robustness`, from
+`claude/step-8-ghost-athena`; the three fills above):* robustness on the
+magnetized atmosphere tube across a coarse-fine face, which is chaotic at
+rounding level, over **48 perturbed initial states** per method
+(`bin/ghost_robustness.jl`; runs 1–12 are the twelve of the earlier
+tables, runs 13–48 amplitude 10⁻¹⁵ with seeds 2–37). A blow-up: injected
+`D` above 10⁻⁶, `|τ|` above 10⁻³, or non-finite (the other runs inject
+3·10⁻⁸ … 8·10⁻⁸ of rest mass). Ranges are min / median / max over the runs
+that did not blow up; "p, s out" count the ghosts whose pressure or entropy
+leaves the range of the owned cells within 1.5 coarse spacings, summed over
+the run; wall time per run with five methods running at once on 12 cores.
+The conserved rows are measured on the tree before the primitive fill
+(`git archive 7605986`, the same scheme otherwise), the uniform mesh on
+both trees.
+
+| method | blow-ups (95% Wilson) | injected `D` | injected `τ` | fallbacks | max `W` | ghosts repaired | p out | s out | wall |
+|---|---|---|---|---|---|---|---|---|---|
+| uniform (conserved tree) | 1/48 (0.4–11%) | 2.5e−8 / 4.0e−8 / 6.0e−8 | 3.9e−8 / 8.8e−7 / 2.7e−6 | 0 / 10 / 202 | 37 / 83 / 100 | 3 / 28 / 75 | 0 | 0 | 0.90 s |
+| uniform (primitive tree) | 0/48 (0–7.4%) | 2.4e−8 / 3.9e−8 / 7.6e−8 | 5e−10 / 8.5e−7 / 3.5e−6 | 0 / 26 / 238 | 30 / 82 / 100 | 0 | 0 | 0 | 0.79 s |
+| (a) conserved, bounded | 3/48 (2.1–17%) | 2.7e−8 / 3.4e−8 / 5.6e−8 | −6.9e−7 / 8.6e−8 / 1.7e−6 | 0 / 49 / 425 | 40 / 87 / 100 | 7 / 83 / 163 | 21 / 47 / 69 | 1429 / 1443 / 1462 | 2.17 s |
+| (b) primitives, specific, Conservative w = 3 | 0/48 (0–7.4%) | 2.5e−8 / 3.6e−8 / 5.1e−8 | −5.5e−7 / 1.3e−7 / 1.3e−6 | 0 / 72 / 279 | 47 / 92 / 100 | 0 | 1 / 9 / 22 | 0 | 1.91 s |
+| (c) primitives, density, parent copy | 0/48 (0–7.4%) | 3.1e−8 / 4.0e−8 / 5.2e−8 | −3.2e−7 / 5.1e−7 / 5.1e−6 | 0 / 155 / 521 | 60 / 100 / 100 | 0 / 2 / 7 | 0 | 0 | 1.93 s |
+
+The blow-ups: (a) run 22 (seed 12) injects `D` 2.5·10³ and `τ` 5·10¹²,
+run 33 (seed 23) 88 and 2·10¹⁰, run 23 (seed 13) 0.74 and 1.4·10⁷; the
+uniform mesh's (seed 12, the same seed as (a)'s run 22) 5·10³ and
+1.9·10¹³. Fisher's exact test: (a) against (b) or (c), 3/48 against 0/48,
+`p = 0.24`; (a) against the uniform mesh, 3/48 against 1/48, `p = 0.62` —
+no difference is significant at 48 runs (telling 6% from 0% would take
+about 150 runs per method).
+
+Diagnosis (`claude/step-8-ghost-robustness`, traced step by step). Every
+blow-up starts at the front running into the atmosphere, where `W` spikes
+(30–40 every few steps in every method, up to the cap of 100 in the runs
+that blow up): the stage solve falls back in the front cell, and a step
+later the reset writes a repaired state that injects the mass. (a) run 22:
+at `t = 0.157`, `x = 0.164` — sixteen fine cells inside the refined band,
+not on a coarse-fine face — `W` 81 then 100, fallbacks there, and at
+`t = 0.158` the reset injects `D = 10⁶` (density) at `x = 0.159`; run 33
+the same at `t ≈ 0.11`, `x ≈ 0.12`; the uniform mesh's at `t = 0.364`,
+`x = 0.353`. (a) run 23 is the one at a coarse-fine face: the front reaches
+`x = 0.2` at `t = 0.199` with `W` 52 in the fine cell at 0.196, the first
+fallback is in the last fine cell (0.199) at `t = 0.201`, and the reset
+injects `D = 149` into the first coarse cell (0.2025) and `τ = −5·10¹³`
+into the last fine one. So the front itself is fragile everywhere (the
+uniform mesh blew up once), and one of (a)'s three is where a conserved
+ghost carries the coarse field's energy across the face. (c) runs at the
+`W` cap in most runs and has the most fallbacks (median 155); (b) has none
+of either extreme. *(Investigation 2026-10-16, "Floors, the atmosphere and
+the magnetosphere": the spikes are EntropyEOS's `S_FLOORED` repairs, the
+blow-ups its collapse branch, on every mesh. *Decided by Erik 2026-10-21:*
+a floored state is the atmosphere at rest (EntropyEOS 1.1's
+`FLAG_POL_ρ_FLOORED`, in the recovery wrapper) and the tube's policy sets
+`collapse_to_atmosphere`; measured, all three meshes are deterministic,
+0/48, `W ≤ 5`, no fallback — the table above stays the record of the
+released policy, the ghost fill's choice is unchanged and Erik's.)*
+*(Amended 2026-10-24, EntropyEOS 2.0: without the option, on 2.0's
+projection, the parent-centred fill's 48 runs are 0/48, no fallback, `W`
+5.0 / 5.4 / 11.0, but two runs `10⁻¹⁵` apart differ by `1.3·10⁻⁴` of `D`
+— "Floors, the atmosphere and the magnetosphere".)*
+
+Smooth data across coarse-fine faces (the Alfvén wave of "The operators"
+above, potentials at width 4, `bin/interface_order.jl ghost=w`), `S_y` /
+`S_x` L1 / L∞ rates:
+
+| matter's ghost fill | 1D, one period | 2D diagonal, an eighth |
+|---|---|---|
+| conserved, width 3 bounded (step 8's first) | 2.11 / 2.04 | 2.14 / 2.02 |
+| primitives, width 2 (**chosen**) | 2.09 / 1.97 | 2.13 / 1.85 |
+| primitives, width 4 | 2.11 / 2.01 | 2.12 / 2.06 |
+| primitives, width 6 | 2.11 / 2.01 | 2.12 / 2.05 |
+
+(L∞ of `S_x` at 32² in 2D: 1.14e−2 at width 2, 8.0e−3 at width 4, against
+7.6e−3 and 2.0e−3 uniform coarse and fine.) Width 2 keeps second order in
+L1 and loses a little in L∞ in 2D — the linear interpolation's error at a
+fine ghost is `O(h²)`, which the reconstruction there differentiates.
 
 ## Julia version
 
@@ -2107,7 +3837,10 @@ named as claims.
      precursors reaching the faces at 100 cells; 3e−14 at 400 — and
      Balsara 1 on a periodic box conserves every total to 0.018 ulp a step.
      A uniform flow at `vˣ = ±0.999` or `±1/2` crosses the box unchanged to
-     1.7e−12 of its scale under either tableau.
+     1.7e−12 of its scale under either tableau. *(Amended 2026-10-30:)*
+     with the step cache, to the recovery's tolerance — at most 8.4e−11
+     after 13 steps and 3.6e−10 after 1000 — asserted `≤ 10³·tol` and
+     `≤ 2·10³·tol` ("The step cache", "The uniform flow").
    - **The stages**: every one of Balsara 1–5 is `OHM_IDEAL`, one recovery;
      no repair, no reset, nothing non-finite.
    - **The resistive tube** (Palenzuela et al. 2009, Dionysopoulou et al.
@@ -2158,6 +3891,38 @@ named as claims.
      reports as non-finite and repairs inside the stage (the flag appears
      among the stages' policy flags, never in the state); its magnetization
      is `+∞` (see "Ohm's law and the conductivity").
+     *(Amended in step 8:)* **the magnetized tube is chaotic at rounding
+     level**, and its fallbacks, injected energy and largest `W` are not
+     properties of the scheme: perturbing its initial state by 10⁻¹⁵ (twelve
+     runs, on the tree before step 8's primitive ghost fill and after it)
+     gives 0 to 144 fallbacks of its 160,000 cell-stages, an injected energy
+     from 3.9·10⁻⁸ to 2.1·10⁻⁶ and a largest `W` from 4.6 to 90, while every
+     run stays finite, above the atmosphere, and conserves the totals but
+     for exactly what the reset injects. The primitive ghost fill, whose
+     owned `P` differs from the recovery's by rounding, moved the suite's
+     run to 92 fallbacks, `2.5·10⁻⁸` → `5.0·10⁻⁸` of rest mass and
+     `6.9·10⁻⁸` → `1.7·10⁻⁶` of energy, and `W` 4.69 → 6.63; the test now
+     asserts no fallback hydrodynamically and a fallback rate of at most
+     0.2% magnetized (proposed in step 8; *replaced by "no fallback"
+     magnetized as well, decided by Erik 2026-10-22*). *(Investigation 2026-10-16: the
+     cause — the field's truncation error in the fluid's share, amplified
+     by EntropyEOS's repairs at the edge of the valid range — the sweep of
+     fixes, and the decision of 2026-10-21 (a floored state is the
+     atmosphere at rest; the tube's policy sets `collapse_to_atmosphere`),
+     under "Floors, the atmosphere and the magnetosphere": the tube is then
+     deterministic with no fallback, and the suite's run prints `W` 4.80,
+     injected −1.18·10⁻⁸, −7.4·10⁻⁷. *Amended 2026-10-24, EntropyEOS 2.0:*
+     without the option on 2.0's projection the suite's run prints the
+     same; across 48 perturbed runs every one is clean, but no longer the
+     same run.)* The same holds for step 6's
+     tableau comparison below: "SSP3 no fallback, ARS 7" on this tube is one
+     draw from that spread, and the decision for SSP3(4,3,3) rests on its
+     other rows (the near-vacuum rarefaction, the ideal atmosphere; *amended
+     2026-10-22:* the ideal atmosphere's row was the policy artefact, and the
+     re-measured comparison in "The partition" — ARS 23 fallbacks, SSP3 none,
+     both deterministic — is what the tube says now). The
+     hydrodynamic tube is not chaotic: both fills give its numbers to every
+     digit.
    - Cost (Julia 1.13, Apple M3 Pro, one thread, 400 cells): a step of
      Balsara 1 is 6.5 ms, of Balsara 3 15 ms (the recoveries at a pressure
      ratio of 10⁴); the three test files take 45, 37 and 11 s.
@@ -2255,43 +4020,87 @@ named as claims.
    `test/refinement_cases_tests.jl`; HLLE, SSP3(4,3,3), `cfl` 2/5 over `D`
    on the finest level; the matter's operators Conservative width 3
    bounded, the potentials' PointValue width 4, `ξ = 16/L` on every mesh
-   — "Refinement"; Julia 1.13):
+   — "Refinement"; Julia 1.13; *amended at the end of step 8*: since
+   TreeAMR 0.2.2 the potentials `A_j` conservative along the edge (AMR-9),
+   the matter's ghost fill in primitives, PointValue width 2 (AMR-10), and
+   the numbers below re-measured with them, the first value in brackets):
    - **Conservation at coarse-fine faces**: every total but `𝔈`'s drifts
-     0.008 (1D) and 0.12 (2D) ulp of its scale a step on static two-level
-     meshes with the flux fixup, 1.5·10¹⁰ and 3.3·10¹¹ without; through
-     regrids, 0.017 (Balsara 1, tracked, ten regrids) and 0.036 (the rotor,
-     two). See "Conservation at coarse-fine faces".
+     0.008 [0.013] (1D) and 0.12 [0.12] (2D) ulp of its scale a step on
+     static two-level meshes with the flux fixup, 1.5·10¹⁰ [1.8·10¹⁰] and
+     3.3·10¹¹ [5.4·10¹¹] without; through regrids, 0.017 [0.015] (Balsara
+     1, tracked, ten regrids) and 0.036 [0.037] (the rotor, two). See
+     "Conservation at coarse-fine faces".
    - **Magnetic flux**: the rate through every coarse face on a coarse-fine
      face equals the fine faces' sum to 1.7e−18 (2D) and 8.7e−19 (3D) of the
      largest rate with the EMF correction, 0.85 and 0.48 of it without. As a
      state, the flux through the plane drifts 5.8e−4 of its scale across a
-     level — the potentials' operators, AMR-9.
+     level — the potentials' operators, AMR-9. *(Amended in step 8, AMR-9
+     landed:)* with `A_j` conservative along the edge the state holds too —
+     the plane's flux to 2.2e−16 through the run and 1.5e−16 through a
+     regrid, and in 3D every coarse face on a coarse-fine face its fine
+     faces' sum to 1.4e−16 of the largest flux after steps and after a
+     regrid (1.5e−3 with PointValue), with or without the EMF correction (the
+     transfer's property); at an outer face only to 1.2e−5 (each level's
+     hook, AMR-11). The rate's mismatch is now 8.7e−19 of 5.4e−3 (2D) and
+     5.5e−3 (3D), and 0.84 and 0.31 of it without.
    - **`∇·𝔅`**: at most 2.0e−16 of `max |𝔅|` after every step on every
      level and right after every regrid (the adaptive rotor), as in rung 2a.
    - **The field loop across a coarse-fine face** (`x ≥ 0` refined, the face
      through the loop's centre): its magnetic energy and its `A_z` error lie
-     between the uniform coarse and fine controls — at `t = 1/2`, 0.801 of
-     its initial energy against 0.623 and 0.844, L1(`A_z`) 1.6e−6 against
-     3.0e−6 and 8.7e−7; at `t = 4` (`bin/field_loop_refined.jl`, the loop a
-     third of its radius across the face), 0.584 against 0.206 and 0.619,
-     and 4.2e−6 against 9.3e−6 and 3.0e−6. The refined half keeps the fine
+     between the uniform coarse and fine controls — at `t = 1/2`, 0.801
+     [0.803] of its initial energy against 0.623 and 0.844, L1(`A_z`) 1.6e−6
+     [1.56e−6] against 3.0e−6 and 8.7e−7; at `t = 4`
+     (`bin/field_loop_refined.jl`, the loop a third of its radius across the
+     face), 0.584 [0.589] against 0.206 and 0.619, and 4.2e−6 [4.16e−6]
+     against 9.3e−6 and 3.0e−6. The refined half keeps the fine
      mesh's energy; the coarse half loses the coarse mesh's. (Adaptive, one
      level where Löhner fires, the loop with its buffer and 2:1 balance
      covers every root of so small a box: it is the uniform-fine run, to
      every digit printed.)
    - **The interface order and the gauge damping**: the tables in
-     "Refinement" (width 4: L∞ 2.04 in 1D, 2.02 in 2D, where width 2 gives
-     0.91 and 0.33; `ξ = 16/L` clears 97% of a gauge pulse's spurious
-     field within two light crossings).
+     "Refinement" (width 4: L∞ 2.04 [1.97] in 1D, 2.02 [1.85] in 2D, where
+     width 2 gives 0.91 [0.88] and 0.33 [0.08]; `ξ = 16/L` clears 97%
+     [99.95%] of a gauge pulse's spurious field within two light
+     crossings).
    - **The tracked shock tube**: Balsara 1 on its box made periodic, 100
      coarse cells and two levels more where Löhner fires (`refine_tol =
      0.08`, `coarsen_tol = 0.02`, buffer 6), regridded every 1/80: three
      adaptation passes, ten regrids, 18 to 40 blocks, 416 steps, conserved
-     to 0.017 ulp a step, nothing repaired and no reset.
+     to 0.017 [0.015] ulp a step, nothing repaired and no reset.
    - **The atmosphere across a coarse-fine face**: the bounded ghost fill
      repairs no ghost and injects what the uniform mesh does; unbounded,
      `D < 0` in fine ghosts and 250 times the rest mass (the table in
-     "Refinement").
+     "Refinement"). *(Amended in step 8, AMR-10 landed:)* the ghost fill
+     now prolongates the primitives, width 2 (proposed): no ghost
+     inadmissible or below the atmosphere, hydrodynamically and magnetized
+     (where conserved ghosts had 33 repaired recoveries), but 5.6e−9 of rest
+     mass injected hydrodynamically against the conserved fill's 1.5e−11;
+     at width 4, 5.4e−4 of energy, and a blow-up magnetized (the tables in
+     "Refinement"). *(Amended 2026-10-23:)* the fill is now the
+     parent-centred one (decided by Erik): −1.6e−11 of rest mass, as the
+     conserved fill's.
+   - **What the end of step 8 moved elsewhere** (measured, every line the
+     suite prints, before and after, Julia 1.13): the symmetric walls and
+     the relative hook moved nothing a uniform-mesh case prints; the
+     primitive ghost fill, whose owned `P` goes through `P_from_W`, moved
+     the uniform runs in their last digits — the waves' L1 errors in the
+     12th to 15th, every rate to the digits recorded unchanged, the
+     drifts (Alfvén 0.0059 → 0.0046 ulp a step, PPM 0.011 → 0.0056), the
+     shock tubes' L1 errors in the 11th to 13th digit (Balsara 3 under PPM
+     in the 10th) and their boundary budgets within 3·10⁻¹⁴, the uniform
+     flows through the faces 4.4·10⁻¹³ … 1.5·10⁻¹² of a variable's scale,
+     the current sheet's distance 9.559329e−4 → 9.559339e−4, Orszag–Tang's
+     asymmetry 1.9e−13 → 3.8e−13 (the recovery's tolerance; asserted ≤
+     1e−11), the rotor's drift 2.9e−16 → 4.0e−16; the 1D/2D/3D bit identity,
+     the turned runs and every mirror symmetry on a uniform mesh hold bit
+     for bit. Chaotic at rounding level, and so moved further: the
+     magnetized atmosphere tube (rung 1b, amended there), the near-vacuum
+     rarefaction under ARS (2.1e−10 → 2.7e−10, resets 152/114 → 161/118)
+     and the ideal magnetized atmosphere under ARS (2.6·10⁴ → 1.6·10⁴ of
+     rest mass injected, `W` 49 → 100); SSP3(4,3,3)'s rows of both are the
+     same to the digits recorded. The 3200-cell references in `test/data/`
+     are not regenerated (proposed in step 8): the scheme changed for them by
+     rounding only, against reference errors of 10⁻³.
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
@@ -2332,7 +4141,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - *(Added in step 8; closed by Erik 2026-10-15.)* Primitives or the
   conserved state in the matter's ghost fill: the primitives, with a
   bounded Lagrange prolongation (AMR-10), the conserved state in the regrid
-  (see "Refinement").
+  (see "Refinement"). *(Amended 2026-10-23, decided by Erik:)* the
+  primitives with the bounded conservative prolongation centred on the
+  parent; the three working fills are recorded in "Refinement", to revisit
+  when the physics gets harder.
 - TreeGH's CFL factor under the SSP3 explicit tableau.
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).

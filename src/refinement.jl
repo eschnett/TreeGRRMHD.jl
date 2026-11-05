@@ -13,11 +13,11 @@
 #     time of the regrid (AMR-2), every other one `=> nothing` — resized, never
 #     transferred: `P`, `B_d` (never state), `F_d`, `EMF_d`, `X`.
 #   * **What follows a regrid**: the problem rebuilt over the same sets, the
-#     state gathered, the potentials' low walls prescribed (AMR-8), and the
-#     reset run once as the step limiter, so that a prolongated conserved
-#     state the recovery would repair is repaired in the state and its
-#     injection is accounted (proposed in step 8, as TreeHydro's post-regrid
-#     reset).
+#     state gathered, and the reset run once as the step limiter (which also
+#     writes the potentials' prescribed low walls into the state, AMR-8), so
+#     that a prolongated conserved state the recovery would repair is
+#     repaired in the state and its injection is accounted (proposed in step
+#     8, as TreeHydro's post-regrid reset).
 
 """
     lohner(um, u0, up, u_ref, ε, ε_g)
@@ -87,8 +87,9 @@ end
 
 The flag vector `regrid!` takes, one entry per block, from Löhner's
 indicator on `ρ`, `|B|` and `|E|` of a current primitive set — `P` must be
-recovered in every stored cell, ghosts included ([`update_primitives!`](@ref)),
-since the stencil reads one cell past each face. TreeHydro's four marks
+current in every stored cell, ghosts included ([`update_primitives!`](@ref):
+recovered in the owned cells, built from the exchanged primitives `W` in the
+ghosts), since the stencil reads one cell past each face. TreeHydro's four marks
 (`hydro_flags`, which this follows):
 
     any cell > refine_tol, level < maxlevel  ->  (Refine, box)
@@ -135,23 +136,21 @@ end
 
 Every field set of `p.f` as `regrid!` takes them ("Field sets" in
 `CODE.md`): the five evolved sets `=> (schedule, hook)`, each with its own
-boundary hook at time `t` (AMR-2; `nothing` on a periodic domain) — but a
-potential with the case's Dirichlet hook with none, so that `regrid!`'s fill
-keeps the complete condition [`regrid_state!`](@ref) wrote — and `P`,
+boundary hook at time `t` (AMR-2; `nothing` on a periodic domain), which
+applies the complete outer boundary condition in `regrid!`'s own fill before
+its transfer (the potentials' relative hook, AMR-7; amended in step 8, where
+until TreeAMR 0.2.2 the potentials went in without a hook after a complete
+fill of this package's own) — and `P`,
 `B_d`, `F_d`, `EMF_d` and `X` `=> nothing` — resized and never transferred,
 since every one of them is recomputed from the state before it is read. `B`
 in particular is never state: the regrid moves `A`, and `B` is its curl.
 """
 function regrid_pairs(p::MHDProblem, t)
     f = p.f
-    # The matter's hook is a function of position alone and complete; a
-    # potential's relative hook is not (AMR-7), so a potential with the
-    # case's hook goes in without one, its outer points already complete.
-    hook(i) = p.boundary === nothing ? nothing :
-              i != SEG_U && p.boundary[i] isa DirichletBoundary ? nothing :
-              boundary_at(p.boundary[i], t)
+    hook(i) = p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t)
     evolved = ntuple(i -> p.sets[i] => (p.schedules[i], hook(i)), length(p.sets))
-    scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
+    scratch = (f.P => nothing, f.W => nothing, map(s -> s => nothing, f.B)...,
+               map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
     return (evolved..., scratch...)
 end
@@ -160,34 +159,25 @@ end
     regrid_state!(p::MHDProblem, u, t; flags, buffer = 0) -> (; moved, p, u)
 
 Regrid every field set of `p` as `flags` asks, at time `t`: scatter the
-state `u` into the evolved sets, fill them with the complete outer boundary
-condition (`fill_set!`), `regrid!` them all ([`regrid_pairs`](@ref):
-`regrid!`'s own fill before its transfer then reproduces those ghosts, so the
-transfer reads the complete condition), and where the mesh moved, [`rebuild`](@ref) the problem, gather
-the state into a new vector, prescribe the potentials' low walls (AMR-8's
-workaround), and run the reset once as the step limiter
-([`reset_step!`](@ref)) — so that a newly prolongated conserved state the
-recovery repairs is repaired in the state, and what that injects is
+state `u` into the evolved sets, `regrid!` them all ([`regrid_pairs`](@ref),
+each with its own hook, so that `regrid!`'s fill before its transfer applies
+the complete outer boundary condition), and where the mesh moved,
+[`rebuild`](@ref) the problem, gather the state into a new vector, and run
+the reset once as the step limiter ([`reset_step!`](@ref), which also
+writes the potentials' prescribed low walls into the new state) — so that a
+newly prolongated conserved state the recovery repairs is repaired in the
+state, and what that injects is
 counted in `X` like any step limiter's write (proposed in step 8, as
 TreeHydro's post-regrid reset). Returns the problem and the state that hold
 from now on; the ones handed in when nothing moved.
 """
 function regrid_state!(p::MHDProblem{T}, u, t; flags, buffer::Integer=0) where {T}
     scatter!(p.sets, u)
-    # The complete boundary condition first, every evolved set; `regrid!`'s
-    # own fill then has no hook for the potentials (`regrid_pairs`), which
-    # leaves their outer points as this wrote them and, the mesh being what
-    # this fill saw, recomputes every other ghost bit for bit, so its
-    # transfer reads the complete condition.
-    for i in eachindex(p.sets)
-        fill_set!(p, i, t)
-    end
     moved = regrid!(first(p.sets).forest, regrid_pairs(p, t); flags=flags, buffer=buffer)
     moved || return (; moved, p, u)
     p = rebuild(p)
     u = statevector(p.sets)
     gather!(u, p.sets)
-    low_walls!(p, u, t)
     # `X` was resized without transfer, so its tallies start again here; the
     # driver regrids at the start of a chunk, after clearing them anyway.
     clear_tally!(p)

@@ -95,7 +95,7 @@ explosion_gas(::Type{T}, Γ) where {T} =
 
 """
     cylindrical_explosion_case([T], Val(D) = Val(2); L = 6, roots = 4,
-                               spherical = false, periodic = false, ρ_atm = 10⁻¹⁰)
+                               spherical = false, periodic = false, ρ_min = 10⁻¹⁰)
 
 The cylindrical explosion of Komissarov (1999) as GRaM-X sets it up
 (Shankar et al. 2023, §V B, eqs. 14–15): at rest, `ρ = 10⁻²` and `p = 1`
@@ -114,7 +114,7 @@ low boundary vertex and fill its high one ("Boundaries" in `CODE.md`).
 """
 function cylindrical_explosion_case(::Type{T}=Float64, ::Val{D}=Val(2); L=6, roots=4,
                                     spherical::Bool=false, periodic::Bool=false,
-                                    ρ_atm=1 // 10^10) where {T,D}
+                                    ρ_min=1 // 10^10) where {T,D}
     2 ≤ D ≤ 3 || throw(ArgumentError("the explosion is two- or three-dimensional, not $D."))
     Γ = 4 // 3
     eos = explosion_gas(T, Γ)
@@ -122,7 +122,7 @@ function cylindrical_explosion_case(::Type{T}=Float64, ::Val{D}=Val(2); L=6, roo
     w = MultiDCase{:explosion,T}(T(4 // 5), one(T), T(1 // 100), T(1 // 10^4), one(T),
                                  T(3 // 10^5), T(1 // 10), T(Γ), s₁, s₁, T(1 // 2), spherical)
     return MHDCase(T, Val(D); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(ρ_atm)), model=IdealConductor(),
+                   recovery_options(eos, T(ρ_min))..., model=IdealConductor(),
                    𝔅̄=SVector(T(1 // 10), zero(T), zero(T)), periodic=periodic,
                    extents=ntuple(_ -> (-T(L), T(L)), Val(D)), roots=roots)
 end
@@ -140,7 +140,7 @@ end
 end
 
 """
-    magnetic_rotor_case([T]; roots = 4, ρ_atm = 10⁻¹⁰)
+    magnetic_rotor_case([T]; roots = 4, ρ_min = 10⁻¹⁰)
 
 The relativistic magnetic rotor of Del Zanna et al. (2003), as GRaM-X sets
 it up (Shankar et al. 2023, §V C): a cylinder of radius `r_in = 0.1` and
@@ -150,7 +150,7 @@ density `ρ = 10` rotating rigidly at `Ω = 9.95` (`v = 0.995` at its edge,
 `t = 0.4`. The gas is [`shock_gas`](@ref). Dirichlet boundaries from the
 initial data.
 """
-function magnetic_rotor_case(::Type{T}=Float64; roots=4, ρ_atm=1 // 10^10) where {T}
+function magnetic_rotor_case(::Type{T}=Float64; roots=4, ρ_min=1 // 10^10) where {T}
     Γ = 5 // 3
     eos = shock_gas(T, Γ)
     s_in = EntropyEOS.polytropic_entropy(eos, one(T) / T(10)^T(Γ))
@@ -159,7 +159,7 @@ function magnetic_rotor_case(::Type{T}=Float64; roots=4, ρ_atm=1 // 10^10) wher
                              zero(T), s_in, s_out, T(1 // 2), false)
     h = T(1 // 2)
     return MHDCase(T, Val(2); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(ρ_atm)), model=IdealConductor(),
+                   recovery_options(eos, T(ρ_min))..., model=IdealConductor(),
                    𝔅̄=SVector(one(T), zero(T), zero(T)), periodic=false,
                    extents=((-h, h), (-h, h)), roots=roots)
 end
@@ -205,7 +205,7 @@ function orszag_tang_case(::Type{T}=Float64; roots=4) where {T}
     w = MultiDCase{:orszag_tang,T}(ρ, T(1 // 2), B₀, zero(T), zero(T), zero(T), zero(T),
                                    zero(T), s, s, T(1 // 2), false)
     return MHDCase(T, Val(2); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(1 // 10^10)), model=IdealConductor(),
+                   recovery_options(eos, T(1 // 10^10))..., model=IdealConductor(),
                    periodic=true, extents=((zero(T), one(T)), (zero(T), one(T))),
                    roots=roots)
 end
@@ -261,7 +261,7 @@ function field_loop_case(::Type{T}=Float64; vz=0, roots=(4, 2)) where {T}
     w = MultiDCase{:field_loop,T}(one(T), T(1 // 5) / r6, T(1 // 10) / r6, T(vz) / r6,
                                   T(1 // 1000), T(3 // 10), T(2), one(T), s, s, T(1 // 2), false)
     return MHDCase(T, Val(2); fields=WaveFields(w), potential=WavePotential(w), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(1 // 10^10)), model=IdealConductor(),
+                   recovery_options(eos, T(1 // 10^10))..., model=IdealConductor(),
                    periodic=true, extents=((-one(T), one(T)), (-T(1 // 2), T(1 // 2))),
                    roots=roots)
 end

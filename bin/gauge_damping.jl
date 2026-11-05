@@ -23,7 +23,10 @@ refine_first!(forest) = (refine!(forest, [first(forest.leaves)]); balance!(fores
 w = let a = findfirst(s -> startswith(s, "w="), ARGS)
     a === nothing ? 4 : parse(Int, ARGS[a][3:end])
 end
-ops_A = Operators(; prolongation=w, restriction=w)
+# `A_j` conservative along the edge with point values of width `w` across it
+# (AMR-9, since step 8 took up TreeAMR 0.2.2), `Φ̃` PointValue width `w`.
+ops_A = Operators(; prolongation=3, restriction=2, family=Conservative, vertex_prolongation=w)
+ops_Φ = Operators(; prolongation=w, restriction=w)
 println("potentials' width w = $w")
 
 maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1), 1:3)
@@ -34,7 +37,7 @@ for refine in (nothing, refine_first!), ξ in (0, 1, 4, 16, 64)
     Bs = Float64[]
     mon(p, u, t) = (update_fields!(p, u, t); push!(Bs, maxB(p)))
     t0 = time()
-    r = evolve!(gp, Val(2); N=16, t_end=2, limiter=:mc, ξ=ξ, refine=refine, ops_A=ops_A,
+    r = evolve!(gp, Val(2); N=16, t_end=2, limiter=:mc, ξ=ξ, refine=refine, ops_A=ops_A, ops_Φ=ops_Φ,
                 after_step=mon)
     Φmax = mesh_mapreduce(abs, max, 0.0, r.p.sets[TG.SEG_Φ], stateview(r.u, r.p.sets, TG.SEG_Φ);
                           vars=1)
@@ -48,7 +51,7 @@ c1 = alfven_wave_case(Float64; roots=1)
 c = oblique_case(c1; N=16, roots=2)
 for ξ in (0, 1, 4, 16, 64)
     r = evolve!(c, Val(2); N=16, t_end=alfven_period(c1) / 8, limiter=:mc, ξ=ξ,
-                refine=refine_first!, ops_A=ops_A)
+                refine=refine_first!, ops_A=ops_A, ops_Φ=ops_Φ)
     e = l1_errors(r.p, r.u, exact_state(r.p, c, r.t))
     Φmax = mesh_mapreduce(abs, max, 0.0, r.p.sets[TG.SEG_Φ], stateview(r.u, r.p.sets, TG.SEG_Φ);
                           vars=1)

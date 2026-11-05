@@ -42,11 +42,11 @@ end
     @test isnan(magnetization(m, B, NaN))
     model = MagnetizationCutoff(Constant(1e3), 10)
     eos = shock_gas(Float64, 5 // 3)
-    pol = AT.EntropyEOS.default_policy(eos, 1e-8)
+    (; proj, pol) = recovery_options(eos, 1e-8)
     opts = AT.EntropyEOS.Con2PrimOptions{Float64}()
     cons★ = (-1e-9, 0.0, 0.0, 0.0, 6e-7, -5e-10, -2e-8, 0.0, 0.0, 0.0)
     E★ = SVector(0.0, 0.0, 1e-5)
-    E, prim, res, nrec = solve_ohm_stage(eos, opts, pol, model, m, cons★, E★, B, 1e-3,
+    E, prim, res, nrec = solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B, 1e-3,
                                          (NaN, NaN, NaN))
     @test res.flags == OHM_SIGMA_ZERO && E === E★
     # The predictor's recovery, repaired to the atmosphere and flagged as
@@ -88,7 +88,17 @@ end
         @test all(isfinite, a.r.u)
         @test minimum(a.pr.ρ) ≥ 1e-8 * (1 - 1e-12)
         @test t.step_resets > 0                          # the reset holds the atmosphere
-        @test t.stages[5] == 0                           # no OHM_FALLBACK
+        # No OHM_FALLBACK, hydrodynamically or magnetized (restored for the
+        # magnetized tube, decided by Erik 2026-10-22). From step 8 until
+        # 2026-10-21 the magnetized tube was chaotic at rounding level — 0 to
+        # 144 fallbacks of its 160,000 cell-stages under 10⁻¹⁵ perturbations —
+        # and a rate of at most 0.2% was asserted; that chaos was EntropyEOS's
+        # floor and collapse repairs. Under the atmosphere-at-rest recovery,
+        # with the tube's `collapse_to_atmosphere`, it is deterministic: no
+        # fallback in any of 48 perturbed runs on the uniform mesh and on both
+        # refined meshes ("Floors, the atmosphere and the magnetosphere" in
+        # `CODE.md`).
+        @test t.stages[5] == 0
         for (v, inj) in ((AT.U_D, t.injected_D), (AT.U_TAU, t.injected_τ))
             @test abs(a.drift[v] - inj) ≤ 8 * eps() * a.scales[v] * a.nsteps
         end
@@ -103,29 +113,44 @@ end
     # SSP. Here a gas at ρ = p = 1 expands into a medium at 10⁻⁸ above an
     # atmosphere at 10⁻¹⁰ (so no reset need fire): under SSP3(4,3,3) no
     # density undershoots the medium and the reset never writes; under
-    # ARS(4,4,3) the front undershoots fiftyfold and the reset writes a hundred
-    # cells. In the magnetized atmosphere (`Bʸ = 10⁻³`, `IdealConductor`) the
-    # same undershoots, repaired where the field's energy dwarfs the fluid's,
-    # inject orders of magnitude more mass than the box holds.
+    # ARS(4,4,3) the front undershoots the medium down to the atmosphere and
+    # the reset writes over a hundred cells. The magnetized half is a regression check of the recovery (amended
+    # 2026-10-22, decided by Erik): see below.
     case = shock_tube_case(Float64; Γ=5 // 3, left=(ρ=1, p=1, v=(0, 0, 0), B=(0, 0, 0)),
                            right=(ρ=1 // 10^8, p=1 // 10^12, v=(0, 0, 0), B=(0, 0, 0)),
-                           ρ_atm=1 // 10^10, roots=20)
+                           ρ_min=1 // 10^10, roots=20)
     ssp = at_run(case; tableau=IRK.IMEXSSP3433())
     ars = at_run(case; tableau=IRK.ARS443())
     @info "Rarefaction into 10⁻⁸: min ρ $(minimum(ssp.pr.ρ)) (SSP3), $(minimum(ars.pr.ρ)) (ARS); " *
           "resets $(ssp.t.resets)/$(ssp.t.step_resets) and $(ars.t.resets)/$(ars.t.step_resets)"
     @test minimum(ssp.pr.ρ) ≥ 1e-8 * (1 - 1e-6)
     @test ssp.t.resets == 0 && ssp.t.step_resets == 0
-    # Measured 2.1e-10 and 152/114.
+    # Measured 2.1e-10 and 152/114 (2.7e-10 and 161/118 since step 8's
+    # primitive ghost fill moved the owned `P` by rounding; 1.0e-10, the
+    # atmosphere, and 131/110 since 2026-10-21, when a floored recovery
+    # became the atmosphere at rest).
     @test minimum(ars.pr.ρ) ≤ 1e-9
     @test ars.t.step_resets > 0
 
     mag = atmosphere_tube_case(Float64; By=1e-3, model=IdealConductor(), roots=20)
     ssp = at_run(mag; tableau=IRK.IMEXSSP3433())
     ars = at_run(mag; tableau=IRK.ARS443())
-    @info "Magnetized ideal atmosphere: injected rest mass $(ssp.t.injected_D) (SSP3), " *
-          "$(ars.t.injected_D) (ARS); max W $(ssp.W), $(ars.W)"
-    # Measured 1.6e-9 against 2.6e4 (the box holds 0.5).
-    @test abs(ssp.t.injected_D) ≤ 1e-6
-    @test ars.t.injected_D ≥ 1
+    @info "Magnetized ideal atmosphere: injected rest mass $(ssp.t.injected_D), " *
+          "$(ars.t.injected_D), energy $(ssp.t.injected_τ), $(ars.t.injected_τ) " *
+          "(SSP3, ARS); max W $(ssp.W), $(ars.W)"
+    # In the magnetized ideal atmosphere (`Bʸ = 10⁻³`, `B²/ρ = 100`) neither
+    # tableau runs away. Until 2026-10-21 ARS(4,4,3) injected 2.6e4 of rest
+    # mass into a box holding 0.5 and ran to `W = 49` (1.6e4 and `W = 100`
+    # since step 8), and this testset asserted it as evidence against ARS.
+    # That was not a property of ARS but of EntropyEOS's repairs: the
+    # entropy-floor branch wrote `ρ_atm` at `W ≈ |S|/ρ_atm` and the collapse
+    # branch `ρ_ceiling` (`CODE.md`, "Floors, the atmosphere and the
+    # magnetosphere"). Since the recovery puts a floored state at rest and the
+    # tube's policy sets `collapse_to_atmosphere`, this is a regression check
+    # of that recovery (amended 2026-10-22, decided by Erik). Measured
+    # injected rest mass −6.6e-9 (SSP3) and 5.6e-8 (ARS), energy −1.7e-5 and
+    # −2.4e-5, final `W` 4.01 and 4.11: bounds with a margin of ten or more.
+    @test abs(ssp.t.injected_D) ≤ 1e-6 && abs(ars.t.injected_D) ≤ 1e-6
+    @test abs(ssp.t.injected_τ) ≤ 3e-4 && abs(ars.t.injected_τ) ≤ 3e-4
+    @test ssp.W ≤ 5 && ars.W ≤ 5
 end

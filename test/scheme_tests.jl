@@ -160,7 +160,7 @@ end
     for case in (em_wave_case(; roots=3), alfven_wave_case(; roots=3))
         forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
         f = mhd_fields(Float64, forest)
-        p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+        p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
                        𝔅̄=case.𝔅̄, limiter=:mc)
         u1 = exact_state(p, case, 0.0)
         u2 = exact_state(p, case, 0.3)
@@ -189,6 +189,64 @@ end
     end
 end
 
+@testset "The matter's ghosts come from the exchanged primitives, never from a recovery: D=$D" for D in 1:2
+    # Guards the parent-centred primitive fill (decided by Erik 2026-10-23;
+    # "Refinement" in `CODE.md`): the recovery runs on the owned cells only,
+    # `W` is exchanged, and every ghost's `P` is built from `W` by forward EOS
+    # evaluation. A ghost recovered from the conserved state, or a kernel
+    # that read or wrote the conserved ghosts, would show here: the matter
+    # set's work array is filled with NaN before the right-hand side, so a
+    # recovery of a conserved ghost would hand back the policy's atmosphere
+    # (finite, and not its owner's `P`), a stencil reading one would make
+    # `du` non-finite, and a write would leave a finite number behind. On a
+    # uniform periodic mesh of several blocks every ghost is a same-level
+    # copy, so its `W` is its owner's, and its `P` its owner's bit for bit —
+    # but for `q`, which only the owned cells compute, and the recovery's
+    # flags, which a ghost does not carry (zero for this smooth wave anyway).
+    c1 = alfven_wave_case(Float64; roots=2)
+    N = 10
+    case = D == 1 ? c1 : oblique_case(c1; N=N, roots=2)
+    forest = Forest(case.roots; N=N, periodic=case.periodic, extents=case.extents)
+    f = mhd_fields(Float64, forest)
+    p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
+                   𝔅̄=case.𝔅̄, limiter=:mc)
+    u = exact_state(p, case, 0.0)
+    f.U.work .= NaN
+    du = similar(u)
+    mhd_rhs!(du, u, p, 0.0)
+    @test all(isfinite, du)
+    G = f.U.G
+    owned(c) = all(d -> 1 ≤ c[d] - G[d] ≤ N, 1:D)
+    ghost_U_nan = true
+    for b in 1:nblocks(f.U), c in CartesianIndices(ntuple(d -> 1:(N + 2G[d]), D))
+        owned(Tuple(c)) && continue
+        ghost_U_nan &= all(isnan, f.U.work[Tuple(c)..., :, b])
+    end
+    @test ghost_U_nan
+    # The owner of every stored cell, from its centre on the periodic mesh.
+    h = ntuple(d -> (case.extents[d][2] - case.extents[d][1]) / (case.roots[d] * N), D)
+    ncell = ntuple(d -> case.roots[d] * N, D)
+    cellkey(x) = ntuple(d -> mod(floor(Int, (x[d] - case.extents[d][1]) / h[d]), ncell[d]), D)
+    owner = Dict{NTuple{D,Int},Tuple{Int,NTuple{D,Int}}}()
+    for b in 1:nblocks(f.P), c in CartesianIndices(ntuple(d -> (G[d] + 1):(G[d] + N), D))
+        owner[cellkey(coordinates(f.P, b, Tuple(c)))] = (b, Tuple(c))
+    end
+    slots = [v for v in 1:SC.NP if v != SC.P_Q && v != SC.P_FLAGS]
+    nghosts, sameW, sameP = 0, true, true
+    for b in 1:nblocks(f.P), c in CartesianIndices(ntuple(d -> 1:(N + 2G[d]), D))
+        s = Tuple(c)
+        owned(s) && continue
+        ob, os = owner[cellkey(coordinates(f.P, b, s))]
+        nghosts += 1
+        sameW &= isequal(f.W.work[s..., :, b], f.W.work[os..., :, ob])
+        sameP &= isequal(f.P.work[s..., slots, b], f.P.work[os..., slots, ob])
+        sameP &= f.P.work[s..., SC.P_FLAGS, b] == 0 && f.P.work[os..., SC.P_FLAGS, ob] == 0
+    end
+    @test nghosts == nblocks(f.P) * (prod(N .+ 2 .* G) - N^D)
+    @test sameW
+    @test sameP
+end
+
 @testset "MHDProblem refuses what it cannot run" begin
     # Guards the constructor's checks: no default limiter (the case's choice),
     # a limiter or solver with no method, a non-periodic forest with no hooks,
@@ -197,14 +255,14 @@ end
     case = em_wave_case(; roots=2)
     forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest)
-    kw = (; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model)
+    kw = (; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model)
     @test_throws "no default limiter" MHDProblem(f; kw...)
     @test_throws "limiter must be one of" MHDProblem(f; kw..., limiter=:weno)
     @test_throws "riemann must be one of" MHDProblem(f; kw..., limiter=:mc, riemann=:hllc)
     closed = Forest((2,); N=10, periodic=(false,), extents=((0.0, 1.0),))
     @test_throws "no boundary hooks" MHDProblem(mhd_fields(Float64, closed); kw..., limiter=:mc)
     g = mhd_fields(Float64, forest; G=2)
-    mixed = SC.MHDFields(f.U, g.A, f.Φ, f.P, f.B, f.F, f.EMF, f.X, Val(1))
+    mixed = SC.MHDFields(f.U, g.A, f.Φ, f.P, f.W, f.B, f.F, f.EMF, f.X, Val(1))
     @test_throws "ghost width" MHDProblem(mixed; kw..., limiter=:mc)
 end
 
@@ -253,6 +311,54 @@ end
     @test l3[SC.R_E:end] == q₀[SC.R_E:end] && l3[1:(SC.R_E - 1)] == rm[1:(SC.R_E - 1)]
 end
 
+@testset "The positivity fallback admits every state con2prim_safe returns unflagged" begin
+    # Guards "Reconstruction" (amended 2026-10-26, EntropyEOS 2.1): the face
+    # test is `con2prim_safe`'s own, with its face slack, not the exact window.
+    # `con2prim_safe` returns a root within the slack of an `s` face unflagged;
+    # a cell holding one is a local minimum of `s`, so MC gives it zero slope
+    # and its faces are its own value. An exact test rejected those faces, and
+    # the fallback, which substitutes that same value, could not repair them:
+    # under ARS(4,4,3) the face went to first order at stage 4, whose explicit
+    # weight is −7/4, and every perturbed cut-off atmosphere tube blew up.
+    eos = SC.shock_gas(Float64, 5 // 3)
+    proj = SC.EntropyEOS.default_projection(eos, 1e-8)
+    # A cold re-solve of a state the stage limiter had written onto the
+    # `s_min` face in the atmosphere tube (the reproducer of 2026-10-24).
+    cin = SC.EntropyEOS.Con2PrimIn{Float64}(4.2333535756838405e-5, 8.405767634079503e-5,
+                                             2.116646393435175e-5, 0.0,
+                                             0.00011909076469608308, 0.0)
+    out = SC.EntropyEOS.con2prim_safe(eos, cin, SC.EntropyEOS.Con2PrimOptions{Float64}(), proj,
+                                      1.0, NaN, NaN)
+    b = out.base
+    sr = SC.EntropyEOS.srange(eos, b.ρ, b.ye)
+    @test out.policy_flags == 0 && b.s < sr.s_min       # unflagged, inside the slack
+    rec(ρ, s, Yₑ) = (ρ, s, Yₑ, 0.1, 0.0, 0.0, 0.0, 0.2, 0.0, 1.0, 0.0, 0.3)
+    q₀ = rec(b.ρ, b.s, b.ye)
+    q₋₁ = rec(2b.ρ, 2.0, b.ye)
+    q₊₁ = rec(b.ρ / 2, 3.0, b.ye)
+    r = SC.extrapolate(Val(:mc), q₋₁, q₀, q₊₁, 1)
+    @test r[SC.R_S] == b.s                               # zero slope at the minimum
+    @test SC.limit_face(eos, r, q₀) == r                 # admitted: no fallback
+    # Past the slack (10⁻⁷ of the window's width at `Float64`) it falls back.
+    width = sr.s_max - sr.s_min
+    for (s, ok) in ((sr.s_min - width / 10^8, true), (sr.s_min - width / 10^6, false),
+                    (sr.s_max + width / 10^8, true), (sr.s_max + width / 10^6, false))
+        q = rec(b.ρ, s, b.ye)
+        @test SC.admissible_fluid(eos, q) == ok
+        @test SC.limit_face(eos, q, q₀)[SC.R_S] == (ok ? s : b.s)
+    end
+    # `Yₑ` one ulp outside its range is admitted, as `Yₑ·D/D` can return it;
+    # two ulps are not. And `ρ`, `u` keep this package's own conditions.
+    y_lo, y_hi = SC.EntropyEOS.yₑ_bounds(eos)
+    @test SC.admissible_fluid(eos, rec(b.ρ, 20.0, prevfloat(y_lo)))
+    @test SC.admissible_fluid(eos, rec(b.ρ, 20.0, nextfloat(y_hi)))
+    @test !SC.admissible_fluid(eos, rec(b.ρ, 20.0, prevfloat(y_lo, 2)))
+    @test !SC.admissible_fluid(eos, rec(b.ρ, 20.0, nextfloat(y_hi, 2)))
+    @test !SC.admissible_fluid(eos, rec(0.0, 20.0, 0.5))
+    @test !SC.admissible_fluid(eos, rec(NaN, 20.0, 0.5))
+    @test !SC.admissible_fluid(eos, Base.setindex(rec(b.ρ, 20.0, 0.5), Inf, SC.R_U + 1))
+end
+
 @testset "The reset writes back exactly the cells the policy repaired, and is idempotent" begin
     # Guards the atmosphere reset ("Floors, the atmosphere and the
     # magnetosphere"): a cell whose recovery the policy repaired is replaced
@@ -264,7 +370,7 @@ end
     case = em_wave_case(; roots=3)
     forest = Forest(case.roots; N=10, periodic=case.periodic, extents=case.extents)
     f = mhd_fields(Float64, forest)
-    p = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
+    p = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol, model=case.model,
                    limiter=:mc)
     u = exact_state(p, case, 0.0)
     uU = statearray(u, p.sets, SC.SEG_U)

@@ -44,9 +44,8 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b — but for the re-measurement of the matter's ghost fill,
-blocked on AMR-10) are done; step 9 (analytic curved backgrounds) is next
-and waits for nothing (2026-10-15).** `CODE.md` records the reviewed design
+regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
+curved backgrounds) is next and waits for nothing (2026-10-16).** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -73,9 +72,59 @@ implicitly; 10 is the measured safe value (`CODE.md`, "Ohm's law and the
 conductivity"). `test/pointwise_tests.jl` and `test/stage_solve_tests.jl`
 use `recovery_tests.jl`'s state generators and are included after it. Steps
 4a–4c are done in `~/src/jl/IMEXRungeKutta` (1.4.0), whose `CODE.md` is the
-IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0, still
-unregistered); TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
-another form (`bounded = true`, outflow faces); SpacetimeMetrics 1.7.0 has
+IMEX design. EOS-1 and EOS-2 have landed (EntropyEOS 1.0.0), EOS-8
+(1.1.0), EOS-9 (2.0.0), EOS-11 (2.1.0) and EOS-10 (2.2.1; still
+unregistered, `[sources]` pins the tag `v2.2.1`, `[compat]` `"2.2.1"`,
+since 2026-10-30, on `claude/entropyeos-2.2`; `v2.2.0` from 2026-10-26,
+`v2.0.0` from 2026-10-24). The recovery calls
+EntropyEOS's two levels, `con2prim_safe` onto `ProjectionOptions` (`proj`:
+`ρ_min`, `ρ_max`, `w_cap`) and `apply_policy` with `PolicyOptions`
+(`pol`: the atmosphere), both carried by `MHDProblem` and `MHDCase` and
+built by `recovery_options(eos, ρ_min)` (`s_atm` at 1.x's window
+midpoint); no case sets `collapse_to_atmosphere`; the policy flags are
+bits 8–17 (`CODE.md`, "Primitive recovery", "The two levels"); 2.2's
+sound-speed bits 18–19 are the EOS evaluation's and reach only the step
+cache's copy of the `EOSPoint`. The reconstruction's `admissible_fluid`
+tests `s` and `Yₑ` with EntropyEOS's `inside_window`, `con2prim_safe`'s own
+test with its face slack (EOS-11, 2026-10-26; `CODE.md`, "Reconstruction"):
+under 2.0 the exact test rejected cells `con2prim_safe` returned unflagged
+within the slack, and ARS(4,4,3) near the vacuum regressed (48/48 cut-off
+tubes blew up); with `inside_window` every perturbed tube row is
+deterministic again and the regression is gone (`CODE.md`, "Floors, the
+atmosphere and the magnetosphere", "EntropyEOS 2.0"). Step 3's uncut sweep
+falls back more under 2.x (its bound of 12 approved); `s_atm` stays the
+midpoint; EOS-10 landed in EntropyEOS 2.2.1 (`[sources]` pins `v2.2.1`
+since 2026-10-30), so the bounds-checked run's four allocation failures are
+gone. Stage 3 of the recovery plan
+(`claude/recovery-pipeline-3`, 2026-10-24): **the step cache** — inside
+`evolve!`'s steps (`with_step_cache`) every recovery is seeded from the
+cell's latest one in the step and reused where its EntropyEOS input is that
+one's bit for bit; invalidated by the step limiter and around the stepping,
+so the callbacks are pure in `(u, t)` outside a step and a step is pure in
+`uⁿ` (`CODE.md`, "Primitive recovery", "The step cache"; the entry and
+`two_levels` in `src/con2prim.jl`, the cache on `MHDProblem`, the seed
+tallies in `X`; `evolve!(…; step_cache = false)` the negative control;
+`test/step_cache_tests.jl`; `bin/recovery_cost.jl steptime`). Stage 4
+(`claude/recovery-pipeline-4`, 2026-10-30): **the two-phase recovery** —
+every recovery outside the stage solve's iterations (the right-hand side,
+both limiters, the stage's first recovery) runs as three kernels over the
+owned cells: `start_kernel!` (the input and `con2prim_safe_start`),
+`finish_kernel!` (`con2prim_safe_finish` behind the per-cell `todo` guard,
+no compaction) and the site's own kernel (level 2 and the rest), through
+the per-owned-cell `Handoff` on `MHDProblem`; level 1 and level 2 never in
+one kernel; the iterations stay fused. `MHDProblem`/`evolve!(…; two_phase =
+true)` turns it on; **fused is the default** (decided by Erik 2026-11-02),
+bit for bit the same (`test/two_phase_tests.jl`;
+`CODE.md`, "The two-phase recovery"; `bin/recovery_cost.jl steptime` times
+both, `finish` counts the share that reaches finish). On the CPU the split is
+1–4% slower per step than fused (the 1D waves 6–9%), and the iterations never
+reach finish (measured 2026-10-30), so the CPU runs fused and the split
+waits for a GPU step. The ideal magnetized atmosphere's `W = 100` spikes
+under ARS are EntropyEOS 2.x's `s_max` rule (keep `D` and `S`), accepted
+(Erik, 2026-11-02; `CODE.md`, "Floors, the atmosphere and the
+magnetosphere"). TreeAMR 0.2.1 has AMR-1, -2, -3, -5, and AMR-4 and AMR-6 in
+another form (`bounded = true`, outflow faces), and 0.2.2 (the compat floor
+since step 8) AMR-7 to AMR-10 (AMR-11, new in step 8, waiting); SpacetimeMetrics 1.7.0 has
 SM-1, whose workaround is gone. Step 5's mesh code: `src/fieldsets.jl`
 (`mhd_fields`, every set of `CODE.md`'s table in D = 1, 2, 3, and the
 diagnostics set `X`), `src/curl.jl` (`curl_A!`, `𝔅 = curl A + 𝔅̄` on every
@@ -91,7 +140,7 @@ pure bit for bit because every recovery is seeded from the state
 `test/wave_tests.jl` (the convergence studies, ~50 s, half of it
 compilation). Step 6: non-periodic cases get Dirichlet hooks from their own
 data (`DirichletBoundary` in `src/driver.jl`; the potentials' are Dirichlet
-in the field and CPU-only, AMR-7), the reset is counted as stage and step
+in the field, since step 8 TreeAMR's relative hook, AMR-7), the reset is counted as stage and step
 limiter with the step limiter's injection (`reset_step!`, `ohm_tally`), and
 `src/cases/shocktubes.jl` has Balsara 1–5 with Giacomazzo & Rezzolla's
 exact plateaus, the resistive tube, Komissarov's current sheet and the
@@ -100,8 +149,8 @@ references in `test/data/` (rerun it only if the scheme changes, and say
 so); `bin/tableau_comparison.jl` made `CODE.md`'s SSP3-vs-ARS table.
 **SSP3(4,3,3) is the default tableau** (decided in step 6). Tests:
 `test/shocktube_tests.jl`, `test/resistive_tests.jl`,
-`test/atmosphere_tests.jl` (~45, 37 and 11 s). Non-periodic runs are
-CPU-only until AMR-7 (waiting). Step 7: `limiter` also takes `:ppm`,
+`test/atmosphere_tests.jl` (~45, 37 and 11 s). Non-periodic runs were
+CPU-only until AMR-7 landed (step 8); now every backend. Step 7: `limiter` also takes `:ppm`,
 `:wenoz`, `:mp5` (need `G = 3`; MP5 runs at `cfl = 1/5`, `default_cfl`),
 every reconstruction an offset in the differences `q_k − q₀` so that 2D/3D
 runs invariant along `y`/`z` are the 1D run bit for bit; the initial data's
@@ -113,24 +162,34 @@ made the per-reconstruction Balsara table and `test/data/balsara3_ppm.ref`.
 Tests: `test/reconstruction_tests.jl` (uses `wave_tests.jl`'s helpers),
 `test/multid_tests.jl` and `test/multid_cases_tests.jl` (uses the former's
 helpers; ~35, 67 and 60 s at one thread, 35 s of the 67 compiling the 2D and
-3D kernels). Step 8: both walls of a closed box prescribed alike
-(`low_walls!`, `outer_points!` in `src/driver.jl`, AMR-8's workaround,
-decided by Erik 2026-10-15), so a closed box is mirror-symmetric bit for
-bit; `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
+3D kernels). Step 8: both walls of a closed box prescribed alike (decided
+by Erik 2026-10-15; since TreeAMR 0.2.2 the potentials' `walls =
+:symmetric` and relative hook, AMR-7 and AMR-8, where step 8 first had its
+own `low_walls!`, `outer_points!`), so a uniform closed box is
+mirror-symmetric bit for bit; the owned low wall is prescribed: zero
+tendency, copied into `u` by the reset (`walls_to_state!`); `src/refinement.jl` (`mhd_flags`, Löhner on `ρ`, `|B|`, `|E|`;
 `regrid_pairs`, `regrid_state!`); `evolve!` with a static mesh
 (`refine`) or an adaptive one (`maxlevel`, `refine_tol`, `coarsen_tol`,
 `buffer`; `adapt_case!` over every set, AMR-3). Decided by measurement
-(`CODE.md`, "Refinement"): the matter's operators Conservative width 3
-**bounded**, the potentials' PointValue **width 4**, `ξ = 16/L` on every mesh
-(`L` the longest side; Erik's decision, 2026-10-15), and the ghost fill in conserved variables, bounded — until AMR-10 (a
-bounded PointValue interpolation, waiting) lets it prolongate the
-primitives, as Erik decided on 2026-10-15, with the conserved ghosts by
-`prim2con` and the regrid conservative. Every fill applies the complete
-outer boundary condition (`fill_set!`, `regrid_state!`; Erik, 2026-10-15). AMR-9 (a flux-conservative
-transfer of edge sets) is new and waiting: the magnetic flux across levels
-holds to rounding as a rate, not as a state. `bin/interface_order.jl`,
-`bin/gauge_damping.jl`, `bin/field_loop_refined.jl` made `CODE.md`'s step-8
-tables. Tests: `test/refinement_tests.jl` and
+(`CODE.md`, "Refinement"): the matter's regrid Conservative width 3
+**bounded**; `A_j` conservative along the edge with point values of
+**width 4** across it (AMR-9), `Φ̃` PointValue width 4 (`ops_Φ`); `ξ = 16/L`
+on every mesh (`L` the longest side; Erik's decision, 2026-10-15); the
+matter's ghost fill in **primitives** (Erik's decisions, 2026-10-15 and
+2026-10-23): the scratch set `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, copied at
+same-level faces and prolongated **parent-centred** at refinement boundaries
+(`default_ops_W`, Conservative width 3 bounded, Athena++'s choice), recovery
+on owned cells only, `P` in ghosts by forward EOS (`P_from_W`, also for
+owned cells), no ghost ever recovered, the conserved ghosts never written by
+the scheme (only `regrid!`'s own fill); `CODE.md`, "Refinement", records the
+three working fills and their branches. Every fill applies the complete outer
+boundary condition in one TreeAMR fill (Erik, 2026-10-15). The magnetic flux
+across levels holds to rounding as a rate and as a state (but at an outer
+face: AMR-11). The magnetized atmosphere tube was chaotic at rounding level
+(fallbacks, injected energy, `W`) until 2026-10-21's atmosphere at rest;
+under EntropyEOS 2.0 its perturbed runs are clean but not all the same run. `bin/interface_order.jl`,
+`bin/gauge_damping.jl`, `bin/field_loop_refined.jl`, `bin/ghost_fill.jl`
+made `CODE.md`'s step-8 tables. Tests: `test/refinement_tests.jl` and
 `test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
 
 ## Commands
@@ -202,9 +261,88 @@ step-8 files take 73 s and 44 s alone, compilation included. After the
 reviewer's round (one `ξ` on every mesh, the complete boundary condition
 after every fill, AMR-10 requested): **25373 tests**, 6m45s at one thread,
 7m10s at four, 7m20s with `--check-bounds=yes`; identical output at one and
-four threads, last digits only with bounds checks. The same afternoon 1.12 took 5m22s (6m00s with bounds
+four threads, last digits only with bounds checks. At the end of step 8's
+finish on TreeAMR 0.2.2 (2026-10-16, at a load of 4–6): **25405 tests**, a
+`Test Summary` time of 6m34s at one thread, 6m59s at four, 7m14s with
+`--check-bounds=yes` and 6m37s for the clean-checkout check (wall 6m43s,
+7m07s, 7m41s, 6m56s); identical output at one and four threads and from
+the clean checkout, last digits only with bounds checks (60 of 256 lines;
+the tracked tube's drift 0.015 → 0.014 ulp). Under the 10-minute budget,
+so no split. The same afternoon 1.12 took 5m22s (6m00s with bounds
 checks, its `Pkg.test()` default) and 1.11 6m05s with bounds checks — see
-`CODE.md`, "Julia version". At the end of step 7
+`CODE.md`, "Julia version". After the parent-centred fill became the only
+one (2026-10-24, on Symmetry's `amddebugq`, TreeAMR 0.2.6 as resolved
+there): **25950 tests** (d456a44 had 25876: +64 from the merged recovery
+test, +10 the new ghost testset), a `Test Summary` time of 10m18s at one
+thread, 8m38s at four and 10m17s for the clean-checkout check on cn112 (EPYC
+8534P), and 14m12s with `--check-bounds=yes` on cn084 (EPYC 7532); every
+printed line identical at one and four threads, from the clean checkout and
+to d456a44's on the same node (but one renamed `@info` label); another CPU
+moves last digits. With bounds checks four allocation assertions fail, as
+they do at d456a44 (since 2aae714): EntropyEOS 1.1's `con2prim_safe`
+allocates 544 B on the floored input there under `--check-bounds=yes`.
+After EntropyEOS 2.0 (2026-10-24, `claude/recovery-pipeline-2`, Symmetry
+`amddebugq`): **26196 tests** (+200 the Jacobian stencil's check, +40 the
+rewritten ρ_min-face testset, +9 the 2.0 names, −3 the units check), a
+`Test Summary` time of 11m50s at one thread and 9m11s at four on cn112
+(EPYC 8534P), the stage-1 baseline (d94bcf5, 25950 tests) 10m17s in the
+same job there; 11m50s for the clean-checkout check on cn112 and 14m14s on
+cn080 (EPYC 7532); 15m50s with `--check-bounds=yes` on cn079 (EPYC 7532).
+One and four threads identical, and the clean checkout identical to the
+one-thread run on the same node (another CPU moves last digits). With
+bounds checks the four allocation assertions of the ρ_min-face testset
+fail, 272 B and 144 B, in EntropyEOS's nested fallback (EOS-10 in
+`PLAN.md`; waiting on it, decided by Erik 2026-10-24); every other run passes whole. After the step
+cache (2026-10-24, `claude/recovery-pipeline-3` at 1462923, Symmetry, AMD
+EPYC 7532 throughout): **26268 tests** (+72, `test/step_cache_tests.jl`), a
+`Test Summary` time of 10m32s at one thread on cn079 against the stage-2
+baseline's 14m00s in the same job (a9cd482, 26196 tests, every test
+passing), 9m42s at four threads and 10m41s for the clean-checkout check on
+cn080, 12m26s with `--check-bounds=yes` on cn084. One and four threads
+identical, the clean checkout identical to the one-thread run. **Four
+failures in every run**: the uniform flow's slow cases leave `≤ 10⁻¹¹`
+(`1.1–8.4·10⁻¹¹`, warm seeds answering to EntropyEOS's tolerance); with
+bounds checks also EOS-10's four. *(Both resolved 2026-10-30: the uniform
+flow is asserted to the recovery's tolerance, `≤ 10³·tol`, with a 1000-step
+run besides, decided by Erik; EOS-10 landed in EntropyEOS 2.2.1.)* On
+EntropyEOS 2.2.0 with `inside_window` (2026-10-26, `claude/entropyeos-2.2`,
+Symmetry, AMD EPYC 7532 throughout): **26296 tests** (+18 the reconstruction's
+slack testset, +8 the step-cache entry read back, +2 names), a `Test Summary`
+time of 10m46s at one thread on cn079 against stage 3's 10m44s in the same
+job (4929c94, 26268 tests), 9m50s at four threads and 10m49s for the
+clean-checkout check on cn080, 12m27s with `--check-bounds=yes` on cn081.
+One and four threads identical, the clean checkout identical to the
+one-thread run; against stage 3 only ARS(4,4,3) near the vacuum moves (three
+lines; `CODE.md`, "EntropyEOS 2.1 and 2.2"). The same **four failures** (the
+uniform flow, stage 3's numbers to every digit), and with bounds checks
+EOS-10's four. On EntropyEOS 2.2.1 with the uniform flow asserted to the
+recovery's tolerance (2026-10-30, `claude/entropyeos-2.2` at 5e516c6,
+Symmetry, AMD EPYC 7532 throughout): **26304 tests** (+8, the 1000-step
+uniform flows), **every run passing whole**: a `Test Summary` time of
+10m49s at one thread on cn085 against 16c48ed's 10m42s in the same job,
+9m58s at four threads and 10m48s for the clean-checkout check on cn079,
+12m58s with `--check-bounds=yes` on cn080. One and four threads identical,
+the clean checkout identical to the one-thread run, and every printed line
+identical to 16c48ed's (EntropyEOS 2.2.0) but the four new ones. After
+the two-phase recovery (2026-10-30, `claude/recovery-pipeline-4` at 0334aed,
+Symmetry, AMD EPYC 7532 throughout): **26353 tests** (+49,
+`test/two_phase_tests.jl`), **every run passing whole**: a `Test Summary`
+time of 11m17s at one thread on cn082 against fea242a's 11m05s in the same
+job, 10m21s at four threads there, 11m19s for the clean-checkout check and
+13m16s with `--check-bounds=yes` on cn079. One and four threads identical,
+the clean checkout identical to the one-thread run, every printed line
+identical to fea242a's but the nine new ones, and bounds checks moving last
+digits only (68 lines). With fused the default (2026-11-02, 03566f4,
+Symmetry): **26353 tests**, every run passing whole: 11m04s at one thread on
+cn079 (EPYC 7532) against fea242a's 10m54s in the same job, 10m06s at four
+threads and 11m13s for the clean-checkout check on cn080 (EPYC 7532), 9m46s
+with `--check-bounds=yes` on cn093 (EPYC 7543). One and four threads
+identical, the clean checkout identical to the one-thread run, every printed
+line of the scheme identical to fea242a's but the nine new ones; six lines
+of the pointwise metric tests moved at 10⁻¹⁵ because the registry resolved
+ForwardDiff 1.4.7 (and TreeAMR 0.2.7) for the new tree, against 1.4.6 (and
+0.2.6) for fea242a's of 2026-10-30. At
+the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
 `--check-bounds=yes`), on this machine at a load of about 10 with two

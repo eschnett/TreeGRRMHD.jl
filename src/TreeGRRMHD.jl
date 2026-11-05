@@ -56,7 +56,7 @@ cases — the cylindrical explosion, the magnetic rotor, the Orszag–Tang vorte
 and the field loop ([`cylindrical_explosion_case`](@ref),
 [`magnetic_rotor_case`](@ref), [`orszag_tang_case`](@ref),
 [`field_loop_case`](@ref)). Step 8: both walls of a closed box prescribed
-alike ([`low_walls!`](@ref)), the refinement criterion ([`mhd_flags`](@ref)),
+alike (TreeAMR's symmetric walls and relative hook), the refinement criterion ([`mhd_flags`](@ref)),
 the regrid of every field set ([`regrid_state!`](@ref)), static and adaptive
 meshes in [`evolve!`](@ref), and a pure gauge pulse
 ([`gauge_pulse_case`](@ref)).
@@ -90,7 +90,8 @@ export Metric3, flat_metric, ideal_E
 # The variables
 export NU, NP, NPRIM
 # The conversions
-export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_guesses
+export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_guesses,
+       atmosphere_prim
 # The metric providers
 export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_gradient
 # The pointwise physics
@@ -109,10 +110,11 @@ export OHM_SIGMA_ZERO, OHM_IDEAL, OHM_FIXED_POINT, OHM_NEWTON, OHM_FALLBACK, OHM
 export MHDFields, mhd_fields, evolved_sets, edge_centering, face_centering, curl_A!
 export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_primitives!,
        update_fields!, boundary_at
-export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B
+export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B,
+       with_step_cache
 # The driver and the cases
-export MHDCase, exact_state, l1_errors, mhd_integrator, evolve!, DirichletBoundary, case_boundary,
-       profile_1d, low_walls!
+export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
+       DirichletBoundary, case_boundary, profile_1d, walls_to_state!
 # Refinement
 export mhd_flags, indicator_scales, regrid_state!
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed

@@ -395,8 +395,8 @@ end
 end
 
 """
-    solve_ohm_stage(eos, opts, pol, σ::Conductivity, m::Metric3, cons★, E★, B, γΔt, guesses;
-                    stage=OhmStageOptions{T}()) -> (E, prim, result::OhmStageResult, iters)
+    solve_ohm_stage(eos, opts, proj, pol, σ::Conductivity, m::Metric3, cons★, E★, B, γΔt,
+                    guesses; stage=OhmStageOptions{T}()) -> (E, prim, result::OhmStageResult, iters)
 
 The implicit stage of Ohm's law in one cell: the field `Eⁱ` (contravariant,
 undensitized) with
@@ -409,8 +409,8 @@ the densitized stage predictor `u★`, whose `𝔈` slots are not read (`E★ =
 𝔈★/√γ` is passed, as [`con2prim_hydro`](@ref) takes its `E`); `B` is the
 cell's field, `γΔt` the stage's implicit coefficient times `Δt`, and
 `guesses` the warm start `(s, w, u_eos)` of the cell's last recovery
-([`guesses`](@ref), or [`cold_guesses`](@ref)). `opts` and `pol` are
-EntropyEOS's, as for `con2prim_hydro`.
+([`guesses`](@ref), or [`cold_guesses`](@ref)). `opts`, `proj` and `pol`
+are EntropyEOS's, as for `con2prim_hydro`.
 
 Returns `E`; the primitive state `prim` it was solved with, so that Ohm's
 law holds between them to rounding and `prim2con(eos, m, prim, E, B)`
@@ -433,25 +433,51 @@ writes `𝔈 = √γ E` into `U` and nothing else ("The implicit stage solve" in
 Allocation-free and kernel-callable.
 """
 @inline function solve_ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                                 proj::EntropyEOS.ProjectionOptions{T},
                                  pol::EntropyEOS.PolicyOptions{T}, model::Conductivity,
                                  m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
                                  B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T};
                                  stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
-    isg = inv(m.sqrtγ)
-    D = cons_D(cons★) * isg
-    S = cons_S(cons★) * isg
-    τ = cons_τ(cons★) * isg
-    DYₑ = cons_DYₑ(cons★) * isg
+    E, prim, r, nrec, _, _ = ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B, γΔt,
+                                       guesses, invalid_entry(T); stage=stage)
+    return E, prim, r, nrec
+end
+
+# `solve_ohm_stage` through the cell's step-cache entry `entry` (stage 3 of the
+# recovery pipeline; "The step cache" in `CODE.md`): every recovery of the
+# solve consults the entry of the recovery whose state it holds — the
+# predictor the one it is handed, the iterates their predecessor's — and the
+# solve also returns the entry of the state it returns, which the cell keeps
+# for its next recovery, and whether its first recovery (the predictor, or
+# `IdealConductor`'s one) was reused. Seeding is the caller's: `guesses` is
+# the cached seed where there is one; the chaining inside (`guesses_of`) is
+# unchanged.
+#
+# *(Amended 2026-10-30, stage 4 of the recovery pipeline:)* with a hand-off
+# `sc`, the first recovery's level 1 is the one the two-phase passes left at
+# the cell `idx` (`two_levels`); its input is `hydro_input(m, cons★, E★, B)`,
+# or `ideal_input(m, cons★, B)` for `IdealConductor` (`predictor_input`),
+# by the same arithmetic. Every later recovery (the iterates, the ideal seed,
+# the fallback) is the fused call, `sc = nothing`.
+@inline function ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                           proj::EntropyEOS.ProjectionOptions{T},
+                           pol::EntropyEOS.PolicyOptions{T}, model::Conductivity,
+                           m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
+                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T},
+                           sc=nothing, idx::Tuple=();
+                           stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
+    D, S, τ, DYₑ = undensitize(m, cons★)
     scale = τ + D                            # the total energy density 𝓔
 
     # The predictor: the fluid's share at `E★`, and its recovery — the answer
     # where there is no conductivity, the first iterate otherwise.
     S_f, τ_f = field_budget(m, S, τ, E★, B)
-    prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses)
+    prim, f, pt, entry, hit = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ, guesses,
+                                             entry, sc, idx)
     # The magnetization is the stage's: `B` is explicit, `D` is not changed.
     μ = magnetization(m, B, D)
     σ = conductivity(model, prim, μ)
-    iszero(σ) && return E★, prim, OhmStageResult(OHM_SIGMA_ZERO, f), 1
+    iszero(σ) && return E★, prim, OhmStageResult(OHM_SIGMA_ZERO, f), 1, entry, hit
     # A share the policy repaired is replaced by the repaired state's own, so
     # that every iterate is a fluid state and its recovery's derivative is
     # the recovery's.
@@ -475,12 +501,13 @@ Allocation-free and kernel-callable.
     cW = c * lorentz(m, u)
     stiff = cW / (one(T) + cW) > stage.λ_ideal
     if newton && (stiff || f != 0)
-        primI, fI, ptI = ideal_recovery(eos, opts, pol, m, cons★, B, guesses_of(prim))
+        primI, fI, ptI, entryI, _ = ideal_recovery(eos, opts, proj, pol, m, cons★, B,
+                                                    guesses_of(prim), entry)
         nrec += 1
         σI = conductivity(model, primI, μ)
         if !iszero(σI) && (stiff ? (fI == 0 || f != 0) : fI == 0)
             S_f, τ_f = fluid_share(eos, m, primI)
-            prim, f, pt, σ = primI, fI, ptI, σI
+            prim, f, pt, σ, entry = primI, fI, ptI, σI, entryI
             modifiers |= OHM_IDEAL_SEED
         end
     end
@@ -509,7 +536,7 @@ Allocation-free and kernel-callable.
         end
         if err <= stage.tol
             branch = newton ? OHM_NEWTON : OHM_FIXED_POINT
-            return E, prim, OhmStageResult(branch | modifiers | repaired, f), nrec
+            return E, prim, OhmStageResult(branch | modifiers | repaired, f), nrec, entry, hit
         end
         it < stage.maxiter || break
         it += Int32(1)
@@ -540,7 +567,8 @@ Allocation-free and kernel-callable.
             err_prev = err
             S_f, τ_f = S_E, τ_E
         end
-        prim, f, pt = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
+        prim, f, pt, entry, _ = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ,
+                                               guesses_of(prim), entry)
         nrec += 1
         if f != 0
             repaired = OHM_REPAIRED
@@ -553,19 +581,38 @@ Allocation-free and kernel-callable.
     # the fluid recovered from that `E`.
     E = ohm_E(m, αΔt * best_σ, best_u, E★, B)
     S_f, τ_f = field_budget(m, S, τ, E, B)
-    prim, f, _ = fluid_recovery(eos, opts, pol, m, D, S_f, τ_f, DYₑ, guesses_of(prim))
+    prim, f, _, entry, _ = fluid_recovery(eos, opts, proj, pol, m, D, S_f, τ_f, DYₑ,
+                                          guesses_of(prim), entry)
     nrec += 1
-    return E, prim, OhmStageResult(OHM_FALLBACK | modifiers | repaired, f), nrec
+    return E, prim, OhmStageResult(OHM_FALLBACK | modifiers | repaired, f), nrec, entry, hit
 end
 
-@inline function solve_ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
-                                 pol::EntropyEOS.PolicyOptions{T}, ::IdealConductor,
-                                 m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
-                                 B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T};
-                                 stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
-    prim, flags = con2prim_ideal(eos, opts, pol, m, cons★, B, guesses)
-    return ideal_E(m, prim_v(prim), B), prim, OhmStageResult(OHM_IDEAL, flags), 1
+@inline function ohm_stage(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
+                           proj::EntropyEOS.ProjectionOptions{T},
+                           pol::EntropyEOS.PolicyOptions{T}, ::IdealConductor,
+                           m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
+                           B::SVector{3,T}, γΔt::T, guesses::NTuple{3,T}, entry::NTuple{NC,T},
+                           sc=nothing, idx::Tuple=();
+                           stage::OhmStageOptions{T}=OhmStageOptions{T}()) where {T}
+    prim, flags, _, entry, hit = ideal_recovery(eos, opts, proj, pol, m, cons★, B, guesses,
+                                                entry, sc, idx)
+    return ideal_E(m, prim_v(prim), B), prim, OhmStageResult(OHM_IDEAL, flags), 1, entry, hit
 end
+
+"""
+    predictor_input(model, m, cons★, E★, B) -> Con2PrimIn
+
+EntropyEOS's input of the stage solve's first recovery in a cell, by the
+solve's own arithmetic: the hydrodynamic recovery of the predictor at `E★`
+(`hydro_input`), or for [`IdealConductor`](@ref) the ideal one
+(`ideal_input`). What the first pass of the two-phase recovery hands
+EntropyEOS for the stage (stage 4 of the recovery pipeline).
+"""
+@inline predictor_input(::Conductivity, m::Metric3{T}, cons★::NTuple{NU,T}, E★::SVector{3,T},
+                        B::SVector{3,T}) where {T} = first(hydro_input(m, cons★, E★, B))
+@inline predictor_input(::IdealConductor, m::Metric3{T}, cons★::NTuple{NU,T},
+                        E★::SVector{3,T}, B::SVector{3,T}) where {T} =
+    first(ideal_input(m, cons★, B))
 
 # `guesses` the function, under a name the solve's argument does not shadow.
 @inline guesses_of(prim::NTuple) = guesses(prim)

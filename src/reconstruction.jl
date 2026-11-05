@@ -32,12 +32,18 @@
 # state whose `ρ` is not positive and finite, whose `Yₑ` is outside the EOS's
 # window, whose `s` is outside the EOS's physical window at that `ρ` and `Yₑ`,
 # or whose `u` is not finite takes the cell's own values for the whole group —
-# first order at that face, on that side. The field group `(Eⁱ, Bⁱ)` has no
+# first order at that face, on that side. The windows are tested the way
+# `con2prim_safe` tests them, with its face slack (EntropyEOS's
+# `inside_window`; amended 2026-10-26, EntropyEOS 2.1), so that every state the
+# recovery returns is admissible. The field group `(Eⁱ, Bⁱ)` has no
 # admissibility condition but finiteness. Under a TVD limiter (`:minmod`,
 # `:mc`) the face values lie between the neighbouring cell values, so an
 # admissible stencil cannot trigger the fluid fallback unless the window
 # depends on `ρ` (a table); the plain centered slope (`:none`) and the
 # higher-order methods can overshoot, and the fallback is what catches it.
+# The fallback substitutes the cell's own value, so it cannot repair a face
+# whose cell is itself inadmissible: that face gets the cell's inadmissible
+# state, at first order.
 #
 # The method is a `Val`, as in TreeHydro: a kernel specializes on it and no
 # branch survives into the inner loop. Integer literals only, so that a
@@ -223,15 +229,18 @@ end
                   Val(M))
 end
 
-# Whether a reconstructed fluid group is a state the EOS can evaluate.
+# Whether a reconstructed fluid group is a state the EOS can evaluate: `ρ`
+# positive and finite, `u` finite, and `s` and `Yₑ` inside their faces the way
+# `con2prim_safe` tests them — EntropyEOS's `inside_window`, which allows the
+# face slack (10⁻⁷ of the window's width for `s` at `Float64`, one ulp for
+# `Yₑ`) within which `con2prim_safe` returns a state unflagged. An exact test
+# here rejected such a state, and its cell value with it (amended 2026-10-26,
+# EntropyEOS 2.1; "Reconstruction" in `CODE.md`).
 @inline function admissible_fluid(eos::EntropyEOS.AbstractEOS, r::NTuple{NREC,T}) where {T}
     ρ, s, Yₑ = r[R_RHO], r[R_S], r[R_YE]
     (isfinite(ρ) && ρ > zero(T)) || return false
     (isfinite(r[R_U]) && isfinite(r[R_U + 1]) && isfinite(r[R_U + 2])) || return false
-    y_lo, y_hi = EntropyEOS.yₑ_bounds(eos)
-    (convert(T, y_lo) ≤ Yₑ ≤ convert(T, y_hi)) || return false
-    sr = EntropyEOS.srange(eos, ρ, Yₑ)
-    return sr.s_min ≤ s ≤ sr.s_max
+    return EntropyEOS.inside_window(eos, ρ, s, Yₑ)
 end
 
 @inline function admissible_fields(r::NTuple{NREC,T}) where {T}

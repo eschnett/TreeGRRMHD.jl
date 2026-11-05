@@ -52,11 +52,12 @@ are cell-centered).
 face_centering(::Val{D}, d::Integer) where {D} = ntuple(e -> e == d ? :vertex : :cell, D)
 
 """Number of slots of the diagnostics set `X`: see [`MHDFields`](@ref)."""
-const NX = 19
+const NX = 31
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
-# number below 2¹⁶, exact in any float), the recoveries the stages made and
+# number below 2¹⁸, exact in Float32 and wider; the policy's bits only, never
+# the EOS evaluation's), the recoveries the stages made and
 # the most any one stage made, the cells the reset wrote back as the stage
 # limiter, and the cell's light speed, for the time step. *(Added in step 6:)*
 # the cells the reset wrote back as the step limiter, and what those writes
@@ -78,7 +79,41 @@ const X_INJECTED_TAU = 18
 # *(Added in step 7:)* the cell's `Σ_d (𝔅ᵈ[n + e_d] − 𝔅ᵈ[n])`, `h ∇·𝔅`, written by
 # `max_div_B` when it is asked.
 const X_DIVB = 19
+# *(Added 2026-10-24, stage 3 of the recovery pipeline:)* how each site's
+# recoveries were seeded inside a step, three counts per site: `cold` (from
+# the state, `state_guesses`: the cell's first recovery in the step), `warm`
+# (from the cell's latest recovery in the step, the step cache) and `reused`
+# (its input was the cached one bit for bit, and EntropyEOS was not called).
+# The sites are the right-hand side's recovery, the stage solve's first one
+# (the predictor, or `IdealConductor`'s), the reset as the stage limiter and as
+# the step limiter; the stage solve's later recoveries are `X_RECOVERIES`'s.
+# Counted only while `evolve!` steps (the cache is active); a recovery outside
+# a step is today's cold one and is not counted here ("The step cache" in
+# `CODE.md`).
+const X_SEEDS = 20
+const SITE_RHS = 1
+const SITE_STAGE = 2
+const SITE_STAGE_LIMITER = 3
+const SITE_STEP_LIMITER = 4
+const N_SITES = 4
 const N_OHM_BITS = 9
+
+"""Number of slots of the primitive set `W` the matter's ghost fill prolongates."""
+const NW = 9
+# The slots of `W` (added in step 8; decided by Erik 2026-10-15, "Refinement"
+# in `CODE.md`): the rest-mass density `ρ★`, the entropy per baryon `s`, the
+# electron fraction `Yₑ`, the contravariant `uⁱ = W vⁱ` and the contravariant,
+# undensitized `Eⁱ`. Values at the cell centres, copied at same-level faces and
+# kept within the parent's and its face neighbours' range at refinement
+# boundaries by the bounded conservative prolongation (`default_ops_W`; decided
+# by Erik 2026-10-23), so that each variable of a ghost lies within its
+# neighbours' range: `ρ★ > 0` and `s`, `Yₑ` in their windows wherever theirs
+# are, `uⁱ` (unbounded, unlike `vⁱ`) any value.
+const W_RHO = 1
+const W_S = 2
+const W_YE = 3
+const W_U = 4
+const W_E = 7
 
 """
     MHDFields
@@ -91,10 +126,11 @@ Every field set the scheme uses on one forest ("Field sets" in `CODE.md`):
 | `A[j]`, `j = 1:3` | edge along `j` | 1 | 3 | evolved: the covariant `A_j` |
 | `Φ` | vertex | 1 | 3 | evolved: the gauge scalar `Φ̃ = √γ Φ` |
 | `P` | cell | 30 | 3 | scratch: the primitives, `E`, `B`, `q`, the cell metric |
+| `W` | cell | `NW` | 3 | scratch: `ρ★, s, Yₑ, uⁱ, Eⁱ`, the matter's ghost fill (step 8) |
 | `B[d]`, `d = 1:3` | face normal to `d` | 1 | 3 | scratch: `𝔅ᵈ = curl A + 𝔅̄`, every RHS |
 | `F[d]`, `d = 1:D` | face normal to `d` | 10 | 0 | scratch: the matter fluxes |
 | `EMF[j]`, `j = 1:3` | edge along `j` | 1 | 0 | scratch: the electromotive force |
-| `X` | cell | `NX` | 0 | scratch: per-cell tallies, the reset's injection, the light speed, `h∇·𝔅` |
+| `X` | cell | `NX` | 0 | scratch: per-cell tallies, the reset's injection, the light speed, `h∇·𝔅`, the recoveries' seeds |
 
 The state vector is over [`evolved_sets`](@ref)`(f) = (U, A[1], A[2], A[3],
 Φ)`, in that order (AMR-1, TreeAMR 0.2.1). Build it with
@@ -105,6 +141,7 @@ struct MHDFields{D,FU,FA,FΦ,FP,FB,FF,FE,FX}
     A::FA          # NTuple{3,FieldSet}
     Φ::FΦ
     P::FP
+    W::FP          # the primitives the matter's ghost fill prolongates (step 8)
     B::FB          # NTuple{3,FieldSet}
     F::FF          # NTuple{D,FieldSet}
     EMF::FE        # NTuple{3,FieldSet}
@@ -126,18 +163,23 @@ function mhd_fields(::Type{T}, forest::Forest{D}; G::Integer=3,
         "the ghosted sets need G ≥ 2: the piecewise-linear reconstruction reads " *
         "two cells beyond a face, and the curl reads one edge beyond a stored face; " *
         "got G = $G. CODE.md's table reserves G = 3 for PPM, WENO-Z and MP5 (step 7)."))
-    fs(nvars, g, c) = FieldSet{T}(forest, nvars; G=g, centering=c, backend=backend)
+    fs(nvars, g, c; walls=:half_open) =
+        FieldSet{T}(forest, nvars; G=g, centering=c, backend=backend, walls=walls)
     vD = Val(D)
     U = fs(NU, G, cellcentered(D))
-    A = ntuple(j -> fs(1, G, edge_centering(vD, j)), 3)
-    Φ = fs(1, G, vertexcentered(D))
+    # The potentials with symmetric walls (AMR-8, TreeAMR 0.2.2): the fill
+    # writes the owned low wall of a vertex-like dimension at a low domain
+    # face by the high wall's rule, so a closed box is mirror-symmetric.
+    A = ntuple(j -> fs(1, G, edge_centering(vD, j); walls=:symmetric), 3)
+    Φ = fs(1, G, vertexcentered(D); walls=:symmetric)
     P = fs(NP, G, cellcentered(D))
+    W = fs(NW, G, cellcentered(D))
     B = ntuple(d -> fs(1, G, face_centering(vD, d)), 3)
     F = ntuple(d -> fs(NU, 0, face_centering(vD, d)), D)
     EMF = ntuple(j -> fs(1, 0, edge_centering(vD, j)), 3)
     X = fs(NX, 0, cellcentered(D))
     return MHDFields{D,typeof(U),typeof(A),typeof(Φ),typeof(P),typeof(B),typeof(F),
-                     typeof(EMF),typeof(X)}(U, A, Φ, P, B, F, EMF, X, vD)
+                     typeof(EMF),typeof(X)}(U, A, Φ, P, W, B, F, EMF, X, vD)
 end
 
 """

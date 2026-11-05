@@ -2,10 +2,15 @@
 # write the field sets, and the order they run in ("The right-hand side" in
 # `CODE.md`).
 #
-#   1. `scatter!` the multi-set state; `fill_ghosts!` every evolved set.
+#   1. `scatter!` the multi-set state; `fill_ghosts!` the potentials.
 #   2. `𝔅 = curl A + 𝔅̄` on every stored face (`src/curl.jl`).
-#   3. The metric at every stored cell, `B` averaged to it, and the
-#      hydrodynamic recovery, into `P` (`stored = true`).
+#   3. At the owned cells the metric, `B` averaged to the cell, and the
+#      hydrodynamic recovery, into `P` and the primitive set `W`; `W`'s
+#      ghost fill (copies at same-level faces, the bounded conservative
+#      prolongation centred on the parent at refinement boundaries); at every
+#      ghost cell `P` from `W` by forward EOS evaluation, with the ghost's own
+#      `B` — no ghost is recovered, and the conserved ghosts are not written
+#      (amended in step 8, and 2026-10-23).
 #   4. `q = ∇·E` at the owned cells.
 #   5. (`T_ab` for the spacetime: rung 5.)
 #   6. Reconstruction and the Riemann fluxes into `F_d` over the closed face
@@ -30,14 +35,23 @@
 # set it reads. A state-vector array (`statearray`) has no ghosts, so a local
 # owned index is its index.
 #
-# **Warm starts come from the state** (proposed in step 5, amending
-# "Thermodynamics" in `CODE.md`, which carried them in `P`): every recovery
-# the scheme makes is seeded with `s = (√γ D s)/(√γ D)`, the advected entropy
-# the state carries for this purpose, and a cold rapidity and EOS warm start.
-# A warm start carried in `P` from the previous evaluation would make every
-# recovery depend, at the solver's tolerance, on what was evaluated before —
-# the right-hand side would not be a function of `(u, t)` bit for bit, and a
-# restart from a checkpoint (which holds no `P`) would not reproduce the run.
+# **Warm starts come from the state, or from the step** (proposed in step 5,
+# amending "Thermodynamics" in `CODE.md`, which carried them in `P`; amended
+# 2026-10-24, decided by Erik 2026-10-23): outside a step every recovery the
+# scheme makes is seeded with `s = (√γ D s)/(√γ D)`, the advected entropy the
+# state carries for this purpose, and a cold rapidity and EOS warm start, so
+# that the callbacks are functions of `(u, t)` bit for bit. Inside a step of
+# `evolve!` the **step cache** (`MHDProblem`'s `cache`, one entry per owned
+# cell) holds the cell's latest recovery in the step: every recovery is
+# seeded from it where it holds one, and a recovery whose EntropyEOS input is
+# the cached one bit for bit reuses its output. The cache is invalidated at
+# the end of every step (the step limiter) and whenever `evolve!` starts or
+# stops stepping, so a step is a pure function of `uⁿ`, `t` and `Δt`: one
+# chunk or two, a restart from a saved state, one thread or four reproduce
+# the run bit for bit ("The step cache" in `CODE.md`). A warm start carried
+# across steps, or in `P`, would make a recovery depend, at the solver's
+# tolerance, on what was evaluated before, and a restart from a checkpoint
+# (which holds neither) would not reproduce the run.
 
 # --- small pointwise helpers ------------------------------------------------------
 
@@ -77,26 +91,54 @@ function of the state, so that every recovery the scheme makes is.
     return (isfinite(s) ? s : T(NaN), T(NaN), T(NaN))
 end
 
+# --- the step cache in a kernel -----------------------------------------------------
+
+# The owned cell's step-cache entry where the cache is active, an invalid
+# one otherwise: then nothing is reused and every recovery is seeded from the
+# state, today's recovery bit for bit.
+@inline read_entry(Cw, ci::NTuple, b::Int, active::Bool, ::Type{T}) where {T} =
+    active ? read_vars(Cw, ci, b, Val(NC)) : invalid_entry(T)
+
+@inline function write_entry!(Cw, ci::NTuple, b::Int, e::NTuple{NC})
+    @inbounds for v in 1:NC
+        Cw[ci..., v, b] = e[v]
+    end
+    return nothing
+end
+
+# The seed of a recovery: the entry's, where the cell has recovered in this
+# step, the state's otherwise.
+@inline seed_of(e::NTuple{NC,T}, cons::NTuple{NU,T}) where {T} =
+    entry_valid(e) ? entry_seed(e) : state_guesses(cons)
+
+# Count one recovery at `site` as cold, warm or reused (`X_SEEDS`).
+@inline function tally_seed!(Xw, xi::NTuple, b::Int, site::Int, e::NTuple{NC}, hit::Bool)
+    k = hit ? 2 : entry_valid(e) ? 1 : 0
+    @inbounds Xw[xi..., X_SEEDS + 3 * (site - 1) + k, b] += one(eltype(Xw))
+    return nothing
+end
+
 # --- the problem ------------------------------------------------------------------
 
 """The admissible Riemann solvers (`src/riemann.jl`)."""
 const MHD_SOLVERS = (:llf, :hlle)
 
 """
-    MHDProblem(f::MHDFields; eos, opts, pol, model, provider = Flat(), 𝔅̄ = 0,
+    MHDProblem(f::MHDFields; eos, opts, proj, pol, model, provider = Flat(), 𝔅̄ = 0,
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
-               ops_U = Operators(prolongation=3, restriction=2, family=Conservative,
-                                 bounded=true),
-               ops_A = Operators(prolongation=4, restriction=4),
-               boundary = nothing, fixup = true)
+               ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
+               ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
+               fixup = true, two_phase = false)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
 evolved set, the interface schedules of the fluxes and the EMFs, the per-block
 origins and spacings on the sets' backend, and the physics:
 
-- `eos`, `opts`, `pol`: EntropyEOS's `AbstractEOS`, `Con2PrimOptions` and
-  `PolicyOptions`, in geometric units ("Thermodynamics" in `CODE.md`);
+- `eos`, `opts`, `proj`, `pol`: EntropyEOS's `AbstractEOS`, `Con2PrimOptions`,
+  `ProjectionOptions` (the valid range, `ρ_min`, `ρ_max`, `w_cap`) and
+  `PolicyOptions` (the atmosphere), in geometric units ("Thermodynamics" and
+  "Primitive recovery" in `CODE.md`);
 - `model`: the conductivity ([`Vacuum`](@ref), [`Constant`](@ref),
   [`DensityProfile`](@ref), [`IdealConductor`](@ref),
   [`MagnetizationCutoff`](@ref));
@@ -113,34 +155,69 @@ slope limiter `:none`, `:minmod` or `:mc` (step 5), or `:ppm`, `:wenoz`,
 `:mp5` (step 7), which need `G ≥ 3`. `riemann` is `:hlle` (the light-cone HLL, whose
 dissipation on `𝔈` matches the UCT EMF's on `𝔅`) or `:llf`.
 
-`ops_U` and `ops_A` are the operators of the matter set and of `A`, `Φ̃`:
-Conservative width 3 for the matter, **bounded** (TreeAMR's MC-bounded
-prolongation, AMR-4) in its ghost fill and its regrid alike, and PointValue
-width 4 for the potentials (proposed in step 5; decided in step 8 by the
+`ops_U`, `ops_A`, `ops_Φ` and `ops_W` are the operators of the matter set,
+of the three `A_j`, of `Φ̃` and of the primitive set `W` the matter's ghost
+fill prolongates ([`default_ops_U`](@ref) and its siblings): Conservative
+width 3 for the matter, **bounded** (TreeAMR's MC-bounded prolongation,
+AMR-4), which since step 8 acts in its regrid only; the same operator for
+`W`, the parent-centred primitive fill (decided by Erik 2026-10-23); for
+`A_j` the conservative family on a staggered set (AMR-9), width 3 along the
+edge and point values of width 4 across it, so that the magnetic flux
+through a coarse face is the sum through its fine faces; and PointValue
+width 4 for `Φ̃` (proposed in step 5; decided in step 8 by the
 interface-order table, and the matter's bound by the atmosphere across a
 coarse-fine face — "Refinement" in `CODE.md`).
 `boundary` is `nothing` for a periodic domain, or one hook per evolved set in
 the order of [`evolved_sets`](@ref) (AMR-2 having landed, each set takes its
 own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 [`boundary_at`](@ref) turns into such a hook at the time of each fill — the
-case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `fixup = false`
+case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `boundary_W` is
+the hook of `W`, by default derived from the matter's
+([`primitive_boundary`](@ref)). `fixup = false`
 skips `restrict_interfaces!`, the negative control of step 8.
+
+The problem also owns the **step cache** *(added 2026-10-24; "The step
+cache" in `CODE.md`)*: a cell set over the owned cells, `G = 0`, of
+[`NC`](@ref) slots per cell — EntropyEOS's input to the cell's latest
+recovery in the current step and its output — built afresh, invalid, with
+the problem (so a [`rebuild`](@ref) after a regrid sizes it to the new mesh,
+and nothing is transferred), and a host-side switch that only
+[`with_step_cache`](@ref) turns on. While it is off, which is always outside
+`evolve!`'s steps, no kernel reads or writes the cache.
+
+`two_phase` *(added 2026-10-30, stage 4 of the recovery pipeline; "The
+two-phase recovery" in `CODE.md`)*: the recoveries outside the stage solve's
+iterations — the right-hand side's, both limiters', the stage predictor's —
+run as three passes over the owned cells, `con2prim_safe_start`,
+`con2prim_safe_finish` where the first was not done, and level 2 with the
+site's own work, through a per-owned-cell hand-off ([`Handoff`](@ref)) the
+problem owns, built and sized with it like the step cache. `two_phase =
+false`, the default, runs each of them fused, in one kernel, with no
+hand-off: the same results bit for bit (a test). *(Decided by Erik
+2026-11-02:)* fused is the default, since on the CPU the split costs 1–10%
+a step and only 0–2.4% of the recoveries reach the second phase; the split
+stays, tested against fused, for a GPU step to turn on.
 """
-struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM,RS}
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
+                  LIM,RS,FC,HO}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
     ops_U::OU                    # the matter's operators
-    ops_A::OA                    # the potentials' operators
+    ops_A::OA                    # the operators of A_j
+    ops_Φ::OΦ                    # the operators of Φ̃
+    schedule_W::SW               # the ghost schedule of the primitive set `W` (step 8)
+    ops_W::OW                    # its operators, Conservative width 3 bounded
+    boundary_W::BW               # its boundary hook, `nothing` on a periodic domain
     ischeds_F::ISF               # NTuple{D,InterfaceSchedule}
     ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
     origins::OR                  # per block, on the sets' backend
     spacings::SP
-    outer::OF                    # per block, its outer faces, low and high (AMR-8)
-    hasouter::Bool               # whether the potentials have the case's hooks there
-    multilevel::Bool             # whether the forest has more than one level
+    lowwall::OF                  # per block, its low domain faces (`low_walls`, AMR-8)
+    haswalls::Bool               # whether any block has one
     eos::EOS
     opts::OPT
+    proj::PRJ
     pol::POL
     model::MOD
     provider::MET
@@ -151,16 +228,19 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,ISF,ISE,OR,SP,OF,EOS,OPT,POL,MOD,MET,BC,LIM
     fixup::Bool
     limiter::Val{LIM}
     solver::Val{RS}
+    cache::FC                    # the step cache, NC slots per owned cell (2026-10-24)
+    cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
+    handoff::HO                  # the two-phase hand-off, or `nothing`: fused (2026-10-30)
 end
 
-function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
+function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
                     model::Conductivity, provider::MetricProvider=Flat(),
                     𝔅̄=nothing, ξ=0, stage=nothing, limiter::Union{Symbol,Nothing}=nothing,
                     riemann::Symbol=:hlle,
-                    ops_U::Operators=Operators(; prolongation=3, restriction=2,
-                                               family=Conservative, bounded=true),
-                    ops_A::Operators=Operators(; prolongation=4, restriction=4),
-                    boundary=nothing, fixup::Bool=true) where {D}
+                    ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
+                    ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
+                    boundary=nothing, boundary_W=nothing, fixup::Bool=true,
+                    two_phase::Bool=false) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -179,7 +259,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
         "riemann must be one of $(MHD_SOLVERS), got :$riemann: `riemann_flux` has a " *
         "method for each of those and no others (CODE.md, \"Riemann solver\")."))
     sets = evolved_sets(f)
-    for s in (sets..., f.P, f.B...)
+    for s in (sets..., f.P, f.W, f.B...)
         s.G == G || throw(ArgumentError(
             "every ghosted set must have the matter set's ghost width G=$G, got " *
             "$(s.G) for a $(s.centering) set: the curl reads the edges of every " *
@@ -200,8 +280,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
             "no boundary hooks were given: the ghosts facing outside the domain would " *
             "hold whatever the allocation left."))
     end
-    schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : ops_A),
-                       length(sets))
+    schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : i == SEG_Φ ? ops_Φ :
+                                                   ops_A), length(sets))
+    schedule_W = GhostSchedule(f.W, ops_W)
+    bW = boundary === nothing ? nothing :
+         boundary_W === nothing ? primitive_boundary(boundary[SEG_U]) : boundary_W
     ischeds_F = ntuple(d -> InterfaceSchedule(f.F[d]), D)
     # An EMF set with no vertex-like dimension (in 1D, the one along x) has no
     # coarse-fine face to restrict, and TreeAMR refuses to build a schedule
@@ -212,21 +295,27 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, pol,
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
-    of_host = outer_faces(forest, T)
-    hasouter = boundary !== nothing && any(o -> any(any, o), of_host) &&
-               any(i -> boundary[i] isa DirichletBoundary, SEG_A:SEG_Φ)
-    outer = to_backend(backend, of_host)
+    lw_host = low_walls(forest, T)
+    haswalls = any(any, lw_host)
+    lowwall = to_backend(backend, lw_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
+    cache = FieldSet{T}(forest, NC; G=0, centering=cellcentered(D), backend=backend)
+    cache.work .= T(NaN)                     # invalid: no recovery in a step yet
+    w = cache.work
+    handoff = two_phase ? Handoff(T, backend, (ntuple(d -> size(w, d), D)..., size(w, ndims(w)))) :
+              nothing
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
-                      typeof(ops_A),typeof(ischeds_F),
-                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(outer),
-                      typeof(eos),typeof(opts),typeof(pol),typeof(model),typeof(provider),
-                      typeof(boundary),limiter,riemann}(
-        f, sets, schedules, ops_U, ops_A, ischeds_F, ischeds_EMF, origins, spacings, outer,
-        hasouter, maxlevel(forest) > 0,
-        eos, opts, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann))
+                      typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
+                      typeof(ischeds_F),
+                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
+                      typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
+                      typeof(provider),
+                      typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff)}(
+        f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
+        haswalls,
+        eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
+        Val(riemann), cache, Ref(false), handoff)
 end
 
 """
@@ -237,13 +326,17 @@ schedules, per-block geometry and outer faces rebuilt from the forest as it
 is now: what a [`regrid!`](@ref) leaves stale (it replaces every set's
 storage in place, so `p.f` still names the sets). A keyword of
 [`MHDProblem`](@ref) given here replaces `p`'s (`fixup = false`, the
-negative control). Added in step 8.
+negative control). Added in step 8. The new problem has its own step cache,
+sized to the forest and invalid, with the switch off (2026-10-24), and its own
+two-phase hand-off where `p` has one (2026-10-30).
 """
 rebuild(p::MHDProblem; kwargs...) =
-    MHDProblem(p.f; eos=p.eos, opts=p.opts, pol=p.pol, model=p.model, provider=p.provider,
+    MHDProblem(p.f; eos=p.eos, opts=p.opts, proj=p.proj, pol=p.pol, model=p.model,
+               provider=p.provider,
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
-               riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, boundary=p.boundary,
-               fixup=p.fixup, kwargs...)
+               riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
+               ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup,
+               two_phase=p.handoff !== nothing, kwargs...)
 
 unval(::Val{X}) where {X} = X
 
@@ -261,83 +354,145 @@ with the value at that time.
 boundary_at(hook, t) = hook
 
 # The ghost fill of evolved set `i` at time `t`, with its own boundary hook,
-# leaving the set in the state the *complete* outer boundary condition
+# which leaves the set in the state the *complete* outer boundary condition
 # defines (decided by Erik 2026-10-15: "an outer boundary condition needs to
-# be applied always"). For a potential with the case's Dirichlet hooks
-# (`src/driver.jl`):
-#
-#   1. the owned low walls at the outer faces are prescribed in the working
-#      array by the rule the hook applies to the high walls (AMR-8's
-#      workaround);
-#   2. TreeAMR's fill, with the hook;
-#   3. every point beyond an outer face is refilled by that rule from the
-#      nearest evolved point now that every ghost is filled
-#      (`outer_points!`), which the hook, running before the prolongations,
-#      cannot do where a wall meets another block (AMR-7, amended in step 8);
-#   4. on a mesh with more than one level, TreeAMR's fill once more with no
-#      hook — which leaves every point beyond an outer face as step 3 wrote
-#      it — so that the prolongations read the corrected points, and step 3
-#      again for the points that read those prolongated ghosts. Each step
-#      depends only on what the one before fixed (a coarse block's corner row
-#      on a restriction of fine owned points, a fine ghost on that row, a
-#      fine corner row on that ghost), so after it a further fill and
-#      refill change nothing, bit for bit (a test); on a uniform mesh there
-#      is no prolongation and one pass is already that fixed point.
-#
-# So every fill — a right-hand side's, a stage's, a reset's, a regrid's
-# (`regrid_state!`), the initial adaptation's — sees both walls of a box
-# filled alike, at its own time, by the whole condition.
+# be applied always"). The matter's hook is a function of position; a
+# potential's is TreeAMR's relative hook (AMR-7), which takes the nearest
+# evolved point across a block face from the block's own filled ghost and
+# runs each region after the stage that fills what it reads, and the
+# potentials' sets have symmetric walls (AMR-8), so the owned low wall at a
+# low outer face is filled by the high wall's rule. One fill is the
+# condition's fixed point (a test). *(Amended in step 8: until TreeAMR 0.2.2
+# this was the low walls, the hook, `outer_points!`, and on a multilevel
+# mesh a hookless fill and `outer_points!` again.)*
 function fill_set!(p::MHDProblem, i::Int, t)
-    s, sched = p.sets[i], p.schedules[i]
-    i == SEG_U || low_walls!(p, i, s.work, Val(s.G), t)
-    fill_ghosts!(s, sched;
+    fill_ghosts!(p.sets[i], p.schedules[i];
                  boundary=p.boundary === nothing ? nothing : boundary_at(p.boundary[i], t))
-    if i != SEG_U && outer_points!(p, i, t) && p.multilevel
-        fill_ghosts!(s, sched; boundary=nothing)
-        outer_points!(p, i, t)
-    end
     return nothing
 end
 
 # --- the kernels ------------------------------------------------------------------
 
-# Step 3: the metric at every stored cell, `B` averaged to it, the
-# hydrodynamic recovery, and all of `P`. `q` is written at the owned cells by
-# the next kernel; here it is zero.
-@kernel function primitive_kernel!(Pw, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
-                                   @Const(origins), @Const(spacings), provider, t, eos, opts,
-                                   pol, ::Val{D}, ::Val{GP}, ::Val{GU},
-                                   ::Val{GB}) where {D,GP,GU,GB}
-    I = @index(Global, NTuple)                       # stored: `stored = true`
+# The full `P` of a cell from the primitives the ghost fill carries (`W`'s
+# slots, `wv`), the cell's `B` and metric, and the recovery's flags: `vⁱ =
+# uⁱ/W` with `W = √(1 + γᵢⱼuⁱuʲ)`, the rapidity `asinh |u|`, and `p`, `h`,
+# `cs²` and the EOS's warm start from one forward evaluation of the EOS — no
+# inversion. Owned and ghost cells alike go through it (proposed in step 8),
+# so that where a ghost is a copy of its owner (a uniform mesh, a same-level
+# neighbour) the two blocks hold the same `P` bit for bit and compute the
+# same flux at their common face. `q` is written by `charge_kernel!`.
+# *(Amended 2026-10-23: `W` holds the specific `s` and `Yₑ` only; the density
+# forms of the step-8 experiments are on `claude/step-8-ghost-entropy-density`
+# and `claude/step-8-ghost-robustness`, "Refinement" in `CODE.md`.)*
+@inline function P_from_W(eos, m::Metric3{T}, wv::NTuple{NW,T}, B::SVector{3,T},
+                          flags::UInt32) where {T}
+    ρ, s, Yₑ, u = wv[W_RHO], wv[W_S], wv[W_YE], vec3(wv, W_U)
+    E = vec3(wv, W_E)
+    u² = dot_up(m, u, u)
+    u² = u² > zero(T) ? u² : zero(T)
+    W = sqrt(one(T) + u²)
+    v = u / W
+    pt = EntropyEOS.evaluate(eos, ρ, s, Yₑ, T(NaN))
+    prim = pack_prim(ρ, v, s, Yₑ, asinh(sqrt(u²)), pt.p, pt.h, pt.cs², pt.u_solved)
+    return pack_P(prim, flags, E, B, zero(T), m)
+end
+
+# The slots `W` stores for the thermodynamic state `ρ, s, Yₑ`, the
+# contravariant `uⁱ` and the undensitized `Eⁱ`.
+@inline W_store(ρ, s, Yₑ, u, E) = (ρ, s, Yₑ, u[1], u[2], u[3], E[1], E[2], E[3])
+
+# Step 3, at the owned cells: the metric at the cell, `B` averaged to it, the
+# hydrodynamic recovery of `U`, and from it the primitives the ghost fill
+# carries into `W` and all of `P` (through `P_from_W`, as a ghost's).
+# *(Amended in step 8: until AMR-10 this ran over every stored cell after a
+# conserved ghost fill.)* *(Amended 2026-10-24:)* through the step cache
+# where it is `active` — seeded from the cell's latest recovery in the step,
+# reused where its input is that one's (in practice the stage limiter's,
+# wherever it wrote nothing) — and `B`, `E` as `· inv(√γ)`, the reset's and
+# the stage solve's arithmetic, so that the inputs agree bit for bit (until
+# then `/ √γ`; the same in flat space). *(Amended 2026-10-30:)* with a
+# hand-off `sc`, the third pass of the two-phase recovery (`start_kernel!`,
+# `finish_kernel!` before it): level 1 is the hand-off's; with `nothing`, the
+# fused recovery.
+@kernel function primitive_kernel!(Pw, Ww, @Const(Uw), @Const(B1), @Const(B2), @Const(B3),
+                                   Cw, Xw, sc, @Const(origins), @Const(spacings), provider, t,
+                                   eos, opts, proj, pol, active::Bool, ::Val{D}, ::Val{GP},
+                                   ::Val{GU}, ::Val{GB}, ::Val{GC},
+                                   ::Val{GX}) where {D,GP,GU,GB,GC,GX}
+    I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
-    s = ntuple(e -> I[e], Val(D))
-    n = ntuple(e -> s[e] - GP[e], Val(D))
+    n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     m = point_metric(provider, oftype(h, t), x)
     cons = read_vars(Uw, stored(n, GU), b, Val(NU))
-    𝔅 = cell_𝔅((B1, B2, B3), n, b, GB, Val(D))
-    B = 𝔅 / m.sqrtγ
-    E = cons_𝔈(cons) / m.sqrtγ
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
-    Pc = pack_P(prim, flags, E, B, zero(h), m)
+    isg = inv(m.sqrtγ)
+    B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
+    E = cons_𝔈(cons) * isg
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
+                                                 seed_of(entry, cons), entry, sc, (n..., b))
+    if active
+        write_entry!(Cw, ci, b, entry2)
+        tally_seed!(Xw, stored(n, GX), b, SITE_RHS, entry, hit)
+    end
+    u = prim_W(prim) * prim_v(prim)
+    wv = W_store(prim_ρ(prim), prim_s(prim), prim_Yₑ(prim), u, E)
+    Pc = P_from_W(eos, m, wv, B, flags)
+    sP = stored(n, GP)
+    @inbounds for v in 1:NW
+        Ww[sP..., v, b] = wv[v]
+    end
     @inbounds for v in 1:NP
-        Pw[s..., v, b] = Pc[v]
+        Pw[sP..., v, b] = Pc[v]
     end
 end
 
-# Step 4: `q = ∇·E = (1/√γ) ∂ᵢ𝔈ⁱ` at the owned cells, by centered differences
-# of the ghost-filled cell-centered `𝔈` ("Maxwell" in `CODE.md`: the charge is
-# derived, not evolved).
-@kernel function charge_kernel!(Pw, @Const(Uw), @Const(spacings), ::Val{D}, ::Val{GP},
-                                ::Val{GU}) where {D,GP,GU}
+# Step 3, at every ghost cell, after the fill of `W` (AMR-10; step 8): `P`
+# from the copied, prolongated, restricted or the hook's primitives and the
+# ghost's own `B` — the curl of the filled `A` — by forward EOS evaluation,
+# with no recovery flags. No ghost is recovered, and the conserved ghosts are
+# not written: nothing the right-hand side, the stage solve, the reset or the
+# indicator computes reads them, and `U`'s ghosts hold only what TreeAMR's own
+# fills in `regrid!` and `adapt_to_initial_data!` left (amended 2026-10-23,
+# decided by Erik: until then this kernel also built each conserved ghost by
+# `prim2con`, which nothing read). Owned cells are skipped: `stored = true`
+# hands every stored cell.
+@kernel function ghost_kernel!(Pw, @Const(Ww), @Const(B1), @Const(B2), @Const(B3),
+                               @Const(origins), @Const(spacings), provider, t, eos, N,
+                               ::Val{D}, ::Val{GP}, ::Val{GW}, ::Val{GB}) where {D,GP,GW,GB}
+    I = @index(Global, NTuple)                       # stored: `stored = true`
+    b = I[D + 1]
+    sP = ntuple(e -> I[e], Val(D))
+    n = ntuple(e -> sP[e] - GP[e], Val(D))
+    if !all(ntuple(e -> 1 ≤ n[e] ≤ N, Val(D)))
+        h = @inbounds spacings[b]
+        x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+        m = point_metric(provider, oftype(h, t), x)
+        wv = read_vars(Ww, stored(n, GW), b, Val(NW))
+        # `· inv(√γ)`, the owned cells' arithmetic (amended 2026-10-24).
+        B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * inv(m.sqrtγ)
+        Pc = P_from_W(eos, m, wv, B, zero(UInt32))
+        @inbounds for v in 1:NP
+            Pw[sP..., v, b] = Pc[v]
+        end
+    end
+end
+
+# Step 4: `q = ∇·E = (1/√γ) ∂ᵢ(√γ Eⁱ)` at the owned cells, by centered
+# differences of `√γ E` from `P` ("Maxwell" in `CODE.md`: the charge is
+# derived, not evolved). *(Amended in step 8: from `P`, which every stored
+# cell now holds by the same function, rather than from the conserved
+# ghosts; in flat space the same numbers.)*
+@kernel function charge_kernel!(Pw, @Const(spacings), ::Val{D}, ::Val{GP}) where {D,GP}
     I = @index(Global, NTuple)
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
+    𝔈(c, d) = @inbounds Pw[stored(c, GP)..., P_SQRTG, b] * Pw[stored(c, GP)..., P_E + d - 1, b]
     div = sum(ntuple(Val(D)) do d
-        @inbounds (Uw[stored(shift(n, d, 1), GU)..., U_E + d - 1, b] -
-                   Uw[stored(shift(n, d, -1), GU)..., U_E + d - 1, b])
+        𝔈(shift(n, d, 1), d) - 𝔈(shift(n, d, -1), d)
     end) / (2 * h)
     @inbounds Pw[stored(n, GP)..., P_Q, b] = div / Pw[stored(n, GP)..., P_SQRTG, b]
 end
@@ -544,17 +699,21 @@ end
 
 # Step 7, the potential: `∂ₜA_j = −EMF_j − ∂_j(αΦ − βᵏA_k)` at the owned
 # edges along `j`. The edge `n` lies between the vertices `n` and `n + e_j`;
-# along a missing direction there is no gradient.
+# along a missing direction there is no gradient. Zero on an owned low wall
+# (`lowwall`, AMR-8): the wall is prescribed by the fill, not evolved
+# (decided in step 8; a branch, never a multiplication by a mask).
 @kernel function potential_rhs_kernel!(du, @Const(EMFj), @Const(A1), @Const(A2), @Const(A3),
-                                       @Const(Φw), @Const(origins), @Const(spacings), provider,
-                                       t, ::Val{D}, ::Val{j}, ::Val{GE}, ::Val{GA},
-                                       ::Val{GΦ}) where {D,j,GE,GA,GΦ}
+                                       @Const(Φw), @Const(origins), @Const(spacings),
+                                       @Const(lowwall), provider, t, ::Val{D}, ::Val{j},
+                                       ::Val{GE}, ::Val{GA}, ::Val{GΦ}) where {D,j,GE,GA,GΦ}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     e = @inbounds EMFj[stored(n, GE)..., 1, b]
-    if j ≤ D
+    if on_low_wall(n, @inbounds(lowwall[b]), Val(edge_staggers(Val(D), Val(j))))
+        @inbounds du[n..., 1, b] = zero(h)
+    elseif j ≤ D
         o = @inbounds origins[b]
         tt = oftype(h, t)
         A = (A1, A2, A3)
@@ -594,33 +753,46 @@ end
 end
 
 # Step 7, the gauge: `∂ₜΦ̃ = −∂_j(α√γ Aʲ − βʲΦ̃) − ξαΦ̃` at the owned
-# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side.
+# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side; zero
+# on an owned low wall, as for `A_j`.
 @kernel function gauge_rhs_kernel!(du, @Const(A1), @Const(A2), @Const(A3), @Const(Φw),
-                                   @Const(origins), @Const(spacings), provider, t, ξ,
-                                   ::Val{D}, ::Val{GA}, ::Val{GΦ}) where {D,GA,GΦ}
+                                   @Const(origins), @Const(spacings), @Const(lowwall),
+                                   provider, t, ξ, ::Val{D}, ::Val{GA},
+                                   ::Val{GΦ}) where {D,GA,GΦ}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     v = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
-    o = @inbounds origins[b]
-    tt = oftype(h, t)
-    A = (A1, A2, A3)
-    div = sum(ntuple(Val(D)) do j
-        gauge_edge_flux(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt, Val(j)) -
-        gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, Val(GΦ), o, h, provider, tt, Val(j))
-    end)
-    x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
-    m = point_metric(provider, tt, x)
-    Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
-    @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
+    if on_low_wall(v, @inbounds(lowwall[b]), Val(vertex_staggers(Val(D))))
+        @inbounds du[v..., 1, b] = zero(h)
+    else
+        o = @inbounds origins[b]
+        tt = oftype(h, t)
+        A = (A1, A2, A3)
+        div = sum(ntuple(Val(D)) do j
+            gauge_edge_flux(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt, Val(j)) -
+            gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, Val(GΦ), o, h, provider, tt,
+                            Val(j))
+        end)
+        x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
+        m = point_metric(provider, tt, x)
+        Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
+        @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
+    end
 end
 
 # The implicit stage of Ohm's law at the owned cells (step 3's
 # `solve_ohm_stage`), writing only `𝔈` into `U`, and tallying the outcome
-# into `X`. `U` enters holding `u★`.
-@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw,
+# into `X`. `U` enters holding `u★`. Through the step cache where it is
+# `active` (2026-10-24): the predictor seeded from the cell's latest recovery
+# in the step, and the cell left holding the recovery of the state the solve
+# returns. *(Amended 2026-10-30:)* with a hand-off `sc`, the third pass of
+# the two-phase recovery: the solve's first recovery takes its level 1 from
+# it.
+@kernel function ohm_kernel!(Uw, @Const(ustar), @Const(B1), @Const(B2), @Const(B3), Xw, Cw, sc,
                              @Const(origins), @Const(spacings), provider, t, γΔt, eos, opts,
-                             pol, model, stage, ::Val{D}, ::Val{GB}, ::Val{GX}) where {D,GB,GX}
+                             proj, pol, model, stage, active::Bool, ::Val{D}, ::Val{GB},
+                             ::Val{GX}, ::Val{GC}) where {D,GB,GX,GC}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -631,8 +803,15 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E★ = cons_𝔈(cons★) * isg
-    E, _, r, nrec = solve_ohm_stage(eos, opts, pol, model, m, cons★, E★, B, oftype(h, γΔt),
-                                    state_guesses(cons★); stage=stage)
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    E, _, r, nrec, entry2, hit = ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B,
+                                           oftype(h, γΔt), seed_of(entry, cons★), entry, sc,
+                                           (n..., b); stage=stage)
+    if active
+        write_entry!(Cw, ci, b, entry2)
+        tally_seed!(Xw, stored(n, GX), b, SITE_STAGE, entry, hit)
+    end
     𝔈 = m.sqrtγ * E
     @inbounds for k in 1:3
         Uw[n..., U_E + k - 1, b] = 𝔈[k]
@@ -657,10 +836,16 @@ end
 # which the reset does not touch. Counted into `X`: as the stage limiter
 # (`STEP = false`), the cells written; as the step limiter, the cells
 # written and the change they made to `√γ D` and `√γ τ`, which is what the
-# reset injects into the state (step 6).
-@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, @Const(origins),
-                               @Const(spacings), provider, t, eos, opts, pol, ::Val{D},
-                               ::Val{GB}, ::Val{GX}, ::Val{STEP}) where {D,GB,GX,STEP}
+# reset injects into the state (step 6). Through the step cache where it is
+# `active` (2026-10-24): seeded from the cell's latest recovery in the step,
+# reused where its input is that one's; the stage limiter leaves its recovery
+# in the cache, and the step limiter, which ends the step, invalidates it.
+# *(Amended 2026-10-30:)* with a hand-off `sc`, the third pass of the
+# two-phase recovery.
+@kernel function reset_kernel!(uw, @Const(B1), @Const(B2), @Const(B3), Xw, Cw, sc,
+                               @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
+                               pol, active::Bool, ::Val{D}, ::Val{GB}, ::Val{GX}, ::Val{GC},
+                               ::Val{STEP}) where {D,GB,GX,GC,STEP}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -671,7 +856,19 @@ end
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E = cons_𝔈(cons) * isg
-    prim, flags = con2prim_hydro(eos, opts, pol, m, cons, E, B, state_guesses(cons))
+    ci = stored(n, GC)
+    entry = read_entry(Cw, ci, b, active, typeof(h))
+    prim, flags, _, entry2, hit = hydro_recovery(eos, opts, proj, pol, m, cons, E, B,
+                                                 seed_of(entry, cons), entry, sc, (n..., b))
+    if active
+        tally_seed!(Xw, stored(n, GX), b, STEP ? SITE_STEP_LIMITER : SITE_STAGE_LIMITER, entry,
+                    hit)
+        if STEP
+            @inbounds Cw[ci..., C_S, b] = oftype(h, NaN)   # the step ends: invalid
+        else
+            write_entry!(Cw, ci, b, entry2)
+        end
+    end
     if flags & EntropyEOS.FLAG_POL_ANY != 0
         c = prim2con(eos, m, prim, E, B)
         @inbounds for v in 1:(U_E - 1)
@@ -686,6 +883,48 @@ end
             Xw[xi..., X_RESETS, b] += one(h)
         end
     end
+end
+
+# The first pass of the two-phase recovery at the owned cells (stage 4 of the
+# recovery pipeline, 2026-10-30; "The two-phase recovery" in `CODE.md`): the
+# metric, `B` averaged to the cell, `E` from the state `Uw` (ghost width
+# `GU`; zero for a state vector), EntropyEOS's input as the site's own kernel
+# computes it — the hydrodynamic recovery (`model = nothing`: the right-hand
+# side, the limiters), or the stage solve's first recovery
+# (`predictor_input(model, …)`) —, the step cache's entry and seed where it is
+# `active`, exactly as the third pass reads them; and `con2prim_safe_start`
+# into the hand-off `sc`, or nothing where the entry is reused.
+@kernel function start_kernel!(sc, @Const(Uw), @Const(B1), @Const(B2), @Const(B3), @Const(Cw),
+                               @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
+                               model, active::Bool, ::Val{D}, ::Val{GU}, ::Val{GB},
+                               ::Val{GC}) where {D,GU,GB,GC}
+    I = @index(Global, NTuple)                       # local, owned
+    b = I[D + 1]
+    n = ntuple(e -> I[e], Val(D))
+    h = @inbounds spacings[b]
+    x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+    m = point_metric(provider, oftype(h, t), x)
+    cons = read_vars(Uw, stored(n, GU), b, Val(NU))
+    isg = inv(m.sqrtγ)
+    B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
+    E = cons_𝔈(cons) * isg
+    entry = read_entry(Cw, stored(n, GC), b, active, typeof(h))
+    level1_start!(sc, (n..., b), eos, opts, proj, start_input(model, m, cons, E, B),
+                  seed_of(entry, cons), entry)
+end
+
+# The input of the first pass: the hydrodynamic recovery's, or the stage
+# solve's first recovery's.
+@inline start_input(::Nothing, m, cons, E, B) = first(hydro_input(m, cons, E, B))
+@inline start_input(model::Conductivity, m, cons, E, B) = predictor_input(model, m, cons, E, B)
+
+# The second pass: `con2prim_safe_finish` at every owned cell whose first
+# stage was not done, behind the hand-off's per-cell guard — no compaction:
+# on the CPU it would buy nothing, and every cell's work stays independent of
+# the others', so one thread and four give the same result.
+@kernel function finish_kernel!(sc, eos, opts, proj, ::Val{D}) where {D}
+    I = @index(Global, NTuple)                       # local, owned: `(n..., b)`
+    level1_finish!(sc, Tuple(I), eos, opts, proj)
 end
 
 # The fastest coordinate speed of light at the owned cells, over the present
@@ -732,28 +971,48 @@ end
     update_primitives!(p::MHDProblem, u, t) -> P
 
 Steps 1 to 4 of [`mhd_rhs!`](@ref) and no further: scatter `u` into every
-evolved set and fill their ghosts, compute `𝔅` on every stored face, recover
-`P` in every stored cell, and `q` at the owned cells. Returns the primitive
-set `P`.
+evolved set, fill the potentials' ghosts, compute `𝔅` on every stored face,
+recover `P` at the owned cells, fill the primitives' ghosts and build `P`
+in every ghost cell from them (no ghost is recovered, and the matter set's
+ghosts are not written), and `q` at the owned cells. Returns the primitive
+set `P`, filled in every stored cell.
 """
 function update_primitives!(p::MHDProblem{T,D}, u, t) where {T,D}
     scatter!(p.sets, u)
-    for i in eachindex(p.sets)
+    for i in SEG_A:SEG_Φ
         fill_set!(p, i, t)
     end
     return primitives_from_sets!(p, t)
 end
 
-# Steps 2 to 4 of the right-hand side on sets whose ghosts are filled already:
-# `𝔅` on every stored face, `P` in every stored cell, `q` at the owned cells.
+# Steps 2 to 4 of the right-hand side on sets whose potentials are filled and
+# whose matter holds the state on its owned cells (ghosts not needed):
+# `𝔅` on every stored face; the recovery at the owned cells into `P` and the
+# primitive set `W`; `W`'s ghost fill — copies at same-level faces, the
+# bounded conservative prolongation centred on the parent at refinement
+# boundaries (`default_ops_W`), with its own hook, which applies the complete
+# outer boundary condition; `P` at every ghost cell from `W` and the ghost's
+# own `B`; `q` at the owned cells. *(Amended in step 8, decided by Erik
+# 2026-10-15: until then the matter's ghost fill was in conserved variables,
+# and the recovery ran in every stored cell after it. Amended 2026-10-23,
+# decided by Erik: the parent-centred primitive fill is the only one, and the
+# conserved ghosts are no longer written.)*
 function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
     curl_A!(f, p.𝔅̄, p.spacings)
-    map_blocks!(primitive_kernel!, f.P, f.P.work, f.U.work, f.B[1].work, f.B[2].work,
-                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.pol,
-                Val(D), Val(f.P.G), Val(f.U.G), Val(GB_of(f)); stored=true)
-    map_blocks!(charge_kernel!, f.P, f.P.work, f.U.work, p.spacings, Val(D), Val(f.P.G),
-                Val(f.U.G))
+    GB = Val(GB_of(f))
+    recovery_start!(p, f.U.work, Val(f.U.G), nothing, t)
+    map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
+                f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.handoff, p.origins,
+                p.spacings,
+                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
+                Val(f.U.G), GB, Val(p.cache.G), Val(f.X.G))
+    fill_ghosts!(f.W, p.schedule_W;
+                 boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
+    map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work, f.B[2].work,
+                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, f.P.forest.N,
+                Val(D), Val(f.P.G), Val(f.W.G), GB; stored=true)
+    map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
     return f.P
 end
 
@@ -766,9 +1025,14 @@ the matter's flux divergence and explicit sources, `A`'s EMF and gauge
 gradient, and `Φ̃`'s gauge equation. The conduction current, the one
 implicit term, is not here: it is [`ohm_solve!`](@ref)'s.
 
-**Pure in `(u, t)`, and it never mutates `u`**: every working array is
-scratch, rewritten in full, and every recovery is seeded from `u` itself
-([`state_guesses`](@ref)). IMEXRungeKutta's `f_exp!`.
+**Pure in `(u, t)` outside a step, and it never mutates `u`**: every
+working array is scratch, rewritten in full, and every recovery is seeded
+from `u` itself ([`state_guesses`](@ref)). Inside a step of
+[`evolve!`](@ref) ([`with_step_cache`](@ref)) its recoveries go through the
+step cache — seeded from the cell's latest recovery in the step, reused
+where the input is that one's — and a step is pure in `uⁿ` (amended
+2026-10-24, decided by Erik 2026-10-23; "The step cache" in `CODE.md`).
+IMEXRungeKutta's `f_exp!`.
 """
 function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
@@ -800,13 +1064,14 @@ function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
         i = SEG_A + j - 1
         map_blocks!(potential_rhs_kernel!, p.sets[i], statearray(du, p.sets, i),
                     f.EMF[j].work, f.A[1].work, f.A[2].work, f.A[3].work, f.Φ.work,
-                    p.origins, p.spacings, p.provider, t, Val(D), Val(j), Val(f.EMF[j].G),
+                    p.origins, p.spacings, p.lowwall, p.provider, t, Val(D), Val(j),
+                    Val(f.EMF[j].G),
                     Val(GA), Val(f.Φ.G))
         nothing
     end
     map_blocks!(gauge_rhs_kernel!, f.Φ, statearray(du, p.sets, SEG_Φ), f.A[1].work,
-                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.provider, t,
-                p.ξ, Val(D), Val(GA), Val(f.Φ.G))
+                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.lowwall,
+                p.provider, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G))
     return nothing
 end
 
@@ -824,10 +1089,12 @@ cell's outcome is tallied into the diagnostics set ([`ohm_tally`](@ref)).
 function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
     f = p.f
     update_fields!(p, ustar, t)
-    map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U),
-                statearray(ustar, p.sets, SEG_U), f.B[1].work, f.B[2].work, f.B[3].work,
-                f.X.work, p.origins, p.spacings, p.provider, t, γΔt, p.eos, p.opts, p.pol,
-                p.model, p.stage, Val(D), Val(GB_of(f)), Val(f.X.G))
+    us = statearray(ustar, p.sets, SEG_U)
+    recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t)
+    map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
+                p.provider, t, γΔt, p.eos, p.opts, p.proj, p.pol, p.model, p.stage,
+                p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G), Val(p.cache.G))
     return nothing
 end
 
@@ -835,9 +1102,10 @@ end
     reset_atmosphere!(u, integ, p::MHDProblem, t)
 
 The reset, with the limiter signature `(u, integrator, p, t)`: recover every
-owned cell of `u` and, where EntropyEOS's policy repaired the state (the
-atmosphere, a ceiling, the entropy window, the rapidity cap, non-finite
-input), write the repaired state's matter variables back into `u`; `𝔈` is
+owned cell of `u` and, where EntropyEOS's two levels repaired the state (a
+face of the valid range — the density, `Yₑ` and entropy bounds, the rapidity
+cap — or the atmosphere: `FLAG_POL_ANY`), write the repaired state's matter
+variables back into `u`; `𝔈` is
 not touched. Passed to the integrator as both the stage limiter and the step
 limiter ("Floors, the atmosphere and the magnetosphere" in `CODE.md`). The
 cells it writes are counted into the diagnostics set.
@@ -846,11 +1114,12 @@ cells it writes are counted into the diagnostics set.
 atmosphere alone: every repaired state is exactly invertible, and is what
 the next right-hand side would recover anyway.
 
-*(Added in step 8, AMR-8's workaround:)* it first prescribes the potentials'
-owned low walls at the outer faces of a case with Dirichlet hooks
-([`low_walls!`](@ref)), so that the state holds both walls of a closed box
-by the same rule and a closed box is mirror-symmetric ("Boundaries" in
-`CODE.md`).
+*(Added in step 8; amended in step 8 when AMR-8 landed:)* after its fill of
+the potentials, which writes their owned low walls by the outer boundary
+condition (TreeAMR's symmetric walls), it copies those walls — and nothing
+else — into `u` ([`walls_to_state!`](@ref)), so that the state holds the
+boundary condition's walls after every step, where the right-hand side,
+writing zero there, would leave them stale ("Boundaries" in `CODE.md`).
 
 This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
 is the same reset in the step limiter's role.
@@ -864,17 +1133,90 @@ reset_atmosphere!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(false))
 apart, with what they change in `√γ D` and `√γ τ` summed per cell — the rest
 mass and the energy the reset injects into the state, since only the step
 limiter's writes reach `uⁿ⁺¹` ([`ohm_tally`](@ref); added in step 6).
+As the end of a step it also invalidates every cell's step-cache entry,
+where the cache is active (2026-10-24).
 """
 reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
 
 function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
     f = p.f
-    low_walls!(p, u, t)
     update_fields!(p, u, t)
-    map_blocks!(reset_kernel!, f.U, statearray(u, p.sets, SEG_U), f.B[1].work, f.B[2].work,
-                f.B[3].work, f.X.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts,
-                p.pol, Val(D), Val(GB_of(f)), Val(f.X.G), step)
+    if p.haswalls
+        scatter!(p.sets[SEG_Φ], stateview(u, p.sets, SEG_Φ))
+        fill_set!(p, SEG_Φ, t)
+        walls_to_state!(p, u)
+    end
+    uU = statearray(u, p.sets, SEG_U)
+    recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t)
+    map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
+                f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
+                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D),
+                Val(GB_of(f)), Val(f.X.G), Val(p.cache.G), step)
     return nothing
+end
+
+# The first two passes of the two-phase recovery at every owned cell
+# (`start_kernel!`, `finish_kernel!`), for the state `Uw` of ghost width `GU`
+# and the site whose first recovery `model` names (`nothing`: the
+# hydrodynamic recovery), right before the site's own kernel, the third pass;
+# nothing where the problem recovers fused (`two_phase = false`).
+function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t) where {T,D}
+    sc = p.handoff
+    sc === nothing && return nothing
+    f = p.f
+    map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
+                p.cache.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.proj, model,
+                p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G))
+    map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D))
+    return nothing
+end
+
+# --- the step cache ---------------------------------------------------------------
+
+"""
+    invalidate_step_cache!(p::MHDProblem)
+
+Mark every cell's step-cache entry invalid (its `s` slot NaN), so that the
+next recovery of every cell is seeded from the state. Added 2026-10-24.
+"""
+function invalidate_step_cache!(p::MHDProblem)
+    w = p.cache.work
+    selectdim(w, ndims(w) - 1, C_S) .= eltype(w)(NaN)
+    return p
+end
+
+"""
+    with_step_cache(f, p::MHDProblem; active = true)
+
+Call `f()` — IMEXRungeKutta's `step!` or `solve!` on an integrator over `p`
+— with `p`'s step cache active, and return what it returns. The cache is
+invalidated before, and switched off and invalidated again after, in a
+`finally`, so that whatever `f` does, or throws, the first step `f` takes
+starts with an invalid cache and nothing outside sees one. Within, the
+step limiter ([`reset_step!`](@ref)) invalidates it at the end of every
+step. So each step is a pure function of `uⁿ`, `t` and `Δt` (IMEXRungeKutta
+1.4 neither retries nor rejects a step, and an exception leaves `integ.u =
+uⁿ`), whatever came before it: one chunk or two, a restart, one thread or
+four give the same run bit for bit. [`evolve!`](@ref) wraps its stepping in
+this; every other caller — a callback called directly, an `after_step`
+monitor, an integrator a test builds — runs with the cache off, exactly as
+before it existed. `active = false` calls `f()` alone (the negative
+control). "The step cache" in `CODE.md`; added 2026-10-24, decided by Erik
+2026-10-23.
+"""
+function with_step_cache(f, p::MHDProblem; active::Bool=true)
+    active || return f()
+    p.cache_on[] && throw(ArgumentError(
+        "with_step_cache: the step cache of this problem is already active; nesting would " *
+        "end the outer steps' cache early (CODE.md, \"The step cache\")."))
+    invalidate_step_cache!(p)
+    p.cache_on[] = true
+    try
+        return f()
+    finally
+        p.cache_on[] = false
+        invalidate_step_cache!(p)
+    end
 end
 
 # --- diagnostics ------------------------------------------------------------------
@@ -905,7 +1247,12 @@ flagged, counted, and reduced per chunk):
   6);
 - `injected_D`, `injected_τ`: the volume integrals `Σ hᴰ Δ(√γ D)` and
   `Σ hᴰ Δ(√γ τ)` of those step-limiter writes — the rest mass and the
-  energy the reset put into the state (negative where it took some out).
+  energy the reset put into the state (negative where it took some out);
+- `seeds` *(added 2026-10-24)*: per site — `rhs`, `stage` (the stage
+  solve's first recovery), `stage_limiter`, `step_limiter` — the recoveries
+  made inside a step as `(; cold, warm, reused)`: seeded from the state,
+  seeded from the step cache, or reused from it without calling EntropyEOS
+  ("The step cache" in `CODE.md`). Zero for recoveries outside a step.
 
 The counts are integers carried in the set's float type, exact below `2^24`
 in `Float32`.
@@ -928,7 +1275,15 @@ function ohm_tally(p::MHDProblem{T,D}) where {T,D}
             max_recoveries=roundint(mesh_mapreduce(identity, max, zero(T), X;
                                                    vars=X_MAX_RECOVERIES)),
             resets=count(X_RESETS), step_resets=count(X_STEP_RESETS),
-            injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU))
+            injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU),
+            seeds=seed_tally(count))
+end
+
+function seed_tally(count)
+    site(s) = (; cold=count(X_SEEDS + 3 * (s - 1)), warm=count(X_SEEDS + 3 * (s - 1) + 1),
+               reused=count(X_SEEDS + 3 * (s - 1) + 2))
+    return (; rhs=site(SITE_RHS), stage=site(SITE_STAGE), stage_limiter=site(SITE_STAGE_LIMITER),
+            step_limiter=site(SITE_STEP_LIMITER))
 end
 
 """

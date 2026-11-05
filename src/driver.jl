@@ -17,7 +17,7 @@
 # average — so the scheme starts from the solution and nothing else.
 
 """
-    MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), pol,
+    MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
             model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots)
 
 A problem, as data:
@@ -28,8 +28,10 @@ A problem, as data:
   fraction, and the contravariant fields `Eⁱ`, `Bⁱ` the normal observer sees;
 - `potential(x, t) -> (A, Φ̃)` — the covariant vector potential and the gauge
   scalar there, with `[ijk] ∂ⱼA_k + 𝔅̄ⁱ = √γ Bⁱ`;
-- `eos`, `opts`, `pol`: EntropyEOS's EOS, `Con2PrimOptions` and
-  `PolicyOptions`; `model`: the conductivity; `provider`: the metric;
+- `eos`, `opts`, `proj`, `pol`: EntropyEOS's EOS, `Con2PrimOptions`,
+  `ProjectionOptions` (level 1, the valid range) and `PolicyOptions` (level
+  2, the atmosphere), as [`recovery_options`](@ref) builds them; `model`: the
+  conductivity; `provider`: the metric;
 - `𝔅̄`: the constant densitized background field (`src/curl.jl`);
 - `periodic`, `extents`, `roots`: the box, per dimension.
 
@@ -40,11 +42,12 @@ dimension is given Dirichlet boundaries from the same two callbacks
 ([`case_boundary`](@ref), [`DirichletBoundary`](@ref); step 6), so there
 they must also be the solution outside the box for as long as the run lasts.
 """
-struct MHDCase{T,D,FL,PT,EOS,OPT,POL,MOD,MET}
+struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
     fields::FL
     potential::PT
     eos::EOS
     opts::OPT
+    proj::PRJ
     pol::POL
     model::MOD
     provider::MET
@@ -54,7 +57,7 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,POL,MOD,MET}
     roots::NTuple{D,Int}
 end
 
-function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, pol,
+function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
                  periodic, extents, roots) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
@@ -67,9 +70,32 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, pol,
     all(>(0), rs) || throw(ArgumentError("root counts must be positive, got $rs."))
     o = opts === nothing ? EntropyEOS.Con2PrimOptions{T}() : opts
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
-    return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(pol),
-                   typeof(model),typeof(provider)}(fields, potential, eos, o, pol, model,
-                                                   provider, B̄, per, ext, rs)
+    return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
+                   typeof(pol),typeof(model),typeof(provider)}(
+        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs)
+end
+
+"""
+    recovery_options(eos, ρ_min) -> (; proj, pol)
+
+The two levels of EntropyEOS's recovery as every case of this package sets
+them (amended 2026-10-24, EntropyEOS 2.0): the projection
+`default_projection(eos, ρ_min)` — the valid range from `ρ_min` to the top
+of the table's density box, the rapidity capped at `W = 100` — and the
+atmosphere of `apply_policy` at rest at `ρ_min`, at the trigger
+`D < 1.01 ρ_min`, with the electron fraction of the state it replaces, and
+at the entropy `s_atm` stated here: the middle of the window at `ρ_min` and
+the middle of the `Yₑ` range, which is 1.x's atmosphere for an analytic EOS
+(whose window does not depend on `ρ` or `Yₑ`). EntropyEOS 2.0's own default
+is the window's minimum ("Floors, the atmosphere and the magnetosphere" in
+`CODE.md`). Splat it into [`MHDCase`](@ref).
+"""
+function recovery_options(eos::EntropyEOS.AbstractEOS, ρ_min::T) where {T}
+    proj = EntropyEOS.default_projection(eos, ρ_min)
+    lo, hi = EntropyEOS.yₑ_bounds(eos)
+    sr = EntropyEOS.srange(eos, ρ_min, (T(lo) + T(hi)) / 2)
+    pol = EntropyEOS.PolicyOptions{T}(; s_atm=(sr.s_min + sr.s_max) / 2)
+    return (; proj, pol)
 end
 
 # --- initial data and references ----------------------------------------------------
@@ -186,6 +212,10 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   Ghosts of `U` hold cell averages; the point value is the average where the
   solution is uniform (a shock tube's far states) and differs by `O(h²)` of
   the second derivative where it is smooth (the current sheet's tails).
+  Only TreeAMR's own fills of `U` use it — `regrid!`'s before its transfer
+  and the initial adaptation's; the scheme's ghost fill is the primitives',
+  whose hook [`primitive_boundary`](@ref) derives from this one (amended
+  2026-10-23).
 - **The potentials**, `R = 1 … 4`: Dirichlet in the *field*, not in the
   potential (proposed in step 6). Each ghost point holds the nearest evolved
   point's value plus the case's difference between the two points,
@@ -199,8 +229,16 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   `c = 0.24`). Measured in step 6: a uniform flow at `vˣ = 0.999` through
   the box lost a fifth of its density in the last cell within 0.05 of a
   crossing that way. The difference is the field's, so it does not depend on
-  `t` where the field does not. This is TreeAMR's region form of a hook,
-  which reads the block's interior, and runs on the CPU only (AMR-7).
+  `t` where the field does not. *(Amended in step 8:)* this is TreeAMR's
+  relative hook, `CellBoundary(Relative(f))` with `f` the case's potential
+  (AMR-7, landed in TreeAMR 0.2.2): a kernel on every backend, which takes
+  `x_r` across a block face from the block's own (filled) ghost and runs each
+  region after the stage that fills what it reads, so one fill applies the
+  complete condition. The potentials' sets have symmetric walls (AMR-8), so
+  the owned low wall of a vertex-like dimension at a low outer face is one of
+  the points it fills, from `G+2`, as the high wall is from `G+N`. Until step
+  8 this was TreeAMR's region form, CPU-only, with this package's own
+  `low_walls!` and `outer_points!` kernels around it.
 
 As in TreeHydro, a Dirichlet boundary is exact only until a wave arrives; a
 case's `t_end` is chosen before that.
@@ -236,240 +274,109 @@ end
     return R ≤ 3 ? A[R] : Φ̃
 end
 
-# A potential: TreeAMR's region form, `(fs, b, key, δ, region)`, which runs on
-# the CPU only — the workaround for AMR-7 (`PLAN.md`), a per-cell form that
-# also receives the nearest owned point. The nearest evolved point of a
-# boundary point is its index clamped, along each dimension, to the evolved
-# range: `G+1 … G+N`, except that on the high side of a vertex-like
-# dimension the shared plane `G+N+1`, which nobody owns, is the hook's, and
-# *(amended in step 8, AMR-8)* on the low side of a vertex-like dimension at
-# an outer face the owned wall `G+1` is prescribed by the mirror of the same
-# rule ([`low_walls!`](@ref)), so the evolved range starts at `G+2` there.
-# A ghost beyond the low wall, and a ghost alongside it (in the wall's plane,
-# beyond another face), is then made from the same evolved point as its
-# mirror image on the high side, and a closed box is mirror-symmetric bit for
-# bit.
-function (d::DirichletAt{<:DirichletBoundary{R}})(fs::FieldSet{T,D}, b, key, δ,
-                                                region) where {R,T,D}
+# The primitives of the matter's ghost fill (step 8): `g(x, δ) -> vals`, the
+# case's `ρ★, s, Yₑ, uⁱ = W vⁱ, Eⁱ` at the ghost cell's center (`W`'s slots).
+@inline function (d::DirichletAt{<:DirichletBoundary{:W}})(x::NTuple{D,T}, δ) where {D,T}
     h = d.hook
-    forest = fs.forest
-    N = forest.N
-    G = fs.G
-    c = staggers(fs)
-    lw = low_outer_faces(forest, T, block_origin(T, forest, key))
-    lo = ntuple(e -> c[e] == 1 && lw[e] ? G[e] + 2 : G[e] + 1, Val(D))
-    w = fs.work
-    for I in region
-        g = Tuple(I)
-        r = ntuple(e -> clamp(g[e], lo[e], G[e] + N), Val(D))
-        xg = coordinates(T, fs, b, g)
-        xr = coordinates(T, fs, b, r)
-        @inbounds w[g..., 1, b] = w[r..., 1, b] + (case_potential(h, xg, d.t) -
-                                                   case_potential(h, xr, d.t))
-    end
-    return nothing
+    return case_prims(h.fields, h.provider, point3(x), T(d.t))
 end
 
-# --- the low walls (AMR-8's workaround) --------------------------------------------
-
-"""
-    low_outer_faces(forest, T, origin) -> NTuple{D,Bool}
-
-Along each dimension, whether the block with lower corner `origin` lies on
-the domain's low face there and that face is an outer one — neither
-periodic, reflecting nor outflow — whose ghosts the application's hook
-fills. From exported API only: the block's origin against the domain's
-extent (`block_origin` reproduces the extent's low end exactly for a block
-at the low face, `lo + 0 · w`), and the forest's `periodic`, `reflecting`
-and `outflow` properties.
-"""
-function low_outer_faces(forest::Forest{D}, ::Type{T}, origin) where {D,T}
-    per, refl, out = forest.periodic, forest.reflecting, forest.outflow
-    return ntuple(e -> !per[e] && !refl[e][1] && !out[e][1] &&
-                       origin[e] == T(forest.extents[e][1]), Val(D))
+@inline function case_prims(fields, provider, x::SVector{3,T}, t::T) where {T}
+    m = point_metric(provider, t, x)
+    ρ, v, s, Yₑ, E, B = fields(x, t)
+    v3, E3 = SVector{3,T}(v), SVector{3,T}(E)
+    W = inv(sqrt(one(T) - dot_up(m, v3, v3)))
+    u = W * v3
+    return W_store(T(ρ), T(s), T(Yₑ), u, E3)
 end
 
 """
-    outer_faces(forest, T) -> Vector{NTuple{2,NTuple{D,Bool}}}
+    primitive_boundary(hook) -> DirichletBoundary{:W}
 
-Per block this rank stores, `(low, high)`: along each dimension, whether
-the block's low (high) face is an outer face of the domain
-([`low_outer_faces`](@ref)). The high face from the block's position in
-whole cells, `(origin − lo)/h + N` against the domain's `(hi − lo)/h`, both
-integers, rather than from a sum of floats.
+The boundary hook of the primitive set `W` that goes with the matter's hook
+`hook` ([`MHDProblem`](@ref)'s `boundary[1]`): for the case's Dirichlet data
+([`DirichletBoundary`](@ref)`{:U}`) the same case's primitives at each ghost
+cell's center (added in step 8). Any other matter hook has no primitive
+counterpart this package can derive; pass `boundary_W` to `MHDProblem`.
 """
-function outer_faces(forest::Forest{D}, ::Type{T}) where {D,T}
-    per, refl, out = forest.periodic, forest.reflecting, forest.outflow
-    N = forest.N
-    os = block_origins(forest, Float64)
-    hs = block_spacings(forest, Float64)
-    return map(eachindex(os)) do b
-        o, h = os[b], hs[b]
-        low = low_outer_faces(forest, T, block_origins(forest, T)[b])
-        high = ntuple(Val(D)) do e
-            lo, hi = forest.extents[e]
-            !per[e] && !refl[e][2] && !out[e][2] &&
-                round(Int, (o[e] - lo) / h) + N == round(Int, (hi - lo) / h)
-        end
-        (low, high)
+primitive_boundary(hook::DirichletBoundary{:U}) =
+    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider)
+primitive_boundary(hook) = throw(ArgumentError(
+    "the matter's boundary hook $(typeof(hook)) has no primitive counterpart: since step 8 " *
+    "the matter's ghost fill prolongates the primitives (CODE.md, \"Refinement\"), so a " *
+    "non-periodic problem needs a hook for the primitive set `W` too — pass `boundary_W`."))
+
+# A potential: `f(x) -> value`, the case's potential `R` at the point `x`, which
+# TreeAMR's relative hook turns into `f(x_g) + (u(x_r) − f(x_r))` (AMR-7).
+@inline (d::DirichletAt{<:DirichletBoundary})(x::NTuple{D,T}) where {D,T} =
+    case_potential(d.hook, x, d.t)
+
+boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
+boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
+boundary_at(hook::DirichletBoundary, t) = CellBoundary(Relative(DirichletAt(hook, t)))
+
+# --- the owned low walls -------------------------------------------------------------
+
+"""
+    low_walls(forest, T) -> Vector{NTuple{D,Bool}}
+
+Per block this rank stores: along each dimension, whether the block lies on
+the domain's low face there and that face is not periodic — an outer,
+reflecting or outflow face, at each of which TreeAMR fills the owned low
+wall plane of a vertex-like dimension of a set with symmetric walls (AMR-8,
+landed in TreeAMR 0.2.2). From exported API only: the block's origin
+against the domain's extent (`block_origin` reproduces the extent's low end
+exactly for a block at the low face, `lo + 0 · w`) and the forest's
+`periodic` property. *(Added in step 8.)*
+"""
+function low_walls(forest::Forest{D}, ::Type{T}) where {D,T}
+    per = forest.periodic
+    return map(block_origins(forest, T)) do o
+        ntuple(e -> !per[e] && o[e] == T(forest.extents[e][1]), Val(D))
     end
 end
 
-# The case's potential `R` at a point given as an `SVector{3}` (zero along
-# the missing directions), as `case_potential` evaluates it at a point given
-# as TreeAMR's coordinate tuple: the same callback on the same numbers.
-@inline function case_potential(h::DirichletBoundary{R}, x::SVector{3,T}, t) where {R,T}
-    A, Φ̃ = h.potential(x, T(t))
-    return R ≤ 3 ? A[R] : Φ̃
-end
+# Whether the owned local point `n` of a set with staggers `C` lies on a low
+# wall of its block (`lw`, from `low_walls`): `n = 1` along a vertex-like
+# dimension whose low face is a domain face.
+@inline on_low_wall(n::NTuple{D,Int}, lw::NTuple{D,Bool}, ::Val{C}) where {D,C} =
+    any(ntuple(e -> C[e] == 1 && lw[e] && n[e] == 1, Val(D)))
 
-# The owned low walls of one potential: at every owned point `n` of block `b`
-# that lies on the wall of a vertex-like dimension `e` at a low outer face
-# (`n[e] = 1`), the value at the nearest evolved point `r` — `n` with every
-# such coordinate moved to `2` — plus the case's difference between the two
-# points. That is the hook's rule for the high wall, `w[G+N+1] = w[G+N] +
-# [A(x_{G+N+1}) − A(x_{G+N})]`, mirrored, with the positions formed by
-# TreeAMR's `coordinates` arithmetic (`point_x`) and the same callback, so a
-# box symmetric under a reflection gets the two walls bit for bit alike.
-# The kernel reads only evolved points and writes only wall points, so there
-# is no race. `GO` is the offset of the array's owned points: the set's `G`
-# for its working array, zero for a state vector's segment.
-@kernel function low_wall_kernel!(w, hook, t, @Const(origins), @Const(spacings),
-                                  @Const(outer), ::Val{D}, ::Val{C},
-                                  ::Val{GO}) where {D,C,GO}
+# The owned low-wall points of one potential copied from its (filled) working
+# array `w` into its state-vector segment `u`: what the fill prescribed there
+# (AMR-8), and nothing else.
+@kernel function wall_to_state_kernel!(u, @Const(w), @Const(lowwall), ::Val{D}, ::Val{C},
+                                       ::Val{G}) where {D,C,G}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
-    lw = @inbounds outer[b][1]
-    wall = ntuple(e -> C[e] == 1 && lw[e] && n[e] == 1, Val(D))
-    if any(wall)
-        r = ntuple(e -> wall[e] ? 2 : n[e], Val(D))
-        h = @inbounds spacings[b]
-        o = @inbounds origins[b]
-        xg = point_x(o, h, n, Val(C))
-        xr = point_x(o, h, r, Val(C))
-        @inbounds w[stored(n, GO)..., 1, b] = w[stored(r, GO)..., 1, b] +
-                                             (case_potential(hook, xg, t) -
-                                              case_potential(hook, xr, t))
-    end
-end
-
-# Every stored point of one potential beyond an outer face of block `b` —
-# its ghosts there and the high wall plane of a vertex-like dimension, the
-# points TreeAMR leaves to the hook — from the nearest evolved point plus the
-# case's difference, after the ghost fill. The evolved range along a
-# dimension at an outer face is `G+1 … G+N`, starting at `G+2` along a
-# vertex-like one at a low outer face (its wall `G+1` is prescribed:
-# AMR-8); `r` is the point clamped into it along every dimension in which the
-# block has an outer face, and left where it is along the others — where it
-# may be a ghost across another block's face, which the fill has written by
-# now. The hook itself, which runs before the prolongations and may read only
-# the block's own owned points, clamps along every outward direction, and so
-# takes a point where a wall meets another block (the wall's row in a corner
-# region) from the block's own last column rather than from the neighbour's
-# — a block-dependent value at a point two blocks share, which broke a closed
-# box's mirror symmetry (found in step 8). A low wall's row in a ghost column
-# across another block's face is not the hook's: TreeAMR's exchange copies,
-# restricts or prolongates it from the neighbour's own (prescribed) wall, and
-# it stays so (amended in step 8: rewriting it from this block's clamped
-# point disagreed with the exchange across a coarse-fine face, where the two
-# levels' nearest evolved points differ). Writes only points beyond an outer
-# face, reads only points within the evolved range along every outer
-# dimension: no race.
-@kernel function outer_point_kernel!(w, hook, t, @Const(origins), @Const(spacings),
-                                     @Const(outer), N, ::Val{D}, ::Val{C},
-                                     ::Val{G}) where {D,C,G}
-    I = @index(Global, NTuple)                       # stored: `stored = true`
-    b = I[D + 1]
-    g = ntuple(e -> I[e], Val(D))
-    lw, hw = @inbounds outer[b]
-    lo = ntuple(e -> G[e] + 1 + (C[e] == 1 && lw[e] ? 1 : 0), Val(D))
-    hi = ntuple(e -> G[e] + N, Val(D))
-    beyond = ntuple(e -> (lw[e] && g[e] ≤ G[e]) || (hw[e] && g[e] > hi[e]), Val(D))
-    if any(beyond)
-        r = ntuple(e -> lw[e] && g[e] < lo[e] ? lo[e] : hw[e] && g[e] > hi[e] ? hi[e] : g[e],
-                   Val(D))
-        h = @inbounds spacings[b]
-        o = @inbounds origins[b]
-        n = ntuple(e -> g[e] - G[e], Val(D))
-        m = ntuple(e -> r[e] - G[e], Val(D))
-        xg = point_x(o, h, n, Val(C))
-        xr = point_x(o, h, m, Val(C))
-        @inbounds w[g..., 1, b] = w[r..., 1, b] + (case_potential(hook, xg, t) -
-                                                   case_potential(hook, xr, t))
+    if on_low_wall(n, @inbounds(lowwall[b]), Val(C))
+        @inbounds u[n..., 1, b] = w[stored(n, G)..., 1, b]
     end
 end
 
 """
-    low_walls!(p::MHDProblem, u, t)
-    low_walls!(p::MHDProblem, i, w, Val(G), t)
+    walls_to_state!(p::MHDProblem, u)
 
-*AMR-8's workaround (added in step 8; decided by Erik 2026-10-15).* Prescribe
-the owned low walls of the potentials `A_j` and `Φ̃` at every outer face of a
-case with Dirichlet hooks ([`DirichletBoundary`](@ref)), at time `t`, by the
-mirror of the rule the hook fills the high walls with: the nearest evolved
-point's value plus the case's difference between the two points. TreeAMR
-fills the high wall plane `G+N+1` of a vertex-like dimension at an outer face
-as a ghost and leaves the low one, `G+1`, owned and evolved — its
-half-open ownership ("Centerings" in its `CODE.md`) — so without this `𝔅` on
-a box's high boundary face is the case's and on its low one the evolution's,
-and a closed box is not mirror-symmetric (1.3e−4 in a 16³ blast, measured in
-step 7; "Boundaries" in `CODE.md`).
-
-The first form writes the segments of the state vector `u`; the
-[`reset_atmosphere!`](@ref) and [`reset_step!`](@ref) limiters call it, so
-the prescribed walls persist in the state. The second writes the working
-array `w` of evolved set `i` (owned points at offset `G`) before each of
-its ghost fills, so every fill sees the walls at its own time. Periodic,
-reflecting and outflow faces are not touched: they have no wall the hook
-fills (reflecting and outflow walls are TreeAMR's own machinery, and
-AMR-8 asks TreeAMR to fill all of them alike). A `map_blocks!` kernel,
-so it runs on every backend; once AMR-8 lands it is deleted.
+Copy the owned low walls of the potentials `A_j` and `Φ̃` from their working
+arrays, which a fill has just written by the outer boundary condition
+(TreeAMR's symmetric walls, AMR-8), into the state vector `u`, and touch no
+other point. The walls are prescribed, not evolved — the right-hand side
+writes zero there — so this is what keeps `u`'s wall entries the boundary
+condition's after every step, for everything that reads `u` without a fill
+(output, error norms, totals, a checkpoint). The reset calls it in both of
+its roles, after its own fill (decided in step 8; "Boundaries" in
+`CODE.md`). A `map_blocks!` kernel, on every backend.
 """
-function low_walls!(p::MHDProblem, u, t)
-    p.hasouter || return u
+function walls_to_state!(p::MHDProblem{T,D}, u) where {T,D}
+    p.haswalls || return u
     for i in SEG_A:SEG_Φ
-        low_walls!(p, i, statearray(u, p.sets, i), Val(ntuple(_ -> 0, length(p.sets[i].G))), t)
+        s = p.sets[i]
+        map_blocks!(wall_to_state_kernel!, s, statearray(u, p.sets, i), s.work, p.lowwall,
+                    Val(D), Val(staggers(s)), Val(s.G))
     end
     return u
 end
-
-function low_walls!(p::MHDProblem{T,D}, i::Integer, w, ::Val{GO}, t) where {T,D,GO}
-    p.hasouter || return nothing
-    hook = p.boundary[i]
-    hook isa DirichletBoundary || return nothing
-    s = p.sets[i]
-    map_blocks!(low_wall_kernel!, s, w, hook, T(t), p.origins, p.spacings, p.outer, Val(D),
-                Val(staggers(s)), Val(GO))
-    return nothing
-end
-
-"""
-    outer_points!(p::MHDProblem, i, t)
-
-After a ghost fill of potential `i` (`A_j` or `Φ̃`) with the case's
-Dirichlet hook ([`DirichletBoundary`](@ref)), refill every point beyond an
-outer face — the ghosts, the high wall, and the low wall (AMR-8) — from the
-nearest evolved point plus the case's difference at time `t`, with the
-nearest point taken across another block's face where the point lies in a
-wall's plane alongside it (see `outer_point_kernel!`; added in step 8). A
-`map_blocks!` kernel over the stored points; returns whether it ran (the
-set has the case's hook). `fill_set!` runs it, and on a mesh with more than
-one level a hookless fill and it once more, so that the prolongations read
-the corrected points too.
-"""
-function outer_points!(p::MHDProblem{T,D}, i::Integer, t) where {T,D}
-    p.hasouter || return false
-    hook = p.boundary[i]
-    hook isa DirichletBoundary || return false
-    s = p.sets[i]
-    map_blocks!(outer_point_kernel!, s, s.work, hook, T(t), p.origins, p.spacings, p.outer,
-                s.forest.N, Val(D), Val(staggers(s)), Val(s.G); stored=true)
-    return true
-end
-
-boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
-boundary_at(hook::DirichletBoundary, t) = DirichletAt(hook, t)
 
 """
     case_boundary(case::MHDCase) -> NTuple{5,DirichletBoundary} or nothing
@@ -609,10 +516,10 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
 """
     evolve!([T], case::MHDCase, Val(D); N, t_end, chunk = t_end, cfl = default_cfl(limiter), limiter,
             riemann = :hlle, ξ = default_ξ(case), stage = nothing, tableau = IMEXSSP3433(), G = 3,
-            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A,
+            backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing) -> NamedTuple
+            after_regrid = nothing, step_cache = true, two_phase = false) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -632,6 +539,19 @@ data on its final mesh does not reproduce to rounding).
 `after_step(p, u, t)`, if given, is called after every step with the
 problem, the state and its time — a monitor, such as the `∇·𝔅` check of
 rung 2a ([`max_div_B`](@ref); added in step 7); it must not change `u`.
+It runs outside the step, with the step cache off, so a monitor that calls
+[`update_primitives!`](@ref) or [`mhd_rhs!`](@ref) does not change the run.
+
+The steps run with the **step cache** ([`with_step_cache`](@ref); added
+2026-10-24, decided by Erik 2026-10-23): inside a step every recovery is
+seeded from the cell's latest one in the step, and one whose input is that
+one's bit for bit is reused; the cache is invalidated at the end of every
+step and whenever stepping starts or stops, so a step is a pure function of
+`uⁿ`, `t` and `Δt`. `step_cache = false` runs every recovery from the state,
+as before (the negative control; "The step cache" in `CODE.md`).
+`two_phase = true` recovers in the three passes of the two-phase recovery
+rather than fused ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
+for bit. Fused is the default on the CPU (decided by Erik 2026-11-02).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
 once after the initial adaptation (added in step 8).
 
@@ -652,8 +572,9 @@ MP5 ([`default_cfl`](@ref), step 7).
   `coarsen_tol` have no default; `buffer` is the margin in cells `regrid!`
   dilates the firing cells by, the case's (feature speed × `chunk`), and
   `ε`, `ε_g` the indicator's floors.
-- `ops_U`, `ops_A` are the operators of the matter and of the potentials
-  ([`MHDProblem`](@ref)), `fixup = false` skips `restrict_interfaces!` (the
+- `ops_U`, `ops_A`, `ops_Φ` are the operators of the matter, of `A_j` and of
+  `Φ̃`, and `ops_W` those of the primitives' ghost fill ([`MHDProblem`](@ref)),
+  `fixup = false` skips `restrict_interfaces!` (the
   negative control).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,
@@ -661,9 +582,12 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  stage=nothing, tableau=IRK.IMEXSSP3433(), G::Integer=3,
                  backend=CPU(), after_step=nothing, roots=case.roots,
                  ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
-                 fixup::Bool=true, refine=nothing, maxlevel::Integer=0, refine_tol=nothing,
+                 ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
+                 fixup::Bool=true, refine=nothing,
+                 maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
-                 maxpasses::Integer=10, after_regrid=nothing) where {T,D}
+                 maxpasses::Integer=10, after_regrid=nothing,
+                 step_cache::Bool=true, two_phase::Bool=false) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -684,19 +608,23 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
     refine === nothing || refine(forest)
     f = mhd_fields(T, forest; G=G, backend=backend)
-    build() = MHDProblem(f; eos=case.eos, opts=case.opts, pol=case.pol, model=case.model,
-                         provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ, stage=stage,
-                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A,
-                         fixup=fixup, boundary=case_boundary(case))
+    build() = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
+                         model=case.model, provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ,
+                         stage=stage,
+                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
+                         ops_W=ops_W, fixup=fixup, boundary=case_boundary(case),
+                         two_phase=two_phase)
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
-        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, buffer=buffer,
+        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
+                             buffer=buffer,
                              maxpasses=maxpasses, flagkw...)
     end
     p = build()
+    # The exact potentials satisfy the walls' condition already: the relative
+    # hook gives `f(x_w) + (f(x_r) − f(x_r)) = f(x_w)` bit for bit.
     u = exact_state(p, case, zero(T))
-    low_walls!(p, u, zero(T))                         # AMR-8's workaround
     totals0 = conserved_totals(p, u)
     maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
     nchunks = chunk_count(t_end, chunk)
@@ -723,10 +651,10 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,
                                reuse=integ)
         if after_step === nothing
-            IRK.solve!(integ)
+            with_step_cache(() -> IRK.solve!(integ), p; active=step_cache)
         else
             while integ.nstep < integ.nsteps
-                IRK.step!(integ)
+                with_step_cache(() -> IRK.step!(integ), p; active=step_cache)
                 after_step(p, integ.u, integ.t)
             end
         end
@@ -766,16 +694,48 @@ default_ξ(case::MHDCase{T,D}) where {T,D} =
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)
 
 """
-    default_ops_U(), default_ops_A()
+    default_ops_U(), default_ops_A(), default_ops_Φ(), default_ops_W()
 
-The operators [`evolve!`](@ref) gives the matter set and the potentials
-unless told otherwise ("Field sets" and "Refinement" in `CODE.md`).
+The operators [`MHDProblem`](@ref) and [`evolve!`](@ref) give the matter set,
+the three `A_j` and `Φ̃` unless told otherwise ("Field sets" and
+"Refinement" in `CODE.md`):
+
+- the matter: Conservative width 3, **bounded** (decided in step 8), in the
+  regrid (since AMR-10 its ghost fill is `W`'s);
+- `A_j`: the conservative family on a staggered set (AMR-9, TreeAMR 0.2.2)
+  — along the edge's own (cell-like) direction the conservative width-3
+  operators, whose restriction is the two-edge mean and whose prolongation's
+  two children average to the parent, so a coarse edge's line integral is
+  the sum of its fine edges' after every fill and regrid, and with it the
+  magnetic flux through a coarse face the sum through its fine faces; across
+  it (vertex-like) point values of width 4 (decided in step 8 by the
+  interface-order table, re-measured under this family);
+- `Φ̃`: PointValue width 4. A vertex set has no cell-like dimension, so the
+  conservative family would be this very operator (injection and width-4
+  Lagrange); it stays PointValue (decided in step 8).
+- `W`, the primitives the matter's ghost fill exchanges: the matter's own
+  operator, Conservative width 3, `bounded = true` — the parent-centred
+  primitive fill (decided by Erik 2026-10-23; "Refinement" in `CODE.md`). At
+  a same-level face a ghost is a copy of its owner, exact; at a refinement
+  boundary a fine ghost is its coarse parent plus an MC-limited linear slope
+  centred on the parent, scaled so that every child stays within the parent
+  and its face neighbours (TreeAMR's bounded prolongation, AMR-4) — Athena++'s
+  prolongation of the primitives (Stone et al. 2020, ApJS 249, 4, §2.1.5),
+  with MC slopes for its minmod — and a coarse ghost is the `2^D` mean of the
+  fine cells it covers. At the foot of a jump a child takes its parent's
+  value, so a dense neighbour does not leak into an atmosphere cell's
+  children, where the PointValue width-2 fill of step 8 did. Every variable
+  has its own slope, so a ghost is not a convex mixture of whole states; the
+  48 perturbed magnetized runs saw no blow-up and no repaired ghost with it.
 """
 default_ops_U() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
-default_ops_A() = Operators(; prolongation=4, restriction=4)
+default_ops_A() = Operators(; prolongation=3, restriction=2, family=Conservative,
+                            vertex_prolongation=4)
+default_ops_Φ() = Operators(; prolongation=4, restriction=4)
+default_ops_W() = Operators(; prolongation=3, restriction=2, family=Conservative, bounded=true)
 
 """
-    adapt_case!(f::MHDFields, case, build; ops_U, ops_A, refine_tol, coarsen_tol,
+    adapt_case!(f::MHDFields, case, build; ops_U, ops_A, ops_Φ, refine_tol, coarsen_tol,
                 maxlevel, ε, ε_g, buffer, maxpasses) -> passes
 
 The initial adaptation of every field set of `f` to `case`'s data at
@@ -789,8 +749,9 @@ the driver then writes the exact initial data ([`exact_state`](@ref)).
 `build()` makes the problem over `f` as the forest stands. Throws if the
 cycle has not converged within `maxpasses`.
 """
-function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, refine_tol,
-                     coarsen_tol, maxlevel, ε, ε_g, buffer, maxpasses) where {T,D}
+function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, ops_Φ,
+                     refine_tol, coarsen_tol, maxlevel, ε, ε_g, buffer,
+                     maxpasses) where {T,D}
     hooks = case_boundary(case)
     hook(i) = hooks === nothing ? nothing : boundary_at(hooks[i], zero(T))
     fl, pt, eos, prov = case.fields, case.potential, case.eos, case.provider
@@ -799,19 +760,17 @@ function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, r
                                       R ≤ 3 ? A[R] : Φ̃
                                   end,))
     ev = evolved_sets(f)
-    ops = (ops_U, ops_A, ops_A, ops_A, ops_A)
+    ops = (ops_U, ops_A, ops_A, ops_A, ops_Φ)
     evolved = ntuple(i -> ev[i] => (ops[i], hook(i)), 5)
-    scratch = (f.P => nothing, map(s -> s => nothing, f.B)..., map(s -> s => nothing, f.F)...,
+    scratch = (f.P => nothing, f.W => nothing, map(s -> s => nothing, f.B)...,
+               map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
     nscratch = length(scratch)
     initial = (initU, initA(1), initA(2), initA(3), initA(4), ntuple(_ -> nothing, nscratch)...)
     criterion(sets) = begin
         p = build()
-        # The cycle filled the sets with the hooks alone; the criterion reads
-        # them after the complete boundary condition (Erik, 2026-10-15).
-        for i in SEG_A:SEG_Φ
-            fill_set!(p, i, zero(T))
-        end
+        # The cycle filled every set with its hook, which applies the complete
+        # boundary condition (AMR-7; Erik, 2026-10-15).
         primitives_from_sets!(p, zero(T))
         mhd_flags(p; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     end

@@ -10,7 +10,12 @@
 #     fine faces with `restrict_interfaces!` on the EMFs (the CT correction),
 #     and does not without it;
 #   * a shock tube tracked through regrids conserves every total, and `∇·𝔅`
-#     stays at rounding on every level and after every regrid.
+#     stays at rounding on every level and after every regrid;
+#   * one fill applies the complete outer boundary condition (TreeAMR's
+#     relative hook and symmetric walls, AMR-7 and AMR-8), the regrid's
+#     included, and the state holds the prescribed low walls;
+#   * a closed box refined symmetrically keeps TreeAMR's half-open
+#     asymmetry at coarse-fine faces (recorded).
 #
 # Uses `multid_tests.jl`'s `md_run` (which asserts `∇·𝔅 ≤ 1e−12` after every
 # step) and `md_conserved`, so it is included after it.
@@ -89,8 +94,9 @@ end
     # fine side disagree at every coarse-fine face, and mass leaks at the
     # truncation error. The Alfvén wave of rung 1a over a quarter period on
     # 64 cells with the middle half refined (1D), and along the diagonal on
-    # 2 × 2 roots of 8² with one refined (2D). Measured (1D): 0.008 ulp of a
-    # total's scale a step with the fixup, 3·10⁸ to 1.5·10¹⁰ without.
+    # 2 × 2 roots of 8² with one refined (2D). Measured: 0.013 (1D) and 0.12
+    # (2D) ulp of a total's scale a step with the fixup, 1.8·10¹⁰ and 5.4·10¹¹
+    # without (0.008 and 0.12 with step 8's first conserved ghost fill).
     c1 = alfven_wave_case(Float64; roots=D == 1 ? 8 : 1)
     case = D == 1 ? c1 : oblique_case(c1; N=8, roots=2)
     t_end = alfven_period(c1) / (D == 1 ? 4 : 8)
@@ -211,8 +217,8 @@ end
     # one refined (2D; `E = −v × B` varies everywhere), and the spherical
     # blast in its closed box after two steps on 2 × 2 × 2 roots of 8³ with
     # one refined (3D, the Dirichlet hooks across the levels too). Measured:
-    # 1.7e−18 of a largest rate of 0.016 (2D) and 0.0085 (3D) with the
-    # correction, 0.025 of 0.031 and 0.0039 of 0.0092 without.
+    # 8.7e−19 of a largest rate of 5.4e−3 (2D) and 5.5e−3 (3D) with the
+    # correction, 0.025 of 0.029 and 0.0017 of 0.0055 without.
     case = D == 2 ? orszag_tang_case(Float64; roots=2) :
            cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true)
     t_end = D == 2 ? 1 // 1000 : 1 // 32
@@ -241,11 +247,11 @@ end
     # `coarsen_tol = 0.02`, a 6-cell buffer), regridded every 1/80 to
     # `t = 0.4`. The bounded regrid transfer is exactly conservative and the
     # post-regrid reset writes nothing, so every total stays constant to
-    # rounding through the regrids: measured 0.013 ulp of a total's scale a
-    # step (8 is the bound), and 3·10⁶ to 1.4·10⁷ without the fixup.
+    # rounding through the regrids: measured 0.015 ulp of a total's scale a
+    # step (8 is the bound), and 2.2·10⁷ without the fixup.
     c = balsara_case(Float64, 1; roots=10)
     case = MHDCase(Float64, Val(1); fields=c.fields, potential=c.potential, eos=c.eos,
-                   pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
+                   proj=c.proj, pol=c.pol, model=c.model, 𝔅̄=c.𝔅̄, periodic=true, extents=c.extents,
                    roots=c.roots)
     runs = map((true, false)) do fixup
         r = evolve!(case, Val(1); N=10, t_end=2 // 5, chunk=1 // 80, limiter=:mc, maxlevel=2,
@@ -278,7 +284,7 @@ end
     # adaptation makes 28 blocks, the regrids 52 and 58 as the torsional
     # waves leave the rotor. And the totals through the regrids, constant to
     # rounding but for the precursors at the faces (`md_conserved`;
-    # measured 0.036 ulp of a total's scale a step).
+    # measured 0.037 ulp of a total's scale a step).
     divs = Float64[]
     run = md_run(magnetic_rotor_case(Float64; roots=4), Val(2); N=8, t_end=1 // 10,
                  chunk=1 // 40, limiter=:mc, maxlevel=1, refine_tol=0.08, coarsen_tol=0.02,
@@ -303,96 +309,381 @@ function rf_total_Bz(p, u, t)
            mesh_mapreduce(abs, +, 0.0, B; vars=1, weight=k -> spacing(Float64, B.forest, k)^2)
 end
 
-@testset "The magnetic flux through the plane drifts at the potentials' interpolation error across levels (AMR-9)" begin
-    # Records what the EMF correction does not give (`CODE.md`,
-    # "Conservation at coarse-fine faces"; AMR-9 in `PLAN.md`): on a periodic
-    # 2D box `Σ hᴰ 𝔅ᶻ` is `∮ A · dl` around the box, constant to rounding on
-    # a uniform mesh, but across a coarse-fine face it telescopes only if the
-    # coarse `A_y` on the face is the mean of the fine ones beside it — and
-    # PointValue operators interpolate along an edge's own direction, where
-    # a conservative transfer would average. The oblique Alfvén wave (whose
-    # field has a `z` component) on 2 × 2 roots of 8², one refined, an eighth
-    # of a period: measured 7.1e−4 of the flux's scale 1.25 with the
-    # correction and 7.2e−4 without at width 4, 1.4e−3 at width 2, and
-    # 1.5e−16 on the uniform mesh — the operators', not the EMFs'. Bounded
-    # here, and to be asserted to rounding when AMR-9 lands.
+const RF_PV = Operators(; prolongation=4, restriction=4)   # the potentials before AMR-9
+
+@testset "The magnetic flux through the plane is constant to rounding across levels and through a regrid (AMR-9)" begin
+    # Guards the potentials' conservative transfer (AMR-9, TreeAMR 0.2.2;
+    # `CODE.md`, "Conservation at coarse-fine faces"): on a periodic 2D box
+    # `Σ hᴰ 𝔅ᶻ` is `∮ A · dl` around the box, and across a coarse-fine face
+    # it telescopes only if the coarse `A_y` on the face is the mean of the
+    # fine ones beside it — which the conservative family along an edge's
+    # own direction makes it, after every fill and every regrid, and the
+    # PointValue family, which interpolates there, does not. The oblique
+    # Alfvén wave (whose field has a `z` component) on 2 × 2 roots of 8², one
+    # refined, an eighth of a period, then a regrid that coarsens the refined
+    # root and refines the opposite one. Measured: on the uniform mesh 5.7e−18
+    # of the flux's scale; two-level 2.2e−16 after the run and 1.5e−16 after
+    # the regrid; with the PointValue operators of step 8's first form 5.8e−4
+    # (and the regrid moves it further).
     c1 = alfven_wave_case(Float64; roots=1)
     case = oblique_case(c1; N=8, roots=2)
-    drifts = map((nothing, rf_refine_first!)) do refine
-        r = evolve!(case, Val(2); N=8, t_end=alfven_period(c1) / 8, limiter=:mc, refine=refine)
-        u0 = exact_state(r.p, case, 0.0)
-        low_walls!(r.p, u0, 0.0)
-        b0, _ = rf_total_Bz(r.p, u0, 0.0)
+    function drift(refine, ops_A)
+        r = evolve!(case, Val(2); N=8, t_end=alfven_period(c1) / 8, limiter=:mc, refine=refine,
+                    ops_A=ops_A)
+        b0, _ = rf_total_Bz(r.p, exact_state(r.p, case, 0.0), 0.0)
         b1, scale = rf_total_Bz(r.p, r.u, r.t)
-        abs(b1 - b0) / scale
+        refine === nothing && return (abs(b1 - b0) / scale, NaN)
+        p = r.p
+        flags = [level(blockkey(p.f.U, b)) == 1 ? Coarsen :
+                 blockkey(p.f.U, b) == last(p.f.U.forest.leaves) ? Refine : Keep
+                 for b in 1:nblocks(p.f.U)]
+        g = regrid_state!(p, r.u, r.t; flags=flags)
+        @test g.moved && max_div_B(g.p, g.u, r.t) ≤ MD_DIVB
+        b2, _ = rf_total_Bz(g.p, g.u, r.t)
+        return (abs(b1 - b0) / scale, abs(b2 - b0) / scale)
     end
-    @info "Flux of 𝔅ᶻ through the plane, oblique Alfvén wave: drift $(drifts[1]) of its " *
-          "scale on the uniform mesh, $(drifts[2]) on the two-level mesh"
-    @test drifts[1] ≤ 1e-14
-    @test drifts[2] ≤ 1e-2
+    uniform = drift(nothing, RF.default_ops_A())
+    cons = drift(rf_refine_first!, RF.default_ops_A())
+    pv = drift(rf_refine_first!, RF_PV)
+    @info "Flux of 𝔅ᶻ through the plane, oblique Alfvén wave: drift $(uniform[1]) of its " *
+          "scale on the uniform mesh; two-level $(cons[1]), after a regrid $(cons[2]) " *
+          "(PointValue potentials: $(pv[1]), $(pv[2]))"
+    @test uniform[1] ≤ 1e-14
+    @test cons[1] ≤ 1e-14 && cons[2] ≤ 1e-14
+    @test pv[1] ≥ 1e-4 && pv[2] ≥ 1e-4
 end
 
+# The face sets' `𝔅` on their closed ranges, keyed by `(d, level, position)`
+# with the position in half-spacings of that level from the domain's low
+# corner; from block `only` alone, if given.
+function rf_B_table(p; only=nothing)
+    f = p.f
+    forest = f.U.forest
+    D = length(forest.roots)
+    N = forest.N
+    tab = Dict{Tuple{Int,Int,NTuple{D,Int}},Float64}()
+    for d in 1:D
+        s = f.B[d]
+        st = staggers(s)
+        for b in (only === nothing ? (1:nblocks(s)) : (only:only))
+            k = blockkey(s, b)
+            h = spacing(forest, k)
+            o = block_origin(forest, k)
+            g0 = ntuple(e -> round(Int, (o[e] - forest.extents[e][1]) / h), D)
+            for I in CartesianIndices(ntuple(e -> N + st[e], D))
+                n = Tuple(I)
+                pos = ntuple(e -> 2 * (g0[e] + n[e] - 1) + (st[e] == 1 ? 0 : 1), D)
+                tab[(d, level(k), pos)] = s.work[(n .+ s.G)..., 1, b]
+            end
+        end
+    end
+    return tab
+end
 
-@testset "Every fill applies the complete outer boundary condition, and regrid!'s own fill keeps it bit for bit" begin
+# Over every face of a level-0 block on a coarse-fine face: the magnetic flux
+# through it from that block's own (filled) `𝔅`, `𝔅ᵈ H^{D−1}`, against the
+# sum through the `2^{D−1}` fine faces covering it, `Σ 𝔅ᵈ h^{D−1}` — the
+# state, after a fill.
+function rf_flux_state_mismatch(p, u, t)
+    update_fields!(p, u, t)
+    fine = rf_B_table(p)
+    f = p.f
+    forest = f.U.forest
+    D = length(forest.roots)
+    N = forest.N
+    H = spacing(forest, 0)
+    worst, scale, nfaces = 0.0, 0.0, 0
+    for blk in 1:nblocks(f.U)
+        k = blockkey(f.U, blk)
+        level(k) == 0 || continue
+        own = rf_B_table(p; only=blk)
+        o = block_origin(forest, k)
+        g0 = ntuple(e -> round(Int, (o[e] - forest.extents[e][1]) / H), D)
+        for d in 1:D, side in (1, N + 1), I in CartesianIndices(ntuple(e -> e == d ? 1 : N, D))
+            n = ntuple(e -> e == d ? side : I[e], D)
+            c = ntuple(e -> 2 * (g0[e] + n[e] - 1) + (e == d ? 0 : 1), D)
+            offsets = Iterators.product(ntuple(e -> e == d ? (0,) : (-1, 1), D)...)
+            keys = [(d, 1, ntuple(e -> 2 * c[e] + o2[e], D)) for o2 in offsets]
+            all(kk -> haskey(fine, kk), keys) || continue
+            coarse = own[(d, 0, c)] * H^(D - 1)
+            fsum = sum(kk -> fine[kk], keys) * (H / 2)^(D - 1)
+            nfaces += 1
+            worst = max(worst, abs(coarse - fsum))
+            scale = max(scale, abs(coarse))
+        end
+    end
+    return (; worst, scale, nfaces)
+end
+
+@testset "The magnetic flux through a coarse face is the sum through its fine faces, as a state, after steps and a regrid (AMR-9)" begin
+    # Guards PLAN.md's step-8 claim as a state (AMR-9): in 3D the flux through
+    # a face on a coarse-fine face is the circulation of the two in-plane
+    # potentials around it, and the sum through the fine faces covering it is
+    # the circulation around the same perimeter in fine edges — equal when
+    # every coarse edge's line integral is the sum of its two fine edges',
+    # which the conservative family along an edge's own direction keeps
+    # through every fill and regrid. That is the transfer's property, not
+    # the EMFs': the EMF correction makes the *rate* agree (above), and
+    # without it the state still agrees after every fill, the non-owner's
+    # edges being derived from the owner's. The spherical blast on 2 × 2 × 2
+    # roots of 8³, one refined, after two steps, then a regrid refining the
+    # opposite root (every face of a coarse block on a coarse-fine face, 192
+    # and then 384). Measured, in its periodic box, relative to the largest
+    # flux: 1.4e−16 with the correction and without, the same after the
+    # regrid; with the PointValue operators of step 8's first form, 1.5e−3.
+    # In the closed box the 147 faces away from the walls agree to rounding,
+    # but the 45 whose perimeter lies on an outer face miss by 1.2e−5
+    # (2.7e−5 after the regrid): there each level's relative hook
+    # writes its own wall edges from its own nearest evolved point, so a
+    # coarse wall edge is not the sum of the fine ones (recorded, `CODE.md`;
+    # AMR-11 in `PLAN.md`).
+    function measure(periodic; kw...)
+        case = cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true,
+                                          periodic=periodic)
+        run = md_run(case, Val(3); N=8, t_end=1 // 32, limiter=:minmod, refine=rf_refine_first!,
+                     kw...)
+        p, u, t = run.r.p, run.r.u, run.r.t
+        before = rf_flux_state_mismatch(p, u, t)
+        flags = [blockkey(p.f.U, b) == last(p.f.U.forest.leaves) ? Refine : Keep
+                 for b in 1:nblocks(p.f.U)]
+        g = regrid_state!(p, u, t; flags=flags)
+        @test g.moved && max_div_B(g.p, g.u, t) ≤ MD_DIVB
+        after = rf_flux_state_mismatch(g.p, g.u, t)
+        return (; before, after)
+    end
+    with = measure(true)
+    without = measure(true; fixup=false)
+    pv = measure(true; ops_A=RF_PV)
+    closed = measure(false)
+    rel(m) = m.worst / m.scale
+    @info "Magnetic flux as a state, 3D: mismatch of a coarse face against its fine faces " *
+          "$(rel(with.before)) of the largest flux ($(with.before.nfaces) faces), after a regrid " *
+          "$(rel(with.after)) ($(with.after.nfaces)); without the EMF correction " *
+          "$(rel(without.before)), $(rel(without.after)); PointValue potentials " *
+          "$(rel(pv.before)), $(rel(pv.after)); closed box $(rel(closed.before)), " *
+          "$(rel(closed.after))"
+    @test with.before.nfaces == 192 && with.after.nfaces == 384
+    @test rel(with.before) ≤ 1e-14 && rel(with.after) ≤ 1e-14
+    @test rel(without.before) ≤ 1e-14 && rel(without.after) ≤ 1e-14
+    @test rel(pv.before) ≥ 1e-4 && rel(pv.after) ≥ 1e-4
+    @test 1e-10 ≤ rel(closed.before) ≤ 1e-4
+end
+
+# The explosion in its closed box, `[−2, 2]²` on 4 × 4 roots of 8², and the
+# root on the low `y` wall between two coarse roots refined.
+const RF_BOX = cylindrical_explosion_case(Float64; L=2, roots=4)
+rf_refine_wall!(forest) =
+    (refine!(forest, [k for k in forest.leaves if block_origin(forest, k) == (-1.0, -2.0)]);
+     balance!(forest); forest)
+
+@testset "One fill applies the complete outer boundary condition, and regrid! with the hooks transfers it" begin
     # Guards Erik's decision of 2026-10-15 ("an outer boundary condition
-    # needs to be applied always"): a potential's outer points are the
-    # nearest evolved point plus the case's difference, the wall's row next
-    # to another block included, which TreeAMR's hook — running before the
-    # prolongations, reading only its own block — cannot write (AMR-7). So
-    # `fill_set!` follows the hook with `outer_points!`, and on a multilevel
-    # mesh with a hookless fill and `outer_points!` once more; and
-    # `regrid_state!` fills completely and gives `regrid!` no hook for the
-    # potentials, whose own pre-transfer fill then reproduces every ghost.
-    # The explosion in its closed box, `[−2, 2]²`, the root on the low `y`
-    # wall between two coarse roots refined, to `t = 1/4`: (1) after a
-    # complete fill, a further hookless fill and refill change nothing, bit
-    # for bit — the fill is the condition's fixed point; (2) a hookless fill,
-    # which is what `regrid!` does, leaves it bit for bit; (3) a regrid that
-    # refines the next wall root through `regrid_state!` against one whose
-    # `regrid!` fills with the hook alone (step 8's first form): measured
-    # 1.8e−10 apart in the potentials (of 1.2e−2), the matter equal — the size
-    # of what the transfer read wrong before.
-    case = cylindrical_explosion_case(Float64; L=2, roots=4)
-    refine_wall!(forest) =
-        (refine!(forest, [k for k in forest.leaves if block_origin(forest, k) == (-1.0, -2.0)]);
-         balance!(forest); forest)
+    # needs to be applied always") as TreeAMR 0.2.2 delivers it: a
+    # potential's outer points — its ghosts beyond an outer face, the high
+    # wall plane, and under symmetric walls (AMR-8) the owned low wall — are
+    # the nearest evolved point plus the case's difference, the wall's row
+    # next to another block included, and TreeAMR's relative hook (AMR-7)
+    # writes all of them in one fill, each region after the stage that fills
+    # what it reads. Until step 8 took up 0.2.2 this needed this package's
+    # `outer_points!` after the hook and, on a multilevel mesh, a hookless
+    # fill and `outer_points!` once more; a regrid filled completely first
+    # and handed `regrid!` no hook for the potentials. On the closed box with
+    # a refined wall root, to `t = 1/4`: (1) after one fill a second changes
+    # nothing, bit for bit, and one fill of NaN-prefilled working arrays
+    # writes the same — every stored point, from the state alone; (2) a
+    # hookless fill leaves it bit for bit; (3) `regrid_state!`, whose
+    # `regrid!` fills with the hooks, transfers exactly what step 8's first
+    # arrangement (a complete fill, then `regrid!` with no hook for the
+    # potentials) transfers, bit for bit — a regrid refining the next wall
+    # root. Before the complete condition (step 8's first form, the hook
+    # alone) the transfer was 1.8e−10 off (of 1.2e−2) in the potentials.
     flags(p) = [block_origin(p.f.U.forest, blockkey(p.f.U, b)) == (0.0, -2.0) ? Refine : Keep
                 for b in 1:nblocks(p.f.U)]
-    run() = evolve!(case, Val(2); N=8, t_end=1 // 4, limiter=:minmod, refine=refine_wall!)
+    run() = evolve!(RF_BOX, Val(2); N=8, t_end=1 // 4, limiter=:minmod, refine=rf_refine_wall!)
     r = run()
     p, u, t = r.p, r.u, r.t
     scatter!(p.sets, u)
-    fixed, kept = true, true
+    fixed, fromnan, kept = true, true, true
     for i in RF.SEG_A:RF.SEG_Φ
         s = p.sets[i]
         RF.fill_set!(p, i, t)
         full = copy(s.work)
+        RF.fill_set!(p, i, t)
+        fixed &= isequal(s.work, full)
+        fill!(s.work, NaN)
+        scatter!(s, stateview(u, p.sets, i))
+        RF.fill_set!(p, i, t)
+        fromnan &= isequal(s.work, full)
         fill_ghosts!(s, p.schedules[i]; boundary=nothing)
         kept &= isequal(s.work, full)
-        RF.outer_points!(p, i, t)
-        fixed &= isequal(s.work, full)
     end
-    @test p.multilevel && fixed && kept
-    # (3) through `regrid_state!`, and with the hook alone, from the same state.
+    @test maxlevel(p.f.U.forest) == 1 && fixed && fromnan && kept
+    # (3) through `regrid_state!`, and through step 8's first arrangement,
+    # from the same state.
     new = regrid_state!(p, u, t; flags=flags(p))
     r2 = run()
     q = r2.p
     scatter!(q.sets, r2.u)
-    old = (ntuple(i -> q.sets[i] => (q.schedules[i], RF.boundary_at(q.boundary[i], t)), 5)...,
-           RF.regrid_pairs(q, t)[6:end]...)
+    for i in eachindex(q.sets)
+        RF.fill_set!(q, i, t)
+    end
+    old = (ntuple(i -> q.sets[i] => (q.schedules[i],
+                                     i == RF.SEG_U ? RF.boundary_at(q.boundary[i], t) : nothing),
+                  5)..., RF.regrid_pairs(q, t)[6:end]...)
     regrid!(first(q.sets).forest, old; flags=flags(q))
     q = RF.rebuild(q)
     uold = statevector(q.sets)
     gather!(uold, q.sets)
-    low_walls!(q, uold, t)
     clear_tally!(q)
     reset_step!(uold, nothing, q, t)
-    dA = maximum(i -> maximum(abs.(stateview(new.u, new.p.sets, i) .- stateview(uold, q.sets, i))),
-                 RF.SEG_A:RF.SEG_Φ)
-    scale = maximum(i -> maximum(abs, stateview(new.u, new.p.sets, i)), RF.SEG_A:RF.SEG_Φ)
-    @info "Complete boundary condition through a regrid: the hook-only transfer was $dA off " *
-          "in the potentials (of $scale); blocks $(r.nblocks) → $(nblocks(new.p.f.U))"
+    @info "Complete boundary condition: one fill is its fixed point $fixed (from NaN $fromnan); " *
+          "a regrid with the hooks is the complete fill's $(isequal(new.u, uold)); blocks " *
+          "$(r.nblocks) → $(nblocks(new.p.f.U))"
     @test new.moved && nblocks(new.p.f.U) == r.nblocks + 3
-    @test isequal(stateview(new.u, new.p.sets, RF.SEG_U), stateview(uold, q.sets, RF.SEG_U))
-    @test 0 < dA ≤ 1e-6 * scale
+    @test isequal(new.u, uold)
+end
+
+# The owned low-wall points of the potentials of a state: per set, the state's
+# value and the value a complete fill writes there, and `du`'s.
+function rf_walls(p, u, du, t)
+    scatter!(p.sets, u)
+    D = length(p.f.U.forest.roots)
+    N = p.f.U.forest.N
+    state, filled, rate = Float64[], Float64[], Float64[]
+    for i in RF.SEG_A:RF.SEG_Φ
+        s = p.sets[i]
+        RF.fill_set!(p, i, t)
+        lw = RF.low_walls(s.forest, Float64)
+        a, d = statearray(u, p.sets, i), statearray(du, p.sets, i)
+        for b in 1:nblocks(s), I in CartesianIndices(ntuple(_ -> N, D))
+            n = Tuple(I)
+            RF.on_low_wall(n, lw[b], Val(staggers(s))) || continue
+            push!(state, a[n..., 1, b])
+            push!(filled, s.work[(n .+ s.G)..., 1, b])
+            push!(rate, d[n..., 1, b])
+        end
+    end
+    return (; state, filled, rate)
+end
+
+@testset "The potentials' low walls are prescribed: the state holds them after every step, and nothing reads them unfilled: $(refined ? "refined" : "uniform")" for refined in (false, true)
+    # Guards the switch from `low_walls!` to TreeAMR's symmetric walls
+    # (AMR-8; decided in step 8, "Boundaries" in `CODE.md`). The low wall
+    # plane of a vertex-like dimension at a low outer face is owned, so it is
+    # in the state vector, but the fill writes it — into the working array,
+    # not into `u`. So the right-hand side writes zero there (the wall is
+    # prescribed, not evolved; a branch, not a mask), and the reset, as
+    # stage and step limiter, copies the filled walls into `u`
+    # (`walls_to_state!`). Claims, on the closed box (uniform, and with the
+    # wall root refined), after every step to `t = 1/4`: `u`'s wall entries
+    # are what a complete fill prescribes there, bit for bit, and `du` is
+    # exactly zero there; and one more step from a state whose wall entries
+    # are perturbed by 1 gives the same state as from the true one, bit for
+    # bit — they are never read without a fill.
+    nwalls, held, still = 0, true, true
+    function monitor(p, u, t)
+        du = zero(u)
+        mhd_rhs!(du, u, p, t)
+        w = rf_walls(p, u, du, t)
+        nwalls = length(w.state)
+        held &= isequal(w.state, w.filled)
+        still &= all(iszero, w.rate)
+    end
+    r = evolve!(RF_BOX, Val(2); N=8, t_end=1 // 4, limiter=:minmod,
+                refine=refined ? rf_refine_wall! : nothing, after_step=monitor)
+    p, u, t = r.p, r.u, r.t
+    dt = r.chunks[end].dt
+    step(u0) = (integ = RF.mhd_integrator(p, u0, t, t + dt, 1); RF.IRK.solve!(integ); integ.u)
+    w = rf_walls(p, u, zero(u), t)
+    bumped = copy(u)
+    for i in RF.SEG_A:RF.SEG_Φ
+        s = p.sets[i]
+        lw = RF.low_walls(s.forest, Float64)
+        a = statearray(bumped, p.sets, i)
+        for b in 1:nblocks(s), I in CartesianIndices(ntuple(_ -> 8, 2))
+            RF.on_low_wall(Tuple(I), lw[b], Val(staggers(s))) && (a[I, 1, b] += 1)
+        end
+    end
+    a, b = step(copy(u)), step(bumped)
+    @info "Low walls, $(refined ? "refined" : "uniform") closed box: $nwalls wall points, held " *
+          "in the state after every step $held, du zero there $still; a perturbed wall " *
+          "changes the next state by $(maximum(abs.(a .- b)))"
+    # 190 on the uniform mesh: `A_x` and `A_y` 8 on each of the four roots
+    # along their wall, `A_z` and `Φ̃` 8 + 8 − 1 on the corner root and 8 on
+    # each of the six others; 24 more with the wall root refined.
+    @test nwalls == (refined ? 214 : 190)
+    @test r.nsteps ≥ 10 && held && still
+    @test count(!=(0.0), bumped .- u) == nwalls
+    @test isequal(a, b)
+end
+
+# The largest violation of the mirror symmetry along `axis` of a state on a
+# refined mesh symmetric about the centre of a box centred at the origin, per
+# evolved set, relative to each variable's largest magnitude: every set's
+# ghost-filled working array on each block's closed range against the mirror
+# block's at the mirrored point (a cell `n` to `N + 1 − n`, a vertex-like
+# point to `N + 2 − n`), with `md_mirror_equal`'s parities.
+function rf_mirror_error(p, u, t, axis, c)
+    update_primitives!(p, u, t)
+    pol(j) = j == axis ? -1 : 1
+    parity(i, v) = i == 1 ? (v in 2:4 ? pol(v - 1) : v in 8:10 ? c * pol(v - 7) : 1) :
+                   i ≤ 4 ? c * pol(i - 1) : c
+    forest = p.f.U.forest
+    D = length(forest.roots)
+    N = forest.N
+    blocks = Dict((level(blockkey(p.f.U, b)), block_origin(forest, blockkey(p.f.U, b))) => b
+                  for b in 1:nblocks(p.f.U))
+    return map(1:5) do i
+        s = p.sets[i]
+        st = staggers(s)
+        worst = 0.0
+        for v in 1:s.nvars
+            scale = maximum(abs, selectdim(s.work, D + 1, v))
+            scale == 0 && continue
+            for b in 1:nblocks(s)
+                k = blockkey(s, b)
+                o = block_origin(forest, k)
+                h = spacing(forest, k)
+                om = Base.setindex(o, 0.0 - (o[axis] + N * h), axis)
+                bm = blocks[(level(k), om)]
+                for I in CartesianIndices(ntuple(e -> N + st[e], D))
+                    n = Tuple(I)
+                    m = Base.setindex(n, (st[axis] == 1 ? N + 2 : N + 1) - n[axis], axis)
+                    any(e -> m[e] > N + st[e], 1:D) && continue
+                    x = s.work[(n .+ s.G)..., v, b]
+                    y = s.work[(m .+ s.G)..., v, bm]
+                    worst = max(worst, abs(x - parity(i, v) * y) / scale)
+                end
+            end
+        end
+        worst
+    end
+end
+
+@testset "A closed box refined symmetrically is mirror-symmetric only to the half-open asymmetry at coarse-fine faces (TreeAMR's open item)" begin
+    # Records TreeAMR's open item (AMR-8 as landed, its `CODE.md`,
+    # "Centerings"): on a refined mesh a vertex-like set is not
+    # mirror-symmetric under either kind of wall, because a plane on a
+    # coarse-fine face is the fine block's owned plane when the face is its
+    # low face and the coarse block's, interpolated at the fine points between
+    # the coarse ones, when it is its high face (4.7e−5 upstream, on smooth
+    # data, one fill). The explosion in its closed box with the middle 2 × 2
+    # roots refined — a mesh symmetric under both reflections, whose
+    # coarse-fine faces `|x|, |y| = 1` cut the blast's transition region
+    # (`0.8 ≤ r ≤ 1`) — to `t = 1/4`: measured 1.1e−2 (`x → −x`) and 8.5e−3
+    # (`y → −y`) of a variable's scale in `U`, 9.8e−3 and 1.3e−2 in `A_z`
+    # (6.3e−4 and 7.2e−3 in `A_z` after the first step), against exactly zero
+    # on the uniform mesh (`multid_cases_tests.jl`). Asserted as present and
+    # bounded, so that the day upstream closes it this testset says so.
+    refine_middle!(forest) =
+        (refine!(forest, [k for k in forest.leaves
+                          if all(x -> -1 ≤ x < 1, block_origin(forest, k))]);
+         balance!(forest); forest)
+    r = evolve!(RF_BOX, Val(2); N=8, t_end=1 // 4, limiter=:minmod, refine=refine_middle!)
+    ex = rf_mirror_error(r.p, r.u, r.t, 1, 1)
+    ey = rf_mirror_error(r.p, r.u, r.t, 2, -1)
+    @info "Explosion in a closed box, middle refined, t = 1/4: mirror asymmetry per set " *
+          "(U, A₁, A₂, A₃, Φ̃) x → −x $ex, y → −y $ey; $(r.nsteps) steps, $(r.nblocks) blocks"
+    @test r.nblocks == 16 + 12 && r.nsteps == 20
+    @test 1e-4 ≤ maximum(ex) ≤ 5e-2 && 1e-4 ≤ maximum(ey) ≤ 5e-2
 end

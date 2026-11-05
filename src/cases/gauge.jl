@@ -42,6 +42,6 @@ function gauge_pulse_case(::Type{T}=Float64; a=1, w=1 // 10, roots=2) where {T}
                                    s, T(1 // 2), false)
     h = T(1 // 2)
     return MHDCase(T, Val(2); fields=WaveFields(p), potential=WavePotential(p), eos=eos,
-                   pol=EntropyEOS.default_policy(eos, T(1 // 10^10)), model=Vacuum(),
+                   recovery_options(eos, T(1 // 10^10))..., model=Vacuum(),
                    periodic=true, extents=((-h, h), (-h, h)), roots=roots)
 end

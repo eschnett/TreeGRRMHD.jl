@@ -10,13 +10,15 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 7 are done, and step 8 but for the re-measurement of the matter's ghost
-fill, which is blocked on AMR-10; step 9 is next, and waits for nothing.** *(Amended in step
-8.)* *(Amended 2026-10-14:)* Steps
+**Steps 0 to 3 and 5 to 8 are done; step 9 is next, and waits for nothing.** *(Amended at the
+end of step 8, when TreeAMR 0.2.2 landed AMR-7 to AMR-10.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
-unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0
-(still unregistered: EOS-0, EOS-3 and EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
-AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form; SpacetimeMetrics 1.7.0 with
+unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
+EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
+2026-10-24, 2.2.0 since 2026-10-26 and 2.2.1 since 2026-10-30 (still unregistered: EOS-0, EOS-3 and
+EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
+AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
+(AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
 `main` is still fbfd416 (GH-0 landed; GH-1 to GH-6 waiting; unregistered). The "state" column
 of the table below has each item.
@@ -139,6 +141,30 @@ This is TreeGH's pattern.
     round trip's `D`), and on a repaired state it is not the repaired speed (amended in step 1).
   - The warm-start guesses of `con2prim`/`con2prim_safe` are **positional**, although the
     docstrings show keywords.
+  - *(Added 2026-10-21; amended 2026-10-24, EntropyEOS 2.0.)* EntropyEOS's two levels,
+    `con2prim_safe` (the projection, onto `ProjectionOptions`) and `apply_policy` (the
+    atmosphere, with `PolicyOptions`), are called in `src/con2prim.jl` only (`fluid_recovery`,
+    `ideal_recovery`), the second right after the first, and their conserved output `cons` is
+    never used: every caller rebuilds the conserved variables from the primitive state with this
+    package's `prim2con`. `apply_policy` puts a state on the `ρ_min` face (`FLAG_POL_ρ_FLOORED`),
+    a non-finite input, a failed solve and `D < atm_trigger·ρ_min` at rest at `ρ_min`, adding
+    `FLAG_POL_ATMOSPHERE` to level 1's bits (this package's rule since 2026-10-21). Test flag
+    words with `& … != 0`; `==` only where the whole word is the claim. The bits are 8–17
+    (`FLAG_POL_ANY = 0x3ff00`): flags stored as numbers are exact below `2^24` in `Float32`.
+    The options are `isbits` and travel into the kernels as two arguments, `proj` before `pol`.
+    *(Amended 2026-10-24, the step cache:)* the two calls are in one function, `two_levels`,
+    which `fluid_recovery` and `ideal_recovery` go through.
+  - *(Added 2026-10-24, stage 3 of the recovery plan.)* **The step cache.** Inside `evolve!`'s
+    steps (`with_step_cache`) every recovery is seeded from the cell's latest one in the step and
+    reused where its EntropyEOS input is that one's bit for bit; the step limiter `reset_step!`
+    invalidates it, and `with_step_cache` before and after. So the callbacks are pure in
+    `(u, t)` only outside a step, and a step is pure in `uⁿ`. A test that steps an integrator
+    itself runs without the cache unless it wraps the stepping in `with_step_cache` — the
+    restart test does, with `mhd_integrator`'s integrator, whose step limiter is `reset_step!`;
+    one built with another step limiter would carry the cache across steps. Every site computes
+    `B`, `E` and the undensitized variables as `· inv(√γ)`, so that the keys agree; a new
+    recovery site must too. `X` counts the seeds per site (`ohm_tally(p).seeds`), and
+    `evolve!(…; step_cache = false)` is the negative control ("The step cache", `CODE.md`).
 - **TreeGH's conventions.**
   - `h_ab = g_ab − η_ab` is stored as an offset, and `Π_ab = √γ n^μ∂_μ g_ab` is not `∂ₜh`.
   - Components are packed `(tt,tx,ty,tz,xx,xy,xz,yy,yz,zz)`.
@@ -149,12 +175,12 @@ This is TreeGH's pattern.
   have landed and are used without workarounds: `regrid_pairs` gives each evolved set its own hook,
   `adapt_case!` adapts every set at once.
 - **The outer boundary condition is applied in full after every fill** (decided by Erik
-  2026-10-15): `fill_set!` (hook, `outer_points!`, and on a multilevel mesh a hookless fill and
-  `outer_points!` again), `regrid_state!` (a complete fill, then `regrid!` with no hook for the
-  potentials, whose fill then keeps it bit for bit), `adapt_case!` (the criterion fills completely).
-  A new path that fills a potential must go through `fill_set!`; a TreeAMR call that fills with the
-  potentials' hook alone and then reads the ghosts is the gap AMR-7 (amended in step 8) names.
-  *(Amended in step 8; replaces the sharp edge "`regrid!` fills ghosts with the hook alone".)*
+  2026-10-15): since TreeAMR 0.2.2 one TreeAMR fill does it — the potentials' relative hook
+  (AMR-7) and symmetric walls (AMR-8) — in `fill_ghosts!`, `regrid!` and
+  `adapt_to_initial_data!` alike, so every evolved set is filled with its own hook
+  (`fill_set!`, `regrid_pairs`). A new path that fills a potential without its hook leaves the
+  outer points and the low wall as they were. *(Amended in step 8 twice: first this package's
+  `outer_points!` and a second fill, then TreeAMR's.)*
 - **A regridded run's initial totals** are `evolve!`'s `totals0`, taken on the initial mesh: the
   case's initial data on the final mesh has other Gauss averages. *(Added in step 8.)*
 - **The IMEX implicit tendency is `(U − u★)/(γΔt)`.** The stage solver must return the `U` it
@@ -169,9 +195,10 @@ This is TreeGH's pattern.
   is wrong in the stage solve unless it is written so that `t` drops out — hence the
   potentials' Dirichlet data in the field (added in step 6).
 - **The RHS never mutates `u`.** The stage limiter writes only atmosphere cells — and *(amended in
-  step 8)* the potentials' owned low walls at the outer faces of a case with Dirichlet hooks
-  (AMR-8's workaround, `low_walls!`): with the reset, both limiters prescribe them, so that a
-  closed box is mirror-symmetric.
+  step 8)* the potentials' owned low walls at the low domain faces, which the fill writes under
+  symmetric walls (AMR-8) and the reset, as stage and step limiter, copies into `u`
+  (`walls_to_state!`), so that `u` holds the boundary condition's walls. The right-hand side writes
+  zero into `du` there: the wall is prescribed, not evolved.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
   monitor.
@@ -203,7 +230,7 @@ Every item lands in a **registered release** (or a pushed commit where registrat
 never only in a local checkout. Additive changes stay in the same minor series (TreeAMR 0.2.x,
 EntropyEOS 1.x; amended in step 0 from 0.1.x for both).
 
-The state column is as of 2026-10-14 (added in step 0, amended 2026-10-14): for the items still
+The state column is as of 2026-10-26 (added in step 0, amended 2026-10-14, in step 8, on 2026-10-21, on 2026-10-24 and on 2026-10-26): for the items still
 waiting, what `test/prerequisite_tests.jl` reports; for TreeGH, which the suite cannot load yet,
 what its `main` reads. "Landed in" means the compat floor guarantees it and the probe is retired.
 
@@ -215,15 +242,23 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed in TreeAMR 0.2.1, as `bounded = true` |
 | AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
 | AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
-| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | waiting |
-| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | waiting |
-| AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | waiting |
-| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | waiting |
+| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point (added in step 6) | landed in TreeAMR 0.2.2, as `Relative` (workaround dropped in step 8) |
+| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one (added in step 8) | landed in TreeAMR 0.2.2, as `walls = :symmetric` (workaround dropped in step 8) |
+| AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets (added in step 8) | landed in TreeAMR 0.2.2, as `vertex_prolongation` |
+| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation (added in step 8) | landed in TreeAMR 0.2.2 |
+| AMR-11 | TreeAMR | wanted | — | the relative hook consistent across levels where an outer face meets a coarse-fine face (added in step 8) | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
 | EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
+| EOS-5 | EntropyEOS | — | — | withdrawn 2026-10-17 (was: no policy repair creates rest mass); notes kept for Erik | withdrawn |
+| EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity (added 2026-10-17) | superseded 2026-10-21 by EOS-8 and the wrapper |
+| EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band (added 2026-10-17) | not pursued |
+| EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` (added 2026-10-21) | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
+| EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | landed (EntropyEOS 2.2.1, 2026-10-30) |
+| EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction (added 2026-10-26, from the 2026-10-24 discussion) | landed in EntropyEOS 2.1.0, as `inside_window` (decided by Erik); `[compat]` `"2.2"` |
 | GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
 | GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -460,6 +495,18 @@ transfer read values 1.8e−10 off (of 1.2e−2) next to a wall and a block face
 fill's ghosts were off by as much. Nothing TreeAMR reads is partial now; the cost is a second fill
 of each potential on a multilevel mesh. Marked `AMR-7`/`AMR-8` in `src/driver.jl`.
 
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`CellBoundary(Relative(f))` and `CellBoundary(Relative(AllVariables(f)))` set a ghost to
+`f(x_g) + (u(x_r) − f(x_r))`, `x_r` the nearest evolved point (clamped along the components that
+leave the domain through an outer face, `G+2` on the low side under symmetric walls; the block's
+own ghost across a block face along the others), as a kernel on every backend, each hook region
+run after the stage that fills what it reads, so that one fill — `fill_ghosts!`, `regrid!`'s and
+`adapt_to_initial_data!`'s — is the condition's fixed point. `TreeAMR = "0.2.2"` guarantees it;
+the probe is retired and `Relative` joins step 0's name list. Used since step 8 (`boundary_at`);
+the region-form hook and `outer_points!` are deleted, and `test/refinement_tests.jl` checks the
+fixed point in one fill (from `NaN`-prefilled arrays too) and that `regrid!` with the hooks
+transfers what a complete fill gives, bit for bit.
+
 ### AMR-8 — Symmetric walls: the owned low wall filled like the high one (wanted; workaround)
 
 *(Added in step 8; decided by Erik 2026-10-15, "option 1".)* **Why.** TreeAMR's ownership is
@@ -522,6 +569,17 @@ The face kinds come from exported API: the block's origin against the extent, an
 `periodic`, `reflecting` and `outflow` properties (TreeAMR's documented `getproperty`); the
 unexported `facekind` is not needed.
 
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`FieldSet(…; walls = :symmetric)` has the fill write the owned low wall plane of a vertex-like
+dimension at a low domain face by the high wall's rule (hook, mirrored derivation or clamp from
+`G+2`). Upstream records an open item: on a refined mesh a vertex-like set is not
+mirror-symmetric under either kind of wall (4.7e−5 in its test), half-open ownership at
+coarse-fine faces. `TreeAMR = "0.2.2"` guarantees it; the probe is retired. Used since step 8 for
+`A_j` and `Φ̃`; `low_walls!` is deleted. Its downstream check holds: the closed-box tests of
+`test/multid_cases_tests.jl` stay mirror-symmetric bit for bit; a refined closed box is not
+(1.1e−2, recorded in `test/refinement_tests.jl`). The owned wall the fill writes is copied into the
+state by the reset (`walls_to_state!`) and has zero tendency.
+
 ### AMR-9 — A flux-conservative transfer of edge sets (wanted)
 
 *(Added in step 8.)* **Why.** With `B = curl A` the magnetic flux through a face is the circulation
@@ -563,6 +621,16 @@ flux through the plane to rounding across levels.
 
 **Workaround:** none needed for correctness — the flux across levels holds to the potentials'
 interpolation error, and every rate to rounding.
+
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As
+`Operators(; prolongation=p, restriction=2, family=Conservative, vertex_prolongation=w)`:
+conservative along the cell-like dimensions, point values of even width `w` along the
+vertex-like ones (required wherever a conservative set has one); a coarse edge's line integral is
+the sum of its fine edges' after every fill and regrid. `bounded` with it is refused (not
+implemented). `TreeAMR = "0.2.2"` guarantees it; the probe is retired. The potentials take it since
+step 8, and `test/refinement_tests.jl` asserts the flux through the plane to rounding across levels
+and through a regrid, and every coarse face's flux the sum of its fine faces' in 3D (but at an
+outer face: AMR-11).
 
 ### AMR-10 — Bounded PointValue interpolation (req: step 8's ghost-fill re-measurement; steps 10, 12)
 
@@ -614,6 +682,48 @@ coarse-fine face repairs no ghost — magnetized, against step 8's 33 with conse
 runs (it is measured, and conservation does not depend on the ghost fill); it is what runs, not a
 workaround, and is replaced when AMR-10 lands. The restructuring that follows is `CODE.md`'s
 ("Refinement", the ghost fill of the matter).
+
+*(Landed in TreeAMR 0.2.2, commit 624c99a, amended in step 8.)* As asked:
+`Operators(; prolongation=w, restriction=r, family=PointValue, bounded=true)` at every even `w`,
+on every centering, in the fill (prolongation, interpolating restriction, a reflecting wall's
+derived row) and the regrid: the order-`w` value clamped to the range of its bracket, the `2^D`
+points multilinear interpolation reads — bit for bit the unbounded value where no clamp acts.
+Width 2 takes the plain kernel. `TreeAMR = "0.2.2"` guarantees it; the probe is retired. The
+matter's ghost fill takes the primitives with it since step 8, at width 2 (wider ones clamp `ρ` and
+`s` independently: `CODE.md`, "Refinement"); its downstream check holds — no ghost of the
+magnetized tube across a coarse-fine face is inadmissible (against 33 repaired recoveries with
+conserved ghosts), `test/refinement_cases_tests.jl`. *(Amended 2026-10-23, decided by Erik:)* the
+fill now takes the bounded conservative operator centred on the parent (AMR-4) on `W`; the
+PointValue operator stays the suite's width-4 control (`CODE.md`, "Refinement").
+
+### AMR-11 — The relative hook consistent across levels at an outer face (wanted)
+
+*(Added in step 8.)* **Why.** With the potentials' conservative transfer (AMR-9) the magnetic
+flux through a coarse face on a coarse-fine face is the sum through its fine faces to rounding
+(1.4e−16 of the largest flux in a periodic 3D box) — except where the face's perimeter lies on an
+outer face: there each level's relative hook writes its own wall and ghost edges, `f(x_g) +
+(u(x_r) − f(x_r))` with `x_r` that level's nearest evolved point, so a coarse wall edge is not
+the mean of the fine ones beside it (1.2e−5 of the largest flux in the closed 3D blast box, 45 of
+192 faces; 2.7e−5 after a regrid). The same holds for any set with symmetric walls and a
+conservative transfer: at the wall the levels are filled independently.
+
+**API.** None new; a semantic of `CellBoundary(Relative(f))` (or an opt-in): a point that lies
+both beyond (or on the wall of) an outer face and on a coarse-fine face is filled from the level
+that owns that plane by the set's own transfer — restricted from the fine level where the fine
+block owns it, prolongated from the coarse level's hook-filled values where the coarse one does —
+rather than by the hook on each level.
+
+**Upstream acceptance.** On an edge set under `Conservative` with `vertex_prolongation`, symmetric
+walls and a relative hook, on a two-level mesh whose coarse-fine face meets an outer face in
+D = 2, 3: the line integral of every coarse edge on the wall equals the sum of its fine edges'
+after a fill and after a regrid; one fill is still the condition's fixed point.
+
+**Downstream check.** `test/refinement_tests.jl`'s state-flux testset asserts the closed box's
+mismatch to rounding instead of recording it.
+
+**Workaround:** none needed: the flux through a face at a Dirichlet boundary is the boundary
+condition's, which nothing conserves; recorded in `CODE.md` ("Conservation at coarse-fine
+faces").
 
 ### EOS-0 — Register EntropyEOS (req, step 0; workaround)
 
@@ -742,6 +852,322 @@ cold_slice(eos, ρ★s::AbstractVector; T_MeV) -> (yₑ, s, p, U)
 - `beta_equilibrium` solves `μ̃(ρ★, s(T), yₑ) = 0` on `yₑ_bounds` by bracketed secant with a
   bisection fallback (`μ̃`'s `yₑ` derivative is unavailable).
 - `s(T)` comes from `sigma_extended`.
+
+### EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range
+
+*(Added 2026-10-16 by the front investigation as "no policy repair creates rest mass";
+**withdrawn 2026-10-17** by Erik pending the sweep in `CODE.md`, "Floors, the atmosphere and the
+magnetosphere", "Investigation (2026-10-16)".)* The framing was wrong: EntropyEOS's design is a
+well-defined range of allowed thermodynamic states, inside which `con2prim`/`prim2con` always
+succeed, with every state outside projected back into it — and very low densities must be raised
+back to the atmosphere, so `cons.D ≤ in.D` contradicts the design (and the proposal itself broke it
+for `D_in < ρ_atm`). The defect the investigation found is narrower. What remains are two
+observations, for Erik to judge on their own merits, with the criterion consistent with the
+valid-range design, **`D_out ≤ max(D_in, D_atm)`** (`D_atm` the atmosphere state's `D`, `ρ_atm` at
+rest):
+
+- **(i) A state projected to the atmosphere density gets the atmosphere's velocity (rest).** The
+  `S_FLOORED` branch of `con2prim_safe`'s step 4 (τ below the coldest state at the momentum) raises
+  `ρ₁ = clamp(D/cosh w₁, ρ_atm, ρ_ceiling)` to `ρ_atm` but keeps the near-light-like rapidity `w₁`
+  of the coldest-state solve, writing `(ρ_atm, W ≈ |S|/ρ_atm)` — up to the cap, `W = 100`, and
+  `D_out = ρ_atm W` up to 100 `ρ_atm` — at the edge of the valid range rather than a natural
+  projection. Writing the atmosphere state there (`policy_atmosphere`, at rest) satisfies
+  `D_out ≤ max(D_in, D_atm)`; the released branch does not. Measured as variant B (both the
+  in-process emulation and the reset-side form; the table in `CODE.md`).
+- **(ii) A hot near-vacuum state goes to the entropy ceiling with `D` kept, not to `ρ_ceiling`.**
+  The step-4 test "τ above the hottest state" calls `pol_collapse`, which writes `ρ = ρ_ceiling`
+  (10⁶ for the shock gas) unless `collapse_to_atmosphere` — for a cell at `D ≈ 2 ρ_atm`, which is no
+  collapse; every blow-up of the tube was this branch. The converged path's projection would have
+  written `s_max` with `D` kept, which satisfies the criterion; the collapse write does not.
+  Measured 2026-10-17: with `atm_trigger = 3` the branch never fires; with (i) alone (EOS-6) it
+  still does — the magnetized ideal atmosphere and the cut-off tube at `Bʸ = 10⁻²` blow up in 48 of
+  48 runs — and either this note or the existing option `collapse_to_atmosphere = true` closes it
+  (both measured; the option needs no upstream change).
+
+(i) was written out as EOS-6 below, now superseded (EOS-8); (ii) stays a note — the existing
+`collapse_to_atmosphere` does its job in the cases that set it, and the entropy ceiling instead
+remains Erik's call.
+
+### EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (superseded)
+
+**Superseded 2026-10-21** (design agreed by Erik with EntropyEOS's review): EntropyEOS does not
+decide where the state goes; it reports what its repair did (`FLAG_POL_ρ_FLOORED`, EOS-8, landed in
+1.1.0), and this package's recovery wrapper writes the atmosphere at rest on that flag ("Sharp
+edges"; `CODE.md`, "Floors, the atmosphere and the magnetosphere"). The record follows.
+
+*(Added 2026-10-17, the front investigation's sweep, variant B; a candidate for Erik, not
+decided.)* **Why.** `con2prim_safe`'s step 4, `S_FLOORED` branch, raises `ρ₁ = D/cosh w₁` to
+`ρ_atm` and keeps the coldest-state rapidity `w₁`, writing `(ρ_atm, W ≈ |S|/ρ_atm)` at the edge of
+the valid range; the atmosphere tube's `W` spikes, its extra rest mass and the discrete switch that
+makes it chaotic are this write (`CODE.md`, "Investigation (2026-10-16)" and its 2026-10-17 sweep).
+
+**API.** None new: a change of that branch, under the same flags.
+
+**Semantics.** Where the branch would raise the density to `ρ_atm` (`D/cosh w₁ < ρ_atm`), return the
+atmosphere state (`policy_atmosphere`: `ρ_atm` at rest, the atmosphere's `s` and `Yₑ`), flagged
+`FLAG_POL_ATMOSPHERE | FLAG_POL_S_FLOORED`. Every other path unchanged bit for bit. The output is
+inside the valid range and `D_out = D_atm ≤ max(D_in, D_atm)`.
+
+**Upstream acceptance.** Random inputs with `τ` below the coldest state at their momentum, across
+the density box: every output inside the valid range, `D_out ≤ max(D_in, D_atm)`, no output with
+`ρ = ρ_atm` and `w > 0` from this branch, and every output a fixed point of `con2prim_safe`; the
+converged path and the other branches bit for bit (the existing suite).
+
+**Downstream check.** `test/atmosphere_tests.jl`: the magnetized atmosphere tube asserts no fallback
+and `W < 6` (with `collapse_to_atmosphere = true` in its policy, see below), and runs `10⁻¹⁵` apart
+agree to `10⁻¹⁰`; the ARS row of the ideal magnetized atmosphere (`ars.t.injected_D ≥ 1`) goes.
+
+**Workaround** (measured, no upstream change): the reset writes the atmosphere at rest where the
+policy's repair holds more rest mass than the cell (`S_FLOORED` or `W_CAPPED` with
+`ρ cosh w > D`), and the cases' policy sets `collapse_to_atmosphere = true` — variant
+`Breset+coll`: on the tube on all three meshes the same numbers as the in-process form to every
+digit printed, but it does not reach the recoveries inside the stage solve (the magnetized ideal
+atmosphere under ARS reaches `W = 53` where the in-process form stays at 4.3). Without the
+collapse option either form leaves the collapse branch open (the note above).
+
+### EOS-7 — The atmosphere's entropy in the atmosphere band (not pursued)
+
+*(Not pursued, 2026-10-21.)* The record follows.
+
+*(Added 2026-10-17, variant C; for completeness, as Erik asked for every variant that needs an
+EntropyEOS change.)* **Semantics.** A state whose density, after the policy's own projection, lies
+in the atmosphere band `ρ < atm_trigger · ρ_atm` takes the atmosphere's entropy
+(`policy_atmosphere(…).s`), `ρ`, `w`, `Yₑ` kept, flagged `S_CEILED`/`S_FLOORED` by the
+direction; with `s_atm` set to the window's floor (an existing option) this is a cold atmosphere.
+Inside the valid range, `D_out = D_in`. **Not recommended:** measured, it does nothing for the
+tube's chaos on its own (blow-ups 0, 1 and 5 of 48 on the three meshes, against 0, 0 and 3; `W` at
+the cap in the median run) and nothing beyond B or the trigger when combined. Acceptance and
+downstream check would follow EOS-6's pattern if it were taken up.
+
+### EOS-8 — Report the density floor (req; landed in EntropyEOS 1.1.0, unregistered)
+
+*(Amended 2026-10-24, EntropyEOS 2.0:)* `[compat]` is `"2"` and `[sources]` pins the tag `v2.0.0`.
+In 2.0 `FLAG_POL_ρ_FLOORED` is bit 11 and means the state lies on the `ρ_min` face (the momentum
+lowered to `w = acosh(D/ρ_min)`, `D` raised only where it was below `ρ_min`); `FLAG_POL_ρ_CLAMPED`
+and `policy_atmosphere` are gone, and the atmosphere at rest on that flag is EntropyEOS's
+`apply_policy`, which this package calls (EOS-9). The text below is 1.1's.
+
+*(Added 2026-10-21; design agreed by Erik with EntropyEOS's review; superseding EOS-6.)* **Why.**
+`con2prim_safe`'s entropy-floor branch (τ below the coldest state at the momentum) raised the density
+to `ρ_atm` at the coldest state's rapidity without saying so, writing `W ≈ |S|/ρ_atm` and adding rest
+mass; this package needs to know when that happened to put such a point at rest itself.
+
+**API** (EntropyEOS 1.1.0, origin/main 43923c7): `FLAG_POL_ρ_FLOORED` (bit 16: ρ raised to `ρ_atm`
+without an atmosphere reset, i.e. `ρ cosh w > D` — the rapidity cap, which raises ρ while keeping
+`D`, does not set it); `FLAG_POL_ρ_CEILED` (bit 13, now also the branch's silent upper clamp);
+`FLAG_POL_ρ_CLAMPED = ρ_FLOORED | ρ_CEILED` (test with `& != 0`); `FLAG_POL_ANY` including bit 16;
+`policy_atmosphere` exported. Nothing else of the policy changed.
+
+**Downstream.** `src/con2prim.jl` branches on `flags & FLAG_POL_ρ_FLOORED != 0` alone and returns
+the atmosphere at rest (`policy_atmosphere`, its EOS point by `evaluate`), adding
+`FLAG_POL_ATMOSPHERE`; `test/recovery_tests.jl`, "A density the policy raised to the atmosphere's is
+the atmosphere at rest", at `Float64` and `Float32` (in a kernel, inferred, allocation-free, bit 16
+through `P` and the diagnostics). `[compat]` `EntropyEOS = "1.1"`; the names join
+`test/prerequisite_tests.jl`'s list, and no probe is kept (the rule above).
+
+**Is it guaranteed in a clean checkout?** Yes, while EOS-0 is open: `[sources]` names
+`rev = "main"`, so a tree without a `Manifest.toml` resolves EntropyEOS at `main`'s head, and
+`[compat]` `"1.1"` then requires that head to be ≥ 1.1.0 and < 2 — a `main` without the flag (or a
+2.0) fails to resolve rather than loading silently. An existing `Manifest.toml` pinned at 1.0.0 no
+longer satisfies `[compat]`; `Pkg.update("EntropyEOS")` (or deleting the manifest) fixes it. Once
+EntropyEOS is registered, `[compat]` alone guarantees it.
+
+### EOS-9 — Step 4's endpoint branches: edge-consistent, guarded, reporting facts (landed in EntropyEOS 2.0.0)
+
+*(Amended 2026-10-24: landed in EntropyEOS 2.0.0, tag `v2.0.0` (7d68ddb), unregistered;
+`[sources]` pins the tag, `[compat]` is `"2"`, so no probe — there never was one.)* It landed as a
+redesign, EntropyEOS's two-level projection (its `CODE.md`, "State policy"; `HISTORY.md`,
+2026-10-22 and 2026-10-23), which subsumes the request: level 1, `con2prim_safe` onto
+`ProjectionOptions(ρ_min, ρ_max, w_cap)`, decides the active faces by one diagnosis along the
+entropy edges (items 1, 2 and 5: the edge-consistent root find, the guards, `check_con_state`
+sharing the diagnosis); the hottest state is projected onto the `s_max` face with `D` and `S` kept
+and τ lowered, `S_CEILED` (item 3, without the density clamp: a density pushed below `ρ_min` is the
+`ρ_min` face instead, `ρ_FLOORED`); `τ_max` and `D_max` are gone (item 6: `D > ρ_max cosh w_cap`
+is the `ρ_max` face, `ρ_CEILED`; `CEILING` is retired). Item 4 was rejected upstream (decided by
+Erik): level 2, `apply_policy(eos, in, out, proj, pol)`, keeps level 1's bits and adds
+`ATMOSPHERE`, since the bits say why. The face rules differ from 1.1 for states 1.1 had repaired
+(w_cap keeps τ, ρ_max keeps S and τ, the s faces keep S), and a failed solve is `NOT_CONVERGED`,
+which `apply_policy` sends to the atmosphere. Downstream: `collapse_to_atmosphere` and
+`case_policy` are gone, and the recovery calls `apply_policy` (`CODE.md`, "Primitive recovery";
+the measurements are in "Floors, the atmosphere and the magnetosphere"). The request as written
+follows.
+
+*(Added 2026-10-22 on the experiment branch `claude/no-collapse-to-atmosphere` for Erik's question
+whether `collapse_to_atmosphere` can go; rewritten the same day after his review in six questions,
+Q1–Q6, with his decisions on Q3 (b) and Q6 (a); proposed, not decided. Measurements:
+`bin/endpoint_measure.jl`, `bin/front_investigation.jl`; emulation: `bin/hot_projection.jl`,
+`HOT_PROJECTION = 2`; `CODE.md`, "Floors, the atmosphere and the magnetosphere", "Investigation
+(2026-10-22)".)*
+
+**Why.** When `con2prim_safe`'s solve fails, step 4 diagnoses the state with two endpoint solves at
+the edges of the entropy window and projects it — the cold branch (τ below the coldest state at the
+momentum) onto `s_min`, the hot branch (τ above the hottest) today onto the collapse ceiling
+`ρ_ceiling`. Measured on EntropyEOS's synthetic table (whose window depends on `ρ`), across the box,
+hydrodynamic and MHD mode, about 4000 inputs per branch and mode:
+- the hot branch writes `ρ_ceiling` for every input it diagnoses — a hot near-vacuum cell is no
+  collapse; in the magnetized tubes this was every blow-up, and `collapse_to_atmosphere` (an
+  excision option for collapsing stars) is today's only way round it;
+- both branches solve at `srange(D/cosh w_ref)`'s edge but write the state at `ρ₁ = D/cosh w₁`: the
+  edge there differs (cold: by 1.5·10⁻⁵ of the window, in 94% of inputs; hot: by 2·10⁻³ median, up
+  to 0.27), so the written rapidity belongs to another `h` — the cold branch's momentum is off by
+  `3·10⁻⁸` (the solver's tolerance is `10⁻¹²`), and a hot projection at `sr_ref`'s ceiling (the
+  first form of this request) by 0.4% median and 5.6% at most, with `s` up to 0.27 of the window
+  inside it rather than at its edge;
+- the endpoint solves themselves: every cold one converged; of about 29,000 hot ones, 166 ended at
+  the residual's floating-point floor just above tolerance (`|f₁|/cosh w ≤ 8 tol`; 93 out of
+  iterations with the bracket already at the floor, the rest a collapsed bracket) — none capped,
+  none non-finite, and no diagnosis changed with a solve 1000× tighter and 10× longer (nor at
+  `ρ₁`). In the tubes every endpoint solve converged (584 to 1318 per run);
+- step 1's `τ_max` (the largest `ρh` on a 5×3 grid, times `W_cap²`) stopped 8% (hydrodynamic) and 11% (MHD) of the hot inputs
+  before any solve and wrote `ρ_ceiling` for states the table represents.
+
+**API.** None new. Changes of `con2prim_safe`'s steps 1 and 4 and of `check_con_state`; the flags
+are the existing ones.
+
+**Semantics.**
+1. *(Q1) One edge-consistent root find per branch*, for the diagnosis and the projection alike: the
+   rapidity `w` with `f₁(w) = 0` at `s = s_edge(D/cosh w)` inside the residual (`s_min` of
+   `srange(D/cosh w, Yₑ)` for the cold branch, `s_max` for the hot), one 1D root find on
+   `[0, w_max]` (measured: Illinois, 20–30 evaluations, no failure in about 15,000 inputs; it agrees
+   with the fixed point `ρ ↦ s_edge(ρ) ↦ w ↦ D/cosh w`, which needs 4 passes cold and 13–17 hot,
+   in every input, to `10⁻⁹` in `w`). The branch is taken on the sign of `f₂` there (cold `f₂ > 0`,
+   hot `f₂ < 0`). Testable: `s_out` is at the edge of `srange(ρ_out)`; `S_out = S_in` to the
+   solver's tolerance unless `W_CAPPED` (measured: at most `7·10⁻¹⁰`, median `10⁻¹⁵`); and no valid
+   state exists at `ρ_out`'s window (the sign of `f₂` at the edge). The cold branch's projection
+   (already shipped) is included.
+2. *(Q2) Guards.* A branch is taken only if its root find found a root — `f1_converged`, or a
+   bracket around a sign change collapsed to the floating-point floor (the measured endpoint
+   solves that missed the tolerance are all of this kind), or the root lies beyond `w_max`
+   (`f₁(w_max) < 0`: capped legitimately, `W_CAPPED`) — and the returned `w` and `f₂` are finite. A
+   root find that ran out of iterations with an open bracket, or met a non-finite residual, gives no
+   diagnosis; if neither branch has one, the existing "neither diagnosis fits: excise" path
+   (`FLAG_POL_ATMOSPHERE`). This governs the diagnosis (the sign of `f₂`) and the projected rapidity,
+   for both branches.
+3. *(Q3, decided (b): EntropyEOS reports facts, the application decides.)* The hot branch's
+   projection is `(ρ₁ = D/cosh w₁, s_max(ρ₁), Yₑ = ye_in, w₁ = min(w, w_cap))`, the density clamped
+   into `[ρ_atm, ρ_ceiling]` exactly as the cold branch clamps it: raised to `ρ_atm` with
+   `FLAG_POL_ρ_FLOORED`, lowered to `ρ_ceiling` with `FLAG_POL_ρ_CEILED` — never replaced by the
+   atmosphere. Whether a floored state is put at rest is the application's rule (TreeGRRMHD's: the
+   atmosphere at rest, `D_out ≤ max(D_in, D_atm)` — this package's criterion, not EntropyEOS's).
+4. *(Q4) Flags describe the returned state, both ways.* Where the whole state is replaced by the
+   atmosphere, return `FLAG_POL_ATMOSPHERE` and its cause (`FLAG_POL_NONFINITE`) only, not the
+   clamps of the discarded state (today the converged path returns `W_CAPPED | ATMOSPHERE` when the
+   capped state falls below `ρ_atm`). The hot branch's output may carry `FLAG_POL_S_CEILED` (bit 11,
+   what the converged path sets for an entropy above the window), `W_CAPPED` (a legitimate cap
+   only), `ρ_FLOORED`, `ρ_CEILED`, `YE_CLAMPED` (the projection is passed `ye_in`, not `ye_c`, as the
+   cold branch's is); `FLAG_POL_CEILING` is left to the collapse test. Every flag set describes
+   something that happened to the returned state, and every clamp that happened is flagged.
+5. *(Q5) `check_con_state` changes with it:* its endpoint diagnosis and `con2prim_safe`'s step 4
+   share one routine (today they bracket differently — `check_con_state` takes the union of the
+   windows at `D` and at `D/cosh w_max`), its hot case returns `FLAG_POL_S_CEILED` (`CEILING` only
+   for `D > D_max`), and its contract reads: it predicts which repair applies, not its clamps.
+6. *(Q6, decided (a).)* Step 1 stays pure arithmetic and only `D > D_max` short-circuits to
+   `pol_collapse`; `τ − B² > τ_max` with `D ≤ D_max` falls through to the solve (and to step 4 if it
+   fails), and the `τ_max` test leaves `check_con_state`'s cheap mode too (whether `τ_max` stays in
+   `PolicyOptions` is EntropyEOS's call). The `D_max` collapse reports `FLAG_POL_ρ_CEILED` (and
+   `W_CAPPED` where it caps) alongside `FLAG_POL_CEILING`.
+
+**Upstream acceptance.** On the synthetic table (directly and through a `ρ`-dependent window),
+random inputs across the density box, hydrodynamic and MHD mode, aimed at either branch:
+- `s_out` at the edge of `srange(ρ_out)`, `|S_out − S_in| ≤` a small multiple of the solver's
+  tolerance unless `W_CAPPED`, and `f₂` at the edge of the right sign;
+- the flags in both directions (each set flag describes the returned state; each clamp is flagged),
+  and an atmosphere replacement carrying `ATMOSPHERE` and its cause only;
+- `check_con_state`'s branch flag equals `con2prim_safe`'s for every input reaching step 4;
+- the guards: inputs constructed so that an endpoint root find cannot converge or turns non-finite
+  excise with `FLAG_POL_ATMOSPHERE`;
+- every output a fixed point of `con2prim_safe`; the converged path and every other branch bit for
+  bit, but the atmosphere flags of item 4; `τ_over` with `D ≤ D_max` no longer reaching
+  `pol_collapse`.
+
+**Downstream check.** `collapse_to_atmosphere` removed from the atmosphere tubes (`case_policy`), and
+the suite green as it stands — measured with the emulation: 25940 pass at one thread (Julia 1.13);
+without it (released 1.1.0, the option off) the three assertions of the ideal magnetized atmosphere
+fail (it blows up). The tubes' numbers: those of `claude/atmosphere-at-rest` on every mesh to the
+digits printed, but the ideal atmosphere under ARS (`−4.5·10⁻⁹` of rest mass where the option
+added `5.6·10⁻⁸`); step 3's sweep loses fallbacks (36, 78, 103 → 33, 74, 90 without the cutoff;
+the stage solve in a kernel 47 → 48 of 48 at `Float64` and `Float32`).
+
+**Workaround:** `collapse_to_atmosphere = true` in the cases with a magnetized atmosphere (as on
+`claude/atmosphere-at-rest`).
+
+### EOS-10 — The nested fallback allocation-free under `--check-bounds=yes` (landed)
+
+*(Added 2026-10-24, EntropyEOS 2.0.)* **Why.** `test/recovery_tests.jl`, "A state the projection
+put on the ρ_min face is the atmosphere at rest", asserts that both recoveries allocate nothing, at
+`Float64` and `Float32`. Under `--check-bounds=yes` (one of the suite's three standard runs) it
+fails, and only there: measured on the laptop and on Symmetry with `@allocated` on the EntropyEOS
+calls alone, on the input `Con2PrimIn(D = 5·10⁻¹⁰, τ = 10⁻⁹ − 5·10⁻¹³, D_Y = D/2, S_par = 0,
+S_perp = 10⁻⁸, B² = 0)` (Γ = 2 gas, `ρ ∈ [10⁻¹⁰, 10⁻²]`, `default_projection(eos, 10⁻¹⁰)`, cold
+guesses) — level-1 flags `0x8800` (`ρ_FLOORED | S_FLOORED`), solver result `failed_no_bracket` —
+`con2prim_safe` allocates **272 B at `Float64` and 144 B at `Float32`**, all of it in
+`con2prim_safe_finish` → `con2prim_finish` (the nested fallback); `con2prim_safe_start`,
+`con2prim_start` and `apply_policy` allocate nothing, and without bounds checks nothing does.
+272 B and 144 B are the size of one `MVector{33,T}` (`bracket_scan`'s stack scratch: 33·8 = 264 B
+plus a header; 33·4 = 132 B, aligned) — inferred from the size, not traced: with `@inbounds`
+disabled the indexing's `BoundsError` path can capture the vector, so it escapes and is not promoted
+to the stack. EntropyEOS 1.1 allocated twice as much, 544 B and 288 B, on the same testset's input
+of then. EntropyEOS's own `CODE.md` ("Allocation gates") skips its gates under
+`--check-bounds=yes`, saying the property cannot hold there.
+
+**API.** None new. `bracket_scan` (or whatever holds the scratch) non-escaping with bounds checks
+on: e.g. the indices checked explicitly against `NMAX` with a throw that does not capture the
+buffer, or an immutable `NTuple` scratch updated by `Base.setindex`.
+
+**Semantics.** Unchanged results, bit for bit.
+
+**Upstream acceptance.** EntropyEOS's allocation gates run under `--check-bounds=yes` too, on a
+state that reaches the nested fallback.
+
+**Downstream check.** The two `rec_allocations(...) == 0` assertions of that testset pass under
+`--check-bounds=yes` (today 4 failures in that run, the suite's only ones). *(Decided by Erik
+2026-10-24:)* it stays an upstream request, and the bounds-checked run's four failures are known,
+waiting on it (the assertion is not loosened or skipped here).
+
+**Landed** in EntropyEOS 2.2.1 (2026-10-30; its HISTORY, 2026-10-29): the cause was `MVector`'s
+bounds check passing the buffer to `BoundsError`; both of the scan's buffers are now wrapped in a
+scratch type whose check does not capture them, with bit-identical results, and EntropyEOS's
+allocation gates now run under `--check-bounds=yes` too. `[compat]` requires 2.2.1, so there is no
+probe.
+
+*(Re-checked 2026-10-26, EntropyEOS 2.2.0:)* unchanged. The same input still allocates 272 B at
+`Float64` and 144 B at `Float32` under `--check-bounds=yes` (laptop, `@allocated` on
+`con2prim_safe` alone; nothing without bounds checks), and the bounds-checked suite fails the
+same four assertions (Symmetry). 2.1 and 2.2 changed `bracket_scan`'s arguments (the confined
+search's `w_lo`), not its scratch. Still waiting.
+
+### EOS-11 — The validity test of `con2prim_safe`, public (req; landed in EntropyEOS 2.1.0)
+
+*(Added 2026-10-26; the request was point 1 of the 2026-10-24 discussion of EntropyEOS 2.0,
+answered before it was filed here.)* **Why.** Since 2.0.0 `con2prim_safe` accepts a converged
+root unflagged when it lies within the face slack of the entropy window (10⁻⁷ of the window's
+width at `Float64`; one ulp for `Yₑ`) and returns it as it is, so a state with `policy_flags == 0`
+can lie a little outside the exact window — 5.5·10⁻⁹ of the window below `s_min` on the
+reproducer, a cold re-solve of a state the stage limiter had written onto that face. The
+reconstruction tested face states against the exact window, rejected such a cell's faces, and
+its positivity fallback, which substitutes the cell's own value, could not repair them: under
+ARS(4,4,3) every perturbed cut-off atmosphere tube blew up (`CODE.md`, "Reconstruction" and
+"Floors, the atmosphere and the magnetosphere", "EntropyEOS 2.0"). Options put to Erik: test with
+`check_prim_state` (also tests `ρ` and `w`, which would change the reconstruction near vacuum);
+export the slack, or a predicate for the `s` and `Yₑ` faces; clamp accepted roots onto the window
+upstream or downstream.
+
+**API** (EntropyEOS 2.1.0, fa50e3c; decided by Erik, HISTORY 2026-10-24): `inside_window(eos, ρ, s,
+yₑ) -> Bool`, exported — `Yₑ` within one ulp of the table's range and `s` within `srange(eos, ρ,
+yₑ)` widened by `face_slack` of its width; `ρ` not tested against a range; non-finite input or
+`ρ ≤ 0` gives `false`. Every state `con2prim_safe` or `project_prim_state` returns passes it, and
+the EOS can be evaluated throughout the band. Rejected upstream: exporting `face_slack` (two
+conventions, and its value would become API) and clamping accepted roots (the primitives would no
+longer reproduce the returned conservatives to the tolerance, and a fed-back clamped output needs
+a Newton step).
+
+**Downstream.** `admissible_fluid` (`src/reconstruction.jl`) calls `inside_window` in place of its
+exact window and `Yₑ`-range tests and keeps its own `ρ > 0`, finite, and finite-`u` conditions;
+`test/scheme_tests.jl`, "The positivity fallback admits every state con2prim_safe returns
+unflagged" (the reproducer's state at an MC minimum, the slack's edges, `Yₑ` one and two ulps
+out). `[compat]` `EntropyEOS = "2.2"`, `[sources]` the tag `v2.2.0`; `inside_window` joins
+`test/prerequisite_tests.jl`'s list, and no probe is kept (the rule above). Measured in `CODE.md`,
+"EntropyEOS 2.0" (re-measured 2026-10-26).
 
 ### GH-0 — Land step 8 on `main` (req, step 10)
 
@@ -1392,7 +1818,9 @@ Accept:
 - **Spurious `B`** at refinement boundaries against the gauge damping `ξ` **decides `ξ`**.
 - **A tracked shock tube** with regrids stays conservative.
 
-*(Done, 2026-10-15, on `claude/step-8-refinement`, except **the ghost-fill re-measurement, blocked
+*(Done, 2026-10-16: on `claude/step-8-refinement` on 2026-10-15 but for what waited on AMR-7 to
+AMR-10, and the rest on `claude/step-8-finish` once TreeAMR 0.2.2 had them — see "The finish"
+below.)* *(As first reported, 2026-10-15: done except **the ghost-fill re-measurement, blocked
 on AMR-10**: Erik decided on 2026-10-15 that the matter's ghost fill prolongates the primitives
 with a bounded Lagrange interpolation, which TreeAMR does not offer yet; the conserved, bounded
 ghost fill runs until then, and step 8's atmosphere table is re-measured with the primitives when
@@ -1414,6 +1842,10 @@ AMR-10 lands.)* *(Amended in step 8:)* as built:
   the box's longest side; amended, decided by Erik 2026-10-15 — first 0 on uniform meshes); the ghost fill in conserved variables, bounded, measured — and
   *(decided by Erik 2026-10-15)* to become primitives with a bounded Lagrange prolongation and
   the conserved ghosts by `prim2con`, once AMR-10 lands; the regrid stays conservative.
+  *(Amended 2026-10-23, decided by Erik:)* the primitives are copied at same-level faces and
+  prolongated with the bounded conservative operator centred on the parent; the conserved ghosts
+  are no longer written (nothing reads them); `ghost_vars` is gone (`CODE.md`, "Refinement",
+  which records the three working fills).
 - Tests: `test/refinement_tests.jl` (the AMR-4 surface moved here, conservation, the magnetic flux,
   the tracked tube, `∇·𝔅` through regrids, the flux through the plane) and
   `test/refinement_cases_tests.jl` (the field loop, the interface order, the gauge pulse, the
@@ -1449,6 +1881,43 @@ ladder" 2b, has the rest:)*
   boundary condition after every fill, AMR-10): 25373 tests, 6m45s at one thread, 7m10s at four,
   7m20s with `--check-bounds=yes`; identical at one and four threads, last digits only with bounds
   checks.
+
+*The finish (2026-10-16, `claude/step-8-finish`, on TreeAMR 0.2.2; `CODE.md` has the details,
+marked "amended/measured/proposed in step 8"):*
+- **TreeAMR 0.2.2** (`TreeAMR = "0.2.2"`): the probes of AMR-7 to AMR-10 retired, the items
+  marked landed; `Relative` joins the exported-name list.
+- **AMR-7, AMR-8**: the potentials have `walls = :symmetric` and the relative hook;
+  `low_walls!`, `outer_points!`, the region-form hook, the second fill and the hookless
+  `regrid!` are gone. One fill is the complete condition's fixed point (from `NaN` too), and
+  `regrid!` with the hooks transfers bit for bit what the old arrangement did. The low wall is
+  owned but prescribed: the RHS writes zero there, and the reset copies the filled walls into
+  `u` (`walls_to_state!`; tested: 190/214 wall entries held bit for bit after every step, `du = 0`
+  there, a perturbed wall changes nothing). Non-periodic cases run on every backend (not tried on
+  a device here). Uniform closed boxes stay mirror-symmetric bit for bit; a refined one is
+  asymmetric by 1.1e−2 — TreeAMR's open half-open item, recorded.
+- **AMR-9**: `A_j` conservative along the edge with point values of width 4 across it, `Φ̃`
+  PointValue width 4 (`ops_Φ`). The magnetic flux holds as a state: the plane's flux to 2.2e−16
+  across levels and through a regrid, every coarse face's flux its fine faces' sum to 1.4e−16 in
+  3D, with or without the EMF correction (the transfer's property; PointValue: 1.5e−3) — except
+  at an outer face, 1.2e−5 (AMR-11, new, wanted). The interface order re-measured: width 4 stays.
+  The gauge pulse's spurious field at `t = 2` fell 3-fold at `ξ = 0` and 190-fold at 16/L.
+- **AMR-10**: the matter's ghost fill prolongates `W = (ρ★, s, Yₑ, uⁱ, Eⁱ)`, PointValue bounded,
+  **width 2** (proposed), with its own hook; `P` in ghosts by forward EOS evaluation, conserved
+  ghosts by `prim2con` with the ghost's own `B`; the regrid stays conservative. No ghost
+  inadmissible on the atmosphere tubes (magnetized: against 33 repaired with conserved ghosts);
+  widths 4 and 6 clamp `ρ` and `s` independently and inject energy (5.4e−4) or blow up; width 2
+  injects 5.6e−9 of rest mass where the conserved fill injected 1.5e−11 — **for Erik**. Smooth
+  order across coarse-fine faces kept (2D L∞ 1.85 against 2.02).
+- **Found**: the magnetized atmosphere tube is chaotic at rounding level (0 to 144 fallbacks,
+  `W` 4.6 to 90 under 10⁻¹⁵ perturbations, before and after); its "no fallback" assertion now
+  holds hydrodynamically, with a fallback rate ≤ 0.2% magnetized (proposed). *(Decided by Erik
+  2026-10-22: "no fallback" magnetized too, on the uniform and the refined mesh of the suite —
+  the tube is deterministic under the atmosphere-at-rest recovery of 2026-10-21; `CODE.md`,
+  "Floors, the atmosphere and the magnetosphere".)*
+- **The suite**: 25405 tests, `Test Summary` 6m34s at one thread, 6m59s at four, 7m14s with
+  `--check-bounds=yes`, 6m37s for the clean-checkout check (Julia 1.13.2, load 4–6), against
+  25374 and 6m31s on 5f82040 with TreeAMR 0.2.2; identical at one and four threads and from the
+  clean checkout, last digits only with bounds checks. No split into a default and a long set.
 
 ## Step 9 — Analytic curved backgrounds (rung 3)
 
