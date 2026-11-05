@@ -4755,12 +4755,82 @@ named as claims.
      `bin/curved_localise.jl … ballks=true`) it is flat (`M/8`: 1.84e−4 at 10M,
      1.97e−4 at 50M). At `a = M/2` the Euclidean ball reaches `r = 0.87M >
      r₋ = 0.13M` and is flat. **For Erik**: the paste's ball in Kerr-Schild
-     `r`, or one Euclidean radius chosen to contain `r₋` in the plane (`|x| <
-     √(r₋'² + a²)`); not decided here.
-   - **Stationarity** (`t = 50M`, outside `r₊`, `bin/curved_localise.jl kwald`;
-     jobs 588687–588689, 588704, 588705; `M/4` and `M/8` on cn079–cn081, EPYC
-     7532): KWALD_TABLE
-   - **∇·𝔅** at rounding in every run (the curl is metric-free).
+     `r`, or one Euclidean radius `ρ` chosen to contain `r₋` in the plane
+     (`√(r₋² + a²) < ρ < r₊`, 1.06M to 1.44M at `a = 0.9M`); not decided here.
+     At `t = 50M` outside `r₊`, `𝔈ˣ`: Euclidean 8.08e−3 (`M/4`), 3.13e−2
+     (`M/8`), against Kerr-Schild `r` 7.79e−4, 1.97e−4 (the `M/16` Euclidean
+     run, 588686, was stopped at 10M: 9.4e−5 at 5M, 3.4e−4 at 10M, growing).
+   - **Stationarity** (`t = 50M`, outside `r₊` in Kerr-Schild `r`,
+     `bin/curved_localise.jl kwald`; jobs 588687–588689 at `M/4` and `M/8` on
+     cn079–cn081, EPYC 7532, and 588704, 588705 at `M/16` on cn106, cn107,
+     EPYC 7543, 64 threads; `a = 0.9M` with the ball in Kerr-Schild `r`, since
+     the Euclidean one grows). The L1 drifts at `t = 50M`:
+
+     | | `h` | `𝔈ˣ` | `𝔈ᶻ` | `𝔅ˣ` | `𝔅ʸ` | `𝔅ᶻ` |
+     |---|---|---|---|---|---|---|
+     | `a = M/2` | `M/4` | 6.1574e−4 | 3.4463e−4 | 3.5058e−4 | 3.7528e−4 | 4.3464e−4 |
+     | | `M/8` | 1.5098e−4 | 8.1192e−5 | 6.9373e−5 | 6.8003e−5 | 8.2696e−5 |
+     | | `M/16` | 5.1631e−5 | 3.9523e−5 | 4.0078e−5 | 3.8561e−5 | 4.4688e−5 |
+     | `a = 0.9M` | `M/4` | 7.7896e−4 | 5.4989e−4 | 5.4814e−4 | 6.1158e−4 | 7.6461e−4 |
+     | | `M/8` | 1.9675e−4 | 1.4880e−4 | 1.1388e−4 | 1.2610e−4 | 1.6772e−4 |
+     | | `M/16` | 5.6544e−5 | 4.2725e−5 | 4.4849e−5 | 3.3167e−5 | 7.7233e−5 |
+
+     Rates `M/4 → M/8` / `M/8 → M/16` at three times:
+
+     | | `t` | `𝔈ˣ` | `𝔈ᶻ` | `𝔅ˣ` | `𝔅ʸ` | `𝔅ᶻ` |
+     |---|---|---|---|---|---|---|
+     | `a = M/2` | 10M | 1.94 / 2.01 | 1.95 / 2.02 | 2.10 / 2.03 | 2.12 / 1.96 | 2.13 / 2.02 |
+     | | 35M | 2.02 / 2.10 | 2.16 / 2.04 | 2.46 / 2.14 | 2.42 / 2.09 | 2.38 / 2.05 |
+     | | 50M | 2.03 / **1.55** | 2.09 / **1.04** | 2.34 / **0.79** | 2.46 / **0.82** | 2.39 / **0.89** |
+     | `a = 0.9M` | 10M | 1.93 / 1.94 | 1.81 / 1.97 | 2.14 / 1.92 | 2.16 / 2.05 | 2.08 / 1.86 |
+     | | 35M | 2.00 / 1.76 | 1.92 / 1.75 | 2.19 / 1.28 | 2.33 / 1.80 | 2.20 / 1.03 |
+     | | 50M | 1.99 / 1.80 | 1.89 / 1.80 | 2.27 / **1.34** | 2.28 / 1.93 | 2.19 / **1.12** |
+
+     **Verdict (measured in step 9, round 4): the prediction fails on the
+     finest pair at `t = 50M`, for both spins.** Every rate is second order
+     at `10M`, and at `a = M/2` to `35M`; the coarse pair holds throughout.
+     Two different failures, located by the layer tables (`𝔈` per cell, by
+     Euclidean radius, at `50M`):
+     - **`a = M/2`: a late growth in the outer region.** At `M/16` the drift
+       is flat to `35M` (`𝔅ˣ` 1.2–1.5e−5) and then grows (2.6e−5 at `45M`,
+       4.0e−5 at `50M`); `M/8` and `M/4` grow over the same time more slowly
+       (`𝔅ˣ` 5.4e−5 → 6.9e−5 and 2.8e−4 → 3.5e−4 from `30M`). By layer,
+       `M/8 → M/16` is 1.9–2.0 from `1.25M` to `3M` and falls to 0–1 beyond
+       `3.5M` out to the corner, where `M/16`'s `𝔈` (3–4e−5 per cell) is
+       `M/8`'s; the charge `√γ q` there is *larger* at `M/16` (rates −0.1 to
+       −0.5 beyond `5M`). The cells next to the faces carry no more than the
+       others, so it is not a face layer. Not the floor fluid: at `M/8` the
+       heavy fluid (`ρ = 1`, no counted reset) grows alike (`𝔅ˣ` 5.4e−5 →
+       6.8e−5 from `30M`).
+     - **`a = 0.9M`: a step in the inner region.** At `M/16`, `𝔅ᶻ` rises from
+       4.2e−5 at `10M` to 6.7e−5 at `15M` and is then flat to `50M` (7.7e−5);
+       `𝔅ˣ` alike. By layer `M/8 → M/16` is 2.0–2.2 beyond `2.5M` and 1.0–1.6
+       from `1.25M` to `2.5M`, the ergoregion's neighbourhood (Kerr-Schild
+       `r < 2M` in the plane, `|x| < 2.19M`).
+     The non-spinning Wald field (`ξ = 16/L`) was flat from `15M` to `50M` at
+     `M/16`, `𝔈`'s rates 1.94–2.01 outside `2M` ("Re-measured with option 1"
+     above; `𝔅` was not measured then). The
+     spinning case differs in `ξ = 0` (nothing damps the gauge, the charge
+     or `Φ̃`), the frame dragging, the inner horizon and the shifted box.
+     **Not localised further; for Erik** (round 4 asked for the measurement,
+     not a fix). The runs that would separate the causes: Wald at `a = 0`
+     with `ξ = 0` at `M/8` and `M/16` to `50M` (the gauge damping alone, about
+     45 min and 2.7 h on 64 threads); `a = M/2` with the heavy fluid at `M/16`
+     (the fluid at the finest mesh); and a damping of `Φ̃ − aB₀`, the
+     departure from the case's own `Φ̃`, which is a design change.
+   - **The resets by layer** (`M/16`, `50M`): counted stage/step resets in
+     every layer from the counting radius to the corner — `a = M/2`
+     2.68·10⁹/1.01·10⁹ (1.32·10⁸/4.41·10⁷ deep inside), `a = 0.9M`
+     2.75·10⁹/1.00·10⁹ (7.68·10⁷/2.56·10⁷); the atmosphere (level 2) with
+     `ρ_FLOORED` and `S_CEILED` in most of them inside `5.5M`, `S_FLOORED` alone
+     beyond; `W_CEILED` 10⁶ and 3·10⁶ times, and `NONFINITE` (level 1, no closest
+     state; level 2 puts the atmosphere there) 1.1·10⁴ and 2.2·10³
+     times over the run (`M/8`: 6.9·10³ and 6.7·10³; none with the heavy
+     fluid). The step limiter's injected `τ`: −7.2·10⁴ and −2.3·10⁵ over the
+     octant (`M/8`: −1.6·10⁶, −5.1·10⁶). All the floor fluid's; the field
+     does not see them but through the charge's convection.
+   - **∇·𝔅** at rounding in every run (the curl is metric-free): 1.05–1.47e−16
+     of `max |𝔅|` (job 588706, both spins, `M/4` to `50M`, `M/8` to `20M`).
 
    **Curved-space bit identity** (`test/curved_tests.jl`): with the step
    cache (fused, the default) and the interior, 16 steps of `Δt = 1/64` in
@@ -4831,6 +4901,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   2026-11-03: pointwise, no cache, no deduplication; caching is step 10's.)*
 - *(Added in step 9.)* A spinning Wald case, with a passive fluid at the
   floor (Kerr has no closed-form accretion flow; "Validation ladder" 3).
+  *(Built in step 9, round 4; its `t = 50M` drift fails the prediction on
+  the finest pair at both spins, not localised further — "Validation
+  ladder" 3, "The spinning Wald case". For Erik: whether step 9 closes on
+  it, and the paste's ball at `a = 0.9M`.)*
 - *(Added in step 9, round 3.)* The potentials' outer boundary where no
   exact `A` exists (step 10's star, dynamic cases): a gradient-extrapolating
   relative hook (option 2, upstream) or a gauge that damps a static `χ`

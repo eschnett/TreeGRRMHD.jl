@@ -10,8 +10,10 @@ For the sessions that implement TreeGRRMHD, one step at a time. The **design** l
 `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
 `CODE.md`.
 
-**Steps 0 to 3 and 5 to 8 are done; step 9 is done when its round 4, a spinning Wald case, is
-(the interior, the coarse-pair rates and the deduplication decided by Erik 2026-11-03). Step 10
+**Steps 0 to 3 and 5 to 8 are done; step 9's round 4, a spinning Wald case, is built and
+measured, and its `50M` drift fails the prediction on the finest pair at both spins (for Erik:
+whether step 9 closes on it; the interior, the coarse-pair rates and the deduplication decided by
+Erik 2026-11-03). Step 10
 waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9, rounds 2–4.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
@@ -2011,13 +2013,26 @@ interior the default paste at `r_in = M` (decided by Erik 2026-11-03). Accept:
   divergence-free), the Lorenz gauge; the field is uncharged (the flux of `𝔈` through a sphere
   around the hole vanishes).
 - **Stationarity:** the L1 drift of `𝔈` and `𝔅` outside the horizon after `t = 50M` converges at
-  `≥ 1.8` **(predicted)**, judged on the finest pair.
-- **∇·𝔅** at rounding.
+  `≥ 1.8` **(predicted)**, judged on the finest pair. **(Measured in step 9, round 4: fails.**
+  `M/8 → M/16` at `50M`: `a = M/2` `𝔈` 1.55, 1.04, `𝔅` 0.79–0.89; `a = 0.9M` (ball in
+  Kerr-Schild `r`) `𝔈` 1.80, 1.80, `𝔅` 1.34, 1.93, 1.12. Second order at `10M` for both, and to
+  `35M` at `a = M/2`; the coarse pair 1.81–2.46 throughout. `a = M/2` grows late in the outer
+  region, `a = 0.9M` steps up between `10M` and `15M` near the ergoregion; `CODE.md`, "The
+  spinning Wald case". Not localised further; for Erik.)*
+- **∇·𝔅** at rounding. *(Measured: 1.05–1.47e−16 of `max |𝔅|`.)*
 - **The interior:** `r_in = M` and the uncounted radius `(r_in + r₊)/2` inside the horizon,
   `r₊ = M + √(M² − a²)`, with the test for "inside" stated (Kerr-Schild `r` is not the Euclidean
   radius); the paste's ball in Euclidean against Kerr-Schild `r` measured, not decided.
+  *(Measured: at `a = M/2` both are inside `r₊` and contain `r₋`; at `a = 0.9M` the Euclidean
+  ball misses `r₋` in the plane and the drift grows — `𝔈ˣ` 8.1e−3 and 3.1e−2 at `M/4`, `M/8`
+  after `50M`, against 7.8e−4 and 2.0e−4 in Kerr-Schild `r`. The default stays Euclidean; for
+  Erik.)*
 - **The fluid** must not dominate: resets beyond the uncounted radius reported, not special-cased.
+  *(Measured: it does not dominate the field — `ρ = 1` moves `𝔈`, `𝔅` by 1–5% at `M/8` — but its
+  resets fill the box, about 2.7·10⁹/1.0·10⁹ stage/step at `M/16`; none with `ρ = 1`.)*
 - **Suite:** a short test within the current budget; the `50M` study in `bin/` on Symmetry.
+  *(Measured at 0858776: 26442 tests, every run passing whole, 14m48s at one thread; the study
+  is `bin/curved_localise.jl kwald`.)*
 
 ## Step 10 — The vertex metric and the TOV star in the Cowling approximation (rung 4)
 

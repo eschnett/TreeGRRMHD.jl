@@ -45,9 +45,11 @@ physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
 regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
-curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) is done when its
-round 4, a spinning Wald case, is (the interior — the paste —, the
-coarse-pair rates and the deduplication decided by Erik 2026-11-03). Step
+curved backgrounds, rung 3; `claude/step-9-curved-backgrounds`) has its
+round 4, a spinning Wald case, built and measured: its `50M` drift fails the
+prediction on the finest pair at both spins, and whether step 9 closes on it
+is Erik's (the interior — the paste —, the coarse-pair rates and the
+deduplication decided by Erik 2026-11-03). Step
 10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
@@ -229,7 +231,12 @@ Round 4 (2026-11-03): `spinning_wald_case` (Wald's uncharged field on a Kerr
 hole, `a = M/2`, `0.9M`, a passive floor fluid, `Φ̃ = aB₀`, so
 `gauge_damping = 0`, `MHDCase`'s new field), `kerr_schild_r`; the octant
 shifted by `L/256` in `z` off the `r = 0` disk; `bin/curved_localise.jl kwald`
-(`a`, `rho_fluid`, `ballks`, `watch`).
+(`a`, `rho_fluid`, `ballks`, `watch`). The `50M` study (jobs 588687–588689,
+588704–588706): second order at `10M`, but `M/8 → M/16` at `50M` fails —
+`a = M/2` 0.79–1.55 (a late growth in the outer region), `a = 0.9M` 1.12–1.93
+(a step near the ergoregion); the Euclidean paste at `a = 0.9M` misses `r₋`
+and grows, the ball in Kerr-Schild `r` does not (CODE.md, "The spinning Wald
+case"; both for Erik).
 
 ## Commands
 
@@ -405,7 +412,7 @@ cb41add's present but the six curved lines the absolute hook moves (seven new
 ones in their place); bounds checks move 70 lines. With the spinning Wald
 case (round 4, 2026-11-03, 0858776, Symmetry): **26442 tests** (+14), every
 run passing whole — 14m48s at one thread on cn082 (EPYC 7532) against
-5bea724's 14m38s in the same job, 8m60s at four threads and 11m01s for the
+5bea724's 14m38s in the same job, 9m00s at four threads and 11m01s for the
 clean-checkout check on cn107 (EPYC 7543), 17m03s with `--check-bounds=yes`
 on cn083 (EPYC 7532); one and four threads identical, the clean checkout
 identical to the one-thread run, every line of 5bea724's present (three
