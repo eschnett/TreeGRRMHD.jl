@@ -22,10 +22,13 @@ on the mesh, with the vacuum electromagnetic wave and the circularly
 polarized Alfvén wave in 1D (rung 1a); and the shock tubes, the resistive
 tube swept over σ, the current sheet and the atmosphere in 1D (rung 1b);
 and the scheme in 2D and 3D on a uniform mesh, with PPM, WENO-Z and MP5
-beside PLM (rung 2a) — as are steps 4a–4c in IMEXRungeKutta. Step 8,
-coarse-fine faces and regridding, is next. The numbers below about the
-scheme are measured where they say so and unmeasured otherwise. (Amended in
-step 7.)*
+beside PLM (rung 2a) — as are steps 4a–4c in IMEXRungeKutta; coarse-fine
+faces and regridding (rung 2b, step 8); and the analytic curved backgrounds,
+the Wald solution and the magnetized Bondi flow on a Kerr-Schild hole with
+its interior (rung 3, step 9). Step 10, the vertex metric and the TOV star
+in the Cowling approximation, is next. The numbers below about the scheme
+are measured where they say so and unmeasured otherwise. (Amended in step
+9.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -1013,7 +1016,9 @@ ulp instead of 1 (a face's two blocks see `P` that differ at the
 tolerance): there the ghosts would need their owner's `P` (c). EntropyEOS,
 for Erik: on the synthetic table near rest (`W = 1.005`) 16–26% of states
 end in the nested fallback whatever the seed. *(Measured, for Erik; no
-change to the code, which decision is his.)* *(Amended 2026-10-23,
+change to the code, which decision is his.)* *(Resolved 2026-10-23: overtaken
+by Erik's decision of (a), (b) and (c) below; the share near rest is
+EntropyEOS's.)* *(Amended 2026-10-23,
 decided by Erik:)* (a), (b) and (c) are all to be done; (c) is the
 parent-centred primitive fill, which this tree already ran, now the only
 one ("Refinement"), with the dead `prim2con` of the conserved ghosts
@@ -1058,6 +1063,8 @@ state a little way from one the cell has just recovered. So inside a step:
   right-hand side's recovery and the ghosts divided by `√γ`; in flat space
   `√γ = 1` exactly and the two are the same numbers, so the change moved
   nothing — the flat-space suite's output is the same with and without it).
+  *(Exercised in step 9:)* on the Kerr-Schild cases, with the interior, one
+  integration, two and a restart agree bit for bit ("Validation ladder" 3).
 - **Rule 1: the cache lives within one step.** The step limiter
   (`reset_step!`) invalidates every cell's entry as it ends the step, and
   `with_step_cache` invalidates it before and after `evolve!`'s stepping. So
@@ -1156,7 +1163,9 @@ warm seed already within `tol` returns after no step or one, at the
 tolerance, and which depends on the cell's history in the step — at the
 Dirichlet faces, where the ghosts are the exact primitives, that history
 differs, and the flow drifts by the tolerance per step. **The bound is kept
-and fails; for Erik** (accept the tolerance-level drift and say so in the
+and fails; for Erik** *(resolved 2026-10-30, decided by Erik: option (a), the
+drift to the recovery's tolerance, `≤ 10³·tol`, plus the 1000-step run —
+"The uniform flow: to the tolerance" below)* (accept the tolerance-level drift and say so in the
 bound; or ask EntropyEOS for a warm start that always polishes with one
 Newton step after its residual test, which would restore rounding at a
 small cost; or a tighter `tol` in the cases). Besides: the ARS(4,4,3)
@@ -1337,7 +1346,8 @@ kernel launches per site and the hand-off's stores and loads (the 232-B
 metric, `B`, `E` and the input that the third computes again — which costs
 most where a step does least else (the 1D waves, whose right-hand side
 recoveries are all reused). *Whether the CPU keeps the split or fuses is
-Erik's decision.*
+Erik's decision.* *(Resolved 2026-11-02, decided by Erik: fused is the
+default.)*
 
 **The share that reaches finish** (`bin/recovery_cost.jl finish`, the same
 job and cases; per site, the recoveries whose first phase was not done, of
@@ -1763,7 +1773,8 @@ which kept the coldest state's rapidity at the momentum, `W ≈ |S|/ρ_atm`.
   `f = 1` goes from 1 to 4 (every row `f ≤ 0.3` stays at none); as set
   now, per case, the sweep is untouched. Writing such a state at the
   entropy ceiling with `D` kept instead (the note in PLAN.md's EOS-5) does
-  not cost the sweep anything, and is Erik's call.
+  not cost the sweep anything, and is Erik's call. *(Resolved 2026-10-24:
+  overtaken by EntropyEOS 2.0's level 1, EOS-9, whose `S_CEILED` keeps `D`.)*
 - **Measured with the real 1.1.0** (`bin/front_investigation.jl`; the same
   48 perturbed runs as before), every number the emulated "B + coll" gave,
   to every digit printed: on the uniform mesh, the refined mesh with the
@@ -1965,7 +1976,8 @@ cell-steps of every run, where 1.1 peaked at `W` 4.3. That is not the slack: it
 is the same with the emulation, and the cell recoveries that differ between
 the versions agree on identical inputs, so it is a different trajectory — a
 candidate is 2.0's `S_CEILED` keeping `S` while lowering τ (above). Not
-chased; **for Erik**. The suite's assertion on that row (`W ≤ 5` at the end,
+chased; **for Erik**. *(Resolved 2026-11-02: investigated 2026-10-30 and
+accepted by Erik, below.)* The suite's assertion on that row (`W ≤ 5` at the end,
 injected mass within 10⁻⁶) holds: its largest `W` at the end is 4.00.
 
 **The ideal magnetized atmosphere's `W = 100`** *(investigated 2026-10-30
@@ -2018,7 +2030,9 @@ the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
 untested elsewhere.
 
 **Investigation (2026-10-22)** *(branch `claude/no-collapse-to-atmosphere`,
-an experiment for Erik, not decided; `bin/hot_projection.jl`,
+an experiment for Erik, not decided — *(resolved 2026-10-24: overtaken by
+EOS-9 in EntropyEOS 2.0, and no case sets `collapse_to_atmosphere`)*;
+`bin/hot_projection.jl`,
 `bin/endpoint_measure.jl`, `bin/front_investigation.jl`; EOS-9 in PLAN.md,
 rewritten the same day after Erik's review in six questions)*: can the
 atmosphere tubes do without `collapse_to_atmosphere`, an excision choice
@@ -2796,6 +2810,67 @@ two agree to 4.3e−16. That local computation was the workaround of SM-1
 `ExtrinsicCurvature(g, dg)` on the same `dmetric` result, and the pointwise
 layer is still bit-identical in a CPU kernel.
 
+*(Measured in step 9; the choice proposed in step 9, for Erik — resolved
+2026-11-03, decided by Erik: pointwise, no cache.)* **The
+`Analytic` provider is evaluated pointwise, where each kernel needs it**,
+and nothing is cached. Every kernel since step 5 already called
+`point_metric(provider, t, x)` at its own point — the recovery and the ghost
+cells' `P` at cell centres, the fluxes at faces, the EMFs at edges, the
+gauge potential `αΦ − β·A` at vertices and the gauge flux at edges, the stage
+solve and the reset at cells — and `metric_gradient` at the cell for the
+sources (the cell's `Metric3` is `P`'s), so rung 3 needed no change in the
+scheme, only the cases. Per owned cell and right-hand side that is about 20
+evaluations of `point_metric` (1 cell, 3 faces, 3 edges for the EMF, 6
+vertex evaluations in `∂ₜA`'s gradient — each vertex twice per direction — and
+7 in the gauge equation's divergence) plus the ghost cells' and one
+`metric_gradient`; per SSP3(4,3,3) step, three right-hand sides, four stage
+solves and four resets, about 70 and 3. Measured (`bin/metric_cost.jl`,
+Symmetry cn079, AMD EPYC 7532, one pinned thread, Julia 1.13, 2026-11-02):
+- per call, `Analytic(KerrSchild(1))`: `point_metric` 102 ns,
+  `metric_gradient` 234 ns (ForwardDiff through the metric, and SM-1's
+  `K_ij`); `Flat()` folds to constants;
+- per step, the same physics: the spherical blast of rung 2a (16³ in 8
+  blocks of 8³, closed box) with `Flat()` 99.5 ms, with `Analytic` of a
+  Kerr-Schild hole of mass `10⁻³⁰⁰` far outside the box — Minkowski to
+  rounding, with Kerr-Schild's whole cost — 177.0 ms: **the provider is 44%
+  of a step** at this block size (a block of 8³ with `G = 3` stores 5.4
+  times as many cells as it owns, and `ghost_kernel!` evaluates the metric
+  at every one);
+- the rung-3 cases: 69–72 µs per cell and step at 16³ (8 blocks of 8³),
+  49 µs at 32³ (8 blocks of 16³), Wald and Bondi alike.
+
+So the pointwise provider is affordable for rung 3 — the study to `t = 50M`
+runs in hours, not days — and a per-stage cache would save at most that
+share, less what it costs to store and load the metric at four centerings
+(cells, three faces, three edges, vertices: 8 points and about 100 floats
+per cell). **Decided by Erik 2026-11-03: pointwise, no cache; the background
+is stationary, but the analytic cases are affordable.**
+
+*Deduplication (asked by Erik 2026-11-03; not done, measured why):* the
+vertex and edge evaluations of `∂ₜA` and `∂ₜΦ̃` come to 13 per cell where 4
+distinct points (a vertex, three edges) exist — but **across** kernel
+invocations, not within one: `potential_rhs_kernel!` evaluates the two
+distinct vertices of its own edge, and `gauge_rhs_kernel!` the six distinct
+edges around its vertex and the vertex itself, each once. So there is
+nothing to reuse inside an invocation. Sharing across invocations needs either
+storage (the metric, or `ψ = αΦ − β·A`, at every vertex and edge, which the
+request excludes) or restructured kernels (one invocation per vertex writing
+its three edges' `∂ₜA`, which still evaluates `ψ` at the three far vertices:
+13 → 10). Both change what the kernels compute in which order. *(Decided
+by Erik 2026-11-03: leave it; it folds into step 10's caching decision.)* Its ceiling is about 9 `point_metric`
+evaluations per cell and right-hand side, 9 × 102 ns × 3 ≈ 2.8 µs per cell
+and step, 4–6% of the rung-3 cases' 49–72 µs.
+
+**Caching is step 10's decision** *(deferred by Erik 2026-11-03)*. The
+production provider is the interpolated vertex metric (`GHMetric`), and step 10
+decides its caching with both of its uses in view: frozen (the Cowling
+approximation), where the metric is static and could be computed once per
+mesh, at its creation and after each regrid; and coupled, where it changes
+every stage. Measured inputs: the analytic provider's 44% of a step on the 16³
+blast; about 100 floats per cell for every centering (cells, three faces,
+three edges, vertices); a block of 8³ with `G = 3` storing 5.4 times the cells
+it owns.
+
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
 are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
@@ -2810,7 +2885,9 @@ Interpolated within a block from the vertices (proposed):
 - **Faces**: 2D, 16 points. **Edges**: 1D, 4 points.
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
-edges. The derivatives and `K_ij` are not stored but evaluated where the
+edges. *(Amended in step 9, deferred by Erik 2026-11-03:)* whether the vertex
+metric is cached per mesh (frozen) or per stage (coupled) is step 10's
+decision; "Metric providers" has the measured inputs. The derivatives and `K_ij` are not stored but evaluated where the
 sources are (proposed in step 2; see "Field sets"). One interaction with the ghost widths is (open): a 4th-order
 interpolation to a cell center reaches one vertex beyond the cell on either
 side, so reaching the outermost ghost cell of a `G = 3` cell set needs
@@ -3189,6 +3266,264 @@ asserts it present and bounded (proposed in step 8: nothing in this
 package needs a refined box to be symmetric before the stars of steps 10
 and 12, whose own symmetry tests will say whether upstream must close it).
 
+**The potentials' boundary must pin the gauge or keep a gradient a gradient**
+*(a design rule, from step 9's round 2; decided by Erik 2026-11-03: option 1
+for static potentials)*. A Dirichlet hook that copies the evolved potential
+across a face — the relative hook (AMR-7): `A(x_g) = A_case(x_g) + [A −
+A_case](x_r)` — copies a gauge drift `∇χ` of the evolved `A` unchanged along
+the normal, where it is no longer a gradient, and the filled `A`'s curl puts
+`∂_n∂_⊥χ` into the ghost and wall faces' `𝔅`. That field drives `E`
+(Ampère), `E` drives `A` (Faraday), `A`'s divergence drives `Φ̃` (the
+generalized Lorenz gauge) and so `χ`: a loop, boundary → `𝔅` → `E` → `A` →
+`χ`, which the damping `ξ` slows but does not stop. On the Kerr-Schild cases it
+grew as `e^{0.11 t/M}` at `h = M/4` ("Validation ladder" 3, "Where the error
+lives"); in flat space nothing measured showed it, the shock tubes' and the
+explosions' faces seeing too little of a drift before `t_end`. **Our
+reading, not measured**: a static gauge mode with `Φ̃ = 0` satisfies the
+elliptic `∂ᵢ(α√γ γ^{ij}∂ⱼχ) = 0`, so it is fixed by `χ`'s boundary values;
+the relative hook leaves them free (a Neumann-like copy), the absolute hook
+pins them to zero, and with them the static mode.
+
+- **Static potentials** (`MHDCase(…; static_potential = true)`, decided by
+  Erik 2026-11-03): the hook is absolute, the case's `A_j` and `Φ̃` at every
+  ghost and on every prescribed wall (`DirichletBoundary(…; absolute =
+  true)`, `CellBoundary(AllVariables(…))`). Under `walls = :symmetric`
+  TreeAMR fills the owned low wall with the hook's own rule, absolute or
+  relative (its "the hook's low region becomes `1 … G+1`"), so the walls
+  follow; nothing upstream was needed. Valid only where `A_case` does not
+  depend on `t`: under IMEX the stage's `A` is at `tⁿ + c̃Δt` while
+  `solve_imp!` is told `tⁿ + cΔt`, which a potential that moves with `t` would
+  get wrong (step 6, above). The Kerr-Schild cases declare it; the test
+  "A static potential's boundary is the case's own" checks that a gauge
+  offset vanishing on the boundary leaves `𝔅` on every stored face at the
+  exact state's (1.1e−15) and every boundary-filled point untouched, where
+  the relative hook shows it (5.9e−2).
+- **Potentials that grow in time** keep the relative hook (every flat-space
+  case, `static_potential = false` by default): their outputs are
+  unchanged bit for bit.
+- **Open** (for step 10's outer boundary, and for dynamic cases without an
+  exact `A`): option 2, a relative hook that carries the offset's gradient
+  along, `δ(x_r) + (x_g − x_r)·∇δ`, which keeps a gradient a gradient to second
+  order (TreeAMR's hook form); option 3, a gauge that damps a static `χ` as
+  well. Neither is requested yet.
+
+## The interior
+
+*(Added in step 9; proposed in step 9 throughout, the form a decision for
+Erik.)* A black hole's singularity is inside the domain of the rung-3 cases,
+and nothing in the scheme can evolve the neighbourhood of `r = 0` — the
+Kerr-Schild metric diverges there, and Michel's density grows as `r^{−3/2}`.
+PLAN.md's step 9 asks for TreeGH's answer: inside `r < r_in`, within the
+horizon, the state is relaxed to the analytic solution each stage,
+**position-only**.
+
+**Why it is correct to touch the inside at all** (TreeGH's argument, its
+`CODE.md`, "Why touch the interior"): inside the horizon every characteristic
+points inward, so in the continuum nothing outside depends on the inside. On
+the mesh the stencils of the cells just outside reach in, and there they find
+the analytic solution, the best data an outflow boundary can have. In
+Kerr-Schild coordinates the light-cone speeds the HLL fluxes and the UCT EMF
+use, `λ± = −βᵈ ± α√γ^{dd}`, both point inward inside `r = 2M` along the
+radial direction, so the upwinding carries nothing outward but what the
+reconstruction's stencil reaches.
+
+**As built** (`src/interior.jl`; `HoleInterior(r_in; center, stage, step)`, an
+`MHDCase`'s `interior`, `InteriorTarget` on `MHDProblem`):
+
+- **A hard paste**, TreeGH's `ρ → ∞` limit on a step profile, which TreeGH
+  kept as a measured variant of its smooth damping layer. It replaces, at every
+  owned point whose position lies inside the ball — a cell by its centre, an
+  edge by its midpoint, a vertex by itself — the state by the case's own
+  solution: the cell's Gauss average of the conserved state, as
+  `exact_state` writes the initial data, and the potentials' point values.
+  The test is the position alone, never the state, so the replaced set is the
+  same at every stage and step, at every thread count and after a restart.
+- **In the reset, first**, before the reset's own fill and recovery, which
+  then see the pasted state (so the reset repairs nothing there that the
+  solution does not need repaired). The reset is IMEXRungeKutta's stage limiter
+  and step limiter ("Floors, the atmosphere and the magnetosphere"), so the
+  paste runs before every explicit right-hand side but a trivial stage's —
+  which reads `uⁿ`, pasted by the previous step limiter — and on every step's
+  result. `stage` and `step` choose the roles; both by default.
+- **Not in the right-hand side.** TreeGH relaxes inside its right-hand side,
+  `∂ₜu = w F(u) − ρ (u − u_exact)`, with smooth profiles, because its
+  measurement found a paste's kink at the surface worse than a layer in a
+  finite-difference code. A finite-volume scheme with limited reconstruction
+  meets a kink at every shock; the paste is the change that needs no new
+  term in the integrator's view of the right-hand side, keeps the right-hand
+  side pure, and leaves the flat path untouched: a problem without an
+  interior launches nothing.
+- **What it costs.** The interior's cells are still recovered and stepped —
+  their tendencies are thrown away by the next paste — so a run pays for them
+  like any other cell; the ball is 0.4% of the default octant at `r_in = M`.
+  The stage solve and the right-hand side's recovery meet the extreme states
+  near `r = 0` there: in the magnetized Bondi flow at `h = M/8` a few cells
+  next to the singularity (`r ≈ 0.2M`) are repaired by the policy in the stage
+  solve's recovery, tallied in `X` like any other, and pasted over.
+
+**Measured** (`bin/curved_stationarity.jl`, both cases to `t = 50M` at `h =
+M/4`, 1500 steps, Symmetry EPYC 7532, jobs 588101–588103): the L1 drift
+from the exact solution outside the horizon (`r ≥ 2M`) and over the whole
+octant, and what the reset did, for the paste in both limiters at `r_in =
+M` (the default), in one role only, at other radii, and without an
+interior:
+
+| interior | Wald `D`, `τ`, `𝔈ˣ` (`r ≥ 2M`) | Bondi `D`, `τ`, `𝔈ˣ` (`r ≥ 2M`) | `D` everywhere, Wald / Bondi | resets (stage/step), injected `D` |
+|---|---|---|---|---|
+| both, `r_in = M` | 1.008e−2, 1.545e−2, 1.041e−2 | 6.845e−3, 4.413e−3, 4.660e−4 | 1.49e−2 / 1.64e−2 | none |
+| step limiter only | 1.008e−2, 1.546e−2, 1.041e−2 | 6.845e−3, 4.413e−3, 4.660e−4 | 1.48e−2 / 1.64e−2 | none |
+| stage limiter only | 1.009e−2, 1.544e−2, 1.040e−2 | 6.818e−3, 4.408e−3, 4.647e−4 | 20.3 / 20.2 | Wald 0/34538, 95.8; Bondi 5499/51484, 129 |
+| both, `r_in = M/2` | 1.006e−2, 1.546e−2, 1.040e−2 | 6.846e−3, 4.414e−3, 4.659e−4 | 2.60e−2 / 3.33e−2 | Bondi 8931/4467, −1.2e−13 |
+| both, `r_in = 3M/2` | 1.025e−2, 1.539e−2, 1.036e−2 | 6.852e−3, 4.416e−3, 4.663e−4 | 1.38e−2 / 1.00e−2 | none |
+| none | 9.856e−3, 1.514e−2, 1.019e−2 | 6.846e−3, 4.414e−3, 4.659e−4 | 0.250 / 0.254 | Bondi 15264/7008, 1.7e−12 |
+
+- **Nothing that happens inside reaches outside.** Outside the horizon
+  every variant drifts by the same amount to 2% (Wald `D` at `r_in = 3M/2`)
+  and mostly to the fourth digit, even where the inside is wrong by `O(10)`
+  (the stage limiter alone, which leaves `uⁿ⁺¹`'s inside unpasted for the
+  first, trivial stage of the next step to read — the reset then floors it
+  every step) or evolves into the singularity's neighbourhood (no interior,
+  which under `IdealConductor` resets about a hundred cells a step there).
+  The upwind light-cone fluxes inside `r = 2M` carry nothing outward at
+  `h = M/4`, the horizon four cells from `r_in = M`.
+- **So the interior is about the inside's health, not the outside's
+  accuracy**: without it, or with the stage limiter alone, the reset works
+  inside every step and its tallies (and the totals) are the singularity's;
+  at `r_in = M/2` the Bondi flow's magnetization next to the paste
+  (`b²/ρ ≈ 37` at `r = M/2`) still resets the cells between. At `r_in = M`
+  or `3M/2`, in both limiters or the step limiter alone, nothing is reset at
+  `h = M/4` and `M/8` — but at `M/16` the Bondi flow resets inside (below).
+**Resets inside the hole** *(decided by Erik 2026-11-02)*:
+1. **Resets deep inside the hole are not counted**: deep inside is `r < (r_in
+   + 2M)/2`, `1.5M` at `r_in = M`; whatever keeps the hydrodynamic scheme
+   stable there is fine. Reported tallies, and any assertion on resets,
+   policy flags or injected rest mass, cover `r ≥ (r_in + 2M)/2` only.
+2. **The resets are counted in radial layers**, to see where they happen:
+   the stage limiter's and the step limiter's resets and the stage solve's
+   policy repairs, in layers of `M/4`, split into level 1 (EntropyEOS's
+   projection: which `FLAG_POL_*` face bits) and level 2 (the atmosphere of
+   `apply_policy`, `FLAG_POL_ATMOSPHERE`). On the host, from `X` after a
+   chunk and, for the reset's bits, a copy of the reset kernel that counts
+   them, evaluated in the measuring process only (`bin/curved_localise.jl`).
+3. **No special cases for resets inside the hole**: the reset there is the
+   reset everywhere — no interior-specific floors, atmosphere rules or
+   thresholds, and `apply_policy`'s options and the atmosphere trigger are
+   not changed without asking. Erik's view: codes reset to the atmosphere
+   mostly because their EOS cannot take high densities and temperatures;
+   with EntropyEOS a reset can go to whatever state the EOS prefers, and the
+   layers report how many resets end in level 1's projection and how many in
+   level 2's atmosphere — the evidence on whether the atmosphere is needed
+   there at all.
+4. The paste stays as built (both limiters, `r_in = M`) for now; its form is
+   not decided.
+
+**The resets by radius** (`bin/curved_localise.jl`, `t = 50M`; jobs 588186
+at `M/8` and 588213, 588214 at `M/16`). At `h = M/8`: Wald none; the
+magnetized Bondi flow no reset at all, and its 9000 stage-solve policy repairs
+— 3 a step — all in the corner layer `0 ≤ r < M/4` (`r ≈ 0.11–0.2M`, the
+cells next to the singularity), each `FLAG_POL_S_FLOORED`: level 1, the
+entropy raised onto the window's floor where the stage's predictor came
+out colder than the gas allows, deep inside and not counted. At `M/16` the
+radial tables (jobs 588213, 588214, the reset kernel's copy counting the
+bits by layer) were at `t = 20M` when the Symmetry tunnel dropped, so where
+the magnetized Bondi flow's 126000/42000 resets of job 588113 sit, and how
+many end in level 1 or level 2, is in
+`/mnt/beegfs/eschnetter/claude/treegrrmhd-step9-588213-part1.log`, unread.
+The whole-octant `τ` of `1.29·10³` against `9.9·10⁻⁴` outside `2M` says
+the resets' states lie inside `2M`.
+
+- **Decided by Erik 2026-11-03: the hard paste, both limiters, `r_in = M`,
+  for the analytic rung-3 cases** (proposed in step 9; round 3's measurement
+  below). *The matter alone needs no interior*: the magnetized Bondi flow
+  without one has the paste's outside error at every resolution, and every
+  reset deep inside, all level 1, none to the atmosphere — EntropyEOS's
+  projection absorbs the extreme states, as Erik expected. *A vacuum field
+  near the singularity does need one*: without it Wald fails at `M/8` and
+  `M/16`, earlier on the finer mesh — a spurious charge with no Ohm's law to
+  hold `E`, whose electromagnetic energy and momentum the recovery
+  subtracts from the totals, until the fluid's share is garbage and the
+  reset reaches out. The step limiter alone
+  gives the same run to the fourth digit; the stage paste costs one kernel
+  launch over a ball of 0.4% of the box and keeps every right-hand side
+  reading the solution inside. `r_in = M` keeps the horizon `M/h` cells
+  from the paste (four at `h = M/4`, TreeGH's margin `m ≥ G + 1`), and
+  `3M/2` gains nothing.
+
+  *Note (round 2):* the table above was measured under the relative
+  potential hook, whose boundary mode dominated the outside error; with
+  option 1 the outside error is 3–10 times smaller, and round 3 measures the
+  interior again.
+
+**No interior, the ordinary reset inside** *(option 3, measured in step 9,
+round 3, for Erik's open decision on the interior; `bin/curved_localise.jl …
+interior=false` against the default paste from the same tree, the absolute
+potential hook, both cases; jobs 588498–588503, 588592; counting radius
+`1.5M`)*. Outside `2M` at `t = 50M`:
+
+| run | `D` | `𝔈ˣ` | `√γ q` (L1) | resets stage/step, counted at `r ≥ 1.5M` | resets deep inside | injected `D`, `τ` | `∫√γ q` over the octant |
+|---|---|---|---|---|---|---|---|
+| Wald `M/4`, paste | 2.9810e−3 | 4.578e−4 | 8.58e−4 | 0/0 | 0/0 | 0, 0 | 4.9e−13 |
+| Wald `M/4`, none | 2.9798e−3 | 4.622e−4 | 9.46e−4 | 0/0 | 0/0 (2109/1055 by 100M) | 0, 0 (2.1e−12, −1.3e6 by 100M) | 4.2e−2 |
+| Bondi `M/4`, paste | 6.3065e−3 | 3.487e−4 | 9.87e−4 | 0/0 | 0/0 | 0, 0 | −8.8e−17 |
+| Bondi `M/4`, none | 6.3071e−3 | 3.486e−4 | 9.87e−4 | 0/0 | 15307/7019 | 1.7e−12, −1.5e6 | 6.7e−16 |
+| Wald `M/8`, paste | 5.8805e−4 | 1.154e−4 | 2.74e−4 | 0/0 | 0/0 | 0, 0 | 1.4e−12 |
+| Wald `M/8`, none | 6.0775e−4 | 1.373e−4 | 6.10e−4 | **5702/2852** | 564192/291994 | **44.7**, −2.5e6 | −0.65 |
+| Bondi `M/8`, paste | 1.6497e−3 | 1.065e−4 | 3.51e−4 | 0/0 | 0/0 (9000 stage repairs) | 0, 0 | 2.9e−17 |
+| Bondi `M/8`, none | 1.6497e−3 | 1.065e−4 | 3.51e−4 | 0/0 | 68588/36226 | 7.0e−13, −2.9e7 | −9.5e−5 |
+
+- **Every reset inside is level 1 but Wald's at `M/8`.** The radial layers:
+  Bondi without the interior resets only at `r < 0.75M`, every one onto an
+  entropy face — `S_CEILED` in `0 ≤ r < M/4`, `S_FLOORED` from `M/4` to
+  `0.75M` — and never to the atmosphere (level 2: 0); Wald at `M/4` only in
+  the corner layer, `S_CEILED`, from between 50M and 100M on. Wald at `M/8`
+  goes further: resets from the corner out to `1.25M` with every level-1 face
+  (`S_FLOORED`, `S_CEILED`, `W_CEILED`, `ρ_FLOORED`, `NONFINITE`, a few `YE`)
+  and **level 2, the atmosphere**, 3909/1594 of them, from the corner to
+  `1.25M`; and `S_FLOORED` resets at `1.5–2M`, counted. A rerun watching
+  every step (job 588592, cn079, EPYC 7532; the same run to every digit)
+  dates it: outside `2M` the charge leaves its level from `t ≈ 33M` (`L1`
+  2.87e−4 at 33M, 4.6e−4 at 35M, 1.0e−3 at 36M), and **the first counted
+  reset is at `t = 37.65M`, `r = 1.575M`**. **At `M/16` Wald without the
+  interior blows up**: the first counted reset at `t = 10.36M`, `r = 1.501M`
+  (job 588630, cn085, EPYC 7532, watched every step), the charge outside `2M`
+  up eight-fold by 11M (7.3e−4 against 9.2e−5 at 10M), and in the unwatched
+  run (588496) `τ`'s drift outside `2M` 2.2·10² at 15M and 1.9·10¹¹ at 20M. The
+  earlier the finer: 37.65M at `M/8`, 10.36M at `M/16`, none by 100M at `M/4`
+  — the singularity's neighbourhood, resolved further, holds states the
+  reset no longer tames. The magnetized Bondi flow without the interior is
+  stable at `M/16` too (job 588497, cn084, EPYC 7532): outside `2M` the
+  paste's run to five digits (`D` 4.1891e−4 at 50M), 387585/201062 resets
+  all at `r < M/2`, all level 1 (`S_FLOORED`, `S_CEILED`, two `W_CEILED`),
+  none to the atmosphere, injected `τ` `−9.7·10⁷`, the charge's total
+  `−7·10⁻¹⁰`; with the paste it resets 126000/42000 at `r < M/2` as well
+  (jobs 588113, 588503), the cells between the paste and the singularity's
+  corner.
+- **Outside, the paste and none agree** but in Wald at `M/8`: to 0.04% in
+  `D` and to 1–10% in `𝔈ˣ` and the charge at `M/4`, to five digits in Bondi
+  at both resolutions. Wald at `M/8` without the interior is disturbed from
+  between 30M and 40M (`𝔈ˣ` 2.2 times the paste's at 40M, the charge 11
+  times), and partly recovers by 50M (`D` +3%, the charge 2.2 times). So
+  "nothing inside reaches outside" holds for Bondi and for Wald at `M/4`, and
+  **not for Wald at `M/8` and `M/16` without an interior** (at `M/16` it
+  blows up).
+- **The charge's total.** `∫√γ q` over a region is the discrete flux of `𝔈`
+  through its surface (the centred divergence telescopes). With the paste
+  the region's inner surface sits in the exact, uncharged solution and the
+  total is rounding; without it the neighbourhood of the singularity, where
+  the scheme is not consistent, carries a net charge (`|√γ q|` up to 15 at `M/4`
+  and 2·10³ at `M/8` in `r < M/4`), and every total that includes or excludes
+  it shows it: `4.2·10⁻²` over the octant at `M/4` (`−0.65` at `M/8`),
+  `1.3·10⁻³` beyond `1.5M`. Round 1's `−4.0·10⁻³` beyond `r = M`, without the
+  interior, is this. Bondi's charge beyond `1.5M` stays at rounding without
+  the interior (`6·10⁻¹⁵`), and over the octant `−9.5·10⁻⁵` at `M/8` (rounding
+  at `M/4`): `IdealConductor` sets `E = −v × B` in every cell every stage, so
+  little accumulates.
+- **Injected energy**: without the interior the reset removes `10⁶`–`10⁷` of
+  `τ` from the singularity's neighbourhood over the run (the entropy ceiling
+  lowering `τ` where the infall heats the gas without bound), and Wald at `M/8`
+  injects 44.7 of rest mass. Deep inside, not counted (decided by Erik
+  2026-11-02), but the totals carry it.
+
 ## Refinement
 
 A Löhner indicator on `ρ`, optionally on `|B|` and `|E|`, following
@@ -3474,7 +3809,9 @@ the primitive fill's owned `P` differs from the recovery's by rounding,
 which moved the uniform row. The hydrodynamic tube is not chaotic: its
 uniform row is the same to every digit in both fills.
 
-What the measurements say *(proposed in step 8, for Erik)*: the primitive
+What the measurements say *(proposed in step 8, for Erik; resolved
+2026-10-23, decided by Erik: the parent-centred primitive fill, the only one
+since)*: the primitive
 fill keeps every ghost admissible — no ghost the policy would repair, none
 below the atmosphere, magnetized as well (the AMR-10 downstream check,
 against 33 repaired recoveries with conserved ghosts) — but on the
@@ -4104,6 +4441,407 @@ named as claims.
 3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
+
+   *Rung 3, as built and measured in step 9* (`src/cases/kerr_schild.jl`,
+   `src/interior.jl`, `test/curved_tests.jl`, `bin/curved_stationarity.jl`;
+   proposed in step 9 unless marked):
+   - **The background**: a Schwarzschild hole, `M = 1`, in Kerr-Schild
+     coordinates (Cook 2000, Living Rev. Relativ. 3, 5, §3.3.1),
+     `Analytic(KerrSchild(M))`. With `f = 2M/r` and `l = x/r`: `γ_ij = δ_ij +
+     f l_i l_j`, `βⁱ = f lⁱ/(1 + f)`, `α = 1/√(1 + f)`, `α√γ = 1`; the
+     coordinates cross the horizon, and the coordinate speeds of light are
+     at most 1, so the CFL step is set by `h` everywhere, the hole's
+     neighbourhood included.
+   - **The matter, both cases**: Michel's (1972, Ap&SS 15, 153) transonic
+     accretion flow, `Γ = 4/3`, sonic point `r_c = 8M` with `ρ_c = 1`
+     (Hawley, Smarr & Wilson 1984, ApJ 277, 296, §III; Rezzolla & Zanotti
+     2013, §11.8): Bernoulli's `h² (1 − 2M/r + (uʳ)²) = C₂` and the mass flux
+     `r² ρ uʳ = −C₁` solved per point on the transonic branch (bisection for
+     the sonic density, Newton safeguarded by bisection), to `1.4·10⁻¹³` of
+     `C₂`; `u·u = −1` in the 4-metric to `1.0·10⁻¹⁴`. Kerr-Schild's covariant
+     `u_r` is written in the form regular across the horizon, `u_r = ((uʳ)²(1 +
+     f) − f²)/(uʳ − f E)`, `E = −u_t`, where the textbook `(uʳ + fE)/(1 − f)`
+     is `0/0` at `r = 2M`. On `shock_gas(4/3)`, at its window's `s = 12.2`.
+   - **The Wald solution** (`wald_case`, `Vacuum`; Wald 1974, Phys. Rev. D 10,
+     1680): `𝒜 = (B₀/2) ψ`, `ψ = ∂_φ`, at `a = 0`: `A = (B₀/2)(−y, x, 0)`,
+     `Φ = 0` (`ψ` is orthogonal to `l`), so `𝔅 = (0, 0, B₀)` exactly — the
+     curl of a linear `A` — and the stationarity of `A` gives `E = −(β/α) ×
+     B`. `B₀ = 1`. The field and the flow do not touch: `j = 0` under `Vacuum`
+     with `q = 0`, so the field's stress-energy is conserved apart.
+   - **The magnetized Bondi flow** (`bondi_case`, `IdealConductor`; Gammie,
+     McKinney & Tóth 2003, ApJ 589, 444, §4.2; Porth et al. 2017, ComAC 4,
+     1, §4.3): Michel's flow in the radial monopole `𝔅 = q x/r³`, which is a
+     vacuum solution on Schwarzschild (the magnetic Reissner–Nordström
+     field as a test field) and lies along the flow, so `E = −v × B = 0` and
+     `j = 0`: the flow is Michel's exactly. `q = 9`: `b²/ρ = 0.98` at the
+     horizon, 6.1 at `r = M`, 0.030 at the box's far corner.
+   - **Magnetized Bondi, not the Michel monopole** (the plan's choice, made
+     here; accepted by Erik 2026-11-03). Both need a monopole field. The Michel monopole (Michel 1973) is
+     a force-free solution with negligible matter: at `a = 0` it is static
+     and trivial, at `a ≠ 0` Kerr has only the Blandford–Znajek perturbative
+     one, and in this package's model it would be electrovacuum or an ideal
+     plasma at a magnetization above the atmosphere's, neither of them its
+     physics. The magnetized Bondi flow is exact for the whole system, matter
+     included, is the standard GRMHD test of the literature above, and
+     exercises the ideal stage solve, the curved sources and the radial
+     inflow through the horizon at once.
+   - **`a = 0`** (accepted by Erik 2026-11-03): a stationary fluid is needed in both cases, and Michel's is
+     Schwarzschild's; Kerr has no closed-form accretion flow. A spinning Wald
+     case could carry a passive fluid at the floor and be measured on `𝔈`
+     and `𝔅` alone (under `Vacuum` nothing couples) — a follow-up, for Erik.
+     *(Resolved 2026-11-03: Erik wants it, as step 9's round 4.)*
+   - **The octant** `[0, L]³`, `L = 4M` (accepted by Erik 2026-11-03), the hole at its corner, Dirichlet
+     faces from each case's own data on all six faces
+     (`DirichletBoundary`). The monopole has no vector potential regular on
+     a whole sphere: `A = q (n̂ × x)/(r (r + n̂·x))` is singular on the Dirac
+     string `x = −s n̂`, which carries the return flux `4πq`. With
+     `n̂ = (1, 1, 1)/√3` the string leaves the octant through its corner and
+     reaches only the ghosts outside all three low faces at once, which
+     nothing owned reads. Both solutions are smooth across the octant's faces
+     but at `r = 0`, so a Dirichlet face is consistent there; and the
+     octant is an eighth of the box around the hole. The same box serves
+     the Wald case, for one geometry.
+   - **The gauge**: `Φ = 0` for both, so the damped Lorenz gauge's
+     stationary solution is the exact one and `evolve!`'s `ξ = 16/L` is
+     kept. (At `a ≠ 0` Wald's `Φ ≠ 0`: the damping would move `A` and `Φ̃`
+     by a gauge, and the interior's pasted `A` would no longer be the
+     evolved one's gauge — `ξ = 0` for such a case.)
+   - **No 1D or 2D reduction**: Kerr-Schild in Cartesian coordinates is
+     not translation-invariant along any axis, so every run is 3D; the
+     octant is the reduction (an eighth), and the suite runs `h = M/4` and
+     `M/8` (16³ and 32³ cells) to `t = M/2`.
+
+   **The truncation error** (`test/curved_tests.jl`): the right-hand side of
+   each exact discrete state outside `r = 2M`, at `h = M/4` and `M/8`,
+   converges at 1.92–1.93 in `D`, 1.66–1.87 in `S`, 1.78–1.88 in `τ`,
+   1.89–1.91 in `𝔈` (Wald), 1.85–2.10 in `A`; outside `2.5M` every one at
+   1.9–2.0 — the scheme is consistent in curved space at every centering:
+   a wrong sign in a shift term or a metric read at the wrong point leaves
+   an `O(1)` remainder.
+
+   **Stationarity** (PLAN.md: the L1 drift after `t = 50M` converges at
+   `≥ 1.8`, **(predicted)**; *(measured in step 9: fails — Wald saturates,
+   the magnetized Bondi flow converges at first order; the cause is located
+   below, and the prediction holds without it at `h = M/4 → M/8`)*.) The L1
+   drift outside `r = 2M` after `t = 50M`, both limiters, `r_in = M`, and the
+   rates `M/4 → M/8` and `M/8 → M/16` (`bin/curved_stationarity.jl`; jobs
+   588101/588102 on cn079 and cn080, 588111 and 588114 on cn079 and cn084,
+   EPYC 7532, 588112 and 588113 on cn108 and cn083, EPYC 7543 and 7532, amdq,
+   about 2 h at 64 threads):
+
+   | | `h = M/4` | `M/8` | `M/16` | rates |
+   |---|---|---|---|---|
+   | Wald `D` | 1.008e−2 | 5.247e−3 | 4.952e−3 | 0.94, 0.08 |
+   | Wald `S_x`, `S_z` | 1.507e−2, 5.500e−3 | 4.913e−3, 2.853e−3 | 4.647e−3, 2.544e−3 | 1.62, 0.08; 0.95, 0.17 |
+   | Wald `τ` | 1.545e−2 | 4.143e−3 | 2.678e−3 | 1.90, 0.63 |
+   | Wald `D Yₑ` | 5.039e−3 | 2.624e−3 | 2.476e−3 | 0.94, 0.08 |
+   | Wald `𝔈ˣ`, `𝔈ᶻ` | 1.041e−2, 2.263e−3 | 2.253e−3, 1.459e−3 | 1.586e−3, 1.365e−3 | 2.21, 0.51; 0.63, 0.10 |
+   | Wald `𝔅ˣ`, `𝔅ᶻ` (all faces) | 1.459e−2, 2.789e−2 | 2.529e−3, 5.777e−3 | 7.098e−4, 1.701e−3 | 2.53, 1.83; 2.27, 1.76 |
+   | Wald `√γ q` | 1.595e−2 | 6.524e−3 | 7.038e−3 | 1.29, −0.11 |
+   | Bondi `D` | 6.845e−3 | 3.284e−3 | 1.412e−3 | 1.06, 1.22 |
+   | Bondi `S_x` | 2.885e−3 | 1.360e−3 | 6.301e−4 | 1.09, 1.11 |
+   | Bondi `τ` | 4.413e−3 | 2.509e−3 | 9.895e−4 | 0.81, 1.34 |
+   | Bondi `𝔈ˣ` | 4.660e−4 | 2.137e−4 | 9.423e−5 | 1.12, 1.18 |
+   | Bondi `𝔅ˣ` (all faces) | 2.206e−3 | 1.090e−3 | 4.814e−4 | 1.02, 1.18 |
+   | Bondi `D s` | 0.590 | 0.174 | 5.43e−2 | 1.76, 1.68 |
+   | Bondi `√γ q` | 8.73e−4 | 5.85e−4 | 4.18e−4 | 0.58, 0.48 |
+
+   No reset and no injected mass at `M/4` and `M/8`; the magnetized Bondi
+   flow at `M/16` resets 126000/42000 cells (stage/step), all deep inside
+   (below), and its `τ` over the whole octant is `1.29·10³` against `9.9·10⁻⁴`
+   outside `2M`.
+
+   **Where the error lives** *(measured in step 9, round 2;
+   `bin/curved_localise.jl`: the drift and the charge every `5M`, binned at
+   the end by radius, by the distance to the octant's faces, and over `r ≥
+   2M` without `k` cells next to every face; jobs 588185–588224, Symmetry,
+   EPYC 7532 and 7543, the node per job in the logs)*:
+
+   - **Michel's flow alone converges at second order.** `wald_case(B₀ = 0)`
+     (no field) and `bondi_case(q = 0)` are the same run bit for bit; the
+     drift settles by `t = 20M` and stays: at `t = 50M`, outside `2M`, `D`
+     2.862e−3 → 5.423e−4 (**2.40**), `τ` 1.181e−3 → 2.148e−4 (**2.46**), `S_x`
+     4.470e−4 → 1.060e−4 (**2.08**) at `h = M/4 → M/8`. Without the limiter
+     (`:none`) 2.407e−3 → 4.730e−4 (2.35). So neither MC at the coordinate
+     planes, nor the Dirichlet planes through the hole, nor the paste's
+     surface, nor the hydrodynamic sources limit the order: the matter's
+     error with the field is the field's.
+   - **Wald's drift is a growing mode, not a saturation.** Its time series
+     (outside `2M`, `D`, `τ`, `𝔈ˣ`):
+
+     | `t/M` | 5 | 10 | 20 | 30 | 40 | 45 | 50 |
+     |---|---|---|---|---|---|---|---|
+     | `M/4` `D` | 2.55e−3 | 2.52e−3 | 2.79e−3 | 3.38e−3 | 4.80e−3 | 6.53e−3 | 1.01e−2 |
+     | `M/4` `𝔈ˣ` | 5.60e−4 | 6.18e−4 | 8.25e−4 | 1.36e−3 | 3.39e−3 | 5.94e−3 | 1.04e−2 |
+     | `M/8` `D` | 4.84e−4 | 5.49e−4 | 1.06e−3 | 2.04e−3 | 3.42e−3 | 4.17e−3 | 5.25e−3 |
+     | `M/8` `𝔈ˣ` | 1.59e−4 | 1.88e−4 | 3.50e−4 | 6.07e−4 | 1.03e−3 | 1.49e−3 | 2.25e−3 |
+
+     At `M/16` (job 588214, read to `20M`): `D` 1.06e−4, 1.50e−4, 2.54e−4,
+     4.14e−4 at 5, 10, 15, 20M. At `t = 5M` it converges (`D` 2.4 and 2.2,
+     `𝔈ˣ` 1.8 and 1.8); then `𝔈ˣ` grows
+     exponentially, about `e^{0.11 t/M}` at `M/4` and `e^{0.08 t/M}` at `M/8`,
+     and at `M/4` on to `t = 100M` without saturating (`𝔈ˣ` 3.2e−2 at 60M,
+     0.25 at 80M, 1.04 at 100M; `τ` 7.9). The `t = 50M` "saturation" of the
+     table is this mode's amplitude, reached from a smaller start at a
+     slower rate on the finer mesh. It fills the volume (the radial layers
+     fall off smoothly from the hole to the outer faces; leaving 1–4 cells
+     next to every face out raises the L1 by at most 12%: the mode is not a
+     layer at a face), and grows in the box
+     around the hole too (`[−3, 3]³`, `τ` 2.3e−3 at 5M to 6.9e−2 at 50M), so it
+     is neither the octant's planes through the hole nor a layer at a face.
+   - **What it is not.** Linear in the field and blind to the fluid: at `B₀
+     = 0.1` the relative error is `B₀ = 1`'s to three digits, and with a fluid
+     a thousand times heavier (`ρ_c = 10³`) the same, so neither the charge's
+     force on the fluid nor the fluid's current is needed (a fluid a thousand
+     times lighter grows somewhat faster). Not the charge's transport: with
+     Ampère's explicit source `−√γ q (αv − β)` replaced by `+√γ q β` alone or
+     by zero (a diagnostic in `bin/curved_localise.jl`, not a scheme), it
+     grows as fast or faster. Not the interior (no interior grows alike), not
+     the limiter (`:none` grows faster), not the Riemann solver (LLF grows
+     alike), not the time step (`cfl = 1/5` gives the same run to five
+     digits). **It depends on the gauge damping**: at `ξ = 0` it grows faster
+     (`𝔈ᶻ` 5.4e−2 at 50M), at `ξ = 16` and 64 slower (`𝔈ˣ` 4.5e−3, 4.6e−3)
+     — against `ξ = 16/L = 4`, `𝔈ˣ` 1.04e−2.
+   - **The cause: the potentials' relative Dirichlet hook** (AMR-7, chosen in
+     step 6 for potentials that grow in time). It fills a ghost or wall point
+     `x_g` with `A_case(x_g) + [A(x_r) − A_case(x_r)]`, copying the evolved
+     potential's offset from its reference point `x_r`. The evolved `A`
+     carries a gauge drift `∇χ` of truncation order — the generalized
+     Lorenz gauge's, which `ξ` damps in `Φ̃` but which leaves a static `χ`
+     undamped. Copied unchanged along the normal, the offset is no longer a
+     gradient across the face: the curl of the filled `A` puts `∂_n∂_⊥χ`
+     into the ghost and wall faces' `𝔅` (an exact gradient's curl vanishes
+     only if every point carries its own). That flux enters the boundary
+     cells' EMFs and Ampère fluxes, the `E` it drives feeds `∂ₜΦ̃ ∋ −∂ⱼ(α√γ
+     Aʲ)` and so `χ` again: a loop, closed through the gauge, which `ξ`
+     slows. **Measured**: with the potentials' hook absolute — the case's `A`
+     and `Φ̃` themselves in every ghost and on every wall, a diagnostic for
+     these time-independent potentials — Wald's drift is stationary from `t
+     = 10M` (outside `2M`, `D` 2.981e−3, `𝔈ˣ` 4.58e−4 at 10M and at 50M), in
+     the octant and in the box around the hole, and so is the magnetized
+     Bondi flow's.
+   - **With the absolute hook the prediction holds** (`t = 50M`, outside
+     `2M`, `M/4 → M/8`): Wald `D` 2.981e−3 → 5.881e−4 (**2.34**), `τ` 1.255e−3
+     → 2.597e−4 (**2.27**), `S_x` 8.50e−4 → 2.19e−4 (1.96), `𝔈ˣ` 4.578e−4 →
+     1.154e−4 (**1.99**), `𝔈ᶻ` 1.95, `√γ q` 1.65; Bondi `D` 6.307e−3 →
+     1.650e−3 (**1.93**), `τ` 3.436e−3 → 8.158e−4 (**2.07**), `S_x` 2.471e−3 →
+     7.677e−4 (1.69), `𝔈ˣ` 3.487e−4 → 1.065e−4 (1.71), `√γ q` 1.49.
+     At `M/16` (jobs 588223, 588224, amdq, 64 threads) the runs were at
+     `t = 10M` when the Symmetry tunnel dropped: Wald `D` 6.035e−4 → 1.328e−4
+     (**2.18**), `𝔈ˣ` 1.179e−4 → 2.937e−5 (2.01), Bondi `D` 1.650e−3 → 4.211e−4
+     (1.97), `𝔈ˣ` 1.068e−4 → 2.995e−5 (1.83), against `M/8` at `10M`; their
+     `t = 50M` rows are in `/mnt/beegfs/eschnetter/claude/
+     treegrrmhd-step9-5882{23,24}-part1.log`, unread.
+   - **Bondi at first order** was the same mode, slower: at `M/4` its drift is
+     flat from `5M`, at `M/8` it grows linearly from `t = 20M` (`D` 1.84e−3 →
+     3.28e−3), so the finer mesh ends further from its own converged value;
+     with the absolute hook both are flat.
+   - **The charge.** Wald's non-converging `√γ q` is the growing mode's
+     (`q` follows `𝔈`'s growth; with the absolute hook it is stationary and
+     converges at 1.65). The matter's saturation in the Wald case is the
+     mode's too, through the total momentum and energy, which carry the
+     field's: with the heavy fluid `D`'s drift stays Michel's own.
+
+   **Decided by Erik 2026-11-03: option 1** — the case's own potential in the
+   ghosts where it does not depend on `t`. *As built* (`static_potential` on
+   `MHDCase`, `absolute` on `DirichletBoundary`, "Boundaries"): `wald_case` and
+   `bondi_case` declare their potentials static, and their potentials'
+   hooks are `CellBoundary(AllVariables(…))` of the case's `A_j` and `Φ̃`;
+   every other case keeps the relative hook. Options 2 (a relative hook that
+   carries the offset's gradient, upstream) and 3 (a gauge that damps a
+   static `χ`) are open questions for step 10's outer boundary and for
+   dynamic cases without an exact `A`. The process-local diagnostic of round
+   2 (`abshook`) is gone; `bin/curved_localise.jl`'s `relhook=true` is the
+   negative control. The M/16 runs of round 2 with the diagnostic hook
+   (jobs 588223 on cn085, EPYC 7532, and 588224 on cn112, EPYC 8534P),
+   outside `2M` at `t = 50M`: Wald `D` 1.2609e−4, `τ` 5.9239e−5, `𝔈ˣ`
+   2.8671e−5, `𝔈ᶻ` 7.7540e−6, `S_x` 5.6127e−5, `√γ q` 8.5733e−5, flat from `15M`
+   to `50M`; Bondi `D` 4.1891e−4, `τ` 1.9593e−4, `𝔈ˣ` 2.9913e−5, `S_x`
+   2.1725e−4, `√γ q` 1.1346e−4. Rates `M/4 → M/8` / `M/8 → M/16`:
+
+   | | `D` | `τ` | `S_x` | `𝔈ˣ` | `𝔈ᶻ` | `√γ q` |
+   |---|---|---|---|---|---|---|
+   | Wald | 2.34 / 2.22 | 2.27 / 2.13 | 1.96 / 1.96 | 1.99 / 2.01 | 1.95 / 1.94 | 1.65 / 1.68 |
+   | Bondi | 1.93 / 1.98 | 2.07 / 2.06 | 1.69 / 1.82 | 1.71 / 1.83 | 1.71 / 1.83 | 1.49 / 1.63 |
+
+   **Re-measured with option 1 as built** *(step 9, round 3; jobs 588498–588503,
+   Symmetry, the node per job in the logs)*: at `M/4` and `M/8` the new default
+   reproduces the round-2 diagnostic to every printed digit (Wald `D`
+   2.9810e−3, 5.8805e−4; Bondi `D` 6.3065e−3, 1.6497e−3 outside `2M` at `t =
+   50M`), the same arithmetic. At `M/16` (jobs 588502 on cn083, EPYC 7532, and
+   588503 on cn107, EPYC 7543, amdq, 64 threads) the same: Wald `D` 1.2609e−4,
+   `τ` 5.9239e−5, `𝔈ˣ` 2.8671e−5, `𝔈ᶻ` 7.7540e−6, `S_x` 5.6127e−5, `√γ q`
+   8.5733e−5; Bondi `D` 4.1891e−4, `𝔈ˣ` 2.9913e−5 — the round-2 rows above, and
+   so the rates of the table. No reset, no injected mass, the charge's total
+   rounding (Wald `−3.4·10⁻¹¹` over the octant). Both drifts are flat in time: Wald's
+   `D` within 2% from `10M` to `50M` and to `100M` at `M/4` (2.9810e−3 at 50M
+   and at 100M), Bondi's to five digits. **Verdict: the prediction holds**
+   for `D` and `τ` (1.93–2.34 and 2.06–2.27 between the three resolutions)
+   and Wald's `𝔈`, `S_x` (1.94–2.01); **it fails** for Bondi's `S_x` and
+   `𝔈` at `M/4 → M/8` (1.69, 1.71 — measured, not loosened) and for the
+   charge (1.49–1.68); `M/8 → M/16` Bondi's are 1.82–1.83. Above 1.8 from the
+   second pair on, so the coarsest mesh is not yet asymptotic for the
+   monopole's transverse components. *(Decided by Erik 2026-11-03: the
+   prediction is judged on the finest pair, `M/8 → M/16`, where it holds for
+   every variable; the `M/4 → M/8` rates 1.69 and 1.71 stand as measured — at
+   `M/4` only 8 cells lie between the hole's centre and the horizon.)*
+
+
+   **In the suite** (`t = M/2`, `h = M/4` and `M/8`, laptop and Symmetry
+   alike): Wald `D` 2.48, `S` 1.86–1.98, `τ` 2.46, `𝔈` 2.10–2.13, `𝔅`
+   1.76–1.82; magnetized Bondi `D` 1.73, `S` 1.89, `τ` 2.17, `𝔈` 1.89, `𝔅`
+   2.42; asserted `≥ 1.6`. No reset, no injected mass, no stage fallback
+   (Wald every stage `OHM_SIGMA_ZERO`, Bondi every stage `OHM_IDEAL`).
+
+   **The charge** `√γ q = ∂ᵢ𝔈ⁱ`, which the exact fields do not have, outside
+   `2M` after `t = M/2`: L1 `5.9·10⁻⁴`, `1.8·10⁻⁴` (Wald) and `2.0·10⁻⁴`,
+   `6.1·10⁻⁵` (Bondi) at `h = M/4`, `M/8` — converging at 1.7; the largest
+   `|√γ q|` `9.0·10⁻³`, `4.0·10⁻³` and `1.1·10⁻²`, `7.0·10⁻³`, next to the
+   interior. After `t = 50M` at `h = M/4`: L1 `1.6·10⁻²` (Wald), `8.7·10⁻⁴`
+   (Bondi), largest `0.13`, `2.8·10⁻²`; its volume integral outside `r_in` is
+   rounding (`10⁻¹⁴`–`10⁻¹⁶`): the discrete Gauss law moves no net charge.
+
+   **∇·𝔅**: at most `2.7·10⁻¹⁶` of `max |𝔅|` (`h ∇·𝔅`), after every run:
+   `𝔅` is the flat curl of `A` whatever the metric, densitized, and the
+   background `𝔅̄` is not used.
+
+   **The spinning Wald case** *(step 9, round 4, asked by Erik 2026-11-03;
+   `spinning_wald_case`, `SpinningWald`)*:
+   - **The field**: Wald's uncharged `𝒜 = (B₀/2)(ψ + 2aη)` (Wald 1974), the
+     Killing vectors `ψ = ∂_φ = (0, −y, x, 0)` and `η = ∂_t` of Kerr-Schild,
+     whose metric rotates with the `(x, y)` plane, lowered by
+     `Analytic(KerrSchild(M, a))`'s metric; `𝔅` the curl of `A_i = 𝒜_i`, and `E`
+     from `A`'s stationarity, `αE_i = ∂_i𝒜_t − ε_ijk βʲBᵏ`, the derivatives from
+     one `dmetric` call. Checked by centred differences
+     (`test/curved_tests.jl`, `a = M/2` and `0.9M`): `curl A = √γ B` to
+     4.7e−10 and 9.4e−10, Gauss and Ampère (the flux of `𝔈` divergence-free)
+     to 1.3e−9 and 3.7e−8, the Lorenz gauge to 3.7e−12; the flux of `𝔈`
+     through a sphere `1.1·10⁻⁴` of `ψ` alone's (the quadrature), against 2 for
+     `ψ − 2aη`: uncharged. SpacetimeMetrics had everything needed.
+   - **`Φ̃ = aB₀` exactly, a constant** (to 2.2e−16): the damped Lorenz gauge
+     `∂ₜΦ̃ = … − ξαΦ̃` is stationary at this `Φ̃` only at `ξ = 0`, so the case
+     declares `gauge_damping = 0` (`MHDCase`'s new field; `nothing`, every other
+     case, keeps `16/L`). With the absolute boundary (option 1) pinning the
+     gauge, a damped `Φ̃` would drive `A` by a gradient the boundary does not
+     share, the round-2 mode's mechanism.
+   - **The box**: the octant shifted by `L/256` in `z`, so that no grid point
+     lies on the equatorial disk `x² + y² < a²`, `z = 0`, where Kerr-Schild's
+     `r = 0` and SpacetimeMetrics' metric is `0/0`.
+   - **The fluid**: passive, at rest, `ρ = 10⁻⁶` (`10²ρ_min`), under `Vacuum`.
+     It does not dominate the field — with a fluid a million times heavier
+     (`ρ = 1`) `𝔈`'s and `𝔅`'s drifts agree to 1–5% — but it **dominates the
+     reset tallies**: the field's energy and momentum, whose truncation error
+     is `10²`–`10³` times the fluid's share of the totals, leave the recovered
+     fluid outside its window in most cells every step: `ρ_FLOORED`,
+     `S_FLOORED`, `S_CEILED` (level 1) and the atmosphere (level 2), from
+     `t = 0.03M` and everywhere in the box (at `M/8`, `a = M/2`, 2.3·10⁸ and
+     8.3·10⁷ counted stage and step resets in 50M). The heavy fluid's run
+     resets nothing beyond the counting radius. Reported, not special-cased.
+   - **The interior: "inside" and the paste's ball.** Kerr-Schild `r` is the
+     spheroidal radius (`kerr_schild_r`): on the axis `r = |x|`, in the
+     equatorial plane `r = √(|x|² − a²)`. The horizon `r₊ = M + √(M² − a²)`
+     (1.87M, 1.44M) lies at `|x| = r₊` on the axis and `√(r₊² + a²)` (1.93M,
+     1.70M) in the plane, so a Euclidean ball of radius `ρ` is inside it for
+     `ρ < r₊`: the paste at `r_in = M` and the uncounted ball `(r_in + r₊)/2`
+     (1.43M, 1.22M, Euclidean) are. "Outside the horizon", for the drift, is
+     `r ≥ r₊` in Kerr-Schild `r`. **But the Euclidean paste at `a = 0.9M` does
+     not contain the inner horizon**: in the plane it reaches `r =
+     √(M² − a²) = 0.44M`, short of `r₋ = M − √(M² − a²) = 0.56M`, and the
+     evolved region then includes a ring of `r₋ > r > 0.44M` where not every
+     characteristic points inward. Measured: at `a = 0.9M` with the Euclidean
+     ball `𝔈ˣ`'s drift grows (`M/8`: 1.8e−3 at 10M, 5.1e−3 at 30M, 3.1e−2 at
+     50M, worse than `M/4`'s 8.1e−3), and with the ball in Kerr-Schild `r`
+     (`r < M`, which contains `r₋`; a process-local measurement,
+     `bin/curved_localise.jl … ballks=true`) it is flat (`M/8`: 1.84e−4 at 10M,
+     1.97e−4 at 50M). At `a = M/2` the Euclidean ball reaches `r = 0.87M >
+     r₋ = 0.13M` and is flat. *(Left for future black-hole work, Erik
+     2026-11-05; "Known risks".)* **For Erik**: the paste's ball in Kerr-Schild
+     `r`, or one Euclidean radius `ρ` chosen to contain `r₋` in the plane
+     (`√(r₋² + a²) < ρ < r₊`, 1.06M to 1.44M at `a = 0.9M`); not decided here.
+     At `t = 50M` outside `r₊`, `𝔈ˣ`: Euclidean 8.08e−3 (`M/4`), 3.13e−2
+     (`M/8`), against Kerr-Schild `r` 7.79e−4, 1.97e−4 (the `M/16` Euclidean
+     run, 588686, was stopped at 10M: 9.4e−5 at 5M, 3.4e−4 at 10M, growing).
+   - **Stationarity** (`t = 50M`, outside `r₊` in Kerr-Schild `r`,
+     `bin/curved_localise.jl kwald`; jobs 588687–588689 at `M/4` and `M/8` on
+     cn079–cn081, EPYC 7532, and 588704, 588705 at `M/16` on cn106, cn107,
+     EPYC 7543, 64 threads; `a = 0.9M` with the ball in Kerr-Schild `r`, since
+     the Euclidean one grows). The L1 drifts at `t = 50M`:
+
+     | | `h` | `𝔈ˣ` | `𝔈ᶻ` | `𝔅ˣ` | `𝔅ʸ` | `𝔅ᶻ` |
+     |---|---|---|---|---|---|---|
+     | `a = M/2` | `M/4` | 6.1574e−4 | 3.4463e−4 | 3.5058e−4 | 3.7528e−4 | 4.3464e−4 |
+     | | `M/8` | 1.5098e−4 | 8.1192e−5 | 6.9373e−5 | 6.8003e−5 | 8.2696e−5 |
+     | | `M/16` | 5.1631e−5 | 3.9523e−5 | 4.0078e−5 | 3.8561e−5 | 4.4688e−5 |
+     | `a = 0.9M` | `M/4` | 7.7896e−4 | 5.4989e−4 | 5.4814e−4 | 6.1158e−4 | 7.6461e−4 |
+     | | `M/8` | 1.9675e−4 | 1.4880e−4 | 1.1388e−4 | 1.2610e−4 | 1.6772e−4 |
+     | | `M/16` | 5.6544e−5 | 4.2725e−5 | 4.4849e−5 | 3.3167e−5 | 7.7233e−5 |
+
+     Rates `M/4 → M/8` / `M/8 → M/16` at three times:
+
+     | | `t` | `𝔈ˣ` | `𝔈ᶻ` | `𝔅ˣ` | `𝔅ʸ` | `𝔅ᶻ` |
+     |---|---|---|---|---|---|---|
+     | `a = M/2` | 10M | 1.94 / 2.01 | 1.95 / 2.02 | 2.10 / 2.03 | 2.12 / 1.96 | 2.13 / 2.02 |
+     | | 35M | 2.02 / 2.10 | 2.16 / 2.04 | 2.46 / 2.14 | 2.42 / 2.09 | 2.38 / 2.05 |
+     | | 50M | 2.03 / **1.55** | 2.09 / **1.04** | 2.34 / **0.79** | 2.46 / **0.82** | 2.39 / **0.89** |
+     | `a = 0.9M` | 10M | 1.93 / 1.94 | 1.81 / 1.97 | 2.14 / 1.92 | 2.16 / 2.05 | 2.08 / 1.86 |
+     | | 35M | 2.00 / 1.76 | 1.92 / 1.75 | 2.19 / 1.28 | 2.33 / 1.80 | 2.20 / 1.03 |
+     | | 50M | 1.99 / 1.80 | 1.89 / 1.80 | 2.27 / **1.34** | 2.28 / 1.93 | 2.19 / **1.12** |
+
+     **Verdict (measured in step 9, round 4): the prediction fails on the
+     finest pair at `t = 50M`, for both spins.** Every rate is second order
+     at `10M`, and at `a = M/2` to `35M`; the coarse pair holds throughout.
+     Two different failures, located by the layer tables (`𝔈` per cell, by
+     Euclidean radius, at `50M`):
+     - **`a = M/2`: a late growth in the outer region.** At `M/16` the drift
+       is flat to `35M` (`𝔅ˣ` 1.2–1.5e−5) and then grows (2.6e−5 at `45M`,
+       4.0e−5 at `50M`); `M/8` and `M/4` grow over the same time more slowly
+       (`𝔅ˣ` 5.4e−5 → 6.9e−5 and 2.8e−4 → 3.5e−4 from `30M`). By layer,
+       `M/8 → M/16` is 1.9–2.0 from `1.25M` to `3M` and falls to 0–1 beyond
+       `3.5M` out to the corner, where `M/16`'s `𝔈` (3–4e−5 per cell) is
+       `M/8`'s; the charge `√γ q` there is *larger* at `M/16` (rates −0.1 to
+       −0.5 beyond `5M`). The cells next to the faces carry no more than the
+       others, so it is not a face layer. Not the floor fluid: at `M/8` the
+       heavy fluid (`ρ = 1`, no counted reset) grows alike (`𝔅ˣ` 5.4e−5 →
+       6.8e−5 from `30M`).
+     - **`a = 0.9M`: a step in the inner region.** At `M/16`, `𝔅ᶻ` rises from
+       4.2e−5 at `10M` to 6.7e−5 at `15M` and is then flat to `50M` (7.7e−5);
+       `𝔅ˣ` alike. By layer `M/8 → M/16` is 2.0–2.2 beyond `2.5M` and 1.0–1.6
+       from `1.25M` to `2.5M`, the ergoregion's neighbourhood (Kerr-Schild
+       `r < 2M` in the plane, `|x| < 2.19M`).
+     The non-spinning Wald field (`ξ = 16/L`) was flat from `15M` to `50M` at
+     `M/16`, `𝔈`'s rates 1.94–2.01 outside `2M` ("Re-measured with option 1"
+     above; `𝔅` was not measured then). The
+     spinning case differs in `ξ = 0` (nothing damps the gauge, the charge
+     or `Φ̃`), the frame dragging, the inner horizon and the shifted box.
+     **Not localised further; for Erik** (round 4 asked for the measurement,
+     not a fix). *(Accepted as measured by Erik 2026-11-05: step 9 closes
+     on it, and the runs below are left for future black-hole work; "Known
+     risks".)* The runs that would separate the causes: Wald at `a = 0`
+     with `ξ = 0` at `M/8` and `M/16` to `50M` (the gauge damping alone, about
+     45 min and 2.7 h on 64 threads); `a = M/2` with the heavy fluid at `M/16`
+     (the fluid at the finest mesh); and a damping of `Φ̃ − aB₀`, the
+     departure from the case's own `Φ̃`, which is a design change.
+   - **The resets by layer** (`M/16`, `50M`): counted stage/step resets in
+     every layer from the counting radius to the corner — `a = M/2`
+     2.68·10⁹/1.01·10⁹ (1.32·10⁸/4.41·10⁷ deep inside), `a = 0.9M`
+     2.75·10⁹/1.00·10⁹ (7.68·10⁷/2.56·10⁷); the atmosphere (level 2) with
+     `ρ_FLOORED` and `S_CEILED` in most of them inside `5.5M`, `S_FLOORED` alone
+     beyond; `W_CEILED` 10⁶ and 3·10⁶ times, and `NONFINITE` (level 1, no closest
+     state; level 2 puts the atmosphere there) 1.1·10⁴ and 2.2·10³
+     times over the run (`M/8`: 6.9·10³ and 6.7·10³; none with the heavy
+     fluid). The step limiter's injected `τ`: −7.2·10⁴ and −2.3·10⁵ over the
+     octant (`M/8`: −1.6·10⁶, −5.1·10⁶). All the floor fluid's; the field
+     does not see them but through the charge's convection.
+   - **∇·𝔅** at rounding in every run (the curl is metric-free): 1.05–1.47e−16
+     of `max |𝔅|` (job 588706, both spins, `M/4` to `50M`, `M/8` to `20M`).
+
+   **Curved-space bit identity** (`test/curved_tests.jl`): with the step
+   cache (fused, the default) and the interior, 16 steps of `Δt = 1/64` in
+   one integration, in two, and as a restart from the saved state with a
+   rebuilt problem are the same bit for bit, for both cases; the suite prints
+   their checksums, which the one- and four-thread runs print alike. The
+   `· inv(√γ)` keys of "The step cache", written for curved space and first
+   exercised here, hold.
 4. **TOV in the Cowling approximation**: a Γ = 2, K = 100 polytrope
    at fixed entropy (needs EOS-1, EOS-2); stationarity and mode frequencies.
 5. **TOV in a dynamical spacetime**: the F, H1, H2 radial modes against
@@ -4149,6 +4887,37 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 - Whether `D s` earns its keep; the threshold that switches to it.
+  *(Measured in step 9:)* on the stationary Kerr-Schild flows it drifts
+  further from `D s_exact` than `D` does (see "Validation ladder" 3).
+- *(Added in step 9.)* The interior's form: the hard paste in both
+  limiters at `r_in = M` (proposed), against TreeGH's smooth damping layer
+  inside the right-hand side ("The interior"). *(Decided by Erik 2026-11-03:
+  the paste, for the analytic rung-3 cases.)*
+- *(Added in step 9, round 3, from Erik's decision on the interior.)* For a
+  hole that forms in a collapse, with no analytic solution inside: a
+  field-only interior — paste or damp `𝔈` and `A` inside, and leave the
+  matter to the ordinary reset, which round 3 found sufficient for the
+  matter. Not measured; for the step that forms a hole.
+- *(Added in step 9.)* The analytic metric pointwise (44% of a step on a
+  16³ blast) or cached per stage, or its repeated vertex and edge
+  evaluations deduplicated ("Metric providers"). *(Decided by Erik
+  2026-11-03: pointwise, no cache, no deduplication; caching is step 10's.)*
+- *(Added in step 9.)* A spinning Wald case, with a passive fluid at the
+  floor (Kerr has no closed-form accretion flow; "Validation ladder" 3).
+  *(Built in step 9, round 4; its `t = 50M` drift fails the prediction on
+  the finest pair at both spins, not localised further — "Validation
+  ladder" 3, "The spinning Wald case". For Erik: whether step 9 closes on
+  it, and the paste's ball at `a = 0.9M`.)* *(Resolved by Erik 2026-11-05:
+  step 9 is accepted as is; the late drift, the paste's ball at high spin
+  and the floor fluid's resets are left for future black-hole work, "Known
+  risks".)*
+- *(Added in step 9, round 3.)* The potentials' outer boundary where no
+  exact `A` exists (step 10's star, dynamic cases): a gradient-extrapolating
+  relative hook (option 2, upstream) or a gauge that damps a static `χ`
+  (option 3); see "Boundaries", the design rule. *(Decided by Erik
+  2026-11-03: in step 10. The Cowling TOV star is static, so an exterior
+  field from an exact static potential takes `static_potential = true`
+  (option 1) as is; options 2 and 3 matter for dynamic cases only.)*
 - Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
   TOV star, a star in a vacuum, twice: with the reset as both limiters,
   and as the step limiter alone. TreeHydro named this case as the one
@@ -4166,6 +4935,22 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 
 ## Known risks
 
+- **Spacetimes with black holes are not expected to work out of the
+  box** *(decided by Erik 2026-11-05; the same holds for
+  TreeGeneralizedHarmonic)*. Step 9 validated the scheme on analytic
+  Kerr-Schild backgrounds with the hard paste: Wald at `a = 0` and the
+  magnetized Bondi flow converge at second order to `t = 50M`. What it also
+  showed is left for future work on black holes:
+  - Without an interior, a vacuum field near the singularity fails: Wald at
+    `M/8` and `M/16`, earlier on the finer mesh.
+  - The spinning Wald case's drift grows late (`a = M/2` after `35M`) or
+    steps near the ergoregion (`a = 0.9M`), so its `50M` rates on the
+    finest pair fall below 1.8.
+  - At `a = 0.9M` the Euclidean paste ball misses the inner horizon.
+  - A floor fluid under `Vacuum` is reset in almost every cell every stage.
+  - The potentials need a boundary where no exact `A` exists.
+
+  See "Validation ladder" 3 and "The interior".
 - No MPI yet: single node, although TreeAMR now has its M7 (amended in
   step 0).
 - Unlimited conservative prolongation at a stellar surface floors cells.

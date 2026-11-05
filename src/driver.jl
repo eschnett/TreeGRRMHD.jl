@@ -18,7 +18,8 @@
 
 """
     MHDCase(T, Val(D); fields, potential, eos, opts = Con2PrimOptions{T}(), proj, pol,
-            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots)
+            model, provider = Flat(), 𝔅̄ = 0, periodic, extents, roots, interior = nothing,
+            static_potential = false, gauge_damping = nothing)
 
 A problem, as data:
 
@@ -33,7 +34,16 @@ A problem, as data:
   2, the atmosphere), as [`recovery_options`](@ref) builds them; `model`: the
   conductivity; `provider`: the metric;
 - `𝔅̄`: the constant densitized background field (`src/curl.jl`);
-- `periodic`, `extents`, `roots`: the box, per dimension.
+- `periodic`, `extents`, `roots`: the box, per dimension;
+- `interior`: `nothing`, or a black hole's [`HoleInterior`](@ref), inside
+  which the limiters replace the state by `fields` and `potential` (step 9);
+- `static_potential`: whether `potential` does not depend on `t`, which makes
+  the potentials' Dirichlet hooks absolute ([`DirichletBoundary`](@ref);
+  decided by Erik 2026-11-03). `false` keeps the relative hook (AMR-7), which
+  a potential growing in time needs under IMEX;
+- `gauge_damping`: the case's own `ξ`, or `nothing` for [`default_ξ`](@ref)'s
+  `16/L` — a static potential with `Φ̃ ≠ 0` is a stationary solution of the
+  damped gauge only at `ξ = 0` (step 9, round 4).
 
 Both callbacks become kernel arguments, so they must capture `isbits` values
 only. Where `fields` is an exact solution at every `t`, it is also the
@@ -42,7 +52,7 @@ dimension is given Dirichlet boundaries from the same two callbacks
 ([`case_boundary`](@ref), [`DirichletBoundary`](@ref); step 6), so there
 they must also be the solution outside the box for as long as the run lasts.
 """
-struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
+struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET,IN}
     fields::FL
     potential::PT
     eos::EOS
@@ -55,11 +65,15 @@ struct MHDCase{T,D,FL,PT,EOS,OPT,PRJ,POL,MOD,MET}
     periodic::NTuple{D,Bool}
     extents::NTuple{D,Tuple{T,T}}
     roots::NTuple{D,Int}
+    interior::IN
+    static_potential::Bool
+    gauge_damping::Union{Nothing,T}
 end
 
 function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj, pol,
                  model::Conductivity, provider::MetricProvider=Flat(), 𝔅̄=nothing,
-                 periodic, extents, roots) where {T,D}
+                 periodic, extents, roots, interior=nothing,
+                 static_potential::Bool=false, gauge_damping=nothing) where {T,D}
     per = periodic isa Tuple ? ntuple(d -> Bool(periodic[d]), D) : ntuple(_ -> Bool(periodic), D)
     length(extents) == D || throw(ArgumentError(
         "a case needs one extent per dimension, got $(length(extents)) for D = $D."))
@@ -71,8 +85,9 @@ function MHDCase(::Type{T}, ::Val{D}; fields, potential, eos, opts=nothing, proj
     o = opts === nothing ? EntropyEOS.Con2PrimOptions{T}() : opts
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     return MHDCase{T,D,typeof(fields),typeof(potential),typeof(eos),typeof(o),typeof(proj),
-                   typeof(pol),typeof(model),typeof(provider)}(
-        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs)
+                   typeof(pol),typeof(model),typeof(provider),typeof(interior)}(
+        fields, potential, eos, o, proj, pol, model, provider, B̄, per, ext, rs, interior,
+        static_potential, gauge_damping === nothing ? nothing : T(gauge_damping))
 end
 
 """
@@ -199,7 +214,7 @@ exact_state(p::MHDProblem, case::MHDCase, t) = case_state!(statevector(p.sets), 
 # --- Dirichlet boundaries ----------------------------------------------------------------
 
 """
-    DirichletBoundary{R}(fields, potential, eos, provider)
+    DirichletBoundary{R}(fields, potential, eos, provider; absolute = false)
 
 The case's own solution as the boundary of one evolved set (step 6;
 "Boundaries" in `CODE.md`), at the time of each fill. `R` names the set:
@@ -239,6 +254,22 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   the points it fills, from `G+2`, as the high wall is from `G+N`. Until step
   8 this was TreeAMR's region form, CPU-only, with this package's own
   `low_walls!` and `outer_points!` kernels around it.
+- **The potentials of a case whose potential does not depend on `t`**,
+  `absolute = true` (decided by Erik 2026-11-03, "option 1"; the case's
+  `static_potential`): the case's `A_j` and `Φ̃` themselves at every ghost
+  and on every prescribed wall, `CellBoundary(AllVariables(…))`, which under
+  symmetric walls writes the owned low wall too. The relative rule copies
+  the evolved potential's offset from `x_r` to `x_g` unchanged along the
+  normal; a gauge drift `∇χ` of the evolved `A` (truncation order, and a
+  static `χ` the damped Lorenz gauge does not damp) is then no longer a
+  gradient across the face, its curl puts spurious `𝔅` into the ghost and
+  wall faces, and the loop boundary → `𝔅` → `E` → `A` → `χ` grows (measured
+  in step 9 on the Kerr-Schild cases: `e^{0.11 t/M}` at `h = M/4`; "Boundaries"
+  in `CODE.md`). The absolute hook pins the gauge at the boundary. It is
+  valid **only** where `A_case` does not depend on `t`: under IMEX the
+  stage's `A` is at `tⁿ + c̃Δt` while `solve_imp!` is told `tⁿ + cΔt`, and a
+  potential that moves with `t` would be filled at the wrong time (above).
+  Ignored for `R = :U` and `:W`.
 
 As in TreeHydro, a Dirichlet boundary is exact only until a wave arrives; a
 case's `t_end` is chosen before that.
@@ -248,10 +279,11 @@ struct DirichletBoundary{R,FL,PT,EOS,MET}
     potential::PT
     eos::EOS
     provider::MET
+    absolute::Bool
 end
-DirichletBoundary{R}(fields, potential, eos, provider) where {R} =
+DirichletBoundary{R}(fields, potential, eos, provider; absolute::Bool=false) where {R} =
     DirichletBoundary{R,typeof(fields),typeof(potential),typeof(eos),typeof(provider)}(
-        fields, potential, eos, provider)
+        fields, potential, eos, provider, absolute)
 
 # The time-`t` callback of a `DirichletBoundary`, `isbits` whenever the hook
 # is.
@@ -300,7 +332,8 @@ cell's center (added in step 8). Any other matter hook has no primitive
 counterpart this package can derive; pass `boundary_W` to `MHDProblem`.
 """
 primitive_boundary(hook::DirichletBoundary{:U}) =
-    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider)
+    DirichletBoundary{:W}(hook.fields, hook.potential, hook.eos, hook.provider;
+                          absolute=hook.absolute)
 primitive_boundary(hook) = throw(ArgumentError(
     "the matter's boundary hook $(typeof(hook)) has no primitive counterpart: since step 8 " *
     "the matter's ghost fill prolongates the primitives (CODE.md, \"Refinement\"), so a " *
@@ -311,9 +344,18 @@ primitive_boundary(hook) = throw(ArgumentError(
 @inline (d::DirichletAt{<:DirichletBoundary})(x::NTuple{D,T}) where {D,T} =
     case_potential(d.hook, x, d.t)
 
+# A static potential, absolute: `g(x, δ) -> (value,)`, the case's potential at
+# the ghost or wall point itself (decided by Erik 2026-11-03).
+struct AbsolutePotentialAt{H}
+    at::H
+end
+@inline (a::AbsolutePotentialAt)(x::NTuple{D,T}, δ) where {D,T} = (a.at(x),)
+
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
-boundary_at(hook::DirichletBoundary, t) = CellBoundary(Relative(DirichletAt(hook, t)))
+boundary_at(hook::DirichletBoundary, t) =
+    hook.absolute ? CellBoundary(AllVariables(AbsolutePotentialAt(DirichletAt(hook, t)))) :
+    CellBoundary(Relative(DirichletAt(hook, t)))
 
 # --- the owned low walls -------------------------------------------------------------
 
@@ -384,11 +426,14 @@ end
 `nothing` for a case periodic in every dimension, and otherwise one
 [`DirichletBoundary`](@ref) per evolved set, in the order `(U, A₁, A₂, A₃,
 Φ̃)` that [`MHDProblem`](@ref)'s `boundary` takes: the case's solution as the
-boundary of every set, through each set's own hook (AMR-2).
+boundary of every set, through each set's own hook (AMR-2). The potentials'
+hooks are absolute where the case declares its potential static
+(`static_potential`, decided by Erik 2026-11-03), and relative otherwise.
 """
-function case_boundary(case::MHDCase)
+function case_boundary(case::MHDCase; static_potential::Bool=case.static_potential)
     all(case.periodic) && return nothing
-    mk(R) = DirichletBoundary{R}(case.fields, case.potential, case.eos, case.provider)
+    mk(R) = DirichletBoundary{R}(case.fields, case.potential, case.eos, case.provider;
+                                 absolute=static_potential)
     return (mk(:U), mk(1), mk(2), mk(3), mk(4))
 end
 
@@ -519,7 +564,8 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing, step_cache = true, two_phase = false) -> NamedTuple
+            after_regrid = nothing, step_cache = true, two_phase = false,
+            interior = case.interior) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -553,7 +599,10 @@ as before (the negative control; "The step cache" in `CODE.md`).
 rather than fused ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
 for bit. Fused is the default on the CPU (decided by Erik 2026-11-02).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
-once after the initial adaptation (added in step 8).
+once after the initial adaptation (added in step 8). `interior` is the
+case's black-hole interior ([`HoleInterior`](@ref)) unless given — another
+radius or role, or `nothing` to evolve the inside too, for a measurement
+(added in step 9).
 
 `limiter` has no default (see [`MHDProblem`](@ref)); `cfl = 2/5` is
 TreeHydro's, under the explicit part of SSP3(4,3,3) — the SSPRK(3,3)
@@ -587,7 +636,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
-                 step_cache::Bool=true, two_phase::Bool=false) where {T,D}
+                 step_cache::Bool=true, two_phase::Bool=false,
+                 interior=case.interior) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -613,7 +663,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                          stage=stage,
                          limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
                          ops_W=ops_W, fixup=fixup, boundary=case_boundary(case),
-                         two_phase=two_phase)
+                         two_phase=two_phase, interior=interior_target(interior, case))
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
@@ -685,10 +735,12 @@ wave's errors moved in the fifth digit at most (measured in step 8,
 `bin/gauge_damping.jl`). On a uniform mesh `−∇(αΦ − β·A)` is a discrete
 gradient whose curl vanishes to rounding, so there `ξ` moves `A`'s gauge
 part and `Φ̃`, and `𝔅` and the matter only at rounding ("Refinement" in
-`CODE.md`).
+`CODE.md`). A case's own `gauge_damping` replaces it (step 9, round 4: the
+spinning Wald case, whose static potential has `Φ̃ ≠ 0`, takes 0).
 """
 default_ξ(case::MHDCase{T,D}) where {T,D} =
-    16 / maximum(e -> case.extents[e][2] - case.extents[e][1], 1:D)
+    case.gauge_damping === nothing ?
+    16 / maximum(e -> case.extents[e][2] - case.extents[e][1], 1:D) : case.gauge_damping
 
 # `evolve!`'s `ξ`: the default, or the caller's in the case's type.
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)

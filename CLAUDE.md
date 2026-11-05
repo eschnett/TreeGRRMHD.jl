@@ -44,8 +44,15 @@ Rules that follow from `CODE.md` and govern every change here:
 physics), 3 (the implicit stage solve), 5 (the staggered scheme in 1D,
 rung 1a), 6 (shock tubes and the stiff limit, rung 1b), 7 (2D, 3D and
 higher-order reconstruction, rung 2a) and 8 (coarse-fine faces and
-regridding, rung 2b; finished on TreeAMR 0.2.2) are done; step 9 (analytic
-curved backgrounds) is next and waits for nothing (2026-10-16).** `CODE.md` records the reviewed design
+regridding, rung 2b; finished on TreeAMR 0.2.2) and 9 (analytic curved
+backgrounds, rung 3; `claude/step-9-curved-backgrounds`) are done. Step 9 was
+accepted as is by Erik on 2026-11-05, including round 4's spinning Wald case,
+whose `50M` drift fails the prediction on the finest pair. **Spacetimes with
+black holes are not expected to work out of the box** (as in
+TreeGeneralizedHarmonic); further work on black holes is left for the
+future (`CODE.md`, "Known risks"). The interior (the paste), the coarse-pair
+rates and the deduplication were decided by Erik 2026-11-03. Step
+10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -190,7 +197,48 @@ face: AMR-11). The magnetized atmosphere tube was chaotic at rounding level
 under EntropyEOS 2.0 its perturbed runs are clean but not all the same run. `bin/interface_order.jl`,
 `bin/gauge_damping.jl`, `bin/field_loop_refined.jl`, `bin/ghost_fill.jl`
 made `CODE.md`'s step-8 tables. Tests: `test/refinement_tests.jl` and
-`test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers).
+`test/refinement_cases_tests.jl` (use `multid_tests.jl`'s helpers). Step 9:
+`src/cases/kerr_schild.jl` — `MichelFlow` (Michel's accretion flow,
+`michel_density`, `michel_state`), `wald_case` (`Vacuum`, Wald at `a = 0`)
+and `bondi_case` (`IdealConductor`, Michel's flow in a radial monopole) on a
+Schwarzschild hole in Kerr-Schild coordinates (`Analytic(KerrSchild(1))`),
+on the octant `[0, 4M]³` with the hole at its corner and Dirichlet faces
+(the monopole's Dirac string leaves through the corner); `src/interior.jl` —
+`HoleInterior(r_in; stage, step)`, an `MHDCase`'s `interior`, pasted by the
+reset first, as stage and step limiter, position-only (proposed; `r_in = M`),
+and the diagnostics `outside_l1`, `field_l1`, `charge_norms`. Every kernel
+already read the metric at its own point, so the scheme did not change;
+pointwise evaluation is 44% of a step on a 16³ blast (`bin/metric_cost.jl`;
+kept: decided by Erik 2026-11-03, no cache; caching is step 10's). `bin/curved_stationarity.jl` is the `t = 50M` study (CODE.md,
+"Validation ladder" 3). Tests: `test/curved_tests.jl` (~2 min with
+compilation; the right-hand side's truncation error, the drift to `t = M/2`
+at `h = M/4`, `M/8`, the interior, the curved-space bit identity). Round 2
+(2026-11-02): the `t = 50M` study fails the predicted order, and
+`bin/curved_localise.jl` (time series, radial layers, face distances, the
+resets by layer and by EntropyEOS level, diagnostic hooks evaluated in its
+own process) located it: a mode that grows through the potentials' relative
+Dirichlet hook (AMR-7) copying the gauge drift of `A` across the face; with
+the potentials absolute in the ghosts both cases are stationary and second
+order (CODE.md, "Validation ladder" 3, "Where the error lives"; the fix is
+Erik's). Resets deep inside the hole, `r < (r_in + 2M)/2`, are not counted
+(Erik, 2026-11-02; CODE.md, "The interior"). Round 3 (2026-11-03, option 1,
+decided by Erik): `MHDCase(…; static_potential = true)` makes the potentials'
+Dirichlet hooks absolute (`DirichletBoundary(…; absolute = true)`), valid only
+for potentials that do not depend on `t`; the Kerr-Schild cases declare it,
+every other case keeps the relative hook (AMR-7) and its output bit for bit;
+the boundary testset in `test/curved_tests.jl` holds a gauge offset out of
+`𝔅`. The design rule is in CODE.md, "Boundaries". `bin/curved_localise.jl`'s
+`relhook=true` is the negative control, `interior=false` the no-interior run.
+Round 4 (2026-11-03): `spinning_wald_case` (Wald's uncharged field on a Kerr
+hole, `a = M/2`, `0.9M`, a passive floor fluid, `Φ̃ = aB₀`, so
+`gauge_damping = 0`, `MHDCase`'s new field), `kerr_schild_r`; the octant
+shifted by `L/256` in `z` off the `r = 0` disk; `bin/curved_localise.jl kwald`
+(`a`, `rho_fluid`, `ballks`, `watch`). The `50M` study (jobs 588687–588689,
+588704–588706): second order at `10M`, but `M/8 → M/16` at `50M` fails —
+`a = M/2` 0.79–1.55 (a late growth in the outer region), `a = 0.9M` 1.12–1.93
+(a step near the ergoregion); the Euclidean paste at `a = 0.9M` misses `r₋`
+and grows, the ball in Kerr-Schild `r` does not (CODE.md, "The spinning Wald
+case"; both for Erik).
 
 ## Commands
 
@@ -341,7 +389,36 @@ identical, the clean checkout identical to the one-thread run, every printed
 line of the scheme identical to fea242a's but the nine new ones; six lines
 of the pointwise metric tests moved at 10⁻¹⁵ because the registry resolved
 ForwardDiff 1.4.7 (and TreeAMR 0.2.7) for the new tree, against 1.4.6 (and
-0.2.6) for fea242a's of 2026-10-30. At
+0.2.6) for fea242a's of 2026-10-30. Step 9 (2026-11-02,
+`claude/step-9-curved-backgrounds` at af0c482, Symmetry, AMD EPYC 7532):
+**26425 tests** (+72, `test/curved_tests.jl`), one failure (the Michel
+`uʳ` bound on the EPYC, fixed in cb41add), a `Test Summary` time of 14m35s
+at one thread on cn082 (the curved file about 3.5 min of it, compilation
+included); the same one failure at four threads (cn080) and with bounds
+checks (cn081). At cb41add (jobs 588117–588119): **26425 tests, every run
+passing whole** — 14m21s at one thread on cn081 (EPYC 7532) against
+9e686a2's 11m08s (26353 tests) in the same job, 11m38s at four threads and
+14m28s for the clean-checkout check on cn092 (EPYC 7532), 12m38s with
+`--check-bounds=yes` on cn093 (EPYC 7543). One and four threads identical,
+the clean checkout identical to the one-thread run, every line of the
+baseline present in the one-thread run (11 new lines); bounds checks, on the
+other CPU, move 70 lines. The suite stays whole at about 14 minutes, the
+curved file in it (decided by Erik 2026-11-03: no split). With option 1,
+the static potentials' absolute hook (2026-11-03, 5bea724, Symmetry, AMD
+EPYC 7532 throughout): **26428 tests** (+3, the boundary testset), every run
+passing whole — 14m20s at one thread on cn079 against cb41add's 14m16s in
+the same job, 11m51s at four threads and 14m35s for the clean-checkout check
+on cn082, 16m55s with `--check-bounds=yes` on cn080. One and four threads
+identical, the clean checkout identical to the one-thread run, every line of
+cb41add's present but the six curved lines the absolute hook moves (seven new
+ones in their place); bounds checks move 70 lines. With the spinning Wald
+case (round 4, 2026-11-03, 0858776, Symmetry): **26442 tests** (+14), every
+run passing whole — 14m48s at one thread on cn082 (EPYC 7532) against
+5bea724's 14m38s in the same job, 9m00s at four threads and 11m01s for the
+clean-checkout check on cn107 (EPYC 7543), 17m03s with `--check-bounds=yes`
+on cn083 (EPYC 7532); one and four threads identical, the clean checkout
+identical to the one-thread run, every line of 5bea724's present (three
+new); bounds checks move 70 lines. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
