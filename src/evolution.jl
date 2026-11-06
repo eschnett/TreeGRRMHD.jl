@@ -349,6 +349,15 @@ rebuild(p::MHDProblem; kwargs...) =
 unval(::Val{X}) where {X} = X
 
 """
+    evolved_sets(p::MHDProblem) -> (U, A₁, A₂, A₃, Φ̃)
+
+The problem's evolved sets, over which its state vector is: what a script
+makes the state vector from, `statevector(evolved_sets(p))` (added in step
+10).
+"""
+evolved_sets(p::MHDProblem) = p.sets
+
+"""
     boundary_at(hook, t)
 
 The hook TreeAMR's `fill_ghosts!` is handed for a fill at time `t`: `hook`

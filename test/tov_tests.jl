@@ -133,3 +133,108 @@ end
         @test maximum(abs, dg[:, :, j] - fd) < 1e-9
     end
 end
+
+# --- the scheme on the star ----------------------------------------------------------------
+
+# This package's side of the coupling contract, tested before TreeGH has GH-1: a
+# SpacetimeMetrics metric sampled at the points of the mesh, bound to the problem's block
+# origins and spacings and to a time (a snapshot, as a producer's adapter is), read at the
+# point's centering and local index. It computes the point's position as the kernels do
+# (`point_x`), so it is the analytic provider bit for bit — GH-1's reference
+# ("The coupling contract" in `CODE.md`).
+struct TVSampled{M,O,H,T}
+    metric::M
+    origins::O
+    spacings::H
+    t::T
+end
+@inline tv_point(s::TVSampled, c::Val, n, b) =
+    SVector(s.t, TV.point_x(@inbounds(s.origins[b]), @inbounds(s.spacings[b]), n, c)...)
+TV.SpacetimeMetrics.metric(s::TVSampled, c::Val, n, b) =
+    TV.SpacetimeMetrics.metric(s.metric, tv_point(s, c, n, b))
+TV.SpacetimeMetrics.dmetric(s::TVSampled, c::Val, n, b) =
+    TV.SpacetimeMetrics.dmetric(s.metric, tv_point(s, c, n, b))
+
+tv_sampled(p::MHDProblem) =
+    PointwiseMetric(TVSampled(p.provider.metric, p.origins, p.spacings, 0.0))
+
+const TV_CASE = tov_case(Float64)
+tv_boxes(f) = tov_boxes!(f, TV_CASE; levels=1)
+
+@testset "A producer's pointwise metric is the analytic one, to rounding: $name" for
+        (name, case, refine, exact) in (("Wald", wald_case(Float64), nothing, false),
+                                        ("TOV star", TV_CASE, tv_boxes, true))
+    # Guards this package's side of the coupling contract (`PointwiseMetric`,
+    # `point_metric(prov, t, x, Val(C), n, b)`): a kernel that passes another centering's
+    # staggers or index (the vertex metric of `∂ₜA`'s gradient, read from an edge kernel;
+    # the edge metric of the gauge flux, read from a vertex kernel; a ghost cell's local
+    # index), or a second derivative-index conversion, gives another metric somewhere, and
+    # a run that differs from the analytic one at truncation level. Four steps of the same
+    # integrator over the same state, with the step cache. The sampled adapter returns the
+    # analytic `g` bit for bit, but the 3+1 split of it (`adm_decompose`, StaticArrays'
+    # `muladd`) rounds as the context it is inlined into lets LLVM fuse it: Wald's shift,
+    # near the singularity, moves `α` by 1.4e−14 at `r = 0.22` and the run by rounding
+    # (measured in step 10). The star's metric is diagonal, and its run is the same bit for
+    # bit.
+    forest = Forest{Float64}(case.roots; N=8, periodic=case.periodic, extents=case.extents)
+    refine === nothing || refine(forest)
+    p = MHDProblem(mhd_fields(Float64, forest), case; limiter=:mc)
+    q = TV.rebuild(p; provider=tv_sampled(p))
+    u0 = exact_state(p, case, 0.0)
+    run(r) = (integ = mhd_integrator(r, copy(u0), 0.0, 1 / 8, 4);
+              with_step_cache(() -> TV.IRK.solve!(integ), r); integ.u)
+    a, b = run(p), run(q)
+    worst = maximum(i -> (r = staterange(p.sets, i);
+                          maximum(abs, a[r] - b[r]) / max(maximum(abs, a[r] - u0[r]), 1e-300)),
+                    eachindex(p.sets))
+    @info "$name through the sampled pointwise metric: checksum $(sum(abs, b)); identical to " *
+          "the analytic provider's: $(isequal(a, b)); largest difference per set, relative " *
+          "to its change in the four steps: $(tv3(worst))"
+    @test exact ? isequal(a, b) : worst < 1e-9
+    @test maximum(abs, a - u0) > 0
+    @test_throws ArgumentError point_metric(q.provider, 0.0, SVector(1.0, 1.0, 1.0))
+end
+
+module TVScript
+include(joinpath(@__DIR__, "..", "bin", "tov_cowling.jl"))
+end
+
+@testset "The step-10 script is the run evolve! makes, bit for bit" begin
+    # Guards the verbs (`prepare!`, `rhs!`, `stage_solve!`, `stage_limit!`, `step_limit!`,
+    # `max_rate`, `initial_state!`, `MHDProblem(fields, case)`) against `evolve!`, which is
+    # a composition of them: a verb that drops the metric, a step count or a chunk boundary
+    # computed otherwise, or a record that changes the state would make the script another
+    # run. `bin/tov_cowling.jl`'s `main`, two chunks, against `evolve!` on the same case and
+    # boxes; the script's record (the central density per chunk) is taken between chunks.
+    ρs = Float64[]
+    s = TVScript.main(; N=8, levels=1, t_end=1, chunk=1 // 2, limiter=:mc,
+                      record=(t, ρ) -> push!(ρs, ρ))
+    r = evolve!(TV_CASE, Val(3); N=8, t_end=1, chunk=1 // 2, limiter=:mc, refine=tv_boxes)
+    @info "The step-10 script: checksum $(sum(abs, s.u)), $(r.nsteps) steps; identical to " *
+          "evolve!'s: $(isequal(s.u, r.u)); ρ_c per chunk $(ρs)"
+    @test isequal(s.u, r.u) && s.t == r.t == 1
+    @test length(ρs) == 2 && ρs[end] == TV.central_density(r.p, r.u, r.t)
+end
+
+@testset "The Cowling star holds still and conserves its rest mass" begin
+    # Guards the case as a whole (`tov_case`, `tov_boxes!`): initial data out of
+    # equilibrium with the metric, an atmosphere off the star's isentrope or not at rest,
+    # or Dirichlet faces that are not the static exterior would move the central density
+    # at first order in `t`; a leak at a coarse-fine face, a boundary or the reset would
+    # change the rest mass by more than what the reset injects. On `h = 1` (the star
+    # resolved by 8 cells in `R̄`), MC, to `t = 4M`: measured −3.3% in `ρ_c`, the
+    # truncation error of so coarse a star (the study is `bin/tov_study.jl`'s); the rest
+    # mass changes by exactly the reset's injected `D`, to rounding.
+    r = evolve!(TV_CASE, Val(3); N=8, t_end=4, chunk=1, limiter=:mc, refine=tv_boxes)
+    ρ0 = TV.central_density(r.p, exact_state(r.p, TV_CASE, 0.0), 0.0)
+    ρ1 = TV.central_density(r.p, r.u, r.t)
+    M0 = r.totals0[1]
+    ΔM = conserved_totals(r.p, r.u)[1] - M0
+    injected = sum(c -> c.tally.injected_D, r.chunks)
+    @info "Cowling star, h = 1, t = 4M: ρ_c $(ρ0) → $(ρ1) ($(tv3((ρ1 - ρ0) / ρ0))); rest " *
+          "mass $(M0), change $(ΔM), injected by the reset $(injected), difference " *
+          "$(ΔM - injected); $(r.nsteps) steps, $(r.nblocks) blocks; checksum $(sum(abs, r.u))"
+    @test abs(ρ1 - ρ0) / ρ0 < 0.05
+    @test abs(ΔM - injected) < 1e-14 * M0
+    @test abs(injected) < 1e-8 * M0
+end
