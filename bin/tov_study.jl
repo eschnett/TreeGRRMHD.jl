@@ -7,7 +7,7 @@
 #     julia --project=. -t T bin/tov_study.jl [key=value...]
 #
 # Keys: `N` (cells per block, 16), `levels` (box levels, 1), `half` (the boxes' half-width in
-# units of the star's isotropic radius, 1.25), `L` (16), `roots` (2), `t_end` (200), `chunk`
+# units of the star's isotropic radius, 1.25), `L` (24), `roots` (4), `t_end` (200), `chunk`
 # (the sampling interval, 1), `limiter` (`mc`), `riemann` (`hlle`; `hlle_split`), `opsW`
 # (the primitives' ghost fill at refinement boundaries: `w3b`, the default, Conservative
 # width 3 bounded; `w3` unbounded; `w1`), `reset` (`both`, the default, or `step`: the
@@ -34,7 +34,7 @@ const OPS_W = Dict(
     "w3" => Operators(; prolongation=3, restriction=2, family=Conservative, bounded=false),
     "w1" => Operators(; prolongation=1, restriction=2, family=Conservative))
 
-function study(T=Float64; N=16, levels=1, half=1.25, L=16, roots=2, t_end=200, chunk=1,
+function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
                limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing)
     star = MHD.tov_case(T; L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)

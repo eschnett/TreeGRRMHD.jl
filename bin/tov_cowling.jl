@@ -8,7 +8,7 @@
 #     julia --project=. -t T bin/tov_cowling.jl [key=value...]
 #
 # Keys (`bin/tov_cowling_cli.jl`): `N` (cells per block, 16), `levels` (box levels around
-# the star, 1), `L` (the box `[−L, L]³`, 16), `roots` (2), `t_end` (200), `chunk` (10),
+# the star, 1), `L` (the box `[−L, L]³`, 24), `roots` (4), `t_end` (200), `chunk` (10),
 # `limiter` (`ppm`), `out` (a file for the record, `t ρ_c` per chunk; default the terminal).
 
 using TreeAMR
@@ -27,7 +27,7 @@ solve_imp!(U, u★, γΔt, p, t) = MHD.stage_solve!(U, u★, γΔt, p.mhd, t; p.
 stage_limit!(u, _, p, t) = MHD.stage_limit!(u, p.mhd, t; p.metric)
 step_limit!(u, _, p, t) = MHD.step_limit!(u, p.mhd, t; p.metric)
 
-function main(T=Float64; N=16, levels=1, L=16, roots=2, t_end=200, chunk=10, limiter=:ppm,
+function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
               record=(t, ρ_c) -> println(t, "  ", ρ_c))
     star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)

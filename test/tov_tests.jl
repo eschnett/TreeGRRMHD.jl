@@ -5,6 +5,10 @@
 
 const TV = TreeGRRMHD
 const TV_STAR = (; K=100.0, Γ=2.0, ρ_c=1.28e-3)
+# The suite's star: `[−16, 16]³` on two roots, whose one box level refines every block, so
+# `h = 1` throughout (the default box's coarse-fine faces are the studies'; step 8's tests
+# hold the faces themselves).
+const TV_CASE = tov_case(Float64; L=16, roots=2)
 
 tv3(x) = round(x; sigdigits=3)
 
@@ -34,7 +38,7 @@ end
     # writes `p = K ρ^Γ`, `e = ρ + p/(Γ − 1)` in closed form, and the case runs on
     # `IdealGasEOS` at `polytropic_entropy(eos, K)`; another `K`, `Γ` or `ε` would make the
     # initial data out of equilibrium by the difference.
-    c = tov_case(Float64)
+    c = TV_CASE
     eq = c.fields.w.metric.eq
     s = c.fields.w.s
     for ρ in (1e-9, 1e-6, 1e-4, 1.28e-3)
@@ -191,7 +195,6 @@ TV.SpacetimeMetrics.dmetric(s::TVSampled, c::Val, n, b) =
 tv_sampled(p::MHDProblem) =
     PointwiseMetric(TVSampled(p.provider.metric, p.origins, p.spacings, 0.0))
 
-const TV_CASE = tov_case(Float64)
 tv_boxes(f) = tov_boxes!(f, TV_CASE; levels=1)
 
 @testset "A producer's pointwise metric is the analytic one, to rounding: $name" for
@@ -240,7 +243,7 @@ end
     # run. `bin/tov_cowling.jl`'s `main`, two chunks, against `evolve!` on the same case and
     # boxes; the script's record (the central density per chunk) is taken between chunks.
     ρs = Float64[]
-    s = TVScript.main(; N=8, levels=1, t_end=1, chunk=1 // 2, limiter=:mc,
+    s = TVScript.main(; N=8, levels=1, L=16, roots=2, t_end=1, chunk=1 // 2, limiter=:mc,
                       record=(t, ρ) -> push!(ρs, ρ))
     r = evolve!(TV_CASE, Val(3); N=8, t_end=1, chunk=1 // 2, limiter=:mc, refine=tv_boxes)
     @info "The step-10 script: checksum $(sum(abs, s.u)), $(r.nsteps) steps; identical to " *

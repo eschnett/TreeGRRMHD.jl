@@ -58,7 +58,7 @@ tov_gas(::Type{T}; K=100, Γ=2, s_ref=5) where {T} =
                               ρ_bounds=(T(1e-14), one(T)), yₑ_bounds=(T(0.05), T(0.6)))
 
 """
-    tov_case([T]; K = 100, Γ = 2, ρ_c = 1.28e-3, L = 16, roots = 2, ρ_min = 1e-10,
+    tov_case([T]; K = 100, Γ = 2, ρ_c = 1.28e-3, L = 24, roots = 4, ρ_min = 1e-10,
              NK = 129, steps = 4000)
 
 The TOV star in the Cowling approximation ("Validation ladder" 4 in
@@ -68,10 +68,13 @@ on its own metric, `Analytic(TOVMetric)` with `NK` knots, in the closed box
 `[−L, L]³` of `roots³` root blocks with Dirichlet faces from the static
 exterior, the atmosphere at `ρ_min` on the star's isentrope outside
 ([`tov_gas`](@ref)), and no field (`IdealConductor`, `A = 0`, `Φ̃ = 0`). The
-static refinement around the star is [`tov_boxes!`](@ref). The case's data
+static refinement around the star is [`tov_boxes!`](@ref): on the default
+box, whose root blocks are `12` wide, its first level covers `[−12, 12]³`, a
+coarse-fine face outside the surface at `R̄ = 8.1` (on `[−16, 16]³` with two
+roots it would refine every block). The case's data
 is `case.fields.w`, a [`TOVStar`](@ref); its solution is `TOVMetric`'s.
 """
-function tov_case(::Type{T}=Float64; K=100, Γ=2, ρ_c=1.28e-3, L=16, roots=2,
+function tov_case(::Type{T}=Float64; K=100, Γ=2, ρ_c=1.28e-3, L=24, roots=4,
                   ρ_min=1e-10, NK::Integer=129, steps::Integer=4000) where {T}
     sol = tov_solve(T; K, Γ, ρ_c, steps)
     T(L) > sol.R̄ || throw(ArgumentError(
