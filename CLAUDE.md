@@ -20,8 +20,15 @@ Rules that follow from `CODE.md` and govern every change here:
 
 - **No mesh machinery.** Trees, ghosts, inter-level operators, reductions
   and point interpolation belong upstream in TreeAMR. Interpolation
-  *within a block* between centerings (metric from vertices; `T_ab` to
-  vertices) is application code and lives here.
+  *within a block* between centerings is application code and lives with
+  the producer of the data: `T_ab` to TreeGH's vertices here, the metric
+  from TreeGH's vertices in TreeGH (amended 2026-11-06).
+- **Neither package drives, and neither depends on the other.** A coupled
+  run is a script that owns the loop and calls `TreeGH.prepare!`,
+  `TreeGRRMHD.prepare!` and the rest; data passes through pointwise
+  adapters that the producer supplies (decided by Erik 2026-11-05;
+  `CODE.md`, "The coupling contract"). Do not add a driver framework or a
+  TreeGH dependency.
 - **Upstream changes are Erik's.** When this package needs something from
   TreeAMR, TreeGeneralizedHarmonic or EntropyEOS, it goes into `CODE.md`'s
   "Upstream prerequisites" as a precise request; do not edit the sibling
@@ -52,7 +59,9 @@ black holes are not expected to work out of the box** (as in
 TreeGeneralizedHarmonic); further work on black holes is left for the
 future (`CODE.md`, "Known risks"). The interior (the paste), the coarse-pair
 rates and the deduplication were decided by Erik 2026-11-03. Step
-10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
+10, the Cowling TOV star on `Analytic(TOVMetric)`, waits for nothing: it no
+longer reads TreeGH (decided by Erik 2026-11-06). Step 11 waits for GH-1 to
+GH-4.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the

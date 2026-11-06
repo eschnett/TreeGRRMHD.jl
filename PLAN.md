@@ -15,8 +15,9 @@ round 4's spinning Wald case, whose `50M` drift fails the prediction on the fine
 spins. Spacetimes with black holes are not expected to work out of the box, as in
 TreeGeneralizedHarmonic; further work on black holes is left for the future (`CODE.md`, "Known
 risks"). The interior, the coarse-pair rates and the deduplication were decided by Erik
-2026-11-03. Step 10
-waits for GH-1 and GH-2 (GH-0 has landed).** *(Amended in step 9, rounds 2–4.)* *(Amended 2026-10-14:)* Steps
+2026-11-03. Step 10, the Cowling TOV star on `Analytic(TOVMetric)`, waits for nothing: it no
+longer reads TreeGH (decided by Erik 2026-11-06). Step 11 waits for GH-1 to GH-4 (GH-0 has
+landed).** *(Amended in step 9, rounds 2–4, and 2026-11-06.)* *(Amended 2026-10-14:)* Steps
 4a–4c are done in the IMEX package's own repository: IMEXRungeKutta 1.4.0 is tagged,
 unregistered, and a dependency from step 0. EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0,
 EOS-8 in 1.1.0, EOS-9 in 2.0.0, EOS-11 in 2.1.0 and EOS-10 in 2.2.1; the package resolves 2.0.0 since
@@ -25,7 +26,8 @@ EOS-4 waiting). TreeAMR 0.2.1 is registered with AMR-1,
 AMR-2, AMR-3 and AMR-5, and AMR-4 and AMR-6 in a different form, and 0.2.2 with AMR-7 to AMR-10
 (AMR-11, added in step 8, waiting); SpacetimeMetrics 1.7.0 with
 SM-1. So step 5, the first evolution, waits for nothing (AMR-1, EOS-1, EOS-2, 4b). TreeGH's
-`main` is still fbfd416 (GH-0 landed; GH-1 to GH-6 waiting; unregistered). The "state" column
+`main` is still fbfd416 (GH-0 landed; GH-1 to GH-4 and GH-6 waiting; GH-5 withdrawn;
+unregistered). The "state" column
 of the table below has each item.
 
 The steps follow `CODE.md`'s validation ladder (rungs 1–7):
@@ -205,8 +207,10 @@ This is TreeGH's pattern.
   (`walls_to_state!`), so that `u` holds the boundary condition's walls. The right-hand side writes
   zero into `du` there: the wall is prescribed, not evolved.
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
-- **`T_ab` must be in `Tsrc` before any TreeGH call that reads it**: the RHS, and the ADM
-  monitor.
+- **An adapter is a snapshot of its producer's prepared state.** The `T_ab` that TreeGH's RHS
+  and ADM monitor read, and the metric this package's recovery, RHS and stage solve read, come
+  from a `prepare!` at the same `(u, t)` — at `u★` for the stage solve. *(Amended 2026-11-06:
+  was "`T_ab` must be in `Tsrc` before any TreeGH call that reads it".)*
 
 ## Upstream requirements
 
@@ -264,12 +268,12 @@ what its `main` reads. "Landed in" means the compat floor guarantees it and the 
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only (added 2026-10-22, rewritten after Erik's review) | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` (added 2026-10-24) | landed (EntropyEOS 2.2.1, 2026-10-30) |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction (added 2026-10-26, from the 2026-10-24 discussion) | landed in EntropyEOS 2.1.0, as `inside_window` (decided by Erik); `[compat]` `"2.2"` |
-| GH-0 | TreeGH | req | 10 | land step 8 on `main` | landed (by inspection) |
-| GH-1 | TreeGH | req | 10 | public access to the vertex metric | waiting |
-| GH-2 | TreeGH | req, workaround | 10 | registration; registry-satisfiable compat; Julia floor | open, see below |
-| GH-3 | TreeGH | req | 11 | stress-energy input | waiting |
-| GH-4 | TreeGH | req | 11 | RHS and limiters callable from an external integrator | waiting |
-| GH-5 | TreeGH | wanted | 10 | ghost width `≥ q/2 + 1` | waiting |
+| GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
+| GH-1 | TreeGH | req | 11 | the metric at this package's points, a pointwise adapter (rewritten 2026-11-06; was step 10's public vertex metric) | waiting |
+| GH-2 | TreeGH | req, workaround | 11 | registration; registry-satisfiable compat; Julia floor | open, see below |
+| GH-3 | TreeGH | req | 11 | stress-energy input, a pointwise `matter` adapter (amended 2026-11-06; was the `Tsrc` field set) | waiting |
+| GH-4 | TreeGH | req | 11 | RHS and limiters callable from a script: `TreeGH.prepare!`, `TreeGH.rhs!`, … (amended 2026-11-06) | waiting |
+| GH-5 | TreeGH | — | — | withdrawn 2026-11-06 (was: ghost width `≥ q/2 + 1`, wanted, step 10); TreeGH's own choice behind GH-1 | withdrawn |
 | GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
 | SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed in SpacetimeMetrics 1.7.0 (workaround dropped) |
 
@@ -1177,7 +1181,9 @@ out). `[compat]` `EntropyEOS = "2.2"`, `[sources]` the tag `v2.2.0`; `inside_win
 `test/prerequisite_tests.jl`'s list, and no probe is kept (the rule above). Measured in `CODE.md`,
 "EntropyEOS 2.0" (re-measured 2026-10-26).
 
-### GH-0 — Land step 8 on `main` (req, step 10)
+### GH-0 — Land step 8 on `main` (req, step 11)
+
+*(Amended 2026-11-06: it was step 10's, which no longer reads TreeGH.)*
 
 **Landed by inspection** *(step 0)*: TreeGH's `main` (fbfd416, 2026-10-09) has `accounting`,
 `t_target`, the `:fitted` interior and the stage limiter, and its `CLAUDE.md` records steps
@@ -1192,31 +1198,61 @@ The step-8 branches, with tip `claude/step-8f-matrix` (47 commits ahead), widen 
 The items below are written against `main`. They apply to whatever `main` is when they are made.
 TreeGRRMHD targets `main` only.
 
-### GH-1 — Public access to the vertex metric (req, step 10)
+### GH-1 — The metric at this package's points (req, step 11)
 
-**Export, with public names and docstrings:**
-- `NC` (= 10).
-- `unpack_sym4(v::SVector{10}) -> SMatrix{4,4}` (today `_sym4`) and
-  `pack_sym10(m::SMatrix{4,4}) -> SVector{10}` (today `_pack10`), in the order
-  `(tt,tx,ty,tz,xx,xy,xz,yy,yz,zz)`.
-- **The layout of `U.work` as a public contract:** variables 1:10 are `h_ab = g_ab − η_ab`, and
-  11:20 are `Π_ab = √γ n^μ∂_μ g_ab`, both packed.
-- One exported pointwise function, preferred over exporting `axis_stencil`, `mixed_stencil`,
-  `work_strides` and `point_position`:
-  ```julia
-  vertex_state_at(work, idx::NTuple{3}, b, inv_h, ::Val{q}) -> (h::SVector{10}, Π::SVector{10}, ∂h::NTuple{3,SVector{10}})
-  ```
-  It returns `h`, `Π` and the order-`q` spatial gradient at a stored vertex index, using the
-  same stencils as the RHS.
-- Confirm that the exported `metric_quantities`, `metric_derivatives` and `adm_vars_from_state`
-  are the stable path from `(h, Π, ∂h)` to `(α, β, γ, √γ, K_ij, ∂α, ∂β, ∂γ)`.
+*(Rewritten 2026-11-06, from the decisions of 2026-11-05 in `CODE.md`, "The coupling
+contract": the adapters live in the producers. The former request is withdrawn: `NC`,
+`unpack_sym4` and `pack_sym10` under public names, `U.work`'s layout as a public contract, and
+`vertex_state_at(work, idx, b, inv_h, Val(q)) -> (h, Π, ∂h)`, so that this package could decode
+and interpolate TreeGH's vertex state itself. TreeGH's layout stays private. It was step 10's,
+which no longer reads TreeGH.)*
 
-**Downstream check.** On a Kerr-Schild background filled by `fill_exact!`, TreeGRRMHD's decoded
-quantities at vertices must match SpacetimeMetrics:
-- `α`, `β`, `γ_ij` and `K_ij` match `adm_decompose` / `ExtrinsicCurvature` to round-off;
-- the derivatives match to finite-difference order.
+**What.** A pointwise metric adapter in TreeGH, built from its prepared state, that answers at
+this package's points: cells, faces, edges and vertices, ghosts included.
 
-### GH-2 — Registration, registry-satisfiable compat, the Julia floor (req, step 10; workaround)
+**API** (proposed; `prepare!` is GH-4's; the name cannot be `ADMVars`, which in TreeGH is
+ApparentHorizonFinder's type):
+```julia
+g  = TreeGH.prepare!(p::GHProblem, u::AbstractVector, t)  # GH-4
+gm = TreeGH.FourMetric(g)          # the adapter; Adapt-able, isbits on the device
+at = gm(fs::FieldSet)              # bound to one of the consumer's field sets: g_ab alone,
+g4 = at(I, b)                      #   g4::SMatrix{4,4,T}
+at = gm(fs::FieldSet, Val(1))      # or with its first derivatives,
+g4, dg4 = at(I, b)                 #   dg4::SArray{Tuple{4,4,4},T}, dg4[a, b, c] = ∂_c g_ab
+```
+
+**Semantics.**
+- `fs` is any field set of the consumer, cell-, face-, edge- or vertex-centered, with any `G`,
+  on TreeGH's forest (`===`); otherwise `ArgumentError` at binding. `(I, b)` ranges over its
+  stored points, ghosts included.
+- The values are in SpacetimeMetrics' conventions, as `dmetric` returns them: index 1 is `t`,
+  the derivative index is last, and `∂_t g_ab` comes from `Π_ab`.
+- A snapshot of the state `prepare!` saw, valid until TreeGH's state changes; no `t` argument.
+- **Accuracy:** 4th order at every point of the bound set, the outermost ghost layer of a
+  `G = 3` cell set included, or the adapter documents where it is lower. How it gets there is
+  TreeGH's choice: the 64-, 16- and 4-point Lagrange interpolation from the vertices
+  (`CODE.md`, "Metric at cells, faces and edges"), with a wider vertex `G` (what GH-5 asked
+  for), a 2nd-order outermost layer, or an exchanged cell metric.
+- Whether it interpolates per call or stores at binding is TreeGH's choice too; `CODE.md`,
+  "Metric providers", has the measured inputs.
+
+**Upstream acceptance.**
+- On a Kerr-Schild background filled by `fill_exact!`, bound to a `G = 3` cell set, to the face
+  and edge sets of each direction, and to a vertex set: `g` and `∂g` converge at 4th order
+  against SpacetimeMetrics' `dmetric`, ghosts included; at TreeGH's own vertices `g` is exact
+  to round-off.
+- Bound twice to the same set, it gives the same values bit for bit.
+
+**Downstream check** (step 11). Step 10's sampled adapter of a SpacetimeMetrics metric is the
+reference: TreeGH's adapter of the frozen TOV background agrees with `Analytic(TOVMetric)` to
+the contract's order through `point_metric` and `metric_gradient`, and the frozen-metric TOV
+run reproduces step 10's Cowling run to truncation error.
+
+### GH-2 — Registration, registry-satisfiable compat, the Julia floor (req, step 11; workaround)
+
+*(Amended 2026-11-06: it was step 10's. TreeGH is no longer a dependency of this package
+(`CODE.md`, "The coupling contract"); the item is for whatever loads both for step 11's coupled
+runs — this package's test environment or a project of their own, step 11's choice.)*
 
 - Register TreeGeneralizedHarmonic and KorzynskiSpin in General.
 - Every `[compat]` entry must be satisfiable from registered releases alone. `[sources]` of a
@@ -1237,22 +1273,27 @@ quantities at vertices must match SpacetimeMetrics:
 
 ### GH-3 — Stress-energy input (req, step 11)
 
-**API.**
+*(Amended 2026-11-06, from the decisions of 2026-11-05 in `CODE.md`, "The coupling contract":
+the input was a vertex-centered `Tsrc` field set — 10 components, `G = 0`, packed as in `NC` —
+that this package wrote before each right-hand side and that TreeGH's rebuilds carried. It is a
+pointwise adapter now, supplied by the producer. The kernel term, the monitors and the
+acceptance are unchanged.)*
+
+**API** (proposed; the verbs are GH-4's).
 ```julia
-GHProblem(U, schedule, case; q, t, interior, margin_check, …, Tsrc::Union{Nothing,FieldSet}=nothing)
+TreeGH.rhs!(du, p::GHProblem, t; matter = nothing)
 ```
 
-**The `Tsrc` field set.**
-- `vertexcentered(3)`, `nvars == 10`, `G == 0`, on the same forest (`===`) and backend as `U`.
-  Otherwise `ArgumentError`.
-- Content: the covariant coordinate components `T_ab`, in `G = c = 1` and the metric's length
-  unit, packed as in `NC`, at the owned vertices.
-- The caller writes it before each RHS evaluation. TreeGH never writes it and never ghost-fills
-  it.
-- It adds a sixth `Val`, `Val(HASMATTER)` with `HASMATTER = Tsrc !== nothing`. With `false`, the
-  kernel is bit-identical to today.
+**The `matter` argument.**
+- `nothing`, or an adapter that, bound to TreeGH's vertex set, `at = matter(U::FieldSet)`,
+  returns at an owned vertex `at(I, b)::SMatrix{4,4,T}`: the covariant coordinate components
+  `T_ab`, in `G = c = 1` and the metric's length unit.
+- TreeGH calls it at its owned vertices only and never stores it; whether the provider computes
+  per call or stores is the provider's choice.
+- It adds a sixth `Val`, `Val(HASMATTER)` with `HASMATTER = matter !== nothing`. With `false`,
+  the kernel is bit-identical to today.
 
-**Kernel** (evolution.jl:292–293 on `main`). With `Tl = unpack_sym4(Tsrc at inner)` and
+**Kernel** (evolution.jl:292–293 on `main`). With `Tl = at(inner, b)` and
 `trT = Σ gu4 .* Tl`:
 ```
 msrc += 16π · α · sqrtγ · pack_sym10(Tl − g4 · trT / 2)
@@ -1268,14 +1309,14 @@ msrc += 16π · α · sqrtγ · pack_sym10(Tl − g4 · trT / 2)
   matter term.
 - `gh_constraint!` is unchanged.
 
-**Lifecycle.** `with_interior` and every rebuild carry `Tsrc`; `regrid!` treats it as
-`=> nothing`, and the caller rebuilds it.
+**Lifecycle.** Nothing to carry: `matter` is an argument of each call, and the caller builds
+it from its own prepared state, after a regrid as before it.
 
 **Upstream acceptance.**
 - `HASMATTER = false` is bit-identical to today.
 - A static non-vacuum test metric: take an `isbits` test metric with a smooth compact mass
-  profile, set `T_ab := G_ab[g]/8π` from SpacetimeMetrics' Einstein tensor sampled into `Tsrc`,
-  and freeze `H = −Γ[g]`.
+  profile, pass as `matter` an adapter evaluating `T_ab := G_ab[g]/8π` from SpacetimeMetrics'
+  Einstein tensor at each vertex, and freeze `H = −Γ[g]`.
   - The RHS then vanishes at order `q` under refinement.
   - The matter-corrected `ℋ` and `ℳ_i` vanish at order `q`, and do not without the matter
     terms.
@@ -1284,20 +1325,29 @@ msrc += 16π · α · sqrtγ · pack_sym10(Tl − g4 · trT / 2)
 
 ### GH-4 — RHS and limiters callable from an external integrator (req, step 11)
 
-**API.**
+*(Amended 2026-11-06: the verbs are TreeGH's own under names this package shares, decided by
+Erik 2026-11-05, and a script calls them, not a driver here (`CODE.md`, "The coupling
+contract"). They were `gh_fill_ghosts!`, `gh_rhs_prepared!`, `gh_rhs!`, `gh_max_speed`,
+`gh_step_limit!` and `gh_stage_limit!`, exported, and "the coupled driver lives here".)*
+
+**API** (the names module-qualified, decided; the signatures proposed).
 ```julia
-gh_fill_ghosts!(p::GHProblem, t)                       # the fill gh_rhs! does today
-gh_rhs_prepared!(du::AbstractVector, p::GHProblem, t)  # kernel launch only; precondition:
-                                                       # p.U.work scattered and ghost-filled at t
-gh_rhs!(du, u, p, t)   # = scatter!(p.U, u); gh_fill_ghosts!(p, t); gh_rhs_prepared!(du, p, t)
-gh_max_speed(p::GHProblem, u::AbstractVector)          # today's unexported max_speed_of
-gh_step_limit!(u::AbstractVector, p, t)                # integrator-free gh_step_limiter!
-gh_stage_limit!(u::AbstractVector, p, t)               # integrator-free gh_stage_limiter!
+TreeGH.prepare!(p::GHProblem, u::AbstractVector, t)  # scatter!(p.U, u) and the fill gh_rhs! does
+                                                     # today; returns the prepared state (GH-1)
+TreeGH.rhs!(du::AbstractVector, p::GHProblem, t; matter = nothing)
+                                                     # kernel launch only; precondition: prepare!
+                                                     # at (u, t); `matter` is GH-3's
+TreeGH.max_speed(p::GHProblem, u::AbstractVector)    # today's unexported max_speed_of
+TreeGH.step_limit!(u::AbstractVector, p, t)          # integrator-free gh_step_limiter!
+TreeGH.stage_limit!(u::AbstractVector, p, t)         # integrator-free gh_stage_limiter!
+gh_rhs!(du, u, p, t)   # unchanged: prepare!(p, u, t); rhs!(du, p, t)
 ```
 
 **Semantics.**
+- Declared `public`, not exported (proposed): this package declares the same names, and a
+  script that loads both qualifies them.
 - `u` and `du` may be contiguous segment views (`stateview`, AMR-1).
-- `evolve!` should be a composition of exported functions. Name any piece that is still inlined:
+- `evolve!` should be a composition of public functions. Name any piece that is still inlined:
   - the per-chunk `dt`/steps;
   - the rebuild after `regrid!`;
   - the buffer width;
@@ -1309,11 +1359,15 @@ gh_stage_limit!(u::AbstractVector, p, t)               # integrator-free gh_stag
 
 **Upstream acceptance.**
 - `gh_rhs!` is bit-identical to today.
-- `gh_rhs_prepared!` on a segment of a two-set state vector equals `gh_rhs!` on a standalone
-  vector.
+- `TreeGH.prepare!` and `TreeGH.rhs!` on a segment of a two-set state vector equal `gh_rhs!` on
+  a standalone vector.
 - The limiters on a segment equal the SciML-hook versions.
 
-### GH-5 — Ghost width `≥ q/2 + 1` (wanted, step 10)
+### GH-5 — Ghost width `≥ q/2 + 1` (withdrawn 2026-11-06; was wanted, step 10)
+
+*(Withdrawn 2026-11-06: how the metric reaches the outermost ghost layer of a `G = 3` cell set
+is TreeGH's own choice behind GH-1 — this, a 2nd-order outermost layer, or an exchanged cell
+metric. The request is kept below for TreeGH's reference.)*
 
 - Relax `all(g -> g == q ÷ 2 + 1, U.G)` (evolution.jl:540–546) to `≥`.
 - Add a `G` keyword to `evolve!` (driver.jl:243).
@@ -2040,38 +2094,52 @@ interior the default paste at `r_in = M` (decided by Erik 2026-11-03). Accept:
   *(Measured at 0858776: 26442 tests, every run passing whole, 14m48s at one thread; the study
   is `bin/curved_localise.jl kwald`.)*
 
-## Step 10 — The vertex metric and the TOV star in the Cowling approximation (rung 4)
+## Step 10 — The TOV star in the Cowling approximation (rung 4)
 
-`CODE.md`: "Metric at cells, faces and edges", "Gauge for the TOV milestones", "Floors, the
-atmosphere and the magnetosphere", "Refinement", "Riemann solver".
-Waits: **GH-0, GH-1, GH-2** (or the extension route). Also AMR-4 (strongly wanted), GH-5 and
-AMR-3 (wanted).
+*(Amended 2026-11-06, decided by Erik: the step no longer reads TreeGH. It was "The vertex
+metric and the TOV star in the Cowling approximation", waiting on GH-0, GH-1 and GH-2, with a
+frozen `GHMetric` provider that decoded TreeGH's vertex state and interpolated it here. The
+adapters live in the producers now (`CODE.md`, "The coupling contract", decided by Erik
+2026-11-05), so that interpolation is TreeGH's (GH-1), and the frozen TreeGH metric is checked
+against this step's run in step 11.)*
+
+`CODE.md`: "The coupling contract", "Metric providers", "Gauge for the TOV milestones",
+"Floors, the atmosphere and the magnetosphere", "Refinement", "Riemann solver".
+Waits: nothing. AMR-4 (strongly wanted) and AMR-3 (wanted) have landed.
 
 Changes:
 - **`src/tov.jl`:** the host TOV solve in isotropic coordinates, for the polytrope K = 100,
   Γ = 2, ρ_c = 1.28e−3 (`IdealGasEOS` at `polytropic_entropy`).
 - **`TOVMetric <: SpacetimeMetrics.AbstractMetric`:** `isbits` and dual-generic. The step decides
   its storage (a fixed-size spline, or an Adapt-ed device array) and records it.
+  **The Cowling star's provider is `Analytic(TOVMetric)`**, pointwise like every analytic
+  provider (decided by Erik 2026-11-03); its cost per call is measured against Kerr-Schild's
+  102 ns and 234 ns (`bin/metric_cost.jl`).
 - *(Added in step 9, decided by Erik 2026-11-03:)* **the potentials' outer boundary** is
   decided here. The Cowling TOV star is static, so if its exterior field comes from an exact
   static potential, `static_potential = true` (option 1, the case's own potential in the
   ghosts) applies as is; options 2 (a gradient-extrapolating relative hook) and 3 (a gauge that
   damps a static `χ`) matter only for dynamic cases (`CODE.md`, "Boundaries").
-- **`src/vertex_metric.jl`:** the frozen `GHMetric` provider. *(Added in step 9, deferred
-  by Erik 2026-11-03:)* step 10 decides its caching, frozen (static: once per mesh, at its
-  creation and after each regrid) and coupled (every stage) in view; the measured inputs are in
-  `CODE.md`, "Metric providers": the analytic provider's 44% of a step on a 16³ blast, about
-  100 floats per cell for every centering, a block of 8³ with `G = 3` storing 5.4 times its
-  owned cells.
-  - It is a vertex set in TreeGH's layout, filled via `background_state`.
-  - It provides the 64-, 16- and 4-point interpolations, `∂g` at cells, and `K_ij`.
-  - It **decides the outermost-ghost-cell option**: GH-5, a 2nd-order layer, or an exchange.
-- **TreeGH** becomes a dependency or an extension, per GH-2.
+- **This package's side of the coupling contract** (proposed; `CODE.md`, "The coupling
+  contract"):
+  - the kernels accept a producer's pointwise metric beside `Flat` and `Analytic`: each kernel
+    binds it to the field set it runs over, and `point_metric` and `metric_gradient` pass the
+    point's `(I, b)` beside `x` (the analytic providers ignore it); `src/metric.jl`'s one
+    conversion serves both;
+  - a sampled adapter of any SpacetimeMetrics metric in the contract (test code, unless a case
+    needs it): bound to a field set, it evaluates `dmetric` at its points. It tests this side
+    before TreeGH has GH-1, and it is GH-1's reference.
+- *(Withdrawn 2026-11-06:)* `src/vertex_metric.jl`, the frozen `GHMetric` with its caching
+  decision, the 64-, 16- and 4-point interpolations and the outermost-ghost-cell option: all
+  TreeGH's now, behind GH-1.
+- **TreeGH is not a dependency** of the package (`[deps]`), in this step or later (`CODE.md`,
+  "The coupling contract"); how step 11's coupled tests load it is step 11's.
 - **`src/cases/tov.jl`**, with geometric refinement boxes.
 
 Accept:
-- **Interpolation:** the cell, face and edge metric, `∂g` and `K_ij` converge at 4th order
-  against the analytic metric.
+- **The contract:** a rung-3 case and the TOV star, run through the sampled adapter, reproduce
+  their `Analytic` runs to round-off (bit for bit where both compute the point alike).
+  *(Amended 2026-11-06: the 4th-order interpolation check moved to GH-1's upstream acceptance.)*
 - **Stationarity:** the central-density drift after 200 M converges at ≥ 1.5 **(predicted)**.
 - **Conservation:** rest mass to round-off, net of the outer boundary flux.
 - **Modes:** the F, H1 and H2 frequencies are within 3% of Font et al. (2002)'s Cowling values
@@ -2082,21 +2150,38 @@ Accept:
 
 ## Step 11 — The TOV star in a dynamical spacetime (rung 5)
 
-`CODE.md`: "Spacetime coupling", "Time integration". Waits: **GH-3, GH-4**.
+*(Amended 2026-11-06: a coupled run is a script that calls both packages' verbs and passes
+data through the producers' adapters, decided by Erik 2026-11-05 (`CODE.md`, "The coupling
+contract"). It was a coupled driver in this package that filled TreeGH's `Tsrc`.)*
+
+`CODE.md`: "The coupling contract", "Spacetime coupling", "Time integration". Waits: **GH-1,
+GH-2, GH-3, GH-4**.
 
 Changes:
-- **The coupled problem:**
-  - TreeGH's `U` joins the state vector;
-  - a `T_ab` kernel fills `Tsrc`, 2nd order, with a 4th-order option;
-  - `gh_fill_ghosts!` and `gh_rhs_prepared!` go into the explicit part.
-- **The coupled driver:**
-  - `Δt = min(GH, matter)`;
-  - regrid of every set;
-  - rebuild of `GHProblem` with `Tsrc`.
+- **This package's verbs** (proposed): `TreeGRRMHD.prepare!` (scatter, fill and recovery,
+  given a metric adapter), `TreeGRRMHD.rhs!`, the stage solve, the limiters and the rate;
+  `public`, not exported. `mhd_integrator` and `evolve!` become compositions of them, bit for
+  bit.
+- **This package's `T_ab` adapter** (`TreeGRRMHD.StressEnergy`, proposed): `T_ab` at TreeGH's
+  owned vertices from the `2^D` cells, 2nd order, with a 4th-order option. Whether it stores
+  `T_ab` at the cells during `prepare!` or computes it per call is measured and decided here.
+- **The coupled script:**
+  - one IMEXRungeKutta integrator over both packages' sets;
+  - the explicit part: `TreeGH.prepare!`, `TreeGRRMHD.prepare!` with TreeGH's metric, and both
+    `rhs!`;
+  - the implicit part: the Ohm stage solve with TreeGH's metric at `u★` (TreeGH's limiter never
+    inside it);
+  - the limiters composed; `Δt = min(GH, matter)`;
+  - regrid of every set, and the rebuild of both problems.
+
+  Where the script and the coupled tests live, and how they load both packages, is decided
+  here (open).
 - **The GH CFL factor under SSP3(4,3,3)'s explicit part**, measured here. It replaces the former
   upstream item.
 
 Accept:
+- **The frozen metric:** TreeGH's adapter of the TOV background, with its right-hand side not
+  called, reproduces step 10's Cowling run to truncation error (GH-1's downstream check).
 - **GH-3's static-matter check** passes with TreeGRRMHD's `T_ab`.
 - **Constraints:** the matter-corrected ADM constraints converge at ≥ 1.8 away from the surface
   **(predicted)**.
