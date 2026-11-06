@@ -121,7 +121,7 @@ end
 # --- the problem ------------------------------------------------------------------
 
 """The admissible Riemann solvers (`src/riemann.jl`)."""
-const MHD_SOLVERS = (:llf, :hlle)
+const MHD_SOLVERS = (:llf, :hlle, :hlle_split)
 
 """
     MHDProblem(f::MHDFields; eos, opts, proj, pol, model, provider = Flat(), 𝔅̄ = 0,

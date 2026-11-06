@@ -134,6 +134,39 @@ end
     end
 end
 
+@testset "The split-speed HLLE is consistent, and its fluid speeds lie in the light cone" begin
+    # Guards `riemann_flux(::Val{:hlle_split}, …)` and `fluid_speeds` (step 10's measurement
+    # of the Riemann speeds, "Riemann solver" in `CODE.md`): a wrong sign of the shift or of
+    # `vᵈ`, a wrong `γ^{dd}`, or a mismatched speed pair per variable would make the flux
+    # inconsistent (`F(U, U) ≠ F(U)`) or let a fluid signal outrun light. On the star's
+    # metric and a boosted Kerr-Schild one, with velocities up to `0.9`.
+    eos = TV_CASE.eos
+    s = TV_CASE.fields.w.s
+    m_star = point_metric(TV_CASE.provider, 0.0, SVector(3.0, -2.0, 1.0))
+    m_ks = point_metric(Analytic(TV.SpacetimeMetrics.KerrSchild{Float64}(1.0)), 0.0,
+                        SVector(2.0, 1.5, -1.0))
+    worst = 0.0
+    for m in (m_star, m_ks), v in (SVector(0.0, 0.0, 0.0), SVector(0.3, -0.2, 0.1),
+                                   SVector(0.0, 0.0, 0.9) / sqrt(m.γ[3, 3]))
+        prim = primitive_state(eos, m, 1e-3, v, s, 0.5)
+        E, B = SVector(0.0, 0.0, 0.0), SVector(0.0, 0.0, 0.0)
+        st = (prim2con(eos, m, prim, E, B), prim, E, B)
+        for d in 1:3
+            F = physical_flux(m, st..., Val(d))
+            H = riemann_flux(Val(:hlle_split), m, st, st, Val(d))
+            worst = max(worst, maximum(abs.(F .- H) ./ max.(abs.(F), 1e-300)))
+            c₋, c₊ = light_cone(m, Val(d))
+            f₋, f₊ = TV.fluid_speeds(m, prim, Val(d))
+            @test c₋ ≤ f₋ ≤ f₊ ≤ c₊
+            if v == zero(v)
+                c = sqrt(TV.prim_cs²(prim))
+                @test f₊ ≈ -m.β[d] + m.α * c * sqrt(m.γu[d, d]) rtol = 1e-14
+            end
+        end
+    end
+    @test worst < 1e-14
+end
+
 # --- the scheme on the star ----------------------------------------------------------------
 
 # This package's side of the coupling contract, tested before TreeGH has GH-1: a
