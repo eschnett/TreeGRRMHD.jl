@@ -1337,7 +1337,7 @@ TreeGH.prepare!(p::GHProblem, u::AbstractVector, t)  # scatter!(p.U, u) and the 
 TreeGH.rhs!(du::AbstractVector, p::GHProblem, t; matter = nothing)
                                                      # kernel launch only; precondition: prepare!
                                                      # at (u, t); `matter` is GH-3's
-TreeGH.max_speed(p::GHProblem, u::AbstractVector)    # today's unexported max_speed_of
+TreeGH.max_speed(p::GHProblem, u::AbstractVector, t) # today's unexported max_speed_of
 TreeGH.step_limit!(u::AbstractVector, p, t)          # integrator-free gh_step_limiter!
 TreeGH.stage_limit!(u::AbstractVector, p, t)         # integrator-free gh_stage_limiter!
 gh_rhs!(du, u, p, t)   # unchanged: prepare!(p, u, t); rhs!(du, p, t)
@@ -1356,6 +1356,11 @@ gh_rhs!(du, u, p, t)   # unchanged: prepare!(p, u, t); rhs!(du, p, t)
 
   Several are already exported: `indicator_flags`, `GHProblem`, `fill_exact!`, `dirichlet`,
   `constraint_norms` and `adm_constraint!`.
+- *(Added 2026-11-06.)* `CODE.md`'s step-11 sketch ("Two scripts") calls these pieces as
+  `TreeGH.GHProblem(forest, case; q)` (building its own vertex set on a given forest),
+  `TreeGH.evolved_sets`, `TreeGH.initial_state!` (`fill_exact!` into a segment), `TreeGH.flags`
+  (`indicator_flags`), `TreeGH.regrid_pairs` (`U => schedule`) and `TreeGH.rebuild`. The names
+  are proposed; what the script needs is that each piece exists and takes a segment.
 
 **Upstream acceptance.**
 - `gh_rhs!` is bit-identical to today.
@@ -2129,6 +2134,14 @@ Changes:
   - a sampled adapter of any SpacetimeMetrics metric in the contract (test code, unless a case
     needs it): bound to a field set, it evaluates `dmetric` at its points. It tests this side
     before TreeGH has GH-1, and it is GH-1's reference.
+- **This package's verbs** (proposed; moved from step 11 on 2026-11-06, because step 10's
+  script calls them): `TreeGRRMHD.prepare!` (scatter, fill and recovery, given a metric),
+  `TreeGRRMHD.rhs!`, `stage_solve!`, `stage_limit!`, `step_limit!` and `max_rate`, each taking
+  the metric as a keyword, and `evolved_sets`, `initial_state!` and `MHDProblem(fields, case;
+  …)` (`evolve!`'s `build()`); `public`, not exported. `mhd_integrator` and `evolve!` become
+  compositions of them, bit for bit.
+- **The step-10 script** (proposed): `CODE.md`'s sketch ("Two scripts") as a file in `bin/`,
+  which a test includes and runs for a few steps, so that the sketch stays code that runs.
 - *(Withdrawn 2026-11-06:)* `src/vertex_metric.jl`, the frozen `GHMetric` with its caching
   decision, the 64-, 16- and 4-point interpolations and the outermost-ghost-cell option: all
   TreeGH's now, behind GH-1.
@@ -2140,6 +2153,7 @@ Accept:
 - **The contract:** a rung-3 case and the TOV star, run through the sampled adapter, reproduce
   their `Analytic` runs to round-off (bit for bit where both compute the point alike).
   *(Amended 2026-11-06: the 4th-order interpolation check moved to GH-1's upstream acceptance.)*
+- **The script:** its `main` makes the run `evolve!` makes, bit for bit.
 - **Stationarity:** the central-density drift after 200 M converges at ≥ 1.5 **(predicted)**.
 - **Conservation:** rest mass to round-off, net of the outer boundary flux.
 - **Modes:** the F, H1 and H2 frequencies are within 3% of Font et al. (2002)'s Cowling values
@@ -2158,14 +2172,12 @@ contract"). It was a coupled driver in this package that filled TreeGH's `Tsrc`.
 GH-2, GH-3, GH-4**.
 
 Changes:
-- **This package's verbs** (proposed): `TreeGRRMHD.prepare!` (scatter, fill and recovery,
-  given a metric adapter), `TreeGRRMHD.rhs!`, the stage solve, the limiters and the rate;
-  `public`, not exported. `mhd_integrator` and `evolve!` become compositions of them, bit for
-  bit.
+- **This package's verbs** are step 10's (moved 2026-11-06); this step adds `flags`,
+  `regrid_pairs` (today's, public) and `rebuild`, as the script's regrid needs them.
 - **This package's `T_ab` adapter** (`TreeGRRMHD.StressEnergy`, proposed): `T_ab` at TreeGH's
   owned vertices from the `2^D` cells, 2nd order, with a 4th-order option. Whether it stores
   `T_ab` at the cells during `prepare!` or computes it per call is measured and decided here.
-- **The coupled script:**
+- **The coupled script**, `CODE.md`'s step-11 sketch ("Two scripts"):
   - one IMEXRungeKutta integrator over both packages' sets;
   - the explicit part: `TreeGH.prepare!`, `TreeGRRMHD.prepare!` with TreeGH's metric, and both
     `rhs!`;
@@ -2175,7 +2187,9 @@ Changes:
   - regrid of every set, and the rebuild of both problems.
 
   Where the script and the coupled tests live, and how they load both packages, is decided
-  here (open).
+  here (open); so is skipping TreeGH's repeated fill (eleven per step written plainly, four
+  needed; `CODE.md`, "Two scripts"), measured. The regrid branch, unused by the star's static
+  boxes, gets a test of its own.
 - **The GH CFL factor under SSP3(4,3,3)'s explicit part**, measured here. It replaces the former
   upstream item.
 

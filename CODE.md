@@ -2861,19 +2861,190 @@ needs `T_ab`, the matter needs the metric.
     included — and the consumer tests it.
 - (open, step 11) Where the coupled script and its tests live, and how they
   load both packages; whether a prepared state is reused when a limiter did
-  not change it; whether the script overlaps TreeGH's ghost fill with this
-  package's recovery on a device.
+  not change it (below); whether the script overlaps TreeGH's ghost fill
+  with this package's recovery on a device; and a thread partition over
+  several sets aligned with their owners (TreeGH's `state_partition` is
+  copied from TreeAMR's tests; an upstream item when a step needs it).
 
-A coupled right-hand side then reads, in the script (a sketch; the names
-`FourMetric` and `StressEnergy` and the signatures are proposed;
-`seg(u, gh)` stands for TreeGH's segment of the state vector):
+#### Two scripts
+
+*(Added 2026-11-06; sketches, proposed.)* A run is then a script. The two
+below are steps 10 and 11. Step 11's is step 10's with TreeGH's lines
+added. That the difference is this small is what this design claims, and
+step 11 tests the claim. A name that does not exist today is proposed; its
+comment names the piece of today's code it comes from — `evolve!` and its
+`build()`, `mhd_rhs!`, `ohm_solve!`, `reset_atmosphere!`, `reset_step!`,
+`max_light_rate`, `exact_state`, TreeGH's `fill_exact!` and `gh_rhs!`'s
+fill. IMEXRungeKutta hands every callback the parameter `p`, which carries
+the problems, so that a rebuilt problem reaches them; the limiters take
+IMEXRungeKutta's `(u, integ, p, t)`.
+
+Step 10, the Cowling TOV star; the metric is the analytic one for the whole
+run:
 
 ```julia
-g = TreeGH.prepare!(gh, seg(u, gh), t)
-m = TreeGRRMHD.prepare!(mhd, seg(u, mhd), t; metric = TreeGH.FourMetric(g))
-TreeGH.rhs!(seg(du, gh), gh, t; matter = TreeGRRMHD.StressEnergy(m))
-TreeGRRMHD.rhs!(seg(du, mhd), mhd, t; metric = TreeGH.FourMetric(g))
+using TreeAMR, TreeGRRMHD, IMEXRungeKutta
+const MHD, IRK = TreeGRRMHD, IMEXRungeKutta
+
+function f_exp!(du, u, p, t)
+    (; mhd, metric) = p
+    MHD.prepare!(mhd, u, t; metric)                   # the fill and the recovery
+    MHD.rhs!(du, mhd, t; metric)                      # mhd_rhs!'s kernels
+    return
+end
+solve_imp!(U, u★, γΔt, p, t) =
+    MHD.stage_solve!(U, u★, γΔt, p.mhd, t; metric = p.metric)  # ohm_solve!
+stage_limit!(u, _, p, t) =
+    MHD.stage_limit!(u, p.mhd, t; metric = p.metric)           # reset_atmosphere!
+step_limit!(u, _, p, t) =
+    MHD.step_limit!(u, p.mhd, t; metric = p.metric)            # reset_step!
+
+function main(T = Float64; t_end = 200, chunk = 10)
+    star = MHD.tov_case(T; K = 100, Γ = 2, ρ_c = 1.28e-3)     # src/cases/tov.jl
+    forest = Forest{T}(star.roots; N = 16, periodic = star.periodic,
+                       extents = star.extents)
+    MHD.tov_boxes!(forest, star)                     # the static geometric boxes
+    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter = :ppm)  # build()
+    u = statevector(MHD.evolved_sets(mhd))           # matter, A_d, Φ̃ (AMR-1)
+    MHD.initial_state!(u, mhd, star, zero(T))        # exact_state
+    metric = star.provider                           # Analytic(TOVMetric)
+    p = (; mhd, metric)
+    cfl = MHD.default_cfl(:ppm)
+    t, integ = zero(T), nothing
+    for t1 in T(chunk):T(chunk):T(t_end)
+        dt = cfl / (3 * MHD.max_rate(mhd, u, t; metric))       # max_light_rate, D = 3
+        nsteps = MHD.chunk_count(t1 - t, dt)
+        prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
+        integ = IRK.init(prob, IRK.IMEXSSP3433(); dt = (t1 - t) / nsteps,
+                         stage_limiter = stage_limit!, step_limiter = step_limit!,
+                         partition = :even, alias_u0 = true, reuse = integ)
+        MHD.with_step_cache(() -> IRK.solve!(integ), mhd)
+        t = t1
+        println(t, "  ", MHD.central_density(mhd, u))  # the record: any call
+    end
+    return u
+end
+main()
 ```
+
+Step 11, the same star in TreeGH's spacetime. TreeGH's problem and its
+segment of the state vector are added; `metric_at` replaces the constant
+`metric`; each callback calls TreeGH too; `Δt` is the smaller of the two;
+and an adaptive run regrids every set at once:
+
+```julia
+using TreeAMR, TreeGeneralizedHarmonic, TreeGRRMHD, IMEXRungeKutta
+const GH, MHD, IRK = TreeGeneralizedHarmonic, TreeGRRMHD, IMEXRungeKutta
+
+# TreeGH's segment of the state vector, then the matter's (AMR-1).
+segments(sets) = (staterange(sets, 1), first(staterange(sets, 2)):statelength(sets))
+
+# TreeGH's metric at a state: its fill (gh_rhs!'s), then its adapter (GH-1).
+metric_at(p, u, t) = GH.FourMetric(GH.prepare!(p.gh, view(u, p.s[1]), t))
+
+function f_exp!(du, u, p, t)
+    (; gh, mhd, s) = p
+    metric = metric_at(p, u, t)
+    m = MHD.prepare!(mhd, view(u, s[2]), t; metric)  # recovered in TreeGH's metric
+    GH.rhs!(view(du, s[1]), gh, t; matter = MHD.StressEnergy(m))      # GH-3
+    MHD.rhs!(view(du, s[2]), mhd, t; metric)
+    return
+end
+function solve_imp!(U, u★, γΔt, p, t)
+    (; mhd, s) = p
+    copyto!(view(U, s[1]), view(u★, s[1]))           # TreeGH has no implicit part,
+    metric = metric_at(p, u★, t)                     # and its limiter never runs here
+    MHD.stage_solve!(view(U, s[2]), view(u★, s[2]), γΔt, mhd, t; metric)
+    return
+end
+function stage_limit!(u, _, p, t)
+    GH.stage_limit!(view(u, p.s[1]), p.gh, t)        # TreeGH's first, so that the
+    metric = metric_at(p, u, t)                      # matter reads the limited metric
+    MHD.stage_limit!(view(u, p.s[2]), p.mhd, t; metric)
+    return
+end
+function step_limit!(u, _, p, t)
+    GH.step_limit!(view(u, p.s[1]), p.gh, t)
+    MHD.step_limit!(view(u, p.s[2]), p.mhd, t; metric = metric_at(p, u, t))
+    return
+end
+refine_wins(a, b) = a == Refine || b == Refine ? Refine :
+                    a == b == Coarsen ? Coarsen : Keep
+
+function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
+    star = MHD.tov_case(T; K = 100, Γ = 2, ρ_c = 1.28e-3)
+    forest = Forest{T}(star.roots; N = 16, periodic = star.periodic,
+                       extents = star.extents)
+    MHD.tov_boxes!(forest, star)
+    ghcase = GH.GHCase(T, star.provider.metric; box = star.extents,
+                       periodic = star.periodic)    # the static-background gauge
+    gh = GH.GHProblem(forest, ghcase; q = 4)         # its vertex set on this forest
+    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter = :ppm)
+    sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
+    u = statevector(sets)
+    p = (; gh, mhd, s = segments(sets))
+    GH.initial_state!(view(u, p.s[1]), gh, zero(T))            # fill_exact!
+    MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))    # exact_state
+    cfl_gh, cfl_mhd = T(1 // 4), MHD.default_cfl(:ppm)  # TreeGH's under SSP3: step 11
+    t, integ = zero(T), nothing
+    for t1 in T(chunk):T(chunk):T(t_end)
+        metric = metric_at(p, u, t)
+        dt = min(cfl_gh * minimum_spacing(forest) /
+                     GH.max_speed(p.gh, view(u, p.s[1]), t),
+                 cfl_mhd / (3 * MHD.max_rate(p.mhd, view(u, p.s[2]), t; metric)))
+        nsteps = MHD.chunk_count(t1 - t, dt)
+        prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
+        integ = IRK.init(prob, IRK.IMEXSSP3433(); dt = (t1 - t) / nsteps,
+                         stage_limiter = stage_limit!, step_limiter = step_limit!,
+                         partition = :even, alias_u0 = true, reuse = integ)
+        MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
+        t = t1
+        println(t, "  ", MHD.central_density(p.mhd, view(u, p.s[2])), "  ",
+                GH.constraint_norms(p.gh, view(u, p.s[1]), t))
+        adaptive || continue                         # the star's boxes are static
+        # One regrid of every set, refined where either package asks and
+        # coarsened only where both allow; then both problems rebuilt.
+        metric = metric_at(p, u, t)
+        flags = refine_wins.(GH.flags(p.gh, t),
+                             MHD.flags(p.mhd, view(u, p.s[2]), t; metric))
+        scatter!(sets, u)
+        if regrid!(forest, GH.regrid_pairs(p.gh)..., MHD.regrid_pairs(p.mhd, t)...;
+                   flags)
+            p = (; gh = GH.rebuild(p.gh, t), mhd = MHD.rebuild(p.mhd, t),
+                 s = segments(sets))
+            u = statevector(sets)
+            gather!(u, sets)
+            integ = nothing                          # its scratch has the old length
+        end
+    end
+    return u
+end
+main()
+```
+
+What the sketches leave visible, on purpose:
+- **The order is the data flow.** `MHD.prepare!` cannot run before
+  `metric_at`, nor `GH.rhs!` before `MHD.prepare!`, because each needs the
+  other's result. TreeGH's limiter runs before the matter's in both
+  limiters, so that the matter reads the limited metric. TreeGH's limiter
+  never runs inside `solve_imp!`, whose implicit tendency
+  IMEXRungeKutta recovers as `(U − u★)/(γΔt)`.
+- **The repeated fill** (open). Written plainly, the script fills TreeGH's
+  ghosts eleven times per SSP3(4,3,3) step: three right-hand sides, four
+  stage solves, three stage limiters and one step limiter. One fill per
+  distinct state, four, would do. Alone under RK4, TreeGH fills four times.
+  From TreeGH's H200 measurements, a fill of its 20 variables at `G = 3` is
+  0.4–1.0 ns per point, so the seven extra cost about 3–7 ns per point and
+  step, against TreeGH's 20 (estimated, not measured). The stage limiter's
+  fill and the next right-hand side's see the same state, and so do the step
+  limiter's and the next step's first stage solve. Whether the script skips
+  a fill when a limiter reports that it wrote nothing, or `prepare!` does,
+  is step 11's to decide.
+- **The regrid is the script's.** One `regrid!` covers every set on the
+  forest, since a block refines for all of its sets at once; the flags
+  combine as `refine_wins`; and each package rebuilds its own problem.
+  The TOV star's boxes are static, so step 11 exercises this branch in a
+  test of its own.
 
 ### Metric providers
 
