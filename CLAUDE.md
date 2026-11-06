@@ -461,6 +461,11 @@ packages are read together:
   CI tests only 1.13: Erik's decision, because supporting older versions
   slows development and is not useful at the moment. Do not add `VERSION`
   checks or shims for anything older. See `CODE.md`, "Julia version".
+- A pull request's CI runs only the two Linux cells, uninstrumented; macOS
+  and coverage run on `main`, weekly and on dispatch, and Markdown-only
+  changes run nothing (`CODE.md`, "Julia version"). So **run the full
+  suite locally before opening a pull request**: that is the macOS run
+  the pull request does not get.
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.
