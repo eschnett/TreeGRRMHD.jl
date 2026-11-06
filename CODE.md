@@ -2847,7 +2847,22 @@ needs `T_ab`, the matter needs the metric.
     and forest (`===` the producer's). The adapter is bound to it, then
     called at `(I, b)`, ghosts included. Not coordinates: those would need
     a tree search per point, and a provider could not precompute at points
-    it does not know.
+    it does not know. *(As built in step 10, proposed:)* this package binds
+    the adapter **once per centering**, not once per kernel: two kernels
+    read another centering's points than their own (`∂ₜA`'s gradient reads
+    the vertex metric from an edge kernel, the gauge equation's divergence
+    the edge metric from a vertex kernel), and sets of one centering share
+    local indices. `PointwiseMetric(gm, f)` (`src/metric.jl`,
+    `src/fieldsets.jl`) binds TreeGH's `gm` to the set of each centering
+    with the widest ghosts — cells to `P` (and, with the derivatives, again
+    to `P`), faces to `B[d]`, edges to `A[j]`, vertices to `Φ̃` — and every
+    kernel's call `point_metric(prov, t, x, Val(C), n, b)` passes its
+    point's staggers and *local* index `n`, which the provider maps to the
+    binding's stored index `n + G`; `Flat` and `Analytic` ignore the index.
+    The derivatives are read at the cells only (the sources). `metric=`
+    reaches the kernels alone: the initial data, the Dirichlet hooks and the
+    interior keep the case's own provider, which for the coupled star is the
+    analytic background (proposed in step 10).
   - *What:* StaticArrays in SpacetimeMetrics' conventions — `g_ab` as
     `SMatrix{4,4,T}`, alone or with `∂_c g_ab` as
     `SArray{Tuple{4,4,4},T}`, the derivative index last and 1 = `t`, as
@@ -3021,6 +3036,16 @@ function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
 end
 main()
 ```
+
+*(As built in step 10:)* the step-10 sketch is `bin/tov_cowling.jl`, and
+`test/tov_tests.jl` runs its `main` against `evolve!` bit for bit. Three
+departures, each so that it is `evolve!`'s run: the chunks as `evolve!`
+counts them (`t1 = c · chunk`, the last `t_end`; a float range rounds its
+points otherwise), the step count as `chunk_count((t1 − t)·3·rate, cfl)`,
+and `IRK = TreeGRRMHD.IRK` (a test environment cannot load IMEXRungeKutta
+by name). `central_density(mhd, u, t)` takes the time of its recovery's
+fill. The command line and the record are an included file's
+(`bin/tov_cowling_cli.jl`), so that `main` is the run alone.
 
 What the sketches leave visible, on purpose:
 - **The order is the data flow.** `MHD.prepare!` cannot run before
@@ -3209,6 +3234,36 @@ gauge driver (GH-6). The same `TOVMetric` is this package's provider for
 the Cowling star, `Analytic(TOVMetric)`, with no TreeGH (step 10; decided
 by Erik 2026-11-06), and the frozen TreeGH metric of the same background is
 checked against that run in step 11.
+
+*(As built in step 10, proposed.)* `src/tov.jl`. **The solve** is
+Lindblom's (1992) enthalpy form: RK4 in `η = log h` from the centre to the
+surface, `η = 0`, a grid point rather than a root to find, for `q = r²`,
+`μ = m/r³` and `λ = log(r̄/r)`, all smooth in `η` at the centre (where
+`r ∝ √(η_c − η)`); `λ` is then matched to the isotropic Schwarzschild
+exterior, and the lapse inside is `α_s/h` (`h α` is constant in a static
+star). Measured: `M = 1.4001597295`, areal `R = 9.5856240172`, isotropic
+`R̄ = 8.1251439016` (the literature's 1.400, 9.586, 8.125), the mass
+converging at 4.2–4.4 under step halving, `3.8·10⁻¹⁴` at the default 4000
+steps. **The metric**, `TOVMetric{T,NK}`, tabulates `ψ` and `α` in `u = r̄²`
+— in which both are smooth at the centre, and which needs no square root
+there, where a symmetric mesh has a vertex and ForwardDiff's derivative of
+`√u` is not finite — with their `u`-derivatives at `NK` uniform knots over
+`[0, R̄²]`, cubic Hermite inside, the closed-form exterior outside: `isbits`
+`SVector`s, 4176 bytes at the default `NK = 129` (kernel parameter space,
+step 14's), dual-generic. Measured: the table's error 2.8e−8, 1.8e−9,
+1.2e−10 at `NK = 33, 65, 129` (fourth order); the field equations
+`∇²ψ = −2πψ⁵e` and `∇²(αψ) = 2παψ⁵(e + 6p)` hold to 2.1e−5 of `2πρ_c` at
+`NK = 129` (second order in the knots: the interpolant's second derivative;
+the scheme reads only first derivatives), and to 2.7e−16 outside;
+SpacetimeMetrics' `EinsteinTensor` agrees with `8πT_ab` to 1.8e−6 of
+`8πρ_c`. The density is not tabulated: `ρ(h)` at `h = α_s/α`, the
+polytrope's own relation, so the initial data and the metric are one
+solution. **The case**, `src/cases/tov.jl`: the gas's entropy window is
+centred on the star's entropy, so that the atmosphere `recovery_options`
+writes is on the star's isentrope; the exterior is that atmosphere at rest;
+`IdealConductor` with `A = Φ̃ = 0` and `static_potential = true`; the box
+`[−24, 24]³` on four roots, whose first box level (`tov_boxes!`) covers
+`[−12, 12]³`.
 
 ## The right-hand side
 
