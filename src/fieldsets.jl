@@ -197,3 +197,19 @@ evolved_sets(f::MHDFields) = (f.U, f.A[1], f.A[2], f.A[3], f.Φ)
 const SEG_U = 1
 const SEG_A = 2            # A_j is segment SEG_A + j - 1
 const SEG_Φ = 5
+
+"""
+    PointwiseMetric(gm, f::MHDFields{3})
+
+The producer's adapter `gm` bound to `f`'s sets, once per centering
+([`PointwiseMetric`](@ref)): the cells to `P` (with and without the
+derivatives), the faces to `B[d]`, the edges to `A[j]`, the vertices to
+`Φ̃` — of each centering the set with the widest ghosts.
+"""
+function PointwiseMetric(gm, f::MHDFields{3})
+    G(fs) = ntuple(e -> Int(fs.G[e]), Val(3))
+    return PointwiseMetric(gm(f.P), gm(f.P, Val(1)), map(gm, f.B), map(gm, f.A), gm(f.Φ),
+                           G(f.P), map(G, f.B), map(G, f.A), G(f.Φ))
+end
+PointwiseMetric(gm, ::MHDFields{D}) where {D} = throw(ArgumentError(
+    "a producer's pointwise metric is three-dimensional (the coupling is D = 3), got D = $D."))

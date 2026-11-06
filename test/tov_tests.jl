@@ -174,26 +174,34 @@ end
 # --- the scheme on the star ----------------------------------------------------------------
 
 # This package's side of the coupling contract, tested before TreeGH has GH-1: a
-# SpacetimeMetrics metric sampled at the points of the mesh, bound to the problem's block
-# origins and spacings and to a time (a snapshot, as a producer's adapter is), read at the
-# point's centering and local index. It computes the point's position as the kernels do
-# (`point_x`), so it is the analytic provider bit for bit — GH-1's reference
-# ("The coupling contract" in `CODE.md`).
+# SpacetimeMetrics metric sampled at the points of the mesh, in GH-1's API — the adapter,
+# a snapshot at one time, bound to one of this package's field sets (`gm(fs)`, or
+# `gm(fs, Val(1))` with the derivatives) and called at a stored index (`at(I, b)`). It
+# computes the point's position as the kernels do (`point_x` of the local index), so it is
+# the analytic metric's `g` bit for bit — GH-1's reference ("The coupling contract" in
+# `CODE.md`).
 struct TVSampled{M,O,H,T}
     metric::M
     origins::O
     spacings::H
     t::T
 end
-@inline tv_point(s::TVSampled, c::Val, n, b) =
-    SVector(s.t, TV.point_x(@inbounds(s.origins[b]), @inbounds(s.spacings[b]), n, c)...)
-TV.SpacetimeMetrics.metric(s::TVSampled, c::Val, n, b) =
-    TV.SpacetimeMetrics.metric(s.metric, tv_point(s, c, n, b))
-TV.SpacetimeMetrics.dmetric(s::TVSampled, c::Val, n, b) =
-    TV.SpacetimeMetrics.dmetric(s.metric, tv_point(s, c, n, b))
+struct TVBound{D1,S,C}
+    s::S
+    G::NTuple{3,Int}
+end
+(s::TVSampled)(fs, ::Val{1}) = TVBound{true,typeof(s),staggers(fs)}(s, ntuple(e -> Int(fs.G[e]), 3))
+(s::TVSampled)(fs) = TVBound{false,typeof(s),staggers(fs)}(s, ntuple(e -> Int(fs.G[e]), 3))
+@inline function (a::TVBound{D1,S,C})(I, b) where {D1,S,C}
+    n = ntuple(e -> I[e] - a.G[e], 3)
+    s = a.s
+    p = SVector(s.t, TV.point_x(@inbounds(s.origins[b]), @inbounds(s.spacings[b]), n,
+                                Val(C))...)
+    return D1 ? TV.SpacetimeMetrics.dmetric(s.metric, p) : TV.SpacetimeMetrics.metric(s.metric, p)
+end
 
 tv_sampled(p::MHDProblem) =
-    PointwiseMetric(TVSampled(p.provider.metric, p.origins, p.spacings, 0.0))
+    PointwiseMetric(TVSampled(p.provider.metric, p.origins, p.spacings, 0.0), p.f)
 
 tv_boxes(f) = tov_boxes!(f, TV_CASE; levels=1)
 
