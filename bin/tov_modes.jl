@@ -7,7 +7,8 @@
 #
 # The series' mean and linear trend are removed, the rest is Hann-windowed, and its discrete
 # Fourier transform is evaluated on a fine grid of frequencies; each mode is the largest peak
-# within ±20% of its reference, refined by a parabola through the peak and its neighbours.
+# within ±20% of its reference, refined by a parabola through the peak and its neighbours;
+# a largest value at the window's edge is reported as no peak (`NaN`).
 # `t_skip` drops the start (the initial transient). Frequencies in kHz: one `M☉` of time is
 # `G M☉/c³ = 4.925490947 µs`.
 
@@ -39,7 +40,8 @@ end
 function peak(fs, P, lo, hi)
     idx = findall(f -> lo ≤ f ≤ hi, fs)
     i = idx[argmax(P[idx])]
-    (i == 1 || i == length(fs)) && return fs[i], P[i]
+    # The largest value at the window's edge is the flank of a peak outside it, not a mode.
+    (i == first(idx) || i == last(idx)) && return NaN, P[i]
     a, b, c = P[i - 1], P[i], P[i + 1]
     δ = (a - c) / (2 * (a - 2b + c))                 # parabola through the three
     return fs[i] + δ * (fs[2] - fs[1]), b
