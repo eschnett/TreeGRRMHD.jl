@@ -93,7 +93,8 @@ export NU, NP, NPRIM
 export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_guesses,
        atmosphere_prim
 # The metric providers
-export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_gradient
+export MetricProvider, Flat, Analytic, PointwiseMetric, MetricGradient, point_metric,
+       metric_gradient
 # The pointwise physics
 export stress_energy, T4_lower
 export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, MagnetizationCutoff,
@@ -133,6 +134,12 @@ export turned_case, extruded_case, oblique_case, TurnedFields, TurnedPotential, 
        ObliquePotential
 export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_loop_case,
        explosion_gas, gauge_pulse_case
+
+# The verbs a script that owns the time loop calls (step 10; "The coupling contract" in
+# `CODE.md`): public, not exported, so that loading TreeGH beside this package, whose verbs
+# have the same names, makes nothing ambiguous.
+public prepare!, rhs!, stage_solve!, stage_limit!, step_limit!, max_rate, initial_state!,
+       chunk_count, default_cfl, central_density, rebuild
 
 include("precision.jl")
 include("device.jl")

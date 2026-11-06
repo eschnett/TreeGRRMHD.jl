@@ -432,7 +432,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     cons = read_vars(Uw, stored(n, GU), b, Val(NU))
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
@@ -477,7 +477,7 @@ end
     if !all(ntuple(e -> 1 ≤ n[e] ≤ N, Val(D)))
         h = @inbounds spacings[b]
         x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-        m = point_metric(provider, oftype(h, t), x)
+        m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
         wv = read_vars(Ww, stored(n, GW), b, Val(NW))
         # `· inv(√γ)`, the owned cells' arithmetic (amended 2026-10-24).
         B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * inv(m.sqrtγ)
@@ -517,7 +517,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(face_staggers(Val(D), Val(d))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(face_staggers(Val(D), Val(d))), n, b)
 
     P₋₁ = read_vars(Pw, stored(shift(n, d, -1), GP), b, Val(NP))
     P₀ = read_vars(Pw, stored(n, GP), b, Val(NP))
@@ -636,7 +636,7 @@ end
     b_ = mod1(j + 2, 3)
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(edge_staggers(Val(D), Val(j))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(edge_staggers(Val(D), Val(j))), n, b)
 
     cell(σa, σb) = side_cell(side_cell(n, Val(a_), σa), Val(b_), σb)
     E_LL = corner_E(Pw, cell(-1, -1), b, Val(GP), lim, Val(a_), 1, Val(b_), 1)
@@ -675,7 +675,7 @@ end
     Pc = read_vars(Pw, stored(n, GP), b, Val(NP))
     m = aux_metric(Pc)
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    dm = metric_gradient(provider, oftype(h, t), x)
+    dm = metric_gradient(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     S = explicit_source(m, dm, Pc, aux_E(Pc), aux_B(Pc), aux_q(Pc))
     c = stored(n, GF)
     for v in 1:NU
@@ -700,7 +700,7 @@ end
 @inline function vertex_ψ(A::NTuple{3,Any}, Φw, v::NTuple{D,Int}, b::Int, GA::NTuple{3,Any},
                           ::Val{GΦ}, o, h, provider, t) where {D,GΦ}
     x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
-    m = point_metric(provider, t, x)
+    m = point_metric(provider, t, x, Val(vertex_staggers(Val(D))), v, b)
     Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
     return gauge_potential(m, Φ̃, vertex_A(A, v, b, GA))
 end
@@ -741,7 +741,7 @@ end
                                  GA::NTuple{3,Any}, ::Val{GΦ}, o, h, provider, t,
                                  ::Val{j}) where {D,GΦ,j}
     x = point_x(o, h, c, Val(edge_staggers(Val(D), Val(j))))
-    m = point_metric(provider, t, x)
+    m = point_metric(provider, t, x, Val(edge_staggers(Val(D), Val(j))), c, b)
     cj = shift(c, j, 1)
     Ae = SVector(ntuple(Val(3)) do k
         @inbounds begin
@@ -783,7 +783,7 @@ end
                             Val(j))
         end)
         x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
-        m = point_metric(provider, tt, x)
+        m = point_metric(provider, tt, x, Val(vertex_staggers(Val(D))), v, b)
         Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
         @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
     end
@@ -806,7 +806,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     cons★ = read_vars(ustar, n, b, Val(NU))
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
@@ -859,7 +859,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     cons = read_vars(uw, n, b, Val(NU))
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
@@ -911,7 +911,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     cons = read_vars(Uw, stored(n, GU), b, Val(NU))
     isg = inv(m.sqrtγ)
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
@@ -944,7 +944,7 @@ end
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
-    m = point_metric(provider, oftype(h, t), x)
+    m = point_metric(provider, oftype(h, t), x, Val(cell_staggers(Val(D))), n, b)
     λ = maximum(ntuple(Val(D)) do d
         λm, λp = light_cone(m, Val(d))
         max(abs(λm), abs(λp))
@@ -985,12 +985,12 @@ in every ghost cell from them (no ghost is recovered, and the matter set's
 ghosts are not written), and `q` at the owned cells. Returns the primitive
 set `P`, filled in every stored cell.
 """
-function update_primitives!(p::MHDProblem{T,D}, u, t) where {T,D}
+function update_primitives!(p::MHDProblem{T,D}, u, t; metric=p.provider) where {T,D}
     scatter!(p.sets, u)
     for i in SEG_A:SEG_Φ
         fill_set!(p, i, t)
     end
-    return primitives_from_sets!(p, t)
+    return primitives_from_sets!(p, t; metric)
 end
 
 # Steps 2 to 4 of the right-hand side on sets whose potentials are filled and
@@ -1005,20 +1005,20 @@ end
 # and the recovery ran in every stored cell after it. Amended 2026-10-23,
 # decided by Erik: the parent-centred primitive fill is the only one, and the
 # conserved ghosts are no longer written.)*
-function primitives_from_sets!(p::MHDProblem{T,D}, t) where {T,D}
+function primitives_from_sets!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
     curl_A!(f, p.𝔅̄, p.spacings)
     GB = Val(GB_of(f))
-    recovery_start!(p, f.U.work, Val(f.U.G), nothing, t)
+    recovery_start!(p, f.U.work, Val(f.U.G), nothing, t; metric)
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
                 f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.handoff, p.origins,
                 p.spacings,
-                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
+                metric, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
                 Val(f.U.G), GB, Val(p.cache.G), Val(f.X.G))
     fill_ghosts!(f.W, p.schedule_W;
                  boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
     map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work, f.B[2].work,
-                f.B[3].work, p.origins, p.spacings, p.provider, t, p.eos, f.P.forest.N,
+                f.B[3].work, p.origins, p.spacings, metric, t, p.eos, f.P.forest.N,
                 Val(D), Val(f.P.G), Val(f.W.G), GB; stored=true)
     map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
     return f.P
@@ -1042,14 +1042,45 @@ where the input is that one's — and a step is pure in `uⁿ` (amended
 2026-10-24, decided by Erik 2026-10-23; "The step cache" in `CODE.md`).
 IMEXRungeKutta's `f_exp!`.
 """
-function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
+function mhd_rhs!(du, u, p::MHDProblem, t)
+    prepare!(p, u, t)
+    rhs!(du, p, t)
+    return nothing
+end
+
+"""
+    prepare!(p::MHDProblem, u, t; metric = p.provider) -> p
+
+Make the state `u` at `t` readable: scatter it into every evolved set, fill
+the potentials' ghosts, and recover the primitives at the owned cells and
+build them in every ghost ([`update_primitives!`](@ref)), in the metric
+`metric`. The first half of [`mhd_rhs!`](@ref), whose second is
+[`rhs!`](@ref); a script that owns the time loop calls the two in turn
+("The coupling contract", "Two scripts" in `CODE.md`; added in step 10).
+Returns `p`, whose prepared state the producer's adapters read (step 11's
+`T_ab`). `metric` reaches the kernels only: the boundary hooks, the
+interior and the initial data keep the case's own provider (proposed in
+step 10). Public, not exported.
+"""
+function prepare!(p::MHDProblem, u, t; metric=p.provider)
+    update_primitives!(p, u, t; metric)
+    return p
+end
+
+"""
+    rhs!(du, p::MHDProblem, t; metric = p.provider)
+
+The explicit right-hand side of the state [`prepare!`](@ref) left in `p`
+(with the same `metric`), into `du`: the kernel half of
+[`mhd_rhs!`](@ref) (added in step 10). Public, not exported.
+"""
+function rhs!(du, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
-    update_primitives!(p, u, t)
     GB = GB_of(f)
     ntuple(Val(D)) do d
         Fd = f.F[d]
         map_blocks!(flux_kernel!, Fd, Fd.work, f.P.work, f.B[d].work, p.origins, p.spacings,
-                    p.provider, t, p.eos, Val(D), Val(d), Val(Fd.G), Val(f.P.G), Val(GB[d]),
+                    metric, t, p.eos, Val(D), Val(d), Val(Fd.G), Val(f.P.G), Val(GB[d]),
                     p.limiter, p.solver; closed=true)
         p.fixup && restrict_interfaces!(Fd, p.ischeds_F[d])
         nothing
@@ -1058,28 +1089,28 @@ function mhd_rhs!(du, u, p::MHDProblem{T,D}, t) where {T,D}
         a, b = mod1(j + 1, 3), mod1(j + 2, 3)
         Ej = f.EMF[j]
         map_blocks!(emf_kernel!, Ej, Ej.work, f.P.work, f.B[a].work, f.B[b].work, p.origins,
-                    p.spacings, p.provider, t, Val(D), Val(j), Val(Ej.G), Val(f.P.G),
+                    p.spacings, metric, t, Val(D), Val(j), Val(Ej.G), Val(f.P.G),
                     Val(GB[a]), Val(GB[b]), p.limiter; closed=true)
         (p.fixup && p.ischeds_EMF[j] !== nothing) &&
             restrict_interfaces!(Ej, p.ischeds_EMF[j])
         nothing
     end
     map_blocks!(matter_rhs_kernel!, f.U, statearray(du, p.sets, SEG_U), f.P.work,
-                map(F -> F.work, f.F), p.origins, p.spacings, p.provider, t, Val(D),
+                map(F -> F.work, f.F), p.origins, p.spacings, metric, t, Val(D),
                 Val(f.P.G), Val(first(f.F).G))
     GA = GA_of(f)
     ntuple(Val(3)) do j
         i = SEG_A + j - 1
         map_blocks!(potential_rhs_kernel!, p.sets[i], statearray(du, p.sets, i),
                     f.EMF[j].work, f.A[1].work, f.A[2].work, f.A[3].work, f.Φ.work,
-                    p.origins, p.spacings, p.lowwall, p.provider, t, Val(D), Val(j),
+                    p.origins, p.spacings, p.lowwall, metric, t, Val(D), Val(j),
                     Val(f.EMF[j].G),
                     Val(GA), Val(f.Φ.G))
         nothing
     end
     map_blocks!(gauge_rhs_kernel!, f.Φ, statearray(du, p.sets, SEG_Φ), f.A[1].work,
                 f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.lowwall,
-                p.provider, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G))
+                metric, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G))
     return nothing
 end
 
@@ -1094,14 +1125,22 @@ only its `𝔈` is written ("The implicit stage solve" in `CODE.md`); the
 recovery's repair of an inadmissible `u★` stays inside the solve. Each
 cell's outcome is tallied into the diagnostics set ([`ohm_tally`](@ref)).
 """
-function ohm_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t) where {T,D}
+ohm_solve!(U, ustar, γΔt, p::MHDProblem, t) = stage_solve!(U, ustar, γΔt, p, t)
+
+"""
+    stage_solve!(U, u★, γΔt, p::MHDProblem, t; metric = p.provider)
+
+[`ohm_solve!`](@ref) in the metric `metric` (added in step 10): the verb a
+script's `solve_imp!` calls. Public, not exported.
+"""
+function stage_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
     update_fields!(p, ustar, t)
     us = statearray(ustar, p.sets, SEG_U)
-    recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t)
+    recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t; metric)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
-                p.provider, t, γΔt, p.eos, p.opts, p.proj, p.pol, p.model, p.stage,
+                metric, t, γΔt, p.eos, p.opts, p.proj, p.pol, p.model, p.stage,
                 p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G), Val(p.cache.G))
     return nothing
 end
@@ -1132,7 +1171,19 @@ writing zero there, would leave them stale ("Boundaries" in `CODE.md`).
 This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
 is the same reset in the step limiter's role.
 """
-reset_atmosphere!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(false))
+reset_atmosphere!(u, integ, p::MHDProblem, t) = stage_limit!(u, p, t)
+
+"""
+    stage_limit!(u, p::MHDProblem, t; metric = p.provider)
+    step_limit!(u, p::MHDProblem, t; metric = p.provider)
+
+The reset as the stage limiter ([`reset_atmosphere!`](@ref)) and as the
+step limiter ([`reset_step!`](@ref)), in the metric `metric`, without the
+integrator argument: the verbs a script's limiters call (added in step 10).
+Public, not exported.
+"""
+stage_limit!(u, p::MHDProblem, t; metric=p.provider) = reset!(u, p, t, Val(false); metric)
+step_limit!(u, p::MHDProblem, t; metric=p.provider) = reset!(u, p, t, Val(true); metric)
 
 """
     reset_step!(u, integ, p::MHDProblem, t)
@@ -1144,9 +1195,9 @@ limiter's writes reach `uⁿ⁺¹` ([`ohm_tally`](@ref); added in step 6).
 As the end of a step it also invalidates every cell's step-cache entry,
 where the cache is active (2026-10-24).
 """
-reset_step!(u, integ, p::MHDProblem, t) = reset!(u, p, t, Val(true))
+reset_step!(u, integ, p::MHDProblem, t) = step_limit!(u, p, t)
 
-function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
+function reset!(u, p::MHDProblem{T,D}, t, step::Val; metric=p.provider) where {T,D}
     f = p.f
     # A black hole's interior first (step 9): the fill and the recovery below
     # see the pasted state.
@@ -1158,10 +1209,10 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val) where {T,D}
         walls_to_state!(p, u)
     end
     uU = statearray(u, p.sets, SEG_U)
-    recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t)
+    recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t; metric)
     map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
-                p.provider, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D),
+                metric, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D),
                 Val(GB_of(f)), Val(f.X.G), Val(p.cache.G), step)
     return nothing
 end
@@ -1171,12 +1222,13 @@ end
 # and the site whose first recovery `model` names (`nothing`: the
 # hydrodynamic recovery), right before the site's own kernel, the third pass;
 # nothing where the problem recovers fused (`two_phase = false`).
-function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t) where {T,D}
+function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t;
+                         metric=p.provider) where {T,D}
     sc = p.handoff
     sc === nothing && return nothing
     f = p.f
     map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
-                p.cache.work, p.origins, p.spacings, p.provider, t, p.eos, p.opts, p.proj, model,
+                p.cache.work, p.origins, p.spacings, metric, t, p.eos, p.opts, p.proj, model,
                 p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G))
     map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D))
     return nothing
@@ -1306,9 +1358,19 @@ directions, divided by the local spacing: the time step is
 light-speed CFL on the finest level). Overwrites the light-speed slot of the
 diagnostics set.
 """
-function max_light_rate(p::MHDProblem{T,D}, t) where {T,D}
+max_light_rate(p::MHDProblem, t) = max_rate(p, nothing, t)
+
+"""
+    max_rate(p::MHDProblem, u, t; metric = p.provider) -> max λ/h
+
+[`max_light_rate`](@ref) in the metric `metric` (added in step 10): what a
+script's `Δt` reads. The light cone depends on the metric alone, so `u` is
+not read today; it is in the signature for a rate that reads the state
+(split speeds, the matter's coupled run). Public, not exported.
+"""
+function max_rate(p::MHDProblem{T,D}, u, t; metric=p.provider) where {T,D}
     X = p.f.X
-    map_blocks!(light_kernel!, X, X.work, p.origins, p.spacings, p.provider, T(t), Val(D),
+    map_blocks!(light_kernel!, X, X.work, p.origins, p.spacings, metric, T(t), Val(D),
                 Val(X.G))
     forest = X.forest
     return mesh_mapreduce(identity, max, zero(T), X; vars=X_LIGHT,

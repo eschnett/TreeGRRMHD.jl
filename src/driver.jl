@@ -209,7 +209,16 @@ A fresh state vector holding the case's solution at time `t`
 ([`case_state!`](@ref)): the initial data at `t = 0`, and the reference of an
 exact solution at any `t`.
 """
-exact_state(p::MHDProblem, case::MHDCase, t) = case_state!(statevector(p.sets), p, case, t)
+exact_state(p::MHDProblem, case::MHDCase, t) = initial_state!(statevector(p.sets), p, case, t)
+
+"""
+    initial_state!(u, p::MHDProblem, case::MHDCase, t) -> u
+
+The case's solution at `t` written into `u` ([`case_state!`](@ref)): the
+verb a script that owns the time loop calls for its initial data ("Two
+scripts" in `CODE.md`; added in step 10). Public, not exported.
+"""
+initial_state!(u, p::MHDProblem, case::MHDCase, t) = case_state!(u, p, case, t)
 
 # --- Dirichlet boundaries ----------------------------------------------------------------
 
@@ -671,12 +680,9 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
     refine === nothing || refine(forest)
     f = mhd_fields(T, forest; G=G, backend=backend)
-    build() = MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
-                         model=case.model, provider=case.provider, 𝔅̄=case.𝔅̄, ξ=ξ,
-                         stage=stage,
-                         limiter=limiter, riemann=riemann, ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
-                         ops_W=ops_W, fixup=fixup, boundary=case_boundary(case),
-                         two_phase=two_phase, interior=interior_target(interior, case))
+    build() = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
+                         ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
+                         two_phase=two_phase, interior=interior)
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
@@ -709,7 +715,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                 after_regrid === nothing || after_regrid(p, u, t)
             end
         end
-        rate = max_light_rate(p, t)
+        rate = max_rate(p, u, t)
         nsteps = chunk_count((t1 - t) * D * rate, cfl)
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,
                                reuse=integ)
@@ -757,6 +763,28 @@ default_ξ(case::MHDCase{T,D}) where {T,D} =
 
 # `evolve!`'s `ξ`: the default, or the caller's in the case's type.
 resolve_ξ(::Type{T}, ξ, case) where {T} = ξ === nothing ? T(default_ξ(case)) : T(ξ)
+
+"""
+    MHDProblem(f::MHDFields, case::MHDCase; limiter, ξ = default_ξ(case),
+               interior = case.interior, kw...)
+
+The problem of `case` over the field sets `f`, as [`evolve!`](@ref) builds
+it: the case's EOS, options, conductivity, provider, background field and
+Dirichlet hooks ([`case_boundary`](@ref)), its interior, the gauge damping
+`ξ`, and every other keyword of [`MHDProblem`](@ref) (`stage`, `riemann`,
+the operators, `fixup`, `two_phase`) passed on. What a script that owns the
+time loop builds, and rebuilds after a regrid ("Two scripts" in `CODE.md`;
+added in step 10).
+"""
+function MHDProblem(f::MHDFields, case::MHDCase; limiter, ξ=nothing, interior=case.interior,
+                    kw...)
+    T = eltype(f.U.work)
+    return MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
+                      model=case.model, provider=case.provider, 𝔅̄=case.𝔅̄,
+                      ξ=resolve_ξ(T, ξ, case), limiter=limiter,
+                      boundary=case_boundary(case), interior=interior_target(interior, case),
+                      kw...)
+end
 
 """
     default_ops_U(), default_ops_A(), default_ops_Φ(), default_ops_W()
