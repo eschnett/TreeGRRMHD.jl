@@ -3992,6 +3992,18 @@ the floor)*. The macOS cell carries the coverage, which at 1.13 costs 1.24x (6m2
 5m12s, both with bounds checks; TreeHydro had measured 3.14x at 1.13
 before, against 1.04x at 1.11).
 
+The cells run in two tiers, the same in every Tree* repository
+(2026-11-05, Erik): a pull request runs the two Linux cells only,
+uninstrumented; a push to `main`, a weekly schedule and a manual dispatch
+add the macOS cell and its coverage. Markdown and `docs/` changes run no
+CI, on pull requests as well as pushes, and tags are not tested, since a
+release tags a commit `main` has passed. The pull-request cells had taken
+10–33 min (the threaded one the slowest), 52 of the last 80 commits on
+`main` touched only Markdown, and macOS cells queued behind the other
+repositories', since the account runs five at once; TreeAMR's
+`HISTORY.md` ("Development environment and CI") has the measurements
+across the repositories.
+
 What 1.11 and 1.12 needed and 1.13 does not is gone. The suite's
 allocation probe (`rec_allocations` in `test/recovery_tests.jl`) was a
 `Vararg{Any,N}`-specialized method because 1.11 did not specialize a plain
