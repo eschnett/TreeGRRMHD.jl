@@ -76,6 +76,9 @@ include("tiers.jl")
     # Step 9: analytic curved backgrounds — the Wald solution and the magnetized Bondi
     # flow on a Kerr-Schild hole, with its interior.
     include("curved_tests.jl")
+    # Step 10: the TOV star in the Cowling approximation, on `Analytic(TOVMetric)`; uses
+    # `pointwise_tests.jl`'s `ForwardDiff`.
+    include("tov_tests.jl")
 end
 
 isempty(TIER_SKIPPED) ||

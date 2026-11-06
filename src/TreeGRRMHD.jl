@@ -121,6 +121,9 @@ export mhd_flags, indicator_scales, regrid_state!
 export HoleInterior, InteriorTarget, paste_interior!, outside_l1, field_l1, charge_norms
 export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning_wald_case,
        kerr_schild_r
+# The TOV star (step 10)
+export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
+       tov_boxes!
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -139,6 +142,7 @@ include("variables.jl")
 include("prim2con.jl")
 include("con2prim.jl")
 include("metric.jl")
+include("tov.jl")
 include("stress_energy.jl")
 include("ohm.jl")
 include("flux.jl")
@@ -160,5 +164,6 @@ include("cases/geometry.jl")
 include("cases/multid.jl")
 include("cases/gauge.jl")
 include("cases/kerr_schild.jl")
+include("cases/tov.jl")
 
 end # module TreeGRRMHD
