@@ -12,11 +12,14 @@
 # (the primitives' ghost fill at refinement boundaries: `w3b`, the default, Conservative
 # width 3 bounded; `w3` unbounded; `w1`), `reset` (`both`, the default, or `step`: the
 # reset as the step limiter alone), `out` (the time series, `t ρ_c resets injected_D` per
-# chunk; default none). The summary goes to the terminal.
+# chunk; default none), `checkpoint` (a file the run saves its state to every `every` chunks,
+# default 20, and resumes from if it exists: for pre-emptible queues; default none). The
+# summary goes to the terminal; a resumed run's wall time is its own part only.
 
 using TreeAMR
 using TreeGRRMHD
 using Printf
+using Serialization
 const MHD = TreeGRRMHD
 const IRK = MHD.IRK
 
@@ -35,7 +38,8 @@ const OPS_W = Dict(
     "w1" => Operators(; prolongation=1, restriction=2, family=Conservative))
 
 function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
-               limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing)
+               limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing,
+               checkpoint=nothing, every=20)
     star = MHD.tov_case(T; L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels, half_width=half * star.fields.w.metric.R̄)
@@ -53,7 +57,19 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
     t, integ, steps = zero(T), nothing, 0
     injected, resets, stage_resets = zero(T), 0, 0
     series = Tuple{T,T}[(zero(T), ρ0)]
-    for c in 1:nchunks
+    rows = Tuple{T,T,Int,T}[]
+    c0 = 0
+    if checkpoint !== nothing && isfile(checkpoint)
+        s = deserialize(checkpoint)
+        copyto!(u, s.u)
+        c0, t, steps = s.c, s.t, s.steps
+        injected, resets, stage_resets = s.injected, s.resets, s.stage_resets
+        series, rows = s.series, s.rows
+        record === nothing || foreach(r -> record(r...), rows)
+        @info "resumed from $checkpoint at chunk $c0, t = $t"
+    end
+    steps0 = steps
+    for c in (c0 + 1):nchunks
         t1 = c == nchunks ? t_end : c * chunk
         clear_tally!(mhd)
         nsteps = MHD.chunk_count((t1 - t) * 3 * MHD.max_rate(mhd, u, t; p.metric), cfl)
@@ -71,13 +87,19 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
         stage_resets += tally.resets
         ρ = MHD.central_density(mhd, u, t)
         push!(series, (t, ρ))
-        record === nothing || record(t, ρ, tally.step_resets, tally.injected_D)
+        push!(rows, (t, ρ, tally.step_resets, tally.injected_D))
+        record === nothing || record(last(rows)...)
+        if checkpoint !== nothing && (c % every == 0 || c == nchunks)
+            serialize(checkpoint * ".tmp",
+                      (; c, t, steps, injected, resets, stage_resets, series, rows, u=Array(u)))
+            mv(checkpoint * ".tmp", checkpoint; force=true)
+        end
     end
     M1 = conserved_totals(mhd, u)[1]
     l1 = l1_errors(mhd, u, u0)
     return (; series, ρ0, ρ1=last(series)[2], M0, ΔM=M1 - M0, injected, resets,
-            stage_resets, steps, nblocks=nblocks(mhd.f.U), h=minimum_spacing(forest),
-            l1D=l1.U[1], l1τ=l1.U[5])
+            stage_resets, steps, steps_run=steps - steps0, nblocks=nblocks(mhd.f.U),
+            h=minimum_spacing(forest), l1D=l1.U[1], l1τ=l1.U[5])
 end
 
 function main(args)
@@ -85,13 +107,13 @@ function main(args)
     out = nothing
     for a in args
         k, v = split(a, '='; limit=2)
-        if k in ("N", "levels", "roots")
+        if k in ("N", "levels", "roots", "every")
             kw[Symbol(k)] = parse(Int, v)
         elseif k in ("L", "t_end", "chunk", "half")
             kw[Symbol(k)] = parse(Float64, v)
         elseif k in ("limiter", "riemann")
             kw[Symbol(k)] = Symbol(v)
-        elseif k in ("opsW", "reset")
+        elseif k in ("opsW", "reset", "checkpoint")
             kw[Symbol(k)] = String(v)
         elseif k == "out"
             out = v
@@ -108,7 +130,7 @@ function main(args)
     @printf("TOV study %s\n", join(args, " "))
     @printf("  h = %.4g, %d blocks, %d steps, %d threads, wall %.1f s (%.3g µs per cell-step)\n",
             r.h, r.nblocks, r.steps, Threads.nthreads(), wall,
-            1e6 * wall / (r.steps * r.nblocks * get(kw, :N, 16)^3))
+            1e6 * wall / (r.steps_run * r.nblocks * get(kw, :N, 16)^3))
     @printf("  ρ_c: %.10e → %.10e, relative change %.4e; min %.6e, max %.6e\n", r.ρ0, r.ρ1,
             (r.ρ1 - r.ρ0) / r.ρ0, minimum(ρs), maximum(ρs))
     @printf("  L1 change of D %.4e, of τ %.4e\n", r.l1D, r.l1τ)
