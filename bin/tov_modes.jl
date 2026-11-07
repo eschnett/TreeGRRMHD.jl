@@ -3,13 +3,14 @@
 # PRD 65, 084024, Table I: the fixed-spacetime frequencies of this model from an independent
 # 2D code, F = 2.701, H1 = 4.563, H2 = 6.352 kHz).
 #
-#     julia --project=. bin/tov_modes.jl SERIES [t_skip=0] [degree=1]
+#     julia --project=. bin/tov_modes.jl SERIES [t_skip=T] [degree=K]
 #
 # The series' polynomial trend of degree `degree` is removed (1: the mean and a linear
 # drift; higher for a run whose central density decays), the rest is Hann-windowed, and its discrete
 # Fourier transform is evaluated on a fine grid of frequencies; each mode is the largest peak
 # within ±20% of its reference, refined by a parabola through the peak and its neighbours;
-# a largest value at the window's edge is reported as no peak (`NaN`).
+# the peak is the largest local maximum inside the window, and a window with none (a flank
+# rising to its edge) is reported as no peak (`NaN`).
 # `t_skip` drops the start (the initial transient). Frequencies in kHz: one `M☉` of time is
 # `G M☉/c³ = 4.925490947 µs`.
 
@@ -41,9 +42,11 @@ end
 
 function peak(fs, P, lo, hi)
     idx = findall(f -> lo ≤ f ≤ hi, fs)
-    i = idx[argmax(P[idx])]
-    # The largest value at the window's edge is the flank of a peak outside it, not a mode.
-    (i == first(idx) || i == last(idx)) && return NaN, P[i]
+    # Only interior local maxima: a value rising to the window's edge is the flank of a
+    # peak outside it (H1's, in H2's window), not a mode.
+    loc = filter(i -> i ∉ (first(idx), last(idx)) && P[i - 1] < P[i] > P[i + 1], idx)
+    isempty(loc) && return NaN, maximum(P[idx])
+    i = loc[argmax(P[loc])]
     a, b, c = P[i - 1], P[i], P[i + 1]
     δ = (a - c) / (2 * (a - 2b + c))                 # parabola through the three
     return fs[i] + δ * (fs[2] - fs[1]), b
