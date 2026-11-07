@@ -1627,6 +1627,22 @@ space and 6.8e−16 in Kerr-Schild; the fluxes are `α√γ Tᵈ_j` (momentum) a
 `α²√γ T^{td}` (energy) to 4.8e−16; and the light cone is null in `g^{ab}`
 to 1.6e−15.
 
+*(Measured in step 10; the light cone stays, proposed.)* The split speeds
+are `riemann_flux(::Val{:hlle_split}, …)` in `src/riemann.jl`: Banyuls et
+al.'s (1997) acoustic speeds, the extremes over both states, for `D`,
+`D Yₑ` and `D s`, and the light cone for `S_i`, `τ` and `𝔈`. On the
+Cowling star (`bin/tov_study.jl`, `h = 0.75`, MC, SSP3(4,3,3), Symmetry,
+job 591972) the split run holds the central density within +5% for 100 M,
+where the light cone's has fallen 6.5%, and then fails: at 105 M the
+central density starts to climb, ten times its initial value by 130 M,
+and by 200 M the box has lost 0.42 of its rest mass of 1.506 through the
+outer faces while the reset injected 2·10⁻³. The light cone's run is
+stable to 200 M (−10.5%, the rest mass net of the reset's injection to
+1.3·10⁻¹⁵). A likely cause, not investigated: the split gives `D` far
+less dissipation than `τ` and `S_i` at the surface and in the atmosphere,
+so that the rest mass and the energy no longer move together there. HLLC
+is not built.
+
 ### The electromotive force for `A`
 
 Upwind constrained transport (proposed): at each `d`-edge the EMF
@@ -3135,6 +3151,15 @@ Symmetry cn079, AMD EPYC 7532, one pinned thread, Julia 1.13, 2026-11-02):
   at every one);
 - the rung-3 cases: 69–72 µs per cell and step at 16³ (8 blocks of 8³),
   49 µs at 32³ (8 blocks of 16³), Wald and Bondi alike.
+- *(Measured in step 10:)* per call, `Analytic(TOVMetric)` of the Cowling
+  star over `[−12, 12]³` (the table inside, the closed-form exterior
+  outside): `point_metric` 63 ns and `metric_gradient` 115 ns, against
+  Kerr-Schild's 87 ns and 241 ns in the same job (`bin/metric_cost.jl
+  percall`, Symmetry cn094, AMD EPYC 7543, one thread, two runs within
+  0.5 ns, job 592037; the EPYC 7532 above measured Kerr-Schild at 102 and
+  234). The TOV metric is cheaper than Kerr-Schild per call: a Hermite
+  cubic in `u = r̄²` and its derivative, through ForwardDiff for the
+  gradient.
 
 So the pointwise provider is affordable for rung 3 — the study to `t = 50M`
 runs in hours, not days — and a per-stage cache would save at most that
@@ -5263,7 +5288,28 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - `T_ab` to vertices: 2nd order (default) or 4th.
 - *(Closed in step 8.)* Conservative prolongation width for the matter at
   stellar surfaces: width 3, bounded (TreeAMR's limited operator, AMR-4);
-  the TOV surface's check is step 10's.
+  the TOV surface's check is step 10's. *(Measured in step 10; width 3
+  bounded stays, proposed.)* The Cowling star with a second box level of
+  half-width `0.7 R̄`, so that the coarse-fine faces cut through the star
+  and its surface (`bin/tov_study.jl N=8 levels=2 half=0.7`, finest
+  `h = 0.375`, MC, 200 M; the primitives' ghost fill `ops_W` at refinement
+  boundaries; Symmetry jobs 591967, 592035, 592036):
+
+  | `ops_W` | `ρ_c` at 200 M | L1 change of `D` | rest mass the reset injected | budget |
+  |---|---|---|---|---|
+  | width 3, bounded | −1.77% | 8.5·10⁻⁷ | +2.3·10⁻⁷ | −1.5·10⁻¹⁵ |
+  | width 3, unbounded | −4.39% | 1.4·10⁻⁶ | **−0.143** | −1.8·10⁻⁵ |
+  | width 1 | −4.44% | 3.2·10⁻⁶ | +2.9·10⁻⁷ | −9.3·10⁻¹⁶ |
+
+  The unbounded operator's overshoots at the faces make cells the reset
+  takes out: 9.5% of the star's rest mass of 1.506 in 200 M, at about
+  7·10⁻⁴ per M after the first 25 M, where the bounded operator and
+  width 1 inject 10⁻⁹ per M, as the uniform mesh does. Its budget (the
+  change of the rest mass net of what the reset injected) is 1.8·10⁻⁵
+  rather than rounding: mass through the outer faces or through the
+  coarse-fine faces, not separated. Width 1 is stable but twice as
+  diffusive as the bounded width 3 in the central density and four times
+  in L1.
 - *(Closed in step 8.)* PointValue width for `A` and `Φ̃`: 4; the gauge
   damping: `ξ = 16/L` on every mesh, `L` the box's longest side (amended,
   decided by Erik 2026-10-15; see "Refinement").
@@ -5314,7 +5360,16 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   TOV star, a star in a vacuum, twice: with the reset as both limiters,
   and as the step limiter alone. TreeHydro named this case as the one
   where a per-stage reset could matter, and no code in IMEXRungeKutta's
-  survey measured it (amended 2026-09-25).
+  survey measured it (amended 2026-09-25). *(Measured in step 10:)* it
+  does not, on the Cowling star (`bin/tov_study.jl reset=step`, `h = 0.75`,
+  MC, 200 M, Symmetry jobs 591972 and 591973, on an EPYC 7543 and an EPYC
+  8534P): the central density `1.1172021167·10⁻³` at 200 M, the L1 changes
+  of `D` and `τ` (`2.7043·10⁻⁶`, `1.0563·10⁻⁷`) and the rest mass the reset
+  injected (`1.9354·10⁻⁷`) agree to every printed digit with the reset as
+  the step limiter alone and as both, although the stage limiter wrote
+  2.7·10⁸ cell-stages (where, not recorded). The default stays both roles
+  (proposed in step 10): the star does not decide between them, and the
+  stage role is what keeps every right-hand side's input physical.
 - The reconstruction the stars run with (added in step 7): MC, the
   plan's and GRaM-X's choice, or PPM, which alone of the four resolved
   Balsara 3's dense shell and held every Balsara plateau but test 2's `R5`
