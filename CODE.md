@@ -5304,10 +5304,11 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   With the unbounded operator the reset takes out 9.5% of the star's
   rest mass of 1.506 in 200 M (its overshoots at the faces, presumably;
   not localised), at about 7·10⁻⁴ per M after the first 25 M, where the
-  bounded operator and width 1 inject 10⁻⁹ per M, as the uniform mesh does. Its budget (the
-  change of the rest mass net of what the reset injected) is 1.8·10⁻⁵
-  rather than rounding: mass through the outer faces or through the
-  coarse-fine faces, not separated. Width 1 is stable but twice as
+  bounded operator and width 1 inject 10⁻⁹ per M, as the uniform mesh
+  does. Its budget (the change of the rest mass net of what the reset
+  injected) is 1.8·10⁻⁵ rather than rounding: mass through the outer
+  faces or through the coarse-fine faces, not separated. Width 1 is
+  stable but twice as
   diffusive as the bounded width 3 in the central density and four times
   in L1.
 - *(Closed in step 8.)* PointValue width for `A` and `Φ̃`: 4; the gauge
