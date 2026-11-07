@@ -5301,10 +5301,10 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   | width 3, unbounded | −4.39% | 1.4·10⁻⁶ | **−0.143** | −1.8·10⁻⁵ |
   | width 1 | −4.44% | 3.2·10⁻⁶ | +2.9·10⁻⁷ | −9.3·10⁻¹⁶ |
 
-  The unbounded operator's overshoots at the faces make cells the reset
-  takes out: 9.5% of the star's rest mass of 1.506 in 200 M, at about
-  7·10⁻⁴ per M after the first 25 M, where the bounded operator and
-  width 1 inject 10⁻⁹ per M, as the uniform mesh does. Its budget (the
+  With the unbounded operator the reset takes out 9.5% of the star's
+  rest mass of 1.506 in 200 M (its overshoots at the faces, presumably;
+  not localised), at about 7·10⁻⁴ per M after the first 25 M, where the
+  bounded operator and width 1 inject 10⁻⁹ per M, as the uniform mesh does. Its budget (the
   change of the rest mass net of what the reset injected) is 1.8·10⁻⁵
   rather than rounding: mass through the outer faces or through the
   coarse-fine faces, not separated. Width 1 is stable but twice as
