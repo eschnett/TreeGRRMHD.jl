@@ -3,9 +3,10 @@
 # PRD 65, 084024, Table I: the fixed-spacetime frequencies of this model from an independent
 # 2D code, F = 2.701, H1 = 4.563, H2 = 6.352 kHz).
 #
-#     julia --project=. bin/tov_modes.jl SERIES [t_skip=0]
+#     julia --project=. bin/tov_modes.jl SERIES [t_skip=0] [degree=1]
 #
-# The series' mean and linear trend are removed, the rest is Hann-windowed, and its discrete
+# The series' polynomial trend of degree `degree` is removed (1: the mean and a linear
+# drift; higher for a run whose central density decays), the rest is Hann-windowed, and its discrete
 # Fourier transform is evaluated on a fine grid of frequencies; each mode is the largest peak
 # within ±20% of its reference, refined by a parabola through the peak and its neighbours;
 # a largest value at the window's edge is reported as no peak (`NaN`).
@@ -28,10 +29,11 @@ function read_series(path)
     return t, ρ
 end
 
-function spectrum(t, y, fs)
+function spectrum(t, y, fs; degree=1)
     n = length(t)
-    A = hcat(ones(n), t)
-    y = y - A * (A \ y)                              # mean and trend removed
+    τ = (t .- t[1]) ./ (t[end] - t[1])
+    A = hcat((τ .^ k for k in 0:degree)...)
+    y = y - A * (A \ y)                              # the polynomial trend removed
     w = [sin(π * (i - 1) / (n - 1))^2 for i in 1:n]  # Hann
     dt = (t[end] - t[1]) / (n - 1)
     return [abs(sum(w[i] * y[i] * cis(-2π * f * t[i]) for i in 1:n)) * dt for f in fs]
@@ -47,13 +49,13 @@ function peak(fs, P, lo, hi)
     return fs[i] + δ * (fs[2] - fs[1]), b
 end
 
-function modes(path; t_skip=0.0)
+function modes(path; t_skip=0.0, degree=1)
     t, ρ = read_series(path)
     keep = t .≥ t_skip
     t, ρ = t[keep], ρ[keep]
     f_kHz(f) = f / MSUN_TIME_MS                      # 1/M☉ to kHz (per ms)
     fs = range(0.5, 8.0; length=7501) .* MSUN_TIME_MS   # kHz grid, in 1/M☉
-    P = spectrum(t, ρ, fs)
+    P = spectrum(t, ρ, fs; degree=round(Int, degree))
     @printf("%s: %d samples, t = %.1f … %.1f M (%.2f ms), resolution %.3f kHz\n", path,
             length(t), t[1], t[end], (t[end] - t[1]) * MSUN_TIME_MS,
             1 / ((t[end] - t[1]) * MSUN_TIME_MS))
