@@ -1614,6 +1614,7 @@ the default wave speeds are therefore the local light cone,
 resistive codes this design follows, robust and diffusive. Split speeds
 (fluid speeds for `D`, `D Yₑ`, `D s`, light speed for the rest) and a
 resistive HLLC are (open), to be decided by measurement on the TOV star.
+*(The split speeds measured in step 10, below; HLLC stays (open).)*
 
 *(Step 2:)* `src/flux.jl` and `src/riemann.jl`. A face state is the tuple
 `(cons, prim, E, B)` — the densitized conserved state, the primitive state
@@ -5259,6 +5260,45 @@ named as claims.
 4. **TOV in the Cowling approximation**: a Γ = 2, K = 100 polytrope
    at fixed entropy (needs EOS-1, EOS-2) on `Analytic(TOVMetric)`, with no
    TreeGH (decided by Erik 2026-11-06); stationarity and mode frequencies.
+
+   *(Measured in step 10.)* `tov_case` on `[−24, 24]³` (4 roots, one level
+   of boxes from `tov_boxes!`, `half = 1.25 R̄`), SSP3(4,3,3), HLLE with
+   light-cone speeds, the reset as both limiters; `bin/tov_study.jl`
+   writes the central density (`central_density`, the largest cell
+   average of `ρ`) every `M`, and `bin/tov_drift.jl` takes the drift
+   `ρ_c/ρ_c(0) − 1` against the same mesh's initial cell average (`ρ_c(0)`
+   is 1.24834e−3, 1.26575e−3, 1.27195e−3 at `h = 0.75`, 0.5, 0.375; the
+   star's own is 1.28e−3). Symmetry, amdpreq, 64 threads, the node per job
+   in the logs.
+
+   **Stationarity** (PLAN.md: the drift after `200M` converges at `≥ 1.5`,
+   **(predicted)**; *measured: holds for both reconstructions*):
+
+   | | `h = 0.75` | `0.5` | `0.375` | orders |
+   |---|---|---|---|---|
+   | MC drift at `200M` | −1.0505e−1 | −3.7809e−2 | −1.4533e−2 | **2.52, 3.32** |
+   | MC, mean over `[160, 200]M` | −9.580e−2 | −3.381e−2 | −1.405e−2 | 2.57, 3.05 |
+   | MC L1 change of `D`, `τ` | 2.70e−6, 1.06e−7 | 1.09e−6, 3.83e−8 | 5.93e−7, 1.80e−8 | |
+   | PPM drift at `200M` | −4.1806e−2 | −1.4123e−2 | −6.9735e−3 | **2.68, 2.45** |
+   | PPM, mean over `[160, 200]M` | | | | 2.61, 2.38 |
+   | PPM L1 change of `D`, `τ` | 3.83e−7, 1.94e−8 | 1.21e−7, 7.19e−9 | 6.24e−8, 3.73e−9 | |
+
+   (Jobs 591972, 592404, 592405 for MC; 591973, 592040, 592041 for PPM.)
+   The drift is a slow monotone loss of central density with the radial
+   modes on top, not a growth: MC's `h = 0.75` run reaches −60.5% at
+   `2000M` (job 591971, cn086). At each resolution PPM drifts 2.1–2.7 times
+   less than MC, and its L1 change of `D` is 7–10 times smaller. MC's
+   `0.5 → 0.375` order above 3 says the coarser pairs are not yet
+   asymptotic for MC; the N = 24 run (`h = 0.25`) is (open, running).
+
+   **Conservation** (PLAN.md: rest mass to round-off, net of the outer
+   boundary flux; *measured: holds*): in every run the change of the total
+   `D` equals the mass the step limiter injected (`ohm_tally`'s
+   `injected_D`) to `1.3–7.7·10⁻¹⁵` of a rest mass of 1.506, at `200M` and
+   at MC's `2000M` (4.2e−15), so nothing leaves through the outer faces.
+   The injection is `+1.5` to `+1.9·10⁻⁷` with MC and `−3.5` to `−4.2·10⁻⁷`
+   with PPM: PPM's reset removes mass, MC's adds it.
+
 5. **TOV in a dynamical spacetime**: the frozen TreeGH metric, through its
    adapter, reproducing rung 4 (added 2026-11-06); the F, H1, H2 radial
    modes against the literature (Font et al. 2002); convergence of the GH
@@ -5376,6 +5416,17 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   Balsara 3's dense shell and held every Balsara plateau but test 2's `R5`
   (2.8%) within 2% (see "Validation ladder" 1b); WENO-Z smeared the shell
   worst, and MP5 costs twice the steps. Decided on the TOV star (rung 4).
+  *(Measured in step 10; PPM for stars, proposed.)* On the Cowling star
+  ("Validation ladder" 4) PPM's central density drifts 2.1–2.7 times less
+  than MC's at every resolution (−4.18%, −1.41%, −0.70% at `200M` against
+  −10.5%, −3.78%, −1.45% at `h = 0.75`, 0.5, 0.375), its L1 change of `D`
+  is 7–10 times smaller, and both converge above second order. PPM costs
+  about 12% more per cell-step: 8.68 µs against 7.72 µs for MC with the
+  reset as the step limiter alone (the same run as both roles to every
+  digit), in one job on cn112 (EPYC 8534P, job 591973); no pair with the
+  default reset ran on one node. PPM needs `G = 3`, `mhd_fields`' default. The stars' cases and scripts should run PPM; the package's
+  default stays MC (the tubes and waves of rungs 1–2 were measured with it)
+  until Erik decides.
 - *(Closed in step 6.)* SSP3(4,3,3) or ARS(4,4,3) as the default tableau:
   SSP3(4,3,3), whose explicit part is SSP; ARS(4,4,3) undershoots into a
   near vacuum, fires the reset on Balsara 3 and 4, and floods a magnetized
