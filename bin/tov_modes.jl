@@ -3,7 +3,7 @@
 # PRD 65, 084024, Table I: the fixed-spacetime frequencies of this model from an independent
 # 2D code, F = 2.701, H1 = 4.563, H2 = 6.352 kHz).
 #
-#     julia --project=. bin/tov_modes.jl SERIES [t_skip=T] [degree=K]
+#     julia --project=. bin/tov_modes.jl SERIES [t_skip=T] [t_end=T] [degree=K]
 #
 # The series' polynomial trend of degree `degree` is removed (1: the mean and a linear
 # drift; higher for a run whose central density decays), the rest is Hann-windowed, and its discrete
@@ -11,7 +11,8 @@
 # within ±20% of its reference, refined by a parabola through the peak and its neighbours;
 # the peak is the largest local maximum inside the window, and a window with none (a flank
 # rising to its edge) is reported as no peak (`NaN`).
-# `t_skip` drops the start (the initial transient). Frequencies in kHz: one `M☉` of time is
+# `t_skip` drops the start (the initial transient), `t_end` the rest after it (to compare
+# runs over the same span). Frequencies in kHz: one `M☉` of time is
 # `G M☉/c³ = 4.925490947 µs`.
 
 using Printf
@@ -52,9 +53,9 @@ function peak(fs, P, lo, hi)
     return fs[i] + δ * (fs[2] - fs[1]), b
 end
 
-function modes(path; t_skip=0.0, degree=1)
+function modes(path; t_skip=0.0, t_end=Inf, degree=1)
     t, ρ = read_series(path)
-    keep = t .≥ t_skip
+    keep = t_skip .≤ t .≤ t_end
     t, ρ = t[keep], ρ[keep]
     f_kHz(f) = f / MSUN_TIME_MS                      # 1/M☉ to kHz (per ms)
     fs = range(0.5, 8.0; length=7501) .* MSUN_TIME_MS   # kHz grid, in 1/M☉

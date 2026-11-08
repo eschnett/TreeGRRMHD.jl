@@ -263,8 +263,9 @@ centering, `CODE.md`, "The coupling contract", as built); `:hlle_split` in
 step-10 script (a test runs its `main` against `evolve!`, bit for bit);
 `bin/tov_study.jl` (checkpointed, for amdpreq), `bin/tov_drift.jl` and
 `bin/tov_modes.jl` made `CODE.md`'s rung-4 record. Measured: stationarity
-converges above second order (MC 2.52, 3.32; PPM 2.68, 2.45), rest mass to
-`10⁻¹⁵` net of the reset's injection; the light cone stays (split speeds
+converges above second order (MC 2.52, 3.32, 2.80 to `h = 0.25`; PPM 2.68,
+2.45), rest mass to `10⁻¹⁴` net of the reset's injection; F, H1, H2 within
+3% of Font et al. at `h = 0.375` (PPM, 886M; H2 −8% at 0.5); the light cone stays (split speeds
 blow up), width 3 bounded stays, the reset's stage role changes nothing on
 the star, PPM drifts 2–3 times less than MC (PPM for stars, proposed);
 `Analytic(TOVMetric)` 63/115 ns per call. All proposed, for Erik

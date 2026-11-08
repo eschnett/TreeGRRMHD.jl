@@ -2155,13 +2155,16 @@ Accept:
   *(Amended 2026-11-06: the 4th-order interpolation check moved to GH-1's upstream acceptance.)*
 - **The script:** its `main` makes the run `evolve!` makes, bit for bit.
 - **Stationarity:** the central-density drift after 200 M converges at ≥ 1.5 **(predicted)**.
-  *(Measured in step 10: holds — MC 2.52 and 3.32, PPM 2.68 and 2.45 at `h = 0.75 → 0.5 →
-  0.375`; `CODE.md`, "Validation ladder" 4.)*
+  *(Measured in step 10: holds — MC 2.52, 3.32 and 2.80 at `h = 0.75 → 0.5 → 0.375 → 0.25`,
+  PPM 2.68 and 2.45 to 0.375; `CODE.md`, "Validation ladder" 4.)*
 - **Conservation:** rest mass to round-off, net of the outer boundary flux. *(Measured in
   step 10: holds — the change of the total `D` is the reset's injection to `≤ 7.7·10⁻¹⁵` of
   1.506 in every run, to `2000M`; nothing leaves through the outer faces.)*
 - **Modes:** the F, H1 and H2 frequencies are within 3% of Font et al. (2002)'s Cowling values
-  **(predicted; values copied with citation)**.
+  **(predicted; values copied with citation)**. *(Measured in step 10: holds at `h = 0.375` —
+  F −0.89%, H1 +0.00%, H2 +2.20% over 886 M, PPM; at `h = 0.5` H2 fails, −7.97%; the modes
+  damp within about 500–900 M, so the 2000 M and 1000 M runs were stopped at 1918 M and 886 M;
+  `CODE.md`, "Validation ladder" 4.)*
 - **Floored cells** at a coarse-fine surface for width 1, width 3, and limited (AMR-4)
   **decide the prolongation (open)**. *(Measured in step 10: width 3 bounded stays, proposed;
   the unbounded operator lets the reset remove 9.5% of the star by 200 M, width 1 is twice as

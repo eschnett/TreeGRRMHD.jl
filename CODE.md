@@ -26,11 +26,11 @@ beside PLM (rung 2a) — as are steps 4a–4c in IMEXRungeKutta; coarse-fine
 faces and regridding (rung 2b, step 8); and the analytic curved backgrounds,
 the Wald solution and the magnetized Bondi flow on a Kerr-Schild hole with
 its interior (rung 3, step 9). Step 10, the TOV star in the Cowling
-approximation on the analytic TOV metric, is next; it no longer reads
-TreeGH (decided by Erik 2026-11-06; [The coupling
-contract](#the-coupling-contract)). The numbers below about the scheme
-are measured where they say so and unmeasured otherwise. (Amended in step
-9 and 2026-11-06.)*
+approximation on the analytic TOV metric, with no TreeGH (decided by Erik
+2026-11-06; [The coupling contract](#the-coupling-contract)), is built and
+measured (rung 4), its decisions proposed for review. The numbers below
+about the scheme are measured where they say so and unmeasured otherwise.
+(Amended in step 9, 2026-11-06 and step 10.)*
 
 Markers, as in the sibling packages: **(decided)** is a decision taken in
 review; **(proposed)** is one this document makes and still wants
@@ -5267,37 +5267,71 @@ named as claims.
    writes the central density (`central_density`, the largest cell
    average of `ρ`) every `M`, and `bin/tov_drift.jl` takes the drift
    `ρ_c/ρ_c(0) − 1` against the same mesh's initial cell average (`ρ_c(0)`
-   is 1.24834e−3, 1.26575e−3, 1.27195e−3 at `h = 0.75`, 0.5, 0.375; the
-   star's own is 1.28e−3). Symmetry, amdpreq, 64 threads, the node per job
+   is 1.24834e−3, 1.26575e−3, 1.27195e−3, 1.27641e−3 at `h = 0.75`, 0.5,
+   0.375, 0.25; the star's own is 1.28e−3). Symmetry, amdpreq, 64 threads, the node per job
    in the logs.
 
    **Stationarity** (PLAN.md: the drift after `200M` converges at `≥ 1.5`,
    **(predicted)**; *measured: holds for both reconstructions*):
 
-   | | `h = 0.75` | `0.5` | `0.375` | orders |
-   |---|---|---|---|---|
-   | MC drift at `200M` | −1.0505e−1 | −3.7809e−2 | −1.4533e−2 | **2.52, 3.32** |
-   | MC, mean over `[160, 200]M` | −9.580e−2 | −3.381e−2 | −1.405e−2 | 2.57, 3.05 |
-   | MC L1 change of `D`, `τ` | 2.70e−6, 1.06e−7 | 1.09e−6, 3.83e−8 | 5.93e−7, 1.80e−8 | |
-   | PPM drift at `200M` | −4.1806e−2 | −1.4123e−2 | −6.9735e−3 | **2.68, 2.45** |
-   | PPM, mean over `[160, 200]M` | | | | 2.61, 2.38 |
-   | PPM L1 change of `D`, `τ` | 3.83e−7, 1.94e−8 | 1.21e−7, 7.19e−9 | 6.24e−8, 3.73e−9 | |
+   | | `h = 0.75` | `0.5` | `0.375` | `0.25` | orders |
+   |---|---|---|---|---|---|
+   | MC drift at `200M` | −1.0505e−1 | −3.7809e−2 | −1.4533e−2 | −4.6686e−3 | **2.52, 3.32, 2.80** |
+   | MC, mean over `[160, 200]M` | −9.580e−2 | −3.381e−2 | −1.405e−2 | −5.071e−3 | 2.57, 3.05, 2.51 |
+   | MC L1 change of `D`, `τ` | 2.70e−6, 1.06e−7 | 1.09e−6, 3.83e−8 | 5.93e−7, 1.80e−8 | 2.71e−7, 6.42e−9 | |
+   | PPM drift at `200M` | −4.1806e−2 | −1.4123e−2 | −6.9735e−3 | | **2.68, 2.45** |
+   | PPM, mean over `[160, 200]M` | −3.975e−2 | −1.378e−2 | −6.950e−3 | | 2.61, 2.38 |
+   | PPM L1 change of `D`, `τ` | 3.83e−7, 1.94e−8 | 1.21e−7, 7.19e−9 | 6.24e−8, 3.73e−9 | | |
 
-   (Jobs 591972, 592404, 592405 for MC; 591973, 592040, 592041 for PPM.)
+   (Jobs 591972, 592404, 592405, 593184 for MC; 591973, 592040, 592041 for
+   PPM; MC at `h = 0.25` took 57875 s on cn101, EPYC 7543.)
    The drift is a slow monotone loss of central density with the radial
    modes on top, not a growth: MC's `h = 0.75` run reaches −60.5% at
    `2000M` (job 591971, cn086). At each resolution PPM drifts 2.1–2.7 times
    less than MC, and its L1 change of `D` is 7–10 times smaller. MC's
-   `0.5 → 0.375` order above 3 says the coarser pairs are not yet
-   asymptotic for MC; the N = 24 run (`h = 0.25`) is (open, running).
+   order scatters about 2.8 (`0.5 → 0.25`: 3.02, of the mean 2.74): the
+   drift converges above second order, so it is the scheme's truncation
+   error, not a boundary or atmosphere effect of fixed size.
 
    **Conservation** (PLAN.md: rest mass to round-off, net of the outer
    boundary flux; *measured: holds*): in every run the change of the total
    `D` equals the mass the step limiter injected (`ohm_tally`'s
-   `injected_D`) to `1.3–7.7·10⁻¹⁵` of a rest mass of 1.506, at `200M` and
-   at MC's `2000M` (4.2e−15), so nothing leaves through the outer faces.
-   The injection is `+1.5` to `+1.9·10⁻⁷` with MC and `−3.5` to `−4.2·10⁻⁷`
-   with PPM: PPM's reset removes mass, MC's adds it.
+   `injected_D`) to `1.3–7.7·10⁻¹⁵` of a rest mass of 1.506 at `200M` and
+   at MC's `2000M` (4.2e−15), and to 3.1e−14 at `h = 0.25` (5400 steps on
+   eight times `h = 0.5`'s cells, accumulated rounding), so nothing leaves
+   through the outer faces. The injection is `+1.3` to `+1.9·10⁻⁷` with MC
+   and `−3.5` to `−4.2·10⁻⁷` with PPM: PPM's reset removes mass, MC's adds
+   it.
+
+   **Modes** (PLAN.md: F, H1 and H2 within 3% of Font et al. 2002, Table I,
+   the fixed-spacetime values of this model from a 2D code: 2.701, 4.563,
+   6.352 kHz, **(predicted)**; *measured: holds at `h = 0.375`; H2 fails at
+   `h = 0.5`*). Nothing perturbs the star: the modes are the initial data's
+   truncation error. `bin/tov_modes.jl` on the PPM series (the trend
+   removed, Hann window, the largest interior local maximum within ±20% of
+   each reference, refined by a parabola), both over `[0, 886]M` (0.23 kHz
+   resolution; jobs 592406 and 592407, checkpointed through 16 and 7
+   pre-emptions, their first `200M` the uninterrupted runs' bit for bit):
+
+   | | F | H1 | H2 |
+   |---|---|---|---|
+   | `h = 0.5` | 2.665 (−1.33%) | 4.605 (+0.92%) | 5.845 (**−7.97%**) |
+   | `h = 0.375` | 2.677 (−0.89%) | 4.563 (+0.00%) | 6.492 (+2.20%) |
+
+   The detrending degree (1–3) moves them by at most 0.05%. F and H1
+   approach Font et al.'s values with resolution; H2, with two radial
+   nodes inside `R̄ = 8.1` (16 cells of `h = 0.5`), is the first to fail.
+   The modes are damped by the scheme's dissipation, faster on the coarser
+   mesh: F's peak over `[0, 500]M`, `[500, 1000]M` is 7.3e−5, 4.6e−6 at
+   `h = 0.5`; over `[0, 500]M`, `[386, 886]M` 5.2e−5, 1.1e−5 at `0.375`.
+   Past that the windows hold noise (at `h = 0.5` beyond `1000M` every peak
+   is off by 5–19%), so the 2000M and 1000M runs the plan named were
+   stopped at 1918M and 886M; the 2000M run's whole series gives the same F
+   and H1 to 1% (2.645, 4.643) and H2 at −8.4%. Over `200M` alone (1 kHz
+   resolution) H1 is +3.7% and H2 +8.1% at `0.375`: the 3% needs `≳ 500M`.
+   MC is no substitute: its `h = 0.75` star decays (−60.5% by `2000M`) and
+   F drifts with it, 2.15, 1.76, 1.42 kHz over `[0, 500]`, `[500, 1000]`,
+   `[1000, 2000]M`.
 
 5. **TOV in a dynamical spacetime**: the frozen TreeGH metric, through its
    adapter, reproducing rung 4 (added 2026-11-06); the F, H1, H2 radial
