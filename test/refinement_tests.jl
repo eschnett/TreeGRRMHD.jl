@@ -17,29 +17,8 @@
 #   * a closed box refined symmetrically keeps TreeAMR's half-open
 #     asymmetry at coarse-fine faces (recorded).
 #
-# Uses `multid_tests.jl`'s `md_run` (which asserts `∇·𝔅 ≤ 1e−12` after every
-# step) and `md_conserved`, so it is included after it.
-
-const RF = TreeGRRMHD
-
-# Two roots per dimension, one of them refined, 2:1 balanced, so that the
-# blocks do not all have the same spacing.
-function rf_forest(::Val{D}; N=8) where {D}
-    forest = Forest(ntuple(_ -> 2, D); N=N, periodic=ntuple(_ -> true, D),
-                    extents=ntuple(_ -> (0.0, 1.0), D))
-    rf_refine_first!(forest)
-    return forest
-end
-
-# The static meshes of the tests: the first root refined, or the middle half
-# of the roots of a one-dimensional mesh.
-rf_refine_first!(forest) = (refine!(forest, [first(forest.leaves)]); balance!(forest); forest)
-function rf_refine_middle!(forest)
-    nr = length(forest.leaves)
-    refine!(forest, [k for (i, k) in enumerate(copy(forest.leaves)) if nr ÷ 4 < i ≤ 3nr ÷ 4])
-    balance!(forest)
-    return forest
-end
+# Uses `multid_runs.jl`'s `md_run` (which asserts `∇·𝔅 ≤ 1e−12` after every
+# step) and `md_conserved`, and `refinement_meshes.jl`'s meshes.
 
 # A stellar surface: a drop over thirteen orders of magnitude.
 rf_surface(x) = (x[1] < 0.3 ? 1.0 : 1.0e-13,)

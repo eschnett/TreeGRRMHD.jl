@@ -14,7 +14,7 @@
 #
 # The claims are measured against the stage equation itself, evaluated with
 # the public pieces (`prim2con`, `ampere_stiff_source`), and not against the
-# solve's own residual. The states come from `recovery_tests.jl`'s generators
+# solve's own residual. The states come from `recovery_states.jl`'s generators
 # (`rec_metric`, `rec_direction`, `rec_gas`), included before this file.
 
 using KernelAbstractions: @kernel, @index, CPU, synchronize

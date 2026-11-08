@@ -2,7 +2,8 @@
 # step 5's PLM ("Reconstruction" in `CODE.md`; step 7 of `PLAN.md`). First
 # pointwise — the properties the direction-independence claims of
 # `multid_tests.jl` rest on, and each method's order on smooth data — then the
-# circularly polarized Alfvén wave of `wave_tests.jl` under each method.
+# circularly polarized Alfvén wave of `wave_tests.jl` under each method
+# (`wave_study.jl`'s study).
 
 using Random: Xoshiro
 
@@ -110,13 +111,12 @@ end
 # 100 and 200 cells (400 is in `CODE.md`, measured once: it doubles the file's
 # time and moves no rate by more than 0.05).
 const RC_MS = (50, 100, 200)
-const RC_ALFVEN = Dict(lim => wv_study((T, roots) -> alfven_wave_case(T; roots=roots),
-                                       alfven_period; limiter=lim, Ms=RC_MS)
-                       for lim in (:ppm, :wenoz, :mp5))
-const RC_MC = only(wv_study((T, roots) -> alfven_wave_case(T; roots=roots), alfven_period;
-                            limiter=:mc, Ms=(last(RC_MS),)))
+# Made by the testset (`computed_once`, `tiers.jl`), MC's once for all three.
+rc_alfven(lim; Ms=RC_MS) =
+    computed_once(() -> wv_study((T, roots) -> alfven_wave_case(T; roots=roots), alfven_period;
+                                 limiter=lim, Ms=Ms), (:rc_alfven, lim, Ms))
 
-@testset "The Alfvén wave under $lim converges at second order or better, below MC's error" for lim in (:ppm, :wenoz, :mp5)
+@serial_tier @testset "The Alfvén wave under $lim converges at second order or better, below MC's error" for lim in (:ppm, :wenoz, :mp5)
     # Guards the higher-order methods inside the whole scheme — the fluxes,
     # the UCT EMF's edge values and the face-normal fields' transverse
     # reconstruction all go through `face_value` — on the exact nonlinear
@@ -129,7 +129,8 @@ const RC_MC = only(wv_study((T, roots) -> alfven_wave_case(T; roots=roots), alfv
     # than MC at the finest mesh: at 200 cells PPM's error is 6.2 times
     # smaller than MC's in `S_y` and 9.1 times in `A_y`, WENO-Z's and MP5's 17.7
     # and 15.2 times (measured in step 7); asserted ≥ 2.
-    rs = RC_ALFVEN[lim]
+    rs = rc_alfven(lim)
+    mc = only(rc_alfven(:mc; Ms=(last(RC_MS),)))
     rates = wv_rates(rs, (WV_MATTER[3:4]..., WV_FIELD[3], WV_FIELD[4]))
     for (name, r) in rates
         @info "Alfvén wave, $lim: $name L1 errors $(r.errs), rate $(round(r.rate, digits=3))"
@@ -138,7 +139,7 @@ const RC_MC = only(wv_study((T, roots) -> alfven_wave_case(T; roots=roots), alfv
     end
     finest = last(rs).e
     for (name, get) in (WV_MATTER[3], WV_FIELD[3])
-        ratio = get(RC_MC.e) / get(finest)
+        ratio = get(mc.e) / get(finest)
         @info "Alfvén wave at $(last(RC_MS)) cells: $name error MC / $lim = $(round(ratio, digits=2))"
         @test ratio ≥ 2
     end

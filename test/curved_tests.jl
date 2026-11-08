@@ -187,12 +187,13 @@ end
     @test worst[false] ≥ 1e-3
 end
 
-const CV_RUNS = Dict{Tuple{String,Int},Any}()
-for (name, c) in CV_CASES, N in (8, 16)
-    CV_RUNS[(name, N)] = evolve!(c, Val(3); N=N, t_end=1 // 2, limiter=:mc)
-end
+# Each case to `t = M/2` at `N` cells a block, made by the first testset that reads it
+# (`computed_once`, `tiers.jl`): the quick tiers run only the coarse Bondi one.
+cv_run(name, N) =
+    computed_once(() -> evolve!(Dict(CV_CASES)[name], Val(3); N=N, t_end=1 // 2, limiter=:mc),
+                  (:curved, name, N))
 
-@testset "Both cases stay at the exact solution, converging at second order" begin
+@full_tier @testset "Both cases stay at the exact solution, converging at second order" begin
     # Guards the stationarity claim of rung 3 ("Validation ladder" 3), the suite's short
     # form: the L1 drift from the exact stationary solution after `t = M/2`, at `h = M/4`
     # and `M/8`. `bin/curved_stationarity.jl` runs the plan's `t = 50M` and three
@@ -204,7 +205,7 @@ end
     # `t = 50M` study: `CODE.md`, "Validation ladder" 3).
     for (name, c) in CV_CASES
         res = map((8, 16)) do N
-            r = CV_RUNS[(name, N)]
+            r = cv_run(name, N)
             uref = exact_state(r.p, c, r.t)
             (; l=outside_l1(r.p, r.u .- uref, 0.0), fl=field_l1(r.p, r.u, uref, r.t, 0.0), r)
         end
@@ -226,7 +227,7 @@ end
     end
 end
 
-@testset "∇·𝔅 stays at round-off and the charge converges to zero" begin
+@full_tier @testset "∇·𝔅 stays at round-off and the charge converges to zero" begin
     # Guards ∇·𝔅 = 0 in curved space ("Where the fields live"): `𝔅` is the flat curl of `A`
     # whatever the metric, so its divergence is rounding after every step, with the
     # densitized `𝔅` and not `B`; and records the charge `√γ q = ∂ᵢ𝔈ⁱ` the right-hand side
@@ -234,7 +235,7 @@ end
     # outside the interior it is the discrete divergence of a converging `𝔈`.
     for (name, c) in CV_CASES
         qs = map((8, 16)) do N
-            r = CV_RUNS[(name, N)]
+            r = cv_run(name, N)
             @test max_div_B(r.p, r.u, r.t) ≤ 1e-15
             charge_norms(r.p, r.u, r.t, 2.0)
         end
@@ -251,7 +252,7 @@ end
     # for bit and the outside is the evolution's. A paste that read the state, or wrote
     # outside the ball, or ran after the reset's own fill, would break one or the other.
     c = CV_CASES[2][2]
-    r = CV_RUNS[("magnetized Bondi", 8)]
+    r = cv_run("magnetized Bondi", 8)
     p = r.p
     uref = exact_state(p, c, r.t)
     nan = fill(NaN, length(r.u))

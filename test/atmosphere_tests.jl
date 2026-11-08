@@ -56,7 +56,7 @@ end
     @test res.policy_flags & AT.EntropyEOS.FLAG_POL_ATMOSPHERE != 0
 end
 
-@testset "The atmosphere tube holds a 10⁸ density ratio, and the reset injects exactly what it accounts" begin
+@serial_tier @testset "The atmosphere tube holds a 10⁸ density ratio, and the reset injects exactly what it accounts" begin
     # Guards the reset in both roles ("Floors, the atmosphere and the
     # magnetosphere"): a gas at ρ = p = 1 expands into the policy's own
     # atmosphere at `ρ_atm = 10⁻⁸` (`atmosphere_tube_case`), at up to W ≈ 5,
@@ -105,7 +105,7 @@ end
     end
 end
 
-@testset "SSP3(4,3,3) keeps a rarefaction into a near vacuum positive, where ARS(4,4,3) does not" begin
+@serial_tier @testset "SSP3(4,3,3) keeps a rarefaction into a near vacuum positive, where ARS(4,4,3) does not" begin
     # Guards the default tableau, decided in step 6 ("The partition"): the
     # explicit part of SSP3(4,3,3) is SSPRK(3,3), a convex combination of
     # forward-Euler steps, and the light-cone HLLE step with MC is

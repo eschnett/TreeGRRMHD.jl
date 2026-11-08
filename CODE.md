@@ -4004,8 +4004,33 @@ repositories', since the account runs five at once; TreeAMR's
 `HISTORY.md` ("Development environment and CI") has the measurements
 across the repositories.
 
+The suite runs in **tiers** (`test/tiers.jl`, 2026-11-08, after
+TreeGeneralizedHarmonic's of 2026-11-06), chosen by `TREEGRRMHD_TEST_TIER`.
+On GitHub's runners, with bounds checks, the suite had taken 14 minutes at
+one thread and 32 at four (the step-9 pull request, 2026-11-05). The
+four-thread time was not the 3D or curved runs, which ran faster threaded
+(the curved file 197 s → 127 s), but the 1D studies: 4–8 times their
+one-thread time there (the reconstructions' Alfvén waves 41 s → 278 s, the
+Alfvén wave across coarse-fine faces 13 s → 185 s, the shock tubes about
+40 s → 296 s), where on Symmetry four threads are faster than one
+throughout. So `full`, the default, runs everything (the workstation and
+Symmetry before a pull request, `ci/full-suite.sh`, and CI's weekly run);
+`quick`, CI's one-thread cells, leaves out the `@full_tier` testsets (the
+curved cases' `h = M/8` runs, the 1000-step uniform flows); and `threaded`,
+CI's four-thread cell, also the `@serial_tier` ones, the 1D studies. The
+kernels are one code for D = 1, 2, 3, so the 2D and 3D runs, refinement,
+the curved backgrounds, the step cache and the two-phase recovery still
+exercise every threaded path, and the 1D runs held bit for bit to 2D and 3D
+runs stay. A testset left out is one skipped test ("Broken") and is named at
+the end of the run: 3 in `quick`, 32 in `threaded`. The runs several
+testsets read are made on first use (`computed_once`) rather than by
+top-level constants, and the helpers shared between files moved to files of
+their own. Measured on Symmetry (2026-11-08, jobs 593535–593537): the full
+tier prints every line the suite printed before, at one thread and at four,
+26442 tests passing.
+
 What 1.11 and 1.12 needed and 1.13 does not is gone. The suite's
-allocation probe (`rec_allocations` in `test/recovery_tests.jl`) was a
+allocation probe (`rec_allocations`, now in `test/recovery_states.jl`) was a
 `Vararg{Any,N}`-specialized method because 1.11 did not specialize a plain
 `args...` there and boxed the result, 16–672 bytes a call on all 50 of the
 probe's calls, where 1.12 and 1.13 allocate nothing either way. Nothing in
