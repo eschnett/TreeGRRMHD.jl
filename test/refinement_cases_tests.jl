@@ -11,9 +11,9 @@
 #   * the matter's ghost fill, in primitives at width 2, takes a blast into
 #     the atmosphere across a coarse-fine face with no inadmissible ghost.
 #
-# Uses `refinement_tests.jl`'s meshes and `multid_tests.jl`'s `md_run` and
-# `md_conserved`, so it is included after both; the split keeps each file
-# near a minute at one thread.
+# Uses `refinement_meshes.jl`'s meshes and `multid_runs.jl`'s `md_run` and
+# `md_conserved`; the split from `refinement_tests.jl` keeps each file near a
+# minute at one thread.
 
 rf_refine_right!(forest) =
     (refine!(forest, [k for k in copy(forest.leaves) if block_origin(forest, k)[1] ≥ 0]);
@@ -57,7 +57,7 @@ end
     @test md_conserved(two.run) ≤ 8
 end
 
-@testset "The Alfvén wave keeps its order across coarse-fine faces with the potentials at width 4, and not at width 2" begin
+@serial_tier @testset "The Alfvén wave keeps its order across coarse-fine faces with the potentials at width 4, and not at width 2" begin
     # Guards the potentials' operators (decided in step 8 by the
     # interface-order table, `bin/interface_order.jl`, "Refinement" in
     # `CODE.md`): the fine ghosts of `A` across a coarse-fine face are
@@ -157,7 +157,7 @@ function rf_ghost_repairs!(acc, p, u, t)
     return acc
 end
 
-@testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face with the parent-centred bounded prolongation, and not with PointValue width 4" begin
+@serial_tier @testset "The matter's ghost fill in primitives takes a blast into the atmosphere across a coarse-fine face with the parent-centred bounded prolongation, and not with PointValue width 4" begin
     # Guards the matter's ghost fill (decided by Erik 2026-10-15 in primitives,
     # and 2026-10-23 parent-centred; "Refinement" in `CODE.md`): `W` is
     # exchanged with TreeAMR's bounded conservative operator (width 3, MC

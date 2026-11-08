@@ -7,6 +7,17 @@ name: CI
 # schedule and a manual dispatch run the whole matrix, macOS and coverage
 # included. Tags are not tested: a release tags a commit that has passed
 # on `main`.
+#
+# The suite runs in tiers (`test/tiers.jl`, 2026-11-08, after
+# TreeGeneralizedHarmonic's): the one-thread cells run the *quick* tier,
+# everything but the finest curved runs and the 1000-step uniform flows; the
+# four-thread cell the *threaded* tier, the quick tier less the 1D studies,
+# which took most of its 32 minutes (4-8 times their one-thread time on these
+# runners) and exercise no threaded path the 2D and 3D runs do not. The full
+# suite runs on the workstation and on Symmetry before a pull request,
+# reported on the commit as a `full-suite/<host>` status by `ci/full-suite.sh`;
+# the weekly schedule runs it here too, off anyone's critical path, and a
+# manual dispatch takes the tier as an input.
 on:
   # A Markdown-only change cannot move a measured number.
   push:
@@ -21,6 +32,12 @@ on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      tier:
+        description: "The test tier: quick (threaded at four threads), or full"
+        type: choice
+        options: [quick, full]
+        default: quick
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,13 +47,14 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.threads }} thread(s)
     runs-on: ${{ matrix.os }}
-    # A guard against a runtime regression, not a budget. Raised from 30 to
-    # 60 on 2026-11-05: the 4-thread cell took 26 minutes on 2026-10-16 and
-    # timed out twice on PR 2, while the 1-thread cells take 12-13 minutes.
-    # The threaded cell is 2.5x slower overall and up to 12x slower on the
-    # small, many-step 1D runs (Alfvén wave, PPM: 44 s at one thread, 273 s
-    # at four), which looks like per-launch threading overhead on a shared
-    # 4-vCPU runner. Temporary, until the cause is measured.
+    # A guard against a runtime regression, not a budget, sized for the full
+    # tier. Raised from 30 to 60 on 2026-11-05: the 4-thread cell took 26
+    # minutes on 2026-10-16 and timed out twice on PR 2, while the 1-thread
+    # cells take 12-13 minutes. The threaded cell is 2.5x slower overall and
+    # up to 12x slower on the small, many-step 1D runs (Alfvén wave, PPM: 44 s
+    # at one thread, 273 s at four), which looks like per-launch threading
+    # overhead on a shared 4-vCPU runner; the threaded tier leaves those runs
+    # out, and the cause is still not measured.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -67,6 +85,9 @@ jobs:
     # than a `coverage` key in the matrix: a pull request's matrix has no
     # macOS cell, and an include entry that matches none adds one.
     env:
+      # `full` on the weekly schedule and when a dispatch asks for it;
+      # otherwise `threaded` on the four-thread cell and `quick` on the others.
+      TREEGRRMHD_TEST_TIER: ${{ (github.event.inputs.tier == 'full' || github.event_name == 'schedule') && 'full' || (matrix.threads == 4 && 'threaded' || 'quick') }}
       COVERAGE: ${{ matrix.os == 'macOS-latest' && matrix.threads == 1 && github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v7

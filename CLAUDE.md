@@ -275,6 +275,44 @@ d=$(mktemp -d) && git archive HEAD | tar -x -C "$d" && \
   julia +1.13 --project="$d" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
+The tiers GitHub CI runs (added 2026-11-08, `test/tiers.jl`, after
+TreeGeneralizedHarmonic's): `quick` at one thread leaves out the
+`@full_tier` testsets (the finest curved runs, the 1000-step uniform flows),
+and `threaded` at four leaves out the `@serial_tier` ones too (the 1D
+studies). Each testset left out is one skipped test, counted as "Broken" and
+named at the end. `full` is the default, so every command above is
+unchanged:
+
+```bash
+TREEGRRMHD_TEST_TIER=quick julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])'
+```
+
+```bash
+TREEGRRMHD_TEST_TIER=threaded julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4", "--check-bounds=yes"])'
+```
+
+The full suite as a commit status (added 2026-11-08, TreeGH's scripts):
+`ci/full-suite.sh` runs the clean-checkout check on a commit at four threads
+and, with `--post`, sets the commit's status `full-suite/<host>` to pending
+and then to the result. Posting is public: ask Erik each time, as for a
+push; the commit must be on GitHub. `ci/full-suite-symmetry.sh submit` does
+the same in an `amddebugq` job (one fixed tree under
+`/home/eschnetter/claude/full-suite/TreeGRRMHD`, log and result under
+`/mnt/beegfs/eschnetter/claude/full-suite/TreeGRRMHD/<sha>/`), and `collect`
+posts its result afterwards, since the cluster has no `gh`:
+
+```bash
+ci/full-suite.sh --post
+```
+
+```bash
+ci/full-suite-symmetry.sh submit --post
+```
+
+```bash
+ci/full-suite-symmetry.sh collect --post
+```
+
 A `Manifest.toml` resolved by one Julia version breaks loading under
 another (1.13 refused a 1.11 manifest's `MbedTLS_jll`), so delete it, or
 use a clean tree, when switching versions.
@@ -465,7 +503,19 @@ packages are read together:
   and coverage run on `main`, weekly and on dispatch, and Markdown-only
   changes run nothing (`CODE.md`, "Julia version"). So **run the full
   suite locally before opening a pull request**: that is the macOS run
-  the pull request does not get.
+  the pull request does not get. Since 2026-11-08 GitHub runs the `quick`
+  tier at one thread and the `threaded` tier at four (`test/tiers.jl`), and
+  the full tier weekly and on a dispatch with `tier = full`.
+- **A new testset goes in a tier.** One that runs a 3D curved study, or
+  anything else long, at its finest resolution is `@full_tier`; a 1D study
+  (many steps on a few hundred cells, 4–8 times slower at four threads on
+  GitHub's runners) is `@serial_tier`, unless it is held bit for bit to a
+  2D or 3D run. A run that several testsets read is made by
+  `computed_once` inside the first of them, never by a top-level `const`,
+  which would run it at include whatever the tier left out. Helpers shared
+  between files live in their own files (`recovery_states.jl`,
+  `wave_study.jl`, `multid_runs.jl`, `refinement_meshes.jl`), included by
+  `runtests.jl` before their first user.
 - Operator orders in TreeAMR's convention: the order is the stencil width
   (PointValue even, Conservative odd), exact to degree width − 1. Write
   "width w" in prose to avoid ambiguity.

@@ -8,7 +8,7 @@ const RS = TreeGRRMHD
 rs_run(model; M=200) = evolve!(resistive_tube_case(Float64, model; roots=M ÷ 10), Val(1); N=10,
                                t_end=2 // 5, limiter=:mc)
 
-@testset "The resistive tube approaches the ideal solution monotonically as σ grows" begin
+@serial_tier @testset "The resistive tube approaches the ideal solution monotonically as σ grows" begin
     # Guards the stiff limit of the scheme ("The partition", "The implicit
     # stage solve"): Palenzuela et al.'s and Dionysopoulou et al.'s Brio–Wu
     # tube (`resistive_tube_case`) at σ ∈ {0, 10, 10², 10³, 10⁶} on 200 cells.
@@ -61,7 +61,7 @@ function rs_sheet(M, t_end; B0=1)
     return (; M, r, pr, ex)
 end
 
-@testset "The current sheet converges at second order, to the erf profile's own accuracy" begin
+@serial_tier @testset "The current sheet converges at second order, to the erf profile's own accuracy" begin
     # Guards the resistive scheme on smooth data: Komissarov's (2007)
     # self-similar current sheet (`current_sheet_case`: `B₀ = 1`, `p = 50`,
     # `σ = 100`), where Ampère's stiff current and Faraday's law together

@@ -1,9 +1,9 @@
 # Rung 2a, continued: the solutions that vary in more than one direction
 # ("Validation ladder" 2 in `CODE.md`; step 7 of `PLAN.md`) — the Alfvén wave
 # along the diagonal, and GRaM-X's and Beckwith & Stone's standard tests:
-# symmetry, conservation and `∇·𝔅` at every step. Uses `multid_tests.jl`'s
+# symmetry, conservation and `∇·𝔅` at every step. Uses `multid_runs.jl`'s
 # `md_run` (which asserts `∇·𝔅 ≤ 1e−12` after every step of every run),
-# `md_mirror_error` and `md_conserved`, so it is included after it; the split
+# `md_mirror_error` and `md_conserved`; the split from `multid_tests.jl`
 # keeps each file near a minute at one thread.
 
 @testset "The Alfvén wave along the diagonal converges at second order: $lim" for lim in (:mc, :wenoz)

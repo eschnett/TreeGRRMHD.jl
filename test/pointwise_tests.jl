@@ -14,7 +14,7 @@
 # a sign error in a flux, a shift term or a cross product is invisible in
 # most self-consistency checks and wrong everywhere else.
 #
-# The states come from `recovery_tests.jl`'s generators (`rec_event`,
+# The states come from `recovery_states.jl`'s generators (`rec_event`,
 # `rec_metric`, `rec_prim`, `rec_direction`, `rec_gas`), which is included
 # before this file: random fluids with W ≤ 10 in a boosted spinning
 # Kerr-Schild hole between r = 3M and 20M, with fields carrying 1e-4 to 100

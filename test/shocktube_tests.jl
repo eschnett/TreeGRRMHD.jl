@@ -43,7 +43,9 @@ function st_run(k, M; tableau=nothing, limiter=:mc)
             scales=conserved_scales(r.p, u0))
 end
 
-const ST_RUNS = Dict(k => [st_run(k, M) for M in ST_MS] for k in 1:5)
+# Each tube's three runs, made by the first testset that reads them
+# (`computed_once`, `tiers.jl`).
+st_runs(k) = computed_once(() -> [st_run(k, M) for M in ST_MS], (:balsara, k))
 
 # One uniform flow at `vˣ` through Dirichlet faces until `t_end`: the largest
 # change of any evolved variable, relative to its scale, the step count, and
@@ -59,7 +61,7 @@ function st_uniform(vx, tableau, t_end)
     return (; worst, nsteps=r.nsteps, tol=r.p.opts.tol)
 end
 
-@testset "A uniform flow crosses the Dirichlet boundaries unchanged to the recovery's tolerance under either tableau" begin
+@serial_tier @testset "A uniform flow crosses the Dirichlet boundaries unchanged to the recovery's tolerance under either tableau" begin
     # Guards the boundary hooks (`DirichletBoundary`, "Boundaries" in
     # `CODE.md`): a uniform state, here Balsara 4's fast flow at
     # `vˣ = ±0.999` (`W = 22`) and a slow one at ±1/2 with the same field,
@@ -90,7 +92,7 @@ end
     end
 end
 
-@testset "A slow uniform flow's change through Dirichlet faces does not grow at its first steps' rate over 1000 steps" begin
+@full_tier @testset "A slow uniform flow's change through Dirichlet faces does not grow at its first steps' rate over 1000 steps" begin
     # Guards against a secular drift from the warm-seeded recovery (the
     # previous testset's mechanism): at `vˣ = ±1/2` most of the change comes in
     # the first steps — up to 6.5e-12 per step over the first 13 under ARS —
@@ -126,7 +128,7 @@ const ST_RATES = Dict((2, "D") => (0.6, Inf), (2, "S_x") => (0.6, Inf),
                       (3, "D") => (-0.3, 0.3), (3, "S_x") => (0.05, 0.4),
                       (3, "τ") => (0.05, 0.4), (3, "𝔅ʸ") => (0.45, Inf))
 
-@testset "Balsara $k converges to the 3200-cell reference at L1 rate ≥ 0.7, or at the measured rate of ST_RATES where a contact or the unresolved shell sets it" for k in 1:5
+@serial_tier @testset "Balsara $k converges to the 3200-cell reference at L1 rate ≥ 0.7, or at the measured rate of ST_RATES where a contact or the unresolved shell sets it" for k in 1:5
     # Guards the scheme on discontinuities ("Reconstruction", "Riemann
     # solver", "The electromotive force for `A`"): MC-limited PLM, the
     # light-cone HLLE fluxes and the UCT EMF, with every implicit stage the
@@ -138,7 +140,7 @@ const ST_RATES = Dict((2, "D") => (0.6, Inf), (2, "S_x") => (0.6, Inf),
     # the testset's name says (renamed in step 7: it used to claim ≥ 0.7
     # for every tube). The reference is a run of the same code at 3200 cells
     # (`bin/shocktube_reference.jl`), restricted to each mesh.
-    runs = ST_RUNS[k]
+    runs = st_runs(k)
     R = st_reference(k)
     for (name, col, field) in (("D", 1, pr -> pr.U[:, SHK.U_D]), ("S_x", 2, pr -> pr.U[:, SHK.U_S]),
                              ("τ", 5, pr -> pr.U[:, SHK.U_TAU]), ("𝔅ʸ", 11, pr -> pr.B[:, 2]))
@@ -158,9 +160,9 @@ end
 # Balsara 3 under PPM, the one higher-order method that resolves its shell
 # better (measured in step 7, `bin/reconstruction_comparison.jl`; the table is
 # in `CODE.md`, "Validation ladder" 1b).
-const ST_PPM3 = [st_run(3, M; limiter=:ppm) for M in ST_MS]
+st_ppm3() = computed_once(() -> [st_run(3, M; limiter=:ppm) for M in ST_MS], :balsara3_ppm)
 
-@testset "Balsara 3 under PPM converges to its own 3200-cell reference at L1 rate ≥ 0.4, and every plateau is within 2%" begin
+@serial_tier @testset "Balsara 3 under PPM converges to its own 3200-cell reference at L1 rate ≥ 0.4, and every plateau is within 2%" begin
     # Guards what step 7 tightened for one method (the reviewer's request):
     # under MC Balsara 3 does not converge at 100–400 cells (`ST_RATES`: `D`
     # −0.02), because the dense shell between the contact and the slow shock
@@ -172,9 +174,10 @@ const ST_PPM3 = [st_run(3, M; limiter=:ppm) for M in ST_MS]
     # the error — so the rates are asserted at their measured values less
     # 0.1. WENO-Z and MP5 do not converge here either (the table).
     R = st_reference(3, "_ppm")
+    runs = st_ppm3()
     for (name, col, field) in (("D", 1, pr -> pr.U[:, SHK.U_D]), ("S_x", 2, pr -> pr.U[:, SHK.U_S]),
                              ("τ", 5, pr -> pr.U[:, SHK.U_TAU]), ("𝔅ʸ", 11, pr -> pr.B[:, 2]))
-        errs = map(ST_PPM3) do run
+        errs = map(runs) do run
             ref = st_restrict(R, 400 ÷ run.M)[:, col]
             sum(abs, field(run.pr) .- ref) / run.M
         end
@@ -183,7 +186,7 @@ const ST_PPM3 = [st_run(3, M; limiter=:ppm) for M in ST_MS]
         @test rate ≥ 0.4
         @test issorted(errs; rev=true)
     end
-    pr = last(ST_PPM3).pr
+    pr = last(runs).pr
     for (region, lo, hi) in BALSARA_PLATEAUS[3]
         cells = findall(x -> lo ≤ x ≤ hi, pr.x)
         mean = ntuple(j -> sum(c -> plateau_state(pr, c)[j], cells) / length(cells), 7)
@@ -191,12 +194,12 @@ const ST_PPM3 = [st_run(3, M; limiter=:ppm) for M in ST_MS]
         @info "Balsara 3, PPM, R$region: worst error $(round(maximum(err), sigdigits=3))"
         @test maximum(err) ≤ 0.02
     end
-    for run in ST_PPM3
+    for run in runs
         @test all(t -> t.policy == 0 && t.resets == 0 && t.step_resets == 0, run.tallies)
     end
 end
 
-@testset "Balsara $k: the plateaus are within 2% of Giacomazzo & Rezzolla's exact solution" for k in 1:5
+@serial_tier @testset "Balsara $k: the plateaus are within 2% of Giacomazzo & Rezzolla's exact solution" for k in 1:5
     # Guards the scheme's answer, not only its convergence: the states
     # between the waves at 400 cells against the exact Riemann solution
     # (Giacomazzo & Rezzolla 2006, Tables 7–11, `BALSARA_EXACT`), averaged
@@ -213,7 +216,7 @@ end
     # out 4.7% dense at 400 cells (1.3% at 800, measured in step 6 and not in
     # the suite); the shell's smeared mass reaches into it. It is asserted at
     # its measured value.
-    pr = last(ST_RUNS[k]).pr
+    pr = last(st_runs(k)).pr
     for (region, lo, hi) in BALSARA_PLATEAUS[k]
         cells = findall(x -> lo ≤ x ≤ hi, pr.x)
         @test length(cells) ≥ 3
@@ -225,7 +228,7 @@ end
     end
 end
 
-@testset "Balsara $k: the totals change by the boundary fluxes, and every stage is ideal" for k in 1:5
+@serial_tier @testset "Balsara $k: the totals change by the boundary fluxes, and every stage is ideal" for k in 1:5
     # Guards conservation with physical boundaries: until a wave arrives,
     # each Dirichlet face carries the physical flux of its far state, so the
     # domain integral of every conserved matter variable changes by
@@ -238,7 +241,7 @@ end
     # magnitude. Rounding itself is the next testset's. And the stages: under
     # `IdealConductor` every one is the ideal recovery, one each, with no
     # repair, no reset and no non-finite value anywhere.
-    for run in ST_RUNS[k]
+    for run in st_runs(k)
         w = run.case.fields.w
         m = flat_metric(Float64)
         F(q) = begin
