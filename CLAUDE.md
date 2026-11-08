@@ -496,7 +496,10 @@ passing whole — 13m46.7s at one thread on cn110 (EPYC 7543) against main's
 18m31.3s for the clean-checkout check on cn087 (EPYC 7532), 20m57.7s with
 `--check-bounds=yes` on cn086 (EPYC 7532); one and four threads identical,
 the clean checkout identical to the one-thread run, every line of main's
-present (seven new); bounds checks move 74 lines. At
+present (seven new); bounds checks move 74 lines. Rebased onto main's
+tiers (2026-11-08): `test/tov_tests.jl`'s runs are 3D at `N = 8` and a few
+`M` long, so its testsets run in every tier, unmarked (the file alone
+2m25s on the laptop, compilation included). At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with
