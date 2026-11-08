@@ -2166,12 +2166,12 @@ Accept:
   damp within about 500–900 M, so the 2000 M and 1000 M runs were stopped at 1918 M and 886 M;
   `CODE.md`, "Validation ladder" 4.)*
 - **Floored cells** at a coarse-fine surface for width 1, width 3, and limited (AMR-4)
-  **decide the prolongation (open)**. *(Measured in step 10: width 3 bounded stays, proposed;
-  the unbounded operator lets the reset remove 9.5% of the star by 200 M, width 1 is twice as
-  diffusive; `CODE.md`, "Open questions".)*
+  **decide the prolongation (open)**. *(Measured in step 10: width 3 bounded stays, decided by
+  Erik 2026-11-08; the unbounded operator lets the reset remove 9.5% of the star by 200 M,
+  width 1 is twice as diffusive; `CODE.md`, "Open questions".)*
 - **Light-cone against split speeds** on the star **decides the Riemann speeds (open)**.
-  *(Measured in step 10: the light cone stays, proposed; the split speeds blow up after
-  105 M at `h = 0.75`; `CODE.md`, "Riemann solver".)*
+  *(Measured in step 10: the light cone stays, decided by Erik 2026-11-08; the split speeds
+  blow up after 105 M at `h = 0.75`; `CODE.md`, "Riemann solver".)*
 
 ## Step 11 — The TOV star in a dynamical spacetime (rung 5)
 

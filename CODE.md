@@ -1628,8 +1628,8 @@ space and 6.8e−16 in Kerr-Schild; the fluxes are `α√γ Tᵈ_j` (momentum) a
 `α²√γ T^{td}` (energy) to 4.8e−16; and the light cone is null in `g^{ab}`
 to 1.6e−15.
 
-*(Measured in step 10; the light cone stays, proposed.)* The split speeds
-are `riemann_flux(::Val{:hlle_split}, …)` in `src/riemann.jl`: Banyuls et
+*(Measured in step 10; the light cone stays, decided by Erik 2026-11-08.)*
+The split speeds are `riemann_flux(::Val{:hlle_split}, …)` in `src/riemann.jl`: Banyuls et
 al.'s (1997) acoustic speeds, the extremes over both states, for `D`,
 `D Yₑ` and `D s`, and the light cone for `S_i`, `τ` and `𝔈`. On the
 Cowling star (`bin/tov_study.jl`, `h = 0.75`, MC, SSP3(4,3,3), Symmetry,
@@ -2864,8 +2864,9 @@ needs `T_ab`, the matter needs the metric.
     and forest (`===` the producer's). The adapter is bound to it, then
     called at `(I, b)`, ghosts included. Not coordinates: those would need
     a tree search per point, and a provider could not precompute at points
-    it does not know. *(As built in step 10, proposed:)* this package binds
-    the adapter **once per centering**, not once per kernel: two kernels
+    it does not know. *(As built in step 10; accepted for step 10,
+    decided by Erik 2026-11-08:)* this package binds the adapter **once
+    per centering**, not once per kernel: two kernels
     read another centering's points than their own (`∂ₜA`'s gradient reads
     the vertex metric from an edge kernel, the gauge equation's divergence
     the edge metric from a vertex kernel), and sets of one centering share
@@ -5358,13 +5359,15 @@ neutrino leakage and M1 as a separate package on the same forest.
 
 Each is decided by a measurement in the step named in `PLAN.md`:
 
-- Riemann wave speeds: light cone for all variables (default), or split.
+- *(Closed in step 10, decided by Erik 2026-11-08.)* Riemann wave speeds:
+  light cone for all variables (default), or split. The light cone; the
+  split speeds fail on the Cowling star ("Riemann solver").
 - `T_ab` to vertices: 2nd order (default) or 4th.
 - *(Closed in step 8.)* Conservative prolongation width for the matter at
   stellar surfaces: width 3, bounded (TreeAMR's limited operator, AMR-4);
   the TOV surface's check is step 10's. *(Measured in step 10; width 3
-  bounded stays, proposed.)* The Cowling star with a second box level of
-  half-width `0.7 R̄`, so that the coarse-fine faces cut through the star
+  bounded stays, decided by Erik 2026-11-08.)* The Cowling star with a
+  second box level of half-width `0.7 R̄`, so that the coarse-fine faces cut through the star
   and its surface (`bin/tov_study.jl N=8 levels=2 half=0.7`, finest
   `h = 0.375`, MC, 200 M; the primitives' ghost fill `ops_W` at refinement
   boundaries; Symmetry jobs 591967, 592035, 592036):
@@ -5431,7 +5434,8 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   2026-11-03: in step 10. The Cowling TOV star is static, so an exterior
   field from an exact static potential takes `static_potential = true`
   (option 1) as is; options 2 and 3 matter for dynamic cases only.)*
-- Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
+- *(Closed in step 10, decided by Erik 2026-11-08: both roles stay.)*
+  Whether the atmosphere reset needs its stage-limiter role. Run rung 4's
   TOV star, a star in a vacuum, twice: with the reset as both limiters,
   and as the step limiter alone. TreeHydro named this case as the one
   where a per-stage reset could matter, and no code in IMEXRungeKutta's
@@ -5443,24 +5447,26 @@ Each is decided by a measurement in the step named in `PLAN.md`:
   injected (`1.9354·10⁻⁷`) agree to every printed digit with the reset as
   the step limiter alone and as both, although the stage limiter wrote
   2.7·10⁸ cell-stages (where, not recorded). The default stays both roles
-  (proposed in step 10): the star does not decide between them, and the
+  (decided by Erik 2026-11-08): the star does not decide between them, and the
   stage role is what keeps every right-hand side's input physical.
-- The reconstruction the stars run with (added in step 7): MC, the
-  plan's and GRaM-X's choice, or PPM, which alone of the four resolved
+- *(Closed in step 10, decided by Erik 2026-11-08: PPM for stars.)* The
+  reconstruction the stars run with (added in step 7): MC, the plan's and
+  GRaM-X's choice, or PPM, which alone of the four resolved
   Balsara 3's dense shell and held every Balsara plateau but test 2's `R5`
   (2.8%) within 2% (see "Validation ladder" 1b); WENO-Z smeared the shell
   worst, and MP5 costs twice the steps. Decided on the TOV star (rung 4).
-  *(Measured in step 10; PPM for stars, proposed.)* On the Cowling star
-  ("Validation ladder" 4) PPM's central density drifts 2.1–2.7 times less
+  *(Measured in step 10; PPM for stars, decided by Erik 2026-11-08.)* On
+  the Cowling star ("Validation ladder" 4) PPM's central density drifts 2.1–2.7 times less
   than MC's at every resolution (−4.18%, −1.41%, −0.70% at `200M` against
   −10.5%, −3.78%, −1.45% at `h = 0.75`, 0.5, 0.375), its L1 change of `D`
   is 7–10 times smaller, and both converge above second order. PPM costs
   about 12% more per cell-step: 8.68 µs against 7.72 µs for MC with the
   reset as the step limiter alone (the same run as both roles to every
   digit), in one job on cn112 (EPYC 8534P, job 591973); no pair with the
-  default reset ran on one node. PPM needs `G = 3`, `mhd_fields`' default. The stars' cases and scripts should run PPM; the package's
-  default stays MC (the tubes and waves of rungs 1–2 were measured with it)
-  until Erik decides.
+  default reset ran on one node. PPM needs `G = 3`, `mhd_fields`' default.
+  The stars' scripts run PPM (`bin/tov_cowling.jl`'s default); the
+  package's default stays MC (the tubes and waves of rungs 1–2 were
+  measured with it).
 - *(Closed in step 6.)* SSP3(4,3,3) or ARS(4,4,3) as the default tableau:
   SSP3(4,3,3), whose explicit part is SSP; ARS(4,4,3) undershoots into a
   near vacuum, fires the reset on Balsara 3 and 4, and floods a magnetized
