@@ -2,11 +2,12 @@
 # point, for the kernels that compute fluxes and sources.
 #
 # A provider is an `isbits` value the kernels dispatch on ("Metric
-# providers" in `CODE.md`). This step has the two that need no storage:
-# `Flat()`, Minkowski in Cartesian coordinates, and `Analytic(m)`, a
-# SpacetimeMetrics metric evaluated at the point. TreeGH's vertex metric
-# (`GHMetric`) arrives in step 10 and answers the same two questions —
-# `point_metric` and `metric_gradient` — from interpolated vertex data.
+# providers" in `CODE.md`): `Flat()`, Minkowski in Cartesian coordinates;
+# `Analytic(m)`, a SpacetimeMetrics metric evaluated at the point; and
+# (step 10) `PointwiseMetric(adapter)`, a producer's metric read at the
+# point's index in the coupling contract — TreeGH's (GH-1), or a sampled
+# SpacetimeMetrics metric in its tests. All answer the same two questions,
+# `point_metric` and `metric_gradient`.
 #
 # **The derivative index order.** This package's one layout for metric
 # derivatives is `MetricGradient`'s `dg[j, a, b] = ∂_j g_ab`: the spatial
@@ -14,8 +15,8 @@
 # GHSO2's order (derivative first, `dg[a,b,c] = ∂_a g_bc`), restricted to
 # spatial derivatives. SpacetimeMetrics has the derivative *last*,
 # `dg[a,b,c] = ∂_c g_ab`. The conversion is written here, in
-# `metric_gradient(::Analytic, …)`, and nowhere else ("Sharp edges" in
-# `PLAN.md`); GHMetric's will be here too. Every other file reads
+# `spatial_gradient`, and nowhere else ("Sharp edges" in `PLAN.md`); a
+# producer's pointwise metric goes through it too. Every other file reads
 # `MetricGradient` only.
 #
 # **What is stored and what is derived** (proposed in step 2). The four-metric's
@@ -61,7 +62,8 @@ Cartesian coordinates, or any constant metric.
 
 Where the kernels get the metric from ("Metric providers" in `CODE.md`):
 [`Flat`](@ref) and [`Analytic`](@ref) evaluate it at a point;
-TreeGH's vertex metric (step 10) interpolates it. Every provider answers
+a producer's [`PointwiseMetric`](@ref) (step 10) reads it at the point's
+index. Every provider answers
 [`point_metric`](@ref) and [`metric_gradient`](@ref).
 """
 abstract type MetricProvider end
@@ -111,14 +113,134 @@ curvature `K_ij` at time `t` and position `x`, in this package's index order
 @inline function metric_gradient(a::Analytic, t::T, x::SVector{3,T}) where {T}
     p = SVector(t, x[1], x[2], x[3])
     g, sdg = SpacetimeMetrics.dmetric(a.metric, p)
-    # The one conversion: SpacetimeMetrics' `sdg[a, b, c] = ∂_c g_ab`, with
-    # `c = 1` the time derivative, to `dg[j, a, b] = ∂_j g_ab` over the
-    # spatial `j` (the time derivative enters through `K_ij` alone).
-    dg = SArray{Tuple{3,4,4}}(sdg[a, b, j + 1] for j in 1:3, a in 1:4, b in 1:4)
-    # `K_ij` from the same evaluation: SpacetimeMetrics 1.7's allocation-free
-    # `ExtrinsicCurvature(g, dg)` (SM-1, landed; it replaced a local copy).
-    return MetricGradient(dg, SpacetimeMetrics.ExtrinsicCurvature(g, sdg))
+    return gradient_from_dmetric(g, sdg)
 end
+
+"""
+    spatial_gradient(sdg) -> SArray{Tuple{3,4,4}}
+
+**The one conversion**: SpacetimeMetrics' `sdg[a, b, c] = ∂_c g_ab`, with
+`c = 1` the time derivative, to this package's `dg[j, a, b] = ∂_j g_ab` over
+the spatial `j` (the time derivative enters through `K_ij` alone). Every
+reader of a SpacetimeMetrics-convention derivative goes through it (the
+analytic provider, a producer's pointwise metric, the spinning Wald case's
+potential).
+"""
+@inline spatial_gradient(sdg) =
+    SArray{Tuple{3,4,4}}(sdg[a, b, j + 1] for j in 1:3, a in 1:4, b in 1:4)
+
+"""
+    gradient_from_dmetric(g, sdg) -> MetricGradient
+
+The [`MetricGradient`](@ref) of a four-metric `g` and its derivatives `sdg`
+in SpacetimeMetrics' convention (what `dmetric` returns): the spatial
+derivatives through [`spatial_gradient`](@ref), and `K_ij` from the same
+data by SpacetimeMetrics 1.7's allocation-free `ExtrinsicCurvature(g, dg)`
+(SM-1, landed; it replaced a local copy).
+"""
+@inline gradient_from_dmetric(g, sdg) =
+    MetricGradient(spatial_gradient(sdg), SpacetimeMetrics.ExtrinsicCurvature(g, sdg))
+
+# --- the indexed calls (step 10) -------------------------------------------------------
+
+"""
+    point_metric(provider, t, x, Val(C), n, b) -> Metric3
+    metric_gradient(provider, t, x, Val(C), n, b) -> MetricGradient
+
+The calls every kernel makes (added in step 10): the point's position `x`
+and, beside it, its centering — the staggers `C` (`1` vertex-like, `0`
+cell-like along each dimension), its **local** index `n` in its block (owned
+points `1 … N`, ghosts outside) and the block `b`. A provider that computes
+from coordinates ([`Flat`](@ref), [`Analytic`](@ref)) ignores the index and
+forwards to the three-argument form; a producer's pointwise metric
+([`PointwiseMetric`](@ref)) ignores `x` and reads its own data at the point
+("The coupling contract" in `CODE.md`).
+"""
+@inline point_metric(prov::MetricProvider, t, x, ::Val, n, b) = point_metric(prov, t, x)
+@inline metric_gradient(prov::MetricProvider, t, x, ::Val, n, b) = metric_gradient(prov, t, x)
+
+"""
+    PointwiseMetric(gm, f::MHDFields)
+
+A producer's metric in the coupling contract ("The coupling contract" in
+`CODE.md`; GH-1's API, added in step 10). `gm` is the producer's adapter, a
+snapshot of its prepared state; bound to one of this package's field sets
+it answers at the set's stored points, ghosts included,
+
+    at = gm(fs)            ;  at(I, b) -> g::SMatrix{4,4}
+    at = gm(fs, Val(1))    ;  at(I, b) -> (g, ∂g::SArray{Tuple{4,4,4}})
+
+in SpacetimeMetrics' conventions (`∂g[a, b, c] = ∂_c g_ab`, `c = 1` the
+time, `G = c = 1`). The kernels read the metric at every centering, and two
+of them at another centering's points than their own (the vertex metric of
+`∂ₜA`'s gradient from an edge kernel, the edge metric of the gauge flux from
+a vertex kernel), so the provider binds `gm` **once per centering**, to the
+set of that centering with the widest ghosts — the cells to `P`, the faces
+to `B[d]`, the edges to `A[j]`, the vertices to `Φ̃` — and maps a kernel's
+local index `n` to that set's stored index `n + G` (proposed in step 10).
+`g` alone where the kernel needs no derivative, so that the 70-odd
+evaluations per cell and step that read only `g` do not pay for `∂g`; with
+the derivatives at the cells, where the sources read them. Both go through
+this file's one conversion. `D = 3` only: the coupling is three-dimensional.
+The three-argument calls refuse it: the initial data, the boundary hooks and
+the interior take the case's own provider.
+"""
+struct PointwiseMetric{C,C1,FA,ED,V} <: MetricProvider
+    cell::C
+    cell1::C1
+    face::FA                                         # NTuple{3}
+    edge::ED                                         # NTuple{3}
+    vertex::V
+    G_cell::NTuple{3,Int}
+    G_face::NTuple{3,NTuple{3,Int}}
+    G_edge::NTuple{3,NTuple{3,Int}}
+    G_vertex::NTuple{3,Int}
+end
+
+Adapt.adapt_structure(to, p::PointwiseMetric) =
+    PointwiseMetric(Adapt.adapt(to, p.cell), Adapt.adapt(to, p.cell1),
+                    map(a -> Adapt.adapt(to, a), p.face), map(a -> Adapt.adapt(to, a), p.edge),
+                    Adapt.adapt(to, p.vertex), p.G_cell, p.G_face, p.G_edge, p.G_vertex)
+
+# The binding of a centering, and its ghost widths: cell-like everywhere, vertex-like
+# everywhere, vertex-like along one direction (the face normal to it), cell-like along one
+# (the edge along it). Resolved at compile time from the staggers.
+@inline function binding(p::PointwiseMetric, ::Val{C}) where {C}
+    nv = count(==(1), C)
+    nv == 0 && return p.cell, p.G_cell
+    nv == 3 && return p.vertex, p.G_vertex
+    if nv == 1
+        d = C[1] == 1 ? 1 : C[2] == 1 ? 2 : 3
+        return @inbounds(p.face[d]), @inbounds(p.G_face[d])
+    end
+    j = C[1] == 0 ? 1 : C[2] == 0 ? 2 : 3
+    return @inbounds(p.edge[j]), @inbounds(p.G_edge[j])
+end
+
+@inline stored_index(n::NTuple{3,Int}, G::NTuple{3,Int}) = (n[1] + G[1], n[2] + G[2], n[3] + G[3])
+
+@inline function point_metric(p::PointwiseMetric, t, x, c::Val, n::NTuple{3,Int}, b)
+    at, G = binding(p, c)
+    α, β, γ = SpacetimeMetrics.adm_decompose(at(stored_index(n, G), b))
+    return Metric3(α, β, γ)
+end
+
+@inline function metric_gradient(p::PointwiseMetric, t, x, ::Val{C}, n::NTuple{3,Int},
+                                 b) where {C}
+    all(==(0), C) || throw(ArgumentError(
+        "metric_gradient: the sources read the metric's derivatives at the cells only; " *
+        "a producer's pointwise metric binds them there (CODE.md, \"The coupling contract\")."))
+    g, sdg = p.cell1(stored_index(n, p.G_cell), b)
+    return gradient_from_dmetric(g, sdg)
+end
+
+point_metric(::PointwiseMetric, t, x) = throw(ArgumentError(
+    "a producer's pointwise metric is read at a point's index, not at coordinates: call " *
+    "point_metric(provider, t, x, Val(C), n, b) (CODE.md, \"The coupling contract\"). The " *
+    "initial data, the boundary hooks and the interior take the case's analytic provider."))
+metric_gradient(::PointwiseMetric, t, x) = throw(ArgumentError(
+    "a producer's pointwise metric is read at a point's index, not at coordinates: call " *
+    "metric_gradient(provider, t, x, Val(C), n, b) (CODE.md, \"The coupling contract\")."))
 
 # `∂_j γ_ik` for one direction `j`, as a 3×3 matrix.
 @inline function d_spatial(dm::MetricGradient{T}, j) where {T}

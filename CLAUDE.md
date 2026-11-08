@@ -20,8 +20,15 @@ Rules that follow from `CODE.md` and govern every change here:
 
 - **No mesh machinery.** Trees, ghosts, inter-level operators, reductions
   and point interpolation belong upstream in TreeAMR. Interpolation
-  *within a block* between centerings (metric from vertices; `T_ab` to
-  vertices) is application code and lives here.
+  *within a block* between centerings is application code and lives with
+  the producer of the data: `T_ab` to TreeGH's vertices here, the metric
+  from TreeGH's vertices in TreeGH (amended 2026-11-06).
+- **Neither package drives, and neither depends on the other.** A coupled
+  run is a script that owns the loop and calls `TreeGH.prepare!`,
+  `TreeGRRMHD.prepare!` and the rest; data passes through pointwise
+  adapters that the producer supplies (decided by Erik 2026-11-05;
+  `CODE.md`, "The coupling contract"). Do not add a driver framework or a
+  TreeGH dependency.
 - **Upstream changes are Erik's.** When this package needs something from
   TreeAMR, TreeGeneralizedHarmonic or EntropyEOS, it goes into `CODE.md`'s
   "Upstream prerequisites" as a precise request; do not edit the sibling
@@ -52,7 +59,9 @@ black holes are not expected to work out of the box** (as in
 TreeGeneralizedHarmonic); further work on black holes is left for the
 future (`CODE.md`, "Known risks"). The interior (the paste), the coarse-pair
 rates and the deduplication were decided by Erik 2026-11-03. Step
-10 waits for GH-1 and GH-2.** `CODE.md` records the reviewed design
+10, the Cowling TOV star on `Analytic(TOVMetric)` (no TreeGH, decided by
+Erik 2026-11-06), is built and measured on `claude/step-10-cowling-tov`,
+for Erik's review. Step 11 waits for GH-1 to GH-4.** `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -239,6 +248,30 @@ shifted by `L/256` in `z` off the `r = 0` disk; `bin/curved_localise.jl kwald`
 (a step near the ergoregion); the Euclidean paste at `a = 0.9M` misses `r₋`
 and grows, the ball in Kerr-Schild `r` does not (CODE.md, "The spinning Wald
 case"; both for Erik).
+Step 10 (2026-11-06/07, `claude/step-10-cowling-tov`, branched from
+`eschnett-claude/spacetime-hydro-coupling-144389`): `src/tov.jl` (the host
+TOV solve in Lindblom's enthalpy form, `TOVMetric`, isbits, cubic Hermite in
+`u = r̄²`, 4176 bytes at `NK = 129`) and `src/cases/tov.jl`
+(`tov_case`, `[−24, 24]³` on 4 roots; `tov_boxes!`; `central_density`, the
+largest cell average of `ρ`); the public verbs (`prepare!`, `rhs!`,
+`stage_solve!`, `stage_limit!`, `step_limit!`, `max_rate`, `initial_state!`,
+`MHDProblem(fields, case; …)`), of which `mhd_rhs!`, `ohm_solve!`, the
+resets, `mhd_integrator` and `evolve!` are compositions, bit for bit; the
+indexed provider calls and `PointwiseMetric` (the contract binds once per
+centering, `CODE.md`, "The coupling contract", as built); `:hlle_split` in
+`src/riemann.jl` (measured, not the default). `bin/tov_cowling.jl` is the
+step-10 script (a test runs its `main` against `evolve!`, bit for bit);
+`bin/tov_study.jl` (checkpointed, for amdpreq), `bin/tov_drift.jl` and
+`bin/tov_modes.jl` made `CODE.md`'s rung-4 record. Measured: stationarity
+converges above second order (MC 2.52, 3.32, 2.80 to `h = 0.25`; PPM 2.68,
+2.45), rest mass to `10⁻¹⁴` net of the reset's injection; F, H1, H2 within
+3% of Font et al. at `h = 0.375` (PPM, 886M; H2 −8% at 0.5);
+`Analytic(TOVMetric)` 63/115 ns per call (`CODE.md`, "Validation ladder" 4,
+"Open questions"). **Decided by Erik 2026-11-08:** the light cone stays (split
+speeds blow up), width 3 bounded stays, the reset keeps both roles (the stage
+role changes nothing on the star), PPM for stars (it drifts 2–3 times less
+than MC; the package default stays MC), and the per-centering binding of the
+contract for step 10.
 
 ## Commands
 
@@ -456,7 +489,25 @@ run passing whole — 14m48s at one thread on cn082 (EPYC 7532) against
 clean-checkout check on cn107 (EPYC 7543), 17m03s with `--check-bounds=yes`
 on cn083 (EPYC 7532); one and four threads identical, the clean checkout
 identical to the one-thread run, every line of 5bea724's present (three
-new); bounds checks move 70 lines. At
+new); bounds checks move 70 lines. Step 10 (2026-11-06, the tree of 14e3b87,
+Symmetry, amddebugq): **26516 tests** (+74, `test/tov_tests.jl`), every run
+passing whole — 13m46.7s at one thread on cn110 (EPYC 7543) against main's
+11m03.6s (26442 tests) in the same job, 14m03.1s at four threads and
+18m31.3s for the clean-checkout check on cn087 (EPYC 7532), 20m57.7s with
+`--check-bounds=yes` on cn086 (EPYC 7532); one and four threads identical,
+the clean checkout identical to the one-thread run, every line of main's
+present (seven new); bounds checks move 74 lines. Rebased onto main's
+tiers (2026-11-08): `test/tov_tests.jl`'s runs are 3D at `N = 8` and a few
+`M` long, so its testsets run in every tier, unmarked (the file alone
+2m25s on the laptop, compilation included). The full tier on Symmetry
+(2026-11-08, jobs 593564–593566): **26516 tests**, every run passing whole
+— 13m52.5s at one thread on cn103 (EPYC 7543) against main's (a19097d)
+11m12.6s (26442 tests) in the same job, 14m20.0s at four threads and
+18m54.7s for the clean-checkout check on cn087 (EPYC 7532), 16m06.1s with
+`--check-bounds=yes` on cn103; one and four threads identical, the clean
+checkout identical to the four-thread run, every line of main's present
+(seven new), every line identical to the run before the rebase; bounds
+checks move 72 lines. At
 the end of step 7
 (2026-10-15): **25293 tests**, a `Test Summary` time of about 5m20s at
 1.13 and 6m40s at 1.11 at one thread (7m20s and 8m15s at four, 5m35s with

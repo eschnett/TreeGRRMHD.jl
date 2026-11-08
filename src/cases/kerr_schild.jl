@@ -365,7 +365,8 @@ end
 # `ψ = ∂_φ = (0, −y, x, 0)` and `η = ∂_t` are Killing vectors of Kerr-Schild,
 # whose metric rotates with the (x, y) plane and does not depend on `t`.
 @inline function wald_4potential(w::SpinningWald, x::SVector{3,T}, t::T) where {T}
-    g, dg = SpacetimeMetrics.dmetric(w.provider.metric, SVector(t, x[1], x[2], x[3]))
+    g, sdg = SpacetimeMetrics.dmetric(w.provider.metric, SVector(t, x[1], x[2], x[3]))
+    dg = spatial_gradient(sdg)                      # dg[j, μ, ν] = ∂_j g_μν (src/metric.jl)
     ψ = SVector(zero(T), -x[2], x[1], zero(T))
     c = w.b / 2
     𝒜 = SVector(ntuple(μ -> c * (sum(ntuple(ν -> g[μ, ν] * ψ[ν], Val(4))) + 2 * w.a * g[μ, 1]),
@@ -374,8 +375,8 @@ end
     dψ(j, ν) = (j == 1 && ν == 3) ? one(T) : (j == 2 && ν == 2) ? -one(T) : zero(T)
     d = SMatrix{3,4,T,12}(ntuple(Val(12)) do k
         j, μ = mod1(k, 3), (k - 1) ÷ 3 + 1
-        c * (sum(ntuple(ν -> dg[μ, ν, j + 1] * ψ[ν] + g[μ, ν] * dψ(j, ν), Val(4))) +
-             2 * w.a * dg[μ, 1, j + 1])
+        c * (sum(ntuple(ν -> dg[j, μ, ν] * ψ[ν] + g[μ, ν] * dψ(j, ν), Val(4))) +
+             2 * w.a * dg[j, μ, 1])
     end)
     return 𝒜, d
 end

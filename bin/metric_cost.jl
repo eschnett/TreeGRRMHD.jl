@@ -2,13 +2,14 @@
 # evaluating SpacetimeMetrics pointwise at every centering is affordable, or the metric should
 # be cached per stage.
 #
-#     julia --project=. bin/metric_cost.jl
+#     julia --project=. bin/metric_cost.jl [percall]
 #
-# One thread. Three measurements:
+# One thread. Three measurements (`percall`: the first alone):
 #
 # 1. **Per call**: `point_metric` and `metric_gradient` of `Analytic(KerrSchild(1))` and of
 #    `Flat()`, in ns, over 10⁶ points of the octant `[0, 4]³` (the result summed, so that
-#    nothing is optimized away).
+#    nothing is optimized away); since step 10 also `Analytic(TOVMetric)` of the Cowling
+#    star, over 10⁶ points of `[−12, 12]³` (inside the table and outside, as the run reads it).
 # 2. **Per step, the same physics**: the spherical blast of rung 2a (16³, closed box) with
 #    `Flat()` and with `Analytic` of a Kerr-Schild hole of mass 10⁻³⁰⁰ far outside the box —
 #    Minkowski to rounding at every point, with Kerr-Schild's whole cost. The difference is
@@ -28,7 +29,11 @@ const TG = TreeGRRMHD
 
 function per_call()
     xs = [SVector(4rand(), 4rand(), 4rand()) for _ in 1:10^6]
-    for (name, prov) in (("Flat", Flat()), ("Analytic(KerrSchild(1))", Analytic(KerrSchild(1.0))))
+    tov = tov_case(Float64).provider
+    xt = [SVector(24rand() - 12, 24rand() - 12, 24rand() - 12) for _ in 1:10^6]
+    for (name, prov, xs) in (("Flat", Flat(), xs),
+                             ("Analytic(KerrSchild(1))", Analytic(KerrSchild(1.0)), xs),
+                             ("Analytic(TOVMetric)", tov, xt))
         f1(x) = point_metric(prov, 0.0, x).α
         f2(x) = metric_gradient(prov, 0.0, x).K[1, 1]
         sum(f1, xs); sum(f2, xs)
@@ -60,6 +65,7 @@ with_provider(c, prov) =
 function main()
     @info "metric cost" Threads.nthreads()
     per_call()
+    "percall" in ARGS && return
     blast = cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true)
     far = Analytic(translate(KerrSchild(1e-300), SVector(0.0, 100.0, 100.0, 100.0)))
     kw = (; N=8, t_end=1 // 8, limiter=:minmod)
