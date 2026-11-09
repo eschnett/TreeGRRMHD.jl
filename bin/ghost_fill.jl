@@ -1,5 +1,5 @@
 # The matter's ghost fill across a coarse-fine face (step 8; "Refinement" in
-# `CODE.md`): the atmosphere tube — a gas at `ρ = p = 1` expanding into a
+# `HISTORY.md`): the atmosphere tube — a gas at `ρ = p = 1` expanding into a
 # `10⁻⁸` atmosphere, 200 cells, `[0, 0.2)` refined, which the front crosses —
 # hydrodynamic, and magnetized (`Bʸ = 10⁻³`, `MagnetizationCutoff(Constant(10³),
 # 10)`). Printed per configuration: the interior ghosts (not beyond the

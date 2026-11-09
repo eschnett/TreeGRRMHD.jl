@@ -1,5 +1,5 @@
 # Investigation (2026-10-16, branch `claude/front-investigation`; not a PLAN.md step): why the
-# magnetized atmosphere tube is chaotic at rounding level, and what removes it. See CODE.md,
+# magnetized atmosphere tube is chaotic at rounding level, and what removes it. See HISTORY.md,
 # "Floors, the atmosphere and the magnetosphere", "Investigation (2026-10-16)".
 #
 #     julia --project=. bin/front_investigation.jl matrix MESH CANDIDATE [runs=48]
@@ -24,7 +24,7 @@
 #   MESH: `uniform`; `refined` (`[0, 0.2)` refined; on this tree the parent-centred primitive
 #   fill); `conserved` (the same mesh, to be run on the conserved-fill tree, `git archive
 #   7605986` with this file copied into its `bin/` and its EntropyEOS at 1.1.0, so that it runs
-#   with the wrapper of `src/con2prim.jl` patched in; see CODE.md).
+#   with the wrapper of `src/con2prim.jl` patched in; see HISTORY.md, "Floors, the atmosphere and the magnetosphere").
 #   CANDIDATE: baseline (the code as it stands), or one of 2026-10-16's alternatives (collapse,
 #   wcap10, trigger10 — any `trigger<k>` —, ceil100, vac10, fixeds; see `CANDIDATES` below).
 #   Besides the summary line: how far two runs 10⁻¹⁵ apart drift, and the hydrodynamic tube.
@@ -347,7 +347,7 @@ function matrix(mesh, name; nruns=48)
     return nothing
 end
 
-# Beyond the tube (uniform mesh, the baseline): the rows "Beyond the tube" of CODE.md's
+# Beyond the tube (uniform mesh, the baseline): the rows "Beyond the tube" of HISTORY.md's
 # "Floors, the atmosphere and the magnetosphere" — ARS(4,4,3), `Bʸ = 10⁻²`, the ideal magnetized
 # atmosphere under SSP3 and ARS, 400 cells, `μ_max = 30`. Added 2026-10-24 (EntropyEOS 2.0);
 # until then they were run from the REPL with `batch`.

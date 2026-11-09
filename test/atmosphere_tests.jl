@@ -144,7 +144,7 @@ end
     # since step 8), and this testset asserted it as evidence against ARS.
     # That was not a property of ARS but of EntropyEOS's repairs: the
     # entropy-floor branch wrote `ρ_atm` at `W ≈ |S|/ρ_atm` and the collapse
-    # branch `ρ_ceiling` (`CODE.md`, "Floors, the atmosphere and the
+    # branch `ρ_ceiling` (`HISTORY.md`, "Floors, the atmosphere and the
     # magnetosphere"). Since the recovery puts a floored state at rest and the
     # tube's policy sets `collapse_to_atmosphere`, this is a regression check
     # of that recovery (amended 2026-10-22, decided by Erik). Measured

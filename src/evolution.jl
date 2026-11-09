@@ -29,7 +29,7 @@
 # set of ghost width `G` stores local `n` at `n + G`. A launch with
 # `stored = true` hands the kernel stored indices, which it converts with
 # `n = s − G`; the default and the `closed = true` launches hand it local
-# indices directly ("Sharp edges" in `PLAN.md`). A cell `n` lies between the
+# indices directly ("Sharp edges" in `CODE.md`). A cell `n` lies between the
 # vertices `n` and `n + 1`, so a face normal to `d` with local index `n` lies
 # between the cells `n − e_d` and `n`. Every kernel receives one `Val(G)` per
 # set it reads. A state-vector array (`statearray`) has no ghosts, so a local

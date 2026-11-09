@@ -81,7 +81,7 @@ end
 
 @testset "The metric providers give SpacetimeMetrics' metric, the derivative index converted once" begin
     # Guards the one place the derivative index order is converted
-    # ("Sharp edges" in `PLAN.md`): a `dg` read with SpacetimeMetrics'
+    # ("Sharp edges" in `CODE.md`): a `dg` read with SpacetimeMetrics'
     # derivative-last order would put a time derivative where a spatial one
     # belongs, and the sources would be wrong by terms that vanish only in a
     # static metric. Also the lapse and shift derivatives derived from it,

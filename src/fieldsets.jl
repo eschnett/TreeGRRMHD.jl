@@ -27,7 +27,7 @@
 # computed over the closed ranges and never exchanged, `G = 0`. One width for
 # all the ghosted sets is what lets one stored index serve a cell of `U`, of
 # `P` and the cell-like faces of `B` in 1D; the kernels still take one
-# `Val(G)` per set they read ("Sharp edges" in `PLAN.md`).
+# `Val(G)` per set they read ("Sharp edges" in `CODE.md`).
 
 """
     edge_centering(::Val{D}, j) -> NTuple{D,Symbol}
@@ -189,7 +189,7 @@ The evolved field sets, in the order of the state vector's segments: the
 tuple TreeAMR's multi-set `statevector`, `scatter!`, `gather!`,
 `stateview` and `statearray` take (AMR-1). `B` is not among them: it is
 recomputed from `A` in every right-hand side and is never state ("Sharp
-edges" in `PLAN.md`).
+edges" in `CODE.md`).
 """
 evolved_sets(f::MHDFields) = (f.U, f.A[1], f.A[2], f.A[3], f.Φ)
 

@@ -16,7 +16,7 @@
 # GHSO2's order (derivative first, `dg[a,b,c] = ∂_a g_bc`), restricted to
 # spatial derivatives. SpacetimeMetrics has the derivative *last*,
 # `dg[a,b,c] = ∂_c g_ab`. The conversion is written here, in
-# `spatial_gradient`, and nowhere else ("Sharp edges" in `PLAN.md`). The vertex
+# `spatial_gradient`, and nowhere else ("Sharp edges" in `CODE.md`). The vertex
 # metric's 3+1 derivatives are assembled into the same layout by
 # `gradient_from_adm` (`src/vertex_metric.jl`). Every other file reads
 # `MetricGradient` only.
