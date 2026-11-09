@@ -437,7 +437,10 @@ geometric source, 41 ns against 74 ns for a cell's whole explicit source.
 The entropy equation is not a conservation law
 through shocks; `D s` is advected only as a fallback for the primitive
 recovery and is reset from the recovered `s` wherever the energy inversion
-succeeds (proposed; whether it earns its keep is (open)).
+succeeds (proposed; whether it earns its keep is (open)). *(Amended
+2026-11-09:)* as built, the reset rewrites `D s` only where the policy
+repaired the cell, and the resynchronisation was tried and not adopted
+(Erik, 2026-11-09; "Open questions").
 
 ### Maxwell
 
@@ -5585,6 +5588,23 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - Whether `D s` earns its keep; the threshold that switches to it.
   *(Measured in step 9:)* on the stationary Kerr-Schild flows it drifts
   further from `D s_exact` than `D` does (see "Validation ladder" 3).
+  *(Measured 2026-11-09, reverted by Erik the same day:)* the reset writing
+  `√γ D s = (√γ D) s` from the recovered `s` in every cell it did not
+  repair, in both roles. The suite beside cf021db's in one job (593879,
+  cn088, one thread): 55 of 26538 fail, every one through `D s` — its
+  totals no longer conserved (3·10⁻⁷ of the scale a step on the EM wave,
+  0.1–14% of the boundary budget on the Balsara tubes, the entropy their
+  shocks make), the reset no longer a no-op where it repairs nothing, the
+  interior's bit identity, and the Cowling star's vertex-against-analytic
+  difference (3.1e−2, all of it `D s`; `D`, `S_i`, `τ`, `D Yₑ` at
+  0.3–2.1·10⁻⁴). `D`, `S_i`, `τ`, `D Yₑ`, `A_j` and `𝔈` moved in the 9th
+  to 12th digit only (the recovery's seed), and the `D s` errors grew
+  eightfold (EM wave 4.1e−6 → 3.4e−5, Alfvén 1.4e−3 → 1.1e−2). Without
+  it, `(√γ D s)/(√γ D)` leaves the window where `D` is thin — −410 … 1220
+  outside the Cowling star's surface at 200 M ("As built in step 10,
+  round 2") — which only seeds the recovery and changes nothing it
+  returns. It earns its keep only once it is the fallback of a failed
+  energy inversion, which is not built.
 - *(Added in step 9.)* The interior's form: the hard paste in both
   limiters at `r_in = M` (proposed), against TreeGH's smooth damping layer
   inside the right-hand side ("The interior"). *(Decided by Erik 2026-11-03:
