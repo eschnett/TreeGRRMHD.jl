@@ -1,5 +1,5 @@
 # Step 10 (rung 4): the Cowling TOV star's studies, for `CODE.md`'s tables ("Validation
-# ladder" 4, "Open questions"): one run per invocation, its central density sampled every
+# ladder" 4, "What the star decides"): one run per invocation, its central density sampled every
 # chunk, and at the end the drift from the initial data, the rest mass against what the
 # reset injected, the resets, and the wall time. The loop is `bin/tov_cowling.jl`'s, through
 # the same verbs, so that the reset's roles can be chosen.

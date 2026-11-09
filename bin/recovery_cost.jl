@@ -2,7 +2,7 @@
 # primitive recoveries the scheme makes per cell per step, how each is seeded, what they
 # cost, and what Erik's "step-local" view — the only true input is the state at the start of
 # an RK step, so seed every later recovery from the cell's latest one — would save. See
-# CODE.md, "Primitive recovery", "Measurement (2026-10-23): recovery counts and costs".
+# HISTORY.md, "Primitive recovery", "Measurement (2026-10-23): recovery counts and costs".
 #
 #     julia --project=. bin/recovery_cost.jl counts CASE [FILL]     # FILL: primitive (default) | conserved | both
 #     julia --project=. bin/recovery_cost.jl pointwise
@@ -32,7 +32,7 @@
 # chunking bit-identity claims, under both fills; how far it moves results; Orszag–Tang's
 # totals. `threads` at `-t 1` and `-t 4`, then `threadcmp`: the same under both fills.
 #
-# CODE.md's table: `counts CASE both` for every name in `CASES` (the conserved fill of a
+# HISTORY.md's table: `counts CASE both` for every name in `CASES` (the conserved fill of a
 # case is the second block of its output), `pointwise`, `identity`, `threads`.
 #
 # *(Added 2026-10-24, stage 3 of the recovery pipeline: the real step cache, "The step cache"

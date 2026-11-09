@@ -3,6 +3,11 @@
 [![CI](https://github.com/eschnett/TreeGRRMHD.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/eschnett/TreeGRRMHD.jl/actions/workflows/CI.yml)
 [![codecov](https://codecov.io/gh/eschnett/TreeGRRMHD.jl/graph/badge.svg)](https://codecov.io/gh/eschnett/TreeGRRMHD.jl)
 
+**Contents**
+
+- [Installation](#installation)
+- [Running the tests](#running-the-tests)
+
 `TreeGRRMHD` solves the equations of general-relativistic **resistive**
 magnetohydrodynamics with a high-resolution shock-capturing finite-volume
 scheme on the adaptively refined mesh of
@@ -20,7 +25,7 @@ across every regrid; the stiff current is handled by an IMEX Runge–Kutta
 integrator whose implicit stage this package solves itself.
 
 It is the fourth application of TreeAMR, after
-[TreeWave](https://github.com/eschnett/TreeWave.jl),
+[TreeWave](https://github.com/eschnett/TreeWave.jl) (a scalar wave),
 [TreeHydro](https://github.com/eschnett/TreeHydro.jl) — the Newtonian
 rehearsal whose scheme, driver and conventions this package inherits — and
 [TreeGeneralizedHarmonic](https://github.com/eschnett/TreeGeneralizedHarmonic.jl),
@@ -58,6 +63,12 @@ conservatively along their edges, as a state — `∇·B` stays at round-off
 after every regrid, the matter's ghosts are filled from bounded primitives
 so that each is an admissible state, and a uniform closed box is
 mirror-symmetric bit for bit. Curved backgrounds are next.
+
+**Inconsistent:** this status says steps 0 to 3 and 5 to 8 are done and
+that curved backgrounds are next, while `PLAN.md` and `CODE.md` say step 9
+(the analytic curved backgrounds, rung 3) is done and step 10 (the Cowling
+TOV star, rung 4) is built and measured.
+
 Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of
 TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide what
@@ -77,7 +88,9 @@ bit-identically to the host.
 
 `CODE.md` is the design document: what each piece is for and why it is that
 way. `PLAN.md` is the implementation plan, step by step, with the exact
-requirements on the sibling packages. `CLAUDE.md` has the commands.
+requirements on the sibling packages. `HISTORY.md` records how the package
+got here: who decided what and when, and what was tried. `CLAUDE.md` has the
+commands.
 
 ## Installation
 
@@ -102,3 +115,10 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 
 The log names every upstream item (`AMR-n`, `EOS-n`, `GH-n`) as landed or
 waiting.
+
+**Inconsistent:** `CLAUDE.md`, "Commands", says a landed item guaranteed by
+`[compat]` has no probe, so the log names only the items still waiting
+(`landed:` should not appear).
+
+The full suite at every thread count and with bounds checks, and the
+clean-checkout check, are in `CLAUDE.md`, "Commands".

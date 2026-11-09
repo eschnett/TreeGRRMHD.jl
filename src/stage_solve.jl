@@ -65,7 +65,7 @@
 # through `v` the Jacobian of `E` carries a `W²` from `∂W/∂v`.
 #
 # What is returned is `E` and the primitive state it was solved with: the
-# stage writes only `E` into `U` ("Sharp edges" in `PLAN.md`), and the
+# stage writes only `E` into `U` ("Sharp edges" in `CODE.md`), and the
 # policy's repair of an inadmissible `u★` stays inside the solve.
 
 # --- The result -----------------------------------------------------------------

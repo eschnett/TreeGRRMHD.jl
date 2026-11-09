@@ -13,7 +13,7 @@
 # `E = −v × B` and the whole inversion is exactly ideal MHD — and the exact
 # answer for `IdealConductor`. ("The implicit stage solve" in `CODE.md`.)
 #
-# EntropyEOS's calling conventions ("Sharp edges" in `PLAN.md`): its inputs
+# EntropyEOS's calling conventions ("Sharp edges" in `CODE.md`): its inputs
 # are undensitized, `S_par` and `S_perp` are scalars with `S_perp ≥ 0`, its
 # warm starts are positional, and its output velocity is a pair of scalars.
 # The hydrodynamic mode passes the whole momentum as `S_perp` and
