@@ -173,71 +173,7 @@ end
 
 # --- the scheme on the star ----------------------------------------------------------------
 
-# This package's side of the coupling contract, tested before TreeGH has GH-1: a
-# SpacetimeMetrics metric sampled at the points of the mesh, in GH-1's API — the adapter,
-# a snapshot at one time, bound to one of this package's field sets (`gm(fs)`, or
-# `gm(fs, Val(1))` with the derivatives) and called at a stored index (`at(I, b)`). It
-# computes the point's position as the kernels do (`point_x` of the local index), so it is
-# the analytic metric's `g` bit for bit — GH-1's reference ("The coupling contract" in
-# `CODE.md`).
-struct TVSampled{M,O,H,T}
-    metric::M
-    origins::O
-    spacings::H
-    t::T
-end
-struct TVBound{D1,S,C}
-    s::S
-    G::NTuple{3,Int}
-end
-(s::TVSampled)(fs, ::Val{1}) = TVBound{true,typeof(s),staggers(fs)}(s, ntuple(e -> Int(fs.G[e]), 3))
-(s::TVSampled)(fs) = TVBound{false,typeof(s),staggers(fs)}(s, ntuple(e -> Int(fs.G[e]), 3))
-@inline function (a::TVBound{D1,S,C})(I, b) where {D1,S,C}
-    n = ntuple(e -> I[e] - a.G[e], 3)
-    s = a.s
-    p = SVector(s.t, TV.point_x(@inbounds(s.origins[b]), @inbounds(s.spacings[b]), n,
-                                Val(C))...)
-    return D1 ? TV.SpacetimeMetrics.dmetric(s.metric, p) : TV.SpacetimeMetrics.metric(s.metric, p)
-end
-
-tv_sampled(p::MHDProblem) =
-    PointwiseMetric(TVSampled(p.provider.metric, p.origins, p.spacings, 0.0), p.f)
-
 tv_boxes(f) = tov_boxes!(f, TV_CASE; levels=1)
-
-@testset "A producer's pointwise metric is the analytic one, to rounding: $name" for
-        (name, case, refine, exact) in (("Wald", wald_case(Float64), nothing, false),
-                                        ("TOV star", TV_CASE, tv_boxes, true))
-    # Guards this package's side of the coupling contract (`PointwiseMetric`,
-    # `point_metric(prov, t, x, Val(C), n, b)`): a kernel that passes another centering's
-    # staggers or index (the vertex metric of `∂ₜA`'s gradient, read from an edge kernel;
-    # the edge metric of the gauge flux, read from a vertex kernel; a ghost cell's local
-    # index), or a second derivative-index conversion, gives another metric somewhere, and
-    # a run that differs from the analytic one at truncation level. Four steps of the same
-    # integrator over the same state, with the step cache. The sampled adapter returns the
-    # analytic `g` bit for bit, but the 3+1 split of it (`adm_decompose`, StaticArrays'
-    # `muladd`) rounds as the context it is inlined into lets LLVM fuse it: Wald's shift,
-    # near the singularity, moves `α` by 1.4e−14 at `r = 0.22` and the run by rounding
-    # (measured in step 10). The star's metric is diagonal, and its run is the same bit for
-    # bit.
-    forest = Forest{Float64}(case.roots; N=8, periodic=case.periodic, extents=case.extents)
-    refine === nothing || refine(forest)
-    p = MHDProblem(mhd_fields(Float64, forest), case; limiter=:mc)
-    q = TV.rebuild(p; provider=tv_sampled(p))
-    u0 = exact_state(p, case, 0.0)
-    run(r) = (integ = mhd_integrator(r, copy(u0), 0.0, 1 / 8, 4);
-              with_step_cache(() -> TV.IRK.solve!(integ), r); integ.u)
-    a, b = run(p), run(q)
-    worst = maximum(i -> (r = staterange(p.sets, i);
-                          maximum(abs, a[r] - b[r]) / max(maximum(abs, a[r] - u0[r]), 1e-300)),
-                    eachindex(p.sets))
-    @info "$name through the sampled pointwise metric: checksum $(sum(abs, b)); identical to " *
-          "the analytic provider's: $(isequal(a, b)); largest difference per set, relative " *
-          "to its change in the four steps: $(tv3(worst))"
-    @test exact ? isequal(a, b) : worst < 1e-9
-    @test maximum(abs, a - u0) > 0
-    @test_throws ArgumentError point_metric(q.provider, 0.0, SVector(1.0, 1.0, 1.0))
-end
 
 module TVScript
 include(joinpath(@__DIR__, "..", "bin", "tov_cowling.jl"))

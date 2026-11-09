@@ -11,7 +11,9 @@
 # and `T^ab = 𝓔 nᵃnᵇ + Sᵃnᵇ + nᵃSᵇ + S^ab` from them ("Stress-energy for the
 # spacetime"). The same three are what `prim2con` packs (densitized, with
 # `τ = 𝓔 − D`), what the fluxes transport, and what the sources contract with
-# the metric derivatives; `T_ab` is what TreeGH's `Tsrc` holds (GH-3).
+# the metric derivatives. The same three, `S^ij` lowered, are what crosses to
+# TreeGH's vertices in the coupling contract (GH-3, redesigned 2026-11-08), and
+# TreeGH assembles `T_ab` from them.
 
 """
     stress_energy(m::Metric3, prim, E, B) -> (𝓔, S, Sij)

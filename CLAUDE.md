@@ -20,13 +20,17 @@ Rules that follow from `CODE.md` and govern every change here:
 
 - **No mesh machinery.** Trees, ghosts, inter-level operators, reductions
   and point interpolation belong upstream in TreeAMR. Interpolation
-  *within a block* between centerings is application code and lives with
-  the producer of the data: `T_ab` to TreeGH's vertices here, the metric
-  from TreeGH's vertices in TreeGH (amended 2026-11-06).
+  *within a block* between centerings is application code and lives here,
+  in both directions: the matter's `(ρ, S_i, S_ij)` from cells to TreeGH's
+  vertices, the metric's `(α, β^i, γ_ij, K_ij)` from TreeGH's vertices
+  (copied into this package's own vertex set `Mv`) to the cells, faces and
+  edges (amended 2026-11-06, and 2026-11-08 by Erik's redesign of the
+  contract: TreeGH interpolates nothing).
 - **Neither package drives, and neither depends on the other.** A coupled
   run is a script that owns the loop and calls `TreeGH.prepare!`,
   `TreeGRRMHD.prepare!` and the rest; data passes through pointwise
-  adapters that the producer supplies (decided by Erik 2026-11-05;
+  adapters that the producer supplies, called at TreeGH's owned vertices
+  (decided by Erik 2026-11-05 and 2026-11-08;
   `CODE.md`, "The coupling contract"). Do not add a driver framework or a
   TreeGH dependency.
 - **Upstream changes are Erik's.** When this package needs something from
@@ -61,7 +65,37 @@ future (`CODE.md`, "Known risks"). The interior (the paste), the coarse-pair
 rates and the deduplication were decided by Erik 2026-11-03. Step
 10, the Cowling TOV star on `Analytic(TOVMetric)` (no TreeGH, decided by
 Erik 2026-11-06), is built and measured on `claude/step-10-cowling-tov`,
-for Erik's review. Step 11 waits for GH-1 to GH-4.** `CODE.md` records the reviewed design
+for Erik's review. Step 11 waits for GH-2 to GH-4 (GH-1 landed 2026-11-08).** **On 2026-11-08 Erik
+redesigned the coupling contract** (TreeGH's PR 25, merged 2026-11-08 as
+61bcb75, builds GH-1 as `ADMMetric`): both directions cross at TreeGH's owned vertices in 3+1
+variables, `(α, β^i, γ_ij, K_ij)` out of TreeGH and `(ρ, S_i, S_ij)` into
+it, and every conversion between centerings is this package's. `CODE.md`
+("The coupling contract", "Metric at cells, faces and edges", "Matter to
+the vertices") and `PLAN.md` (GH-1, GH-3, step 10's round 2, step 11) are
+amended. **Step 10, round 2** (2026-11-08, `src/vertex_metric.jl`,
+`test/vertex_metric_tests.jl`) built this package's side:
+`VertexMetricSet(T, forest; boundary)` holds `Mv` (16 variables at `G = 4`,
+so `N ≥ 10`; PointValue width 6; the outer faces from the case's provider),
+`vertex_metric!(vm, adm, t)` fills it from any adapter in `ADMMetric`'s form
+and returns `VertexMetric` (Lagrange 4/16/64 points, the derivatives of the
+same interpolant, a multilinear fallback where `α ≤ 0` or `γ` is
+indefinite, counted by `metric_fallbacks`), and `SampledADM` samples a
+SpacetimeMetrics metric in that form (GH-1's reference). `PointwiseMetric`
+is gone; `Analytic(TOVMetric)` stays the Cowling star's provider. Measured:
+4.5–4.7 on Kerr-Schild at every centering, 3.7–4.0 on the star off its
+surface, 1.67 for `∂g` in the surface layer; to 200 M
+(`bin/tov_study.jl metric=vertex` with `bin/tov_compare.jl`, jobs
+593624–593629, PPM at `h = 0.5`, 0.375, 0.3) no fallback, the central
+density's difference from the analytic run at 3.94 and 3.96, the conserved
+variables' L1 at about 3.7; only the advected `√γ D s` just outside the
+surface does not converge, its ratio `s★` far outside the window there
+since the reset rewrites `D s` only in repaired cells, while the recovered
+`s` and `T` agree (for Erik); the vertex metric's step 2.0–2.5
+times cheaper than `Analytic(TOVMetric)`'s. The suite at round 2
+(2026-11-08, Symmetry cn103, EPYC 7543, uncommitted tree): **26538 tests,
+every run passing whole** — 16m19s at one thread, 11m41s at four, 20m44s
+with `--check-bounds=yes`; one and four threads identical, bounds checks
+moving 70 lines. `CODE.md` records the reviewed design
 (2026-09-23); `PLAN.md` is the implementation plan: steps 0–15 on
 `claude/step-N-slug` branches, run one agent per step, and the exact
 upstream requirements under IDs `AMR-n`, `GH-n`, `EOS-n`, each naming the
@@ -258,7 +292,7 @@ largest cell average of `ρ`); the public verbs (`prepare!`, `rhs!`,
 `MHDProblem(fields, case; …)`), of which `mhd_rhs!`, `ohm_solve!`, the
 resets, `mhd_integrator` and `evolve!` are compositions, bit for bit; the
 indexed provider calls and `PointwiseMetric` (the contract binds once per
-centering, `CODE.md`, "The coupling contract", as built); `:hlle_split` in
+centering; replaced by `VertexMetric` in round 2, 2026-11-08); `:hlle_split` in
 `src/riemann.jl` (measured, not the default). `bin/tov_cowling.jl` is the
 step-10 script (a test runs its `main` against `evolve!`, bit for bit);
 `bin/tov_study.jl` (checkpointed, for amdpreq), `bin/tov_drift.jl` and
