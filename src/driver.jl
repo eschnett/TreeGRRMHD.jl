@@ -464,15 +464,15 @@ function l1_errors(p::MHDProblem{T,D}, u, uref) where {T,D}
 end
 
 """
-    central_density(p::MHDProblem, u, t) -> ρ
+    central_density(p::MHDProblem, u, t; metric = p.provider) -> ρ
 
 The largest rest-mass density over the owned cells, from one recovery of `u`
-at `t` ([`update_primitives!`](@ref)): the central density of a star, whose
-drift and oscillations rung 4 measures (step 10). A diagnostic, called
-outside a step.
+at `t` in `metric` ([`update_primitives!`](@ref)): the central density of a
+star, whose drift and oscillations rung 4 measures (step 10). A diagnostic,
+called outside a step.
 """
-function central_density(p::MHDProblem{T}, u, t) where {T}
-    P = update_primitives!(p, u, T(t))
+function central_density(p::MHDProblem{T}, u, t; metric=p.provider) where {T}
+    P = update_primitives!(p, u, T(t); metric)
     return mesh_mapreduce(identity, max, zero(T), P; vars=P_RHO)
 end
 

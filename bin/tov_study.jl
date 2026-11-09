@@ -13,8 +13,12 @@
 # width 3 bounded; `w3` unbounded; `w1`), `reset` (`both`, the default, or `step`: the
 # reset as the step limiter alone), `out` (the time series, `t ρ_c resets injected_D` per
 # chunk; default none), `checkpoint` (a file the run saves its state to every `every` chunks,
-# default 20, and resumes from if it exists: for pre-emptible queues; default none). The
-# summary goes to the terminal; a resumed run's wall time is its own part only.
+# default 20, and resumes from if it exists: for pre-emptible queues; default none),
+# `metric` (`analytic`, the default, `Analytic(TOVMetric)` at every point; or `vertex`, the
+# same metric sampled at the owned vertices into the vertex metric set and interpolated,
+# step 10's round 2, `N ≥ 10`), `state` (a file the final state is serialized to, for
+# `bin/tov_compare.jl`; default none). The summary goes to the terminal; a resumed run's
+# wall time is its own part only.
 
 using TreeAMR
 using TreeGRRMHD
@@ -39,7 +43,7 @@ const OPS_W = Dict(
 
 function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
                limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing,
-               checkpoint=nothing, every=20)
+               checkpoint=nothing, every=20, metric="analytic")
     star = MHD.tov_case(T; L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels, half_width=half * star.fields.w.metric.R̄)
@@ -48,9 +52,21 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
     u = statevector(MHD.evolved_sets(mhd))
     MHD.initial_state!(u, mhd, star, zero(T))
     u0 = copy(u)
-    p = (; mhd, metric=star.provider)
+    fallbacks = nothing
+    if metric == "analytic"
+        p = (; mhd, metric=star.provider)
+    elseif metric == "vertex"
+        # The Cowling metric is frozen: `Mv` is filled once, at `t = 0`.
+        vm = MHD.VertexMetricSet(T, forest; boundary=star.provider)
+        prov = MHD.vertex_metric!(vm, MHD.SampledADM(star.provider.metric, vm, zero(T)),
+                                  zero(T))
+        fallbacks = MHD.metric_fallbacks(prov, mhd.f)
+        p = (; mhd, metric=prov)
+    else
+        error("tov_study.jl: metric is `analytic` or `vertex`, got `$metric`")
+    end
     M0 = conserved_totals(mhd, u)[1]
-    ρ0 = MHD.central_density(mhd, u, zero(T))
+    ρ0 = MHD.central_density(mhd, u, zero(T); p.metric)
     cfl = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
@@ -85,7 +101,7 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
         injected += tally.injected_D
         resets += tally.step_resets
         stage_resets += tally.resets
-        ρ = MHD.central_density(mhd, u, t)
+        ρ = MHD.central_density(mhd, u, t; p.metric)
         push!(series, (t, ρ))
         push!(rows, (t, ρ, tally.step_resets, tally.injected_D))
         record === nothing || record(last(rows)...)
@@ -99,12 +115,13 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
     l1 = l1_errors(mhd, u, u0)
     return (; series, ρ0, ρ1=last(series)[2], M0, ΔM=M1 - M0, injected, resets,
             stage_resets, steps, steps_run=steps - steps0, nblocks=nblocks(mhd.f.U),
-            h=minimum_spacing(forest), l1D=l1.U[1], l1τ=l1.U[5])
+            h=minimum_spacing(forest), l1D=l1.U[1], l1τ=l1.U[5], fallbacks, u=Array(u))
 end
 
 function main(args)
     kw = Dict{Symbol,Any}()
     out = nothing
+    state = nothing
     for a in args
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every")
@@ -113,10 +130,12 @@ function main(args)
             kw[Symbol(k)] = parse(Float64, v)
         elseif k in ("limiter", "riemann")
             kw[Symbol(k)] = Symbol(v)
-        elseif k in ("opsW", "reset", "checkpoint")
+        elseif k in ("opsW", "reset", "checkpoint", "metric")
             kw[Symbol(k)] = String(v)
         elseif k == "out"
             out = v
+        elseif k == "state"
+            state = v
         else
             error("tov_study.jl: unknown key `$k`")
         end
@@ -126,6 +145,7 @@ function main(args)
           (t, ρ, n, inj) -> (@printf(io, "%.6f %.16e %d %.6e\n", t, ρ, n, inj); flush(io))
     wall = @elapsed r = study(; kw..., record=rec)
     io === nothing || close(io)
+    state === nothing || serialize(state, (; r.series, r.u, r.h, args))
     ρs = last.(r.series)
     @printf("TOV study %s\n", join(args, " "))
     @printf("  h = %.4g, %d blocks, %d steps, %d threads, wall %.1f s (%.3g µs per cell-step)\n",
@@ -137,6 +157,7 @@ function main(args)
     @printf("  rest mass %.12e, change %.4e, injected by the reset %.4e, difference %.3e\n",
             r.M0, r.ΔM, r.injected, r.ΔM - r.injected)
     @printf("  step-limiter writes %d, stage-limiter writes %d\n", r.resets, r.stage_resets)
+    r.fallbacks === nothing || println("  vertex metric fallbacks ", r.fallbacks)
     return r
 end
 

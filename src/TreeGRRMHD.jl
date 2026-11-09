@@ -93,8 +93,9 @@ export NU, NP, NPRIM
 export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_guesses,
        atmosphere_prim
 # The metric providers
-export MetricProvider, Flat, Analytic, PointwiseMetric, MetricGradient, point_metric,
-       metric_gradient
+export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_gradient
+# The vertex metric of the coupling contract (step 10, round 2)
+export VertexMetricSet, VertexMetric, SampledADM, metric_fallbacks
 # The pointwise physics
 export stress_energy, T4_lower
 export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, MagnetizationCutoff,
@@ -139,7 +140,7 @@ export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_
 # `CODE.md`): public, not exported, so that loading TreeGH beside this package, whose verbs
 # have the same names, makes nothing ambiguous.
 public prepare!, rhs!, stage_solve!, stage_limit!, step_limit!, max_rate, initial_state!,
-       chunk_count, default_cfl, central_density, rebuild
+       chunk_count, default_cfl, central_density, rebuild, vertex_metric!, regrid_pairs
 
 include("precision.jl")
 include("device.jl")
@@ -163,6 +164,7 @@ include("reconstruction.jl")
 include("evolution.jl")
 include("driver.jl")
 include("refinement.jl")
+include("vertex_metric.jl")
 include("interior.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")

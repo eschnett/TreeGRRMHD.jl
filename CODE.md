@@ -68,14 +68,15 @@ step N)", "(measured in step N)" — rather than diverging silently.
 - **No mesh machinery.** Anything about trees, ghosts, operators,
   reductions or interpolation between levels belongs upstream in TreeAMR.
   Interpolation *within a block* between centerings is application code
-  and lives with the package that produces the data, because that is where
-  the physics decides the order: `T_ab` from cells to TreeGH's vertices
-  here, the metric from TreeGH's vertices to this package's cells, faces
-  and edges in TreeGH. *(Amended 2026-11-06: both used to live here; the
-  adapters live in the producers, decided by Erik 2026-11-05 — [The
-  coupling contract](#the-coupling-contract).)*
+  and lives here, in both directions: the matter's `(ρ, S_i, S_ij)` from
+  cells to TreeGH's vertices, and the metric's `(α, β^i, γ_ij, K_ij)` from
+  TreeGH's vertices to this package's cells, faces and edges. This package
+  is the only one with mixed centerings (decided by Erik 2026-11-08 — [The
+  coupling contract](#the-coupling-contract)). *(Amended 2026-11-06, when
+  each producer was to interpolate its own data, and again 2026-11-08.)*
 - **No spacetime evolution.** The Einstein equations are TreeGH's; this
-  package supplies `T_ab` and reads the metric. Gauge drivers, excision,
+  package supplies the matter's `(ρ, S_i, S_ij)` and reads the metric's
+  `(α, β^i, γ_ij, K_ij)`, both at TreeGH's vertices (amended 2026-11-08). Gauge drivers, excision,
   radiative boundaries and Ψ₄ are TreeGH's and are not needed before
   collapse, binaries or supernovae.
 - **No con2prim of its own.** EntropyEOS's `con2prim_safe` is used for
@@ -130,11 +131,14 @@ tests; it returns when a landed item needs it).
   **SM-1 has landed in SpacetimeMetrics 1.7.0**, and its workaround is
   gone.
 - TreeGeneralizedHarmonic **0.1.0** on its `main`, on TreeAMR 0.2, not
-  registered: GH-0 has landed (the step-8 work is on `main`); GH-1, GH-3
-  and GH-4 have not; GH-2 is open (see `PLAN.md`); GH-5 is withdrawn into
-  GH-1. TreeGH is not a dependency of this package at all, so the suite
-  cannot detect its items; how step 11's coupled tests load it is (open).
-  *(Amended 2026-11-06: TreeGH was to become a dependency in step 10.)*
+  registered: GH-0 has landed (the step-8 work is on `main`); GH-1 is
+  landed, `ADMMetric`, TreeGH's PR 25 (61bcb75, 2026-11-08); GH-3 and
+  GH-4 have not; GH-2 is open (see `PLAN.md`); GH-5 is withdrawn. TreeGH
+  is not a dependency of this package at all, so the suite cannot detect
+  its items; how step 11's coupled tests load it is (open). *(Amended
+  2026-11-06: TreeGH was to become a dependency in step 10. Amended
+  2026-11-08: TreeGH's `main` is 0.1.1, with `adm_vars` and `ADMMetric`,
+  and Adapt as a new direct dependency.)*
 
 The unregistered dependencies are named in `Project.toml`'s `[sources]`
 with their GitHub remotes; nothing resolves from a sibling checkout.
@@ -252,38 +256,44 @@ reaching for TreeAMR's internal `todevice` (proposed in step 0).
 
 *(Amended 2026-11-06, from the decisions of 2026-11-05 in [The coupling
 contract](#the-coupling-contract): every item is step 11's now, GH-1 and
-GH-3 are adapters supplied by the producer, and GH-5 is withdrawn.)*
+GH-3 are adapters supplied by the producer, and GH-5 is withdrawn.
+Amended 2026-11-08, the contract redesigned by Erik: both adapters answer
+at TreeGH's owned vertices, in 3+1 variables, and every conversion between
+centerings is this package's.)*
 
 - **GH-0 (req, step 11) Step 8 on `main`.** The unmerged step-8 branches
   widen `GHProblem`, `gh_rhs_kernel!` and `evolve!`; the items below target
   `main` only.
-- **GH-1 (req, step 11) The metric at this package's points**: a
-  pointwise metric adapter in TreeGH, built from its prepared state and
-  bound to any of this package's field sets — cells, faces, edges,
-  vertices, ghosts included — returning `g_ab`, alone or with `∂_c g_ab`.
-  TreeGH decides how it interpolates from its vertices ([Metric at cells,
-  faces and edges](#metric-at-cells-faces-and-edges) is what this package
-  asks of it), how it reaches the outermost ghost layer, and whether it
-  computes per call or stores; its own layout stays private. *(It asked
-  for `U.work`'s layout, the packing helpers and a pointwise `(h, Π, ∂h)`
-  at a vertex, public, so that this package could decode and interpolate;
-  and it was step 10's, whose Cowling runs were to read a frozen TreeGH
-  vertex set.)*
+- **GH-1 (req, step 11) The metric at TreeGH's vertices**: `(α, β^i,
+  γ_ij, K_ij)` at its owned vertices, from an adapter built from its
+  prepared state and bound to this package's vertex set `Mv` on the same
+  forest. **Landed 2026-11-08 as `ADMMetric`** (TreeGH's PR 25, 61bcb75):
+  `adm = ADMMetric(p, u, t)` (scatter and fill, as `gh_rhs!` does) or
+  `ADMMetric(p)`, `at = adm(Mv)`, `(; α, β, γ, K) = at(n, b)` at an owned
+  index; `isbits` once adapted; a `BoundsError` outside the owned range.
+  `α`, `β`, `γ` are the decoded state, `K` converges at TreeGH's order `q`
+  (so `q ≥ 4` for the contract's 4th order). *(It asked, until 2026-11-08,
+  for `g_ab`, alone or with `∂_c g_ab`, at every point of any of this
+  package's sets, ghosts included, TreeGH interpolating; and before
+  2026-11-06 for `U.work`'s layout and a pointwise `(h, Π, ∂h)`, this
+  package decoding.)*
 - **GH-2 (req, step 11) Registration, and compat satisfiable from the
   registry**, for whatever loads TreeGH beside this package. A dependency's
   `[sources]` is ignored downstream, so every TreeAMR feature TreeGH uses
   must be in a released TreeAMR. The Julia floor is discussed under [Julia
   version](#julia-version).
-- **GH-3 (req, step 11) A stress-energy input**: a `matter` argument to
+- **GH-3 (req, step 11) A matter input**: a `matter` argument to
   TreeGH's right-hand side, any adapter that, bound to TreeGH's vertex set,
-  returns the covariant `T_ab` at an owned vertex; `nothing` is vacuum,
-  switched by a `Val`, bit-identical to today. It enters as
+  returns `(; ρ, S, Sij)` at an owned vertex; `nothing` is vacuum, switched
+  by a `Val`, bit-identical to today. TreeGH assembles the covariant `T_ab`
+  from them with its own `α`, `β`, `γ^ij`, and it enters as
   `∂ₜΠ_ab += 16π α√γ (T_ab − ½ g_ab T)` (derived from
   `notes/formulation.md` §1–2: `R^H_ab = 8π(T_ab − ½g_abT)` turns `S0`
   into `S0 − 16πT̄_ab`, and the source enters as `−α√γ S0`). The ADM
-  monitor gains the matter terms, `ℋ − 16πρ_ADM` and `ℳ_i − 8π S_i`.
+  monitor gains the matter terms, `ℋ − 16πρ` and `ℳ_i − 8π S_i`.
   *(It was a vertex-centered `Tsrc` field set, 10 components, `G = 0`,
-  which this package wrote before each right-hand side.)*
+  which this package wrote before each right-hand side; then, from
+  2026-11-06 to 2026-11-08, an adapter returning `T_ab`.)*
 - **GH-4 (req, step 11) A right-hand side callable inside an external
   integrator**: TreeGH's own verbs under the names this package shares —
   `TreeGH.prepare!`, `TreeGH.rhs!`, the integrator-free limiters, the
@@ -293,9 +303,9 @@ GH-3 are adapters supplied by the producer, and GH-5 is withdrawn.)*
   coupled driver lives here".)*
 - **GH-5 (withdrawn 2026-11-06) A ghost width of at least `q/2 + 1`**, so
   that a 4th-order vertex→cell metric interpolation reaches every stored
-  cell of a `G = 3` matter set. It is TreeGH's own choice behind GH-1
-  now, among this, a 2nd-order outermost layer, and an exchanged cell
-  metric.
+  cell of a `G = 3` matter set. *(Amended 2026-11-08:)* not needed: the
+  interpolation reads this package's own vertex set `Mv` at `G = 4`, and
+  TreeGH's ghost width does not enter the contract.
 - **GH-6 (later)** A damped-harmonic gauge driver, radiative or
   constraint-preserving outer boundaries, excision or a generalized
   interior for collapse, Ψ₄ extraction.
@@ -427,7 +437,10 @@ geometric source, 41 ns against 74 ns for a cell's whole explicit source.
 The entropy equation is not a conservation law
 through shocks; `D s` is advected only as a fallback for the primitive
 recovery and is reset from the recovered `s` wherever the energy inversion
-succeeds (proposed; whether it earns its keep is (open)).
+succeeds (proposed; whether it earns its keep is (open)). *(Amended
+2026-11-09:)* as built, the reset rewrites `D s` only where the policy
+repaired the cell, and the resynchronisation was tried and not adopted
+(Erik, 2026-11-09; "Open questions").
 
 ### Maxwell
 
@@ -1428,7 +1441,8 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
-| `Tsrc` — `T_ab`, only if this package's `T_ab` adapter stores it (step 11, (open)) *(amended 2026-11-06: was the vertex set GH-3 read)* | vertex or cell | 10 | 0 | `=> nothing` |
+| `Mv` — the vertex metric `(α, β^i, γ_ij, K_ij)`, owned vertices from the producer's ADM adapter *(added 2026-11-08, the contract redesigned; built in step 10, round 2, in its own `VertexMetricSet`, not `MHDFields`)* | vertex | 16 | 4 (so `N ≥ 10`) | PointValue width 6 in its fill / `=> nothing` (`regrid_pairs(vm)`), refilled from the rebuilt adapter |
+| `Tsrc` — `(ρ, S_i, S_ij)` at cells, only if this package's matter adapter stores it (step 11, (open)) *(amended 2026-11-06: was the vertex set GH-3 read; 2026-11-08: `(ρ, S_i, S_ij)`, was `T_ab`)* | cell | 10 | 0 | `=> nothing` |
 | `X` — per-cell tallies, light speed *(added in step 5)*, the reset's injection *(step 6)*, `h∇·𝔅` *(step 7)*, the recoveries' seeds per site *(2026-10-24)* | cell | 31 | 0 | `=> nothing` |
 | step cache — the cell's latest recovery in the step: EntropyEOS's input and output *(2026-10-24)*; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
@@ -2824,9 +2838,11 @@ specification moved to IMEXRungeKutta's `CODE.md`.)*
 
 ### The coupling contract
 
-*(Added 2026-11-06, from the step-11 discussion of 2026-11-05.)* How this
-package and TreeGH meet, with neither in charge. Each needs the other: TreeGH
-needs `T_ab`, the matter needs the metric.
+*(Added 2026-11-06, from the step-11 discussion of 2026-11-05; what crosses,
+and where, redesigned by Erik 2026-11-08, TreeGH's PR 25 and its `CODE.md`,
+"The coupling contract with TreeGRRMHD".)* How this package and TreeGH meet,
+with neither in charge. Each needs the other: TreeGH needs the matter's
+stress-energy, the matter needs the metric.
 
 - **No framework** (decided by Erik 2026-11-05). A short Julia script owns
   the loop. It builds one IMEXRungeKutta integrator over the multi-set
@@ -2845,53 +2861,69 @@ needs `T_ab`, the matter needs the metric.
   fill, recovery — and returns what the other package reads, so the order
   of the calls is the data flow, written in the script.
 - **Data passes through pointwise functions** (decided by Erik
-  2026-11-05). The provider decides whether to compute per call or from a
-  precomputed array. Which costs less is left open: estimated 2026-11-05
-  for an H200, a stored metric costs more than one interpolated per call,
-  and a stored `T_ab` less or the same (not measured).
-- **The adapters live in the producers** (decided by Erik 2026-11-05):
-  TreeGH supplies the metric at this package's points (GH-1), and this
-  package supplies `T_ab` at TreeGH's vertices (GH-3), each interpolating
-  its own data. The precedent is TreeGH's provider for
-  ApparentHorizonFinder (`GHADMProvider`, which returns
-  ApparentHorizonFinder's `ADMVars`). Neither package depends on the other.
+  2026-11-05), called at an owned index of a field set. The provider
+  decides whether to compute per call or from a precomputed array.
+- **Both directions cross at TreeGH's vertices, in 3+1 variables**
+  (decided by Erik 2026-11-08):
+  - the metric as `(α, β^i, γ_ij, K_ij)`, 16 values a vertex, from TreeGH's
+    `ADMMetric` (GH-1);
+  - the matter as `(ρ, S_i, S_ij)`, 10 values a vertex, from this package's
+    matter adapter (GH-3): `ρ = n^a n^b T_ab`, `S_i = −γ_i^a n^b T_ab`,
+    `S_ij = γ_i^a γ_j^b T_ab` — this package's `𝓔`, `S_i` and `S^ij`
+    lowered (`src/stress_energy.jl`), covariant and not densitized, in
+    `G = c = 1` and the metric's length unit.
+- **Every conversion between centerings is this package's** (decided by
+  Erik 2026-11-08, from this package's proposal). It is the only one of
+  the two with mixed centerings. It interpolates the vertex metric to its
+  cells, faces and edges, differentiates its own interpolant for `∂α`, `∂β`
+  and `∂γ`, and averages `(ρ, S_i, S_ij)` from its cells to the vertices.
+  TreeGH interpolates nothing, fills none of this package's sets, and
+  knows neither its centerings nor its ghost widths ([Metric at cells,
+  faces and edges](#metric-at-cells-faces-and-edges), [Matter to the
+  vertices](#matter-to-the-vertices)).
+- **The adapters still live in the producers** (decided by Erik
+  2026-11-05), but each answers at the vertices only: TreeGH's `ADMMetric`
+  at its owned vertices, this package's matter adapter at TreeGH's. The
+  precedent is TreeGH's provider for ApparentHorizonFinder
+  (`GHADMProvider`, which returns ApparentHorizonFinder's `ADMVars`).
+  Neither package depends on the other.
 - **The contract uses only what both packages already depend on**
   (proposed 2026-11-05). A contract owned by the consumer, as
   ApparentHorizonFinder's is, works there because ApparentHorizonFinder is
   below TreeGH; here each package is the other's consumer, and the two
   dependencies would form a cycle.
-  - *Where:* the consumer's TreeAMR `FieldSet` — its centering, `N`, `G`
-    and forest (`===` the producer's). The adapter is bound to it, then
-    called at `(I, b)`, ghosts included. Not coordinates: those would need
-    a tree search per point, and a provider could not precompute at points
-    it does not know. *(As built in step 10; accepted for step 10,
-    decided by Erik 2026-11-08:)* this package binds the adapter **once
-    per centering**, not once per kernel: two kernels
-    read another centering's points than their own (`∂ₜA`'s gradient reads
-    the vertex metric from an edge kernel, the gauge equation's divergence
-    the edge metric from a vertex kernel), and sets of one centering share
-    local indices. `PointwiseMetric(gm, f)` (`src/metric.jl`,
-    `src/fieldsets.jl`) binds TreeGH's `gm` to the set of each centering
-    with the widest ghosts — cells to `P` (and, with the derivatives, again
-    to `P`), faces to `B[d]`, edges to `A[j]`, vertices to `Φ̃` — and every
-    kernel's call `point_metric(prov, t, x, Val(C), n, b)` passes its
-    point's staggers and *local* index `n`, which the provider maps to the
-    binding's stored index `n + G`; `Flat` and `Analytic` ignore the index.
-    The derivatives are read at the cells only (the sources). `metric=`
-    reaches the kernels alone: the initial data, the Dirichlet hooks and the
-    interior keep the case's own provider, which for the coupled star is the
-    analytic background (proposed in step 10).
-  - *What:* StaticArrays in SpacetimeMetrics' conventions — `g_ab` as
-    `SMatrix{4,4,T}`, alone or with `∂_c g_ab` as
-    `SArray{Tuple{4,4,4},T}`, the derivative index last and 1 = `t`, as
-    `dmetric` returns them; `T_ab` as `SMatrix{4,4,T}`, covariant, in
-    `G = c = 1` and the metric's length unit. This package's one conversion
-    (`src/metric.jl`) then serves `Analytic` and TreeGH's adapter alike.
+  - *Where:* the consumer's vertex-centered TreeAMR `FieldSet`, on the
+    producer's forest (`===`). The adapter is bound to it, `at = adm(M)`,
+    then called at an **owned** index, `at(n, b)` with `1 ≤ n[d] ≤ N` as
+    `map_blocks!` hands it to a kernel. An owned index is the same in every
+    vertex set on the forest, so neither side's `G` enters. Not
+    coordinates: those would need a tree search per point.
+  - *What:* StaticArrays in SpacetimeMetrics' conventions: `α` a scalar,
+    `β` an `SVector{3,T}`, `γ` and `K` symmetric `SMatrix{3,3,T}`, read
+    by name (`(; α, β, γ, K) = at(n, b)`; `ADMMetric` also returns `sqrtγ`
+    and `γu`); `ρ` a scalar, `S` an `SVector{3,T}`, `Sij` a symmetric
+    `SMatrix{3,3,T}` (`(; ρ, S, Sij) = at(n, b)`).
   - *How:* a functor, `isbits` once adapted to the backend, and a snapshot
-    of the producer's state when `prepare!` ran (no `t` argument).
-  - *How well:* the accuracy is part of the contract — for the metric, 4th
-    order at every point of the bound set, the outermost ghost layer
-    included — and the consumer tests it.
+    of the producer's state when it was built (no `t` argument). A regrid
+    replaces the field sets: rebuild and rebind after one.
+  - *How well:* `α`, `β`, `γ` are TreeGH's stored state, exact to roundoff;
+    `K` converges at TreeGH's order `q`, so the contract's 4th order needs
+    `q ≥ 4` (TreeGH, measured 2026-11-08). The metric is valid at the owned
+    vertices only; the ghosts of this package's vertex set are its own
+    fill's. The interpolation's accuracy is this package's and its tests'.
+- *(Superseded 2026-11-08:)* the contract of 2026-11-06 had TreeGH's
+  adapter answer `g_ab`, alone or with `∂_c g_ab`, at every point of any of
+  this package's sets, ghosts included, 4th order in the outermost ghost
+  layer of a `G = 3` cell set, and this package supply a covariant `T_ab`.
+  Step 10 built this package's side of it: `PointwiseMetric(gm, f)` bound
+  the producer's adapter **once per centering** (cells to `P`, faces to
+  `B[d]`, edges to `A[j]`, vertices to `Φ̃`; accepted for step 10 by Erik
+  2026-11-08), and every kernel calls `point_metric(prov, t, x, Val(C), n,
+  b)` with its point's staggers and local index. The indexed calls stay:
+  [`VertexMetric`](#metric-providers), which replaces `PointwiseMetric`,
+  needs the staggers and the index exactly as they are. `metric=` still
+  reaches the kernels alone: the initial data, the Dirichlet hooks and the
+  interior keep the case's own provider.
 - (open, step 11) Where the coupled script and its tests live, and how they
   load both packages; whether a prepared state is reused when a limiter did
   not change it (below); whether the script overlaps TreeGH's ghost fill
@@ -2972,14 +3004,17 @@ const GH, MHD, IRK = TreeGeneralizedHarmonic, TreeGRRMHD, IMEXRungeKutta
 # TreeGH's segment of the state vector, then the matter's (AMR-1).
 segments(sets) = (staterange(sets, 1), first(staterange(sets, 2)):statelength(sets))
 
-# TreeGH's metric at a state: its fill (gh_rhs!'s), then its adapter (GH-1).
-metric_at(p, u, t) = GH.FourMetric(GH.prepare!(p.gh, view(u, p.s[1]), t))
+# TreeGH's metric at a state: its fill (gh_rhs!'s) and its adapter (GH-1), then
+# this package's vertex set filled from it (owned vertices copied, its own
+# ghost fill), which every kernel interpolates (amended 2026-11-08).
+metric_at(p, u, t) =
+    MHD.vertex_metric!(p.vm, GH.ADMMetric(p.gh, view(u, p.s[1]), t), t)
 
 function f_exp!(du, u, p, t)
     (; gh, mhd, s) = p
     metric = metric_at(p, u, t)
     m = MHD.prepare!(mhd, view(u, s[2]), t; metric)  # recovered in TreeGH's metric
-    GH.rhs!(view(du, s[1]), gh, t; matter = MHD.StressEnergy(m))      # GH-3
+    GH.rhs!(view(du, s[1]), gh, t; matter = MHD.ADMMatter(m))         # GH-3
     MHD.rhs!(view(du, s[2]), mhd, t; metric)
     return
 end
@@ -3011,11 +3046,12 @@ function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
     MHD.tov_boxes!(forest, star)
     ghcase = GH.GHCase(T, star.provider.metric; box = star.extents,
                        periodic = star.periodic)    # the static-background gauge
-    gh = GH.GHProblem(forest, ghcase; q = 4)         # its vertex set on this forest
+    gh = GH.GHProblem(forest, ghcase; q = 4)         # q ≥ 4: K at the contract's order
     mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter = :ppm)
+    vm = MHD.VertexMetricSet(T, forest; boundary = star.provider)  # Mv: G = 4, N ≥ 10
     sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
     u = statevector(sets)
-    p = (; gh, mhd, s = segments(sets))
+    p = (; gh, mhd, vm, s = segments(sets))
     GH.initial_state!(view(u, p.s[1]), gh, zero(T))            # fill_exact!
     MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))    # exact_state
     cfl_gh, cfl_mhd = T(1 // 4), MHD.default_cfl(:ppm)  # TreeGH's under SSP3: step 11
@@ -3032,7 +3068,7 @@ function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
                          partition = :even, alias_u0 = true, reuse = integ)
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         t = t1
-        println(t, "  ", MHD.central_density(p.mhd, view(u, p.s[2])), "  ",
+        println(t, "  ", MHD.central_density(p.mhd, view(u, p.s[2]), t), "  ",
                 GH.constraint_norms(p.gh, view(u, p.s[1]), t))
         adaptive || continue                         # the star's boxes are static
         # One regrid of every set, refined where either package asks and
@@ -3041,13 +3077,14 @@ function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
         flags = refine_wins.(GH.flags(p.gh, t),
                              MHD.flags(p.mhd, view(u, p.s[2]), t; metric))
         scatter!(sets, u)
-        if regrid!(forest, GH.regrid_pairs(p.gh)..., MHD.regrid_pairs(p.mhd, t)...;
-                   flags)
-            p = (; gh = GH.rebuild(p.gh, t), mhd = MHD.rebuild(p.mhd, t),
-                 s = segments(sets))
+        if regrid!(forest, (GH.regrid_pairs(p.gh)..., MHD.regrid_pairs(p.mhd, t)...,
+                            MHD.regrid_pairs(p.vm)...); flags)
+            p = (; gh = GH.rebuild(p.gh, t), mhd = MHD.rebuild(p.mhd),
+                 vm = MHD.rebuild(p.vm), s = segments(sets))
             u = statevector(sets)
             gather!(u, sets)
-            integ = nothing                          # its scratch has the old length
+            integ = nothing                          # its scratch has the old length;
+                                                     # Mv is NaN until metric_at refills it
         end
     end
     return u
@@ -3082,7 +3119,12 @@ What the sketches leave visible, on purpose:
   fill and the next right-hand side's see the same state, and so do the step
   limiter's and the next step's first stage solve. Whether the script skips
   a fill when a limiter reports that it wrote nothing, or `prepare!` does,
-  is step 11's to decide.
+  is step 11's to decide. *(Amended 2026-11-08:)* each `metric_at` now also
+  fills this package's vertex metric set (`vertex_metric!`), 16 variables at
+  `G = 4`, about the size of TreeGH's own fill (1.03× at `N = 16`, TreeGH's
+  estimate), so the same skip saves twice as much. `K` is defined in one
+  TreeGH ghost layer only, so this package cannot read TreeGH's ghosts in
+  place of its own fill.
 - **The regrid is the script's.** One `regrid!` covers every set on the
   forest, since a block refines for all of its sets at once; the flags
   combine as `refine_wins`; and each package rebuilds its own problem.
@@ -3105,7 +3147,17 @@ The kernels dispatch on a metric provider (proposed):
   interpolated here, frozen for the Cowling runs and evolved for the
   coupled ones, one code path for both. The Cowling star runs on
   `Analytic(TOVMetric)` instead, decided by Erik 2026-11-06, and step 11
-  checks the frozen TreeGH metric against that run.)*
+  checks the frozen TreeGH metric against that run.)* *(Amended
+  2026-11-08, the contract redesigned:)* this is `VertexMetric` now
+  (proposed), this package's own 16-variable vertex set `Mv`, its owned
+  vertices copied from a producer's ADM adapter — TreeGH's `ADMMetric`
+  (GH-1), or in tests and studies `SampledADM`, a SpacetimeMetrics metric in the same form —
+  its ghosts filled by TreeAMR, and interpolated here to every other
+  centering ([Metric at cells, faces and
+  edges](#metric-at-cells-faces-and-edges)). It replaces step 10's
+  `PointwiseMetric`, and it is close to the `GHMetric` of before
+  2026-11-06, with TreeGH's private `(h_ab, Π_ab)` replaced by the 3+1
+  variables, decoded on TreeGH's side.
 
 *(Step 2:)* `Flat` and `Analytic` are in `src/metric.jl`; every provider
 answers `point_metric(provider, t, x) -> Metric3` and
@@ -3186,14 +3238,14 @@ which is the producer's since 2026-11-06.)* Its ceiling is about 9 `point_metric
 evaluations per cell and right-hand side, 9 × 102 ns × 3 ≈ 2.8 µs per cell
 and step, 4–6% of the rung-3 cases' 49–72 µs.
 
-**Caching is the producer's decision** *(amended 2026-11-06; it was step
-10's, deferred by Erik 2026-11-03)*. The production metric is TreeGH's,
-behind its adapter (GH-1), and whether that adapter interpolates per call
-or stores is TreeGH's choice (the provider decides, decided by Erik
-2026-11-05). The measured inputs for that choice: the analytic provider's
-44% of a step on the 16³ blast; about 100 floats per cell for every
-centering (cells, three faces, three edges, vertices); a block of 8³ with
-`G = 3` storing 5.4 times the cells it owns. Step 10's
+**Caching is this package's decision again** *(amended 2026-11-08; it was
+step 10's, deferred by Erik 2026-11-03, and the producer's from
+2026-11-06)*. The production metric crosses at TreeGH's owned vertices
+only, and this package stores it there, in its own vertex set `Mv`; what
+it does from there is its own choice. The measured inputs: the analytic
+provider's 44% of a step on the 16³ blast; about 100 floats per cell for
+every centering (cells, three faces, three edges, vertices); a block of 8³
+with `G = 3` storing 5.4 times the cells it owns. Step 10's
 `Analytic(TOVMetric)` is pointwise, like every analytic provider (decided
 2026-11-03).
 
@@ -3203,50 +3255,180 @@ are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
 
 ### Metric at cells, faces and edges
 
-*(Amended 2026-11-06: this is TreeGH's now, behind its metric adapter
-(GH-1; [The coupling contract](#the-coupling-contract)), and what follows
-is what this package asks of it. It was to be this package's, in step
-10.)*
+*(This package's again since 2026-11-08, decided by Erik in the contract's
+redesign ([The coupling contract](#the-coupling-contract)). From
+2026-11-06 it was TreeGH's, behind a `g_ab` adapter answering at every
+centering; before that it was this package's, in step 10.)*
 
-Interpolated within a block from the vertices (proposed):
+**The vertex set** (proposed). `Mv` holds `(α, β^i, γ_ij, K_ij)`, 16
+variables, vertex-centered, on the matter's forest:
+- **Owned vertices** are copied from the producer's ADM adapter, bound to
+  `Mv` (`vertex_metric!(vm, adm, t)`, one kernel over the owned range); no
+  ghost is read from the producer.
+- **`G = 4`**, so that a 4th-order interpolation reaches the outermost
+  ghost cell of a `G = 3` cell set: it reaches one vertex beyond the cell
+  on either side. TreeAMR's vertex invariant `N ≥ 2G + 2` then needs
+  **`N ≥ 10`** for every coupled run (found by TreeGH 2026-11-08); the TOV
+  runs use `N = 16`.
+- **The ghosts are TreeAMR's fill** (`fill_ghosts!`): copies at same-level
+  faces, a PointValue prolongation at refinement boundaries. The
+  derivatives taken from it must stay 4th order next to a coarse-fine face;
+  TreeGH's interface rule (`p = q + 2` for second derivatives) gives `p ≥
+  q + 1` for first, so **width 6** (PointValue widths are even; proposed,
+  measured in the step that builds it).
+- **The outer boundary** (the shared plane `n = N + 1` and the ghosts
+  beyond it) is this package's hook: Dirichlet from the case's own analytic
+  provider where it has one, as the TOV star's static exterior (proposed);
+  what a case without one does is (open).
+- A snapshot: valid until the producer's state changes; a regrid replaces
+  `Mv` with the other sets, and the script refills it from the rebuilt
+  adapter.
 
-- **Cells**: 4th-order tensor Lagrange, 64 points; `∂ᵢ g_ab` at cells by
-  the staggered 4th-order derivative along `i` times the transverse
-  interpolation; `K_ij` from `Π` and `∂h` (TreeGH's `adm_vars_from_state`).
-- **Faces**: 2D, 16 points. **Edges**: 1D, 4 points.
+**Interpolated within a block** from `Mv` (proposed):
+- **Cells**: 4th-order tensor Lagrange, 64 points; `∂ᵢα`, `∂ᵢβ`, `∂ᵢγ` at
+  cells by the staggered 4th-order derivative along `i` times the
+  transverse interpolation, the derivative of the same interpolant; `K_ij`
+  interpolated, not differentiated.
+- **Faces**: 2D, 16 points. **Edges**: 1D, 4 points. **Vertices**: read.
+- **The fallback** (proposed by this package, recorded by TreeGH
+  2026-11-08). Where the Lagrange result has `α ≤ 0`, or a `γ` that fails a
+  Cholesky factorization, the point falls back to multilinear weights (8,
+  4 or 2 vertices), and a tally in `X` counts it. Multilinear weights make
+  `(α, γ_ij)` a convex combination of the corners, so `α > 0` and `γ`
+  positive definite survive, and an `(α, β, γ)` with those properties
+  always rebuilds a Lorentzian metric; interpolating `g_ab` could not
+  promise that. At a fallback cell the derivatives are the multilinear
+  interpolant's too, 2nd order (proposed).
+- **The derivative layout** (open). `MetricGradient` holds `∂_j g_ab` and
+  `K_ij`, with `d_lapse` and `d_shift` derived from them. The vertex metric
+  gives `∂α`, `∂β`, `∂γ` directly, so either `MetricGradient` gains them
+  natively (and `Analytic` converts `dmetric` to them) or `src/metric.jl`
+  assembles `∂_j g_ab` by the product rule, a second conversion beside
+  `spatial_gradient`, round-tripped by `d_lapse` and `d_shift`. Decided by
+  the step that builds it, bit for bit against the step-10 runs where the
+  kernels have not changed.
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
-edges. *(Amended in step 9, deferred by Erik 2026-11-03:)* whether the vertex
-metric is cached per mesh (frozen) or per stage (coupled) is step 10's
-decision — TreeGH's since 2026-11-06; "Metric providers" has the measured
-inputs. The derivatives and `K_ij` are not stored but evaluated where the
-sources are (proposed in step 2; see "Field sets"). One interaction with the ghost widths is (open): a 4th-order
-interpolation to a cell center reaches one vertex beyond the cell on either
-side, so reaching the outermost ghost cell of a `G = 3` cell set needs
-`G = 4` on the vertex set, and TreeGH fixes `G = q/2 + 1 = 3`. The
-primitives in that outermost ghost cell are read by the widest
-reconstructions. The options are a larger GH ghost width (GH-5),
-a 2nd-order interpolation in that one layer, or exchanging the
-cell metric as a ghost-filled set. *(Amended 2026-11-06: the choice is
-TreeGH's, behind GH-1; GH-5 is withdrawn into it. This package asks that
-the contract's accuracy hold in that layer, or that the adapter say what it
-gives there.)*
+edges. The derivatives and `K_ij` are not stored but evaluated where the
+sources are (proposed in step 2; see "Field sets"). *(Amended 2026-11-08:
+the outermost ghost layer, open since step 9, is settled by `Mv`'s `G = 4`.
+GH-5 stays withdrawn: TreeGH's own ghost width does not enter.)*
 
-### Stress-energy to the vertices
+*(As built in step 10, round 2, 2026-11-08; `src/vertex_metric.jl`.)*
+- **`Mv` is not in `MHDFields`.** It lives in its own `VertexMetricSet(T,
+  forest; boundary)`, with its schedule, per-block geometry and outer
+  hook, so that a run without a producer's metric allocates nothing and
+  `MHDProblem` is unchanged bit for bit. `boundary` has no default: the
+  case's coordinate provider (`Analytic(m)`, `Flat()`), or `nothing` on a
+  periodic forest. `regrid_pairs(vm)` gives `Mv => nothing` and
+  `rebuild(vm)` the new mesh's schedule, `Mv` `NaN` until the next fill.
+  The sketch in "Two scripts" carries it as `p.vm`.
+- **`vertex_metric!(vm, adm, t)`** takes the fill's time `t`, for the outer
+  hook (`CellBoundary(AllVariables(…))` of the boundary provider's `α`,
+  `β`, `γ` and `K` at the ghost vertex), and returns `VertexMetric`.
+- **The derivative layout** (decided in round 2): `MetricGradient` is
+  unchanged; `gradient_from_adm` assembles `∂_j g_ab` from `∂α`, `∂β`, `∂γ`
+  by the product rule, and `d_lapse`, `d_shift` recover them to rounding. So
+  no kernel changed, and the `Flat` and `Analytic` runs are the same bit for
+  bit.
+- **The fallback is counted by `metric_fallbacks(prov, f)`**, a diagnostic
+  pass over every stored point of `P`, `B[d]`, `A[j]` and `Φ̃`, not by a
+  tally in `X`: the provider is a pure function of the point, and a face,
+  edge or vertex has no cell of its own (proposed).
+- **`SampledADM(metric, vm, t)`**, a SpacetimeMetrics metric in
+  `ADMMetric`'s form (exact `K`), is in `src/`, not only in the tests: the
+  study (`bin/tov_study.jl metric=vertex`) and step 11 (GH-1's reference)
+  use it.
+- `PointwiseMetric` is gone; the indexed calls stay.
 
-`T_ab` is computed at the cells from the primitives and the cell metric,
-then averaged to each owned vertex from its `2^D` neighbouring cells —
-second order, and positivity-preserving for the energy density at
-a stellar surface where a higher-order interpolation would ring
-(proposed; a 4th-order option is kept, and which one wins is (open)).
-This is this package's `T_ab` adapter (`TreeGRRMHD.StressEnergy`,
-proposed), which TreeGH calls at its owned vertices (GH-3). Whether it
-stores `T_ab` at the cells during `prepare!` and averages per call, or
-computes everything per call, is this package's choice, made in step 11
-(open). Estimated 2026-11-05, the stored form reads about 80 values per
-vertex; per call, each of the `2^D` cells needs its metric again, about
-5000 reads through a 64-point interpolation. *(Amended 2026-11-06: the
-average was written into `Tsrc`, a vertex set TreeGH read.)*
+**Measured** (2026-11-08, `test/vertex_metric_tests.jl`, every stored point
+of every centering, ghosts included, the first root refined; `N = 12 → 24`):
+- **Kerr-Schild at `a = M/2`** on `[2, 6]³`: rates 4.52 (cells), 4.57
+  (faces), 4.72 (edges), 4.59 (`∂_j g_ab`), 4.68 (`K`), 5.87 (vertices,
+  where only prolongated ghosts differ); the owned vertices are `Analytic`'s
+  metric bit for bit; no fallback.
+- **The TOV star** (`[−16, 16]³`, `[−16, 0]³` refined), by region with the
+  surface layer `|r − R̄| < 4`: `∂_j g_ab` at 3.71 inside, 3.95 outside,
+  **1.67 in the layer**, where the density's kink (`ρ ∝ R̄ − r`) makes the
+  metric's third derivative jump; the values at 3.68–3.83 off the layer,
+  3.25–3.58 in it; no fallback.
+- **The Cowling star, four steps**, through the vertex metric against
+  `Analytic(TOVMetric)`: the matter's difference is 1.21e−3 of the four
+  steps' change at `h = 0.8` and 4.76e−5 at `0.4`, rate 4.67.
+- **The Cowling star to 200 M** (2026-11-09, `bin/tov_study.jl
+  metric=analytic|vertex`, PPM, `h = 0.5`, 0.375, 0.3, `Mv` filled once at
+  `t = 0`; Symmetry jobs 593624–593629 on `amdpreq`, `bin/tov_compare.jl`
+  and a localisation by radius and variable in job 593802): **no fallback**
+  at any point, and the rest mass net of the reset's injection holds to
+  `1.4–8.0·10⁻¹⁵` through either metric.
+
+  | difference, analytic − vertex | `h = 0.5` | 0.375 | 0.3 | rates |
+  |---|---|---|---|---|
+  | max over `t` of `\|Δρ_c\|/ρ_c(0)` | 4.24e−5 | 1.37e−5 | 5.64e−6 | **3.94, 3.96** |
+  | L1 of `ΔD`, inside `r < R̄ − 4` | 1.20e−5 | 4.19e−6 | 1.81e−6 | 3.66, 3.75 |
+  | L1 of `ΔD`, layer `\|r − R̄\| < 4` | 1.55e−5 | 5.17e−6 | 2.31e−6 | 3.82, 3.61 |
+  | L1 of `Δτ`, inside / layer | 2.51e−6 / 4.94e−7 | 8.36e−7 / 1.62e−7 | 3.62e−7 / 7.17e−8 | 3.82, 3.75 / 3.88, 3.65 |
+  | L1 of `ΔS_i`, inside / layer | 7.14e−7 / 2.10e−6 | 1.99e−7 / 9.04e−7 | 1.07e−7 / 3.79e−7 | 4.44, 2.80 / 2.93, 3.90 |
+  | L1 of `Δ(Ds)`, inside / layer | 5.98e−5 / 8.46e−5 | 2.08e−5 / 3.21e−5 | 9.03e−6 / 2.04e−5 | 3.68, 3.73 / **3.37, 2.03** |
+  | max `\|ΔD\|` (at the centre) | 2.13e−7 | 5.86e−8 | 2.62e−8 | 4.48, 3.62 |
+  | max `\|Δ(Ds)\|` | 9.86e−7 (centre) | 1.20e−6 (`r = 9.24`) | 1.62e−6 (`r = 9.12`) | none |
+
+  The prediction holds for the star itself: the central density's
+  difference converges at 3.9–4.0 and every conserved variable's L1 inside
+  and in the layer at 2.8–4.4, about 3.7 on the whole, below 4 where the
+  layer's `∂g` (1.67 above) feeds in. What does not converge is the
+  advected `√γ D s` just outside the surface, and it measures nothing the
+  scheme uses: the largest `|Δ(Ds)|` sits at `r ≈ 9.1–9.2` (`D ≈ 4·10⁻⁹`)
+  and grows, 1.2e−6 → 1.6e−6, and the layer's L1 of `Δ(Ds)` falls at 2.03
+  on the finest pair; the whole state's L1 relative to its own
+  (`bin/tov_compare.jl`'s number, dominated by `Ds`) is 1.99e−5, 7.19e−6,
+  3.79e−6, rates 3.54, 2.87. *(Localised 2026-11-09, job 593852 and its
+  rerun, each state recovered in its own metric:)* the ratio
+  `s★ = (√γ D s)/(√γ D)` leaves the window `[3, 7]` in the thin matter at
+  the surface, `−56 … 8.2` at `8 ≤ r < 8.5` and `−410 … 1220` at
+  `9 ≤ r < 9.5` (`h = 0.3`, both runs), while the recovered `s` stays in
+  `[3, 7]` and its range and `T`'s agree between the runs in every shell to
+  the digits printed; in the worst cell `s★` is 396 against −48, the
+  recovered `s` 6.653 against 6.650, `T` 1.215e−6 against 1.212e−6. `D s`
+  is only the recovery's seed (`state_guesses`), and the reset rewrites it
+  only where the policy repaired the cell, not "wherever the energy
+  inversion succeeds" as "Matter" proposes; where `D` is `10⁻⁹` beside
+  neighbours at `10⁻⁴`, the flux differences of `D` and `D s` do not cancel
+  and the ratio wanders. Outside the layer the difference is `≤ 5·10⁻¹²`.
+  The potentials and `Φ̃` are zero
+  in both runs (the star is unmagnetized).
+- **Cost:** through the vertex metric the star's step costs **2.0–2.5
+  times less** than through `Analytic(TOVMetric)`: 4.39 against 11.1 µs per
+  cell and step at `h = 0.5` (EPYC 7543, both), 3.70 against 9.38 at 0.375
+  (EPYC 7532, both), 3.64 against 7.21 at 0.3 (EPYC 7543, both); each pair
+  on two nodes of one model, which have measured 20% apart. The TOV metric's
+  Hermite evaluation (63/115 ns per call, "Open questions") is dearer than
+  reading and interpolating `Mv`.
+
+### Matter to the vertices
+
+*(Amended 2026-11-08, the contract redesigned: was "Stress-energy to the
+vertices", the covariant `T_ab` averaged.)* `(ρ, S_i, S_ij)` are computed
+at the cells from the primitives, the fields and the cell's own metric —
+`stress_energy`'s `𝓔`, `S_i` and `S^ij`, the last lowered with `γ_ij` —
+then averaged to each owned vertex from its `2^D` neighbouring cells:
+second order, and the mean is a convex combination, so `ρ ≥ 0` holds at
+the vertex exactly where a higher-order interpolation would ring at a
+stellar surface. TreeGH assembles `T_ab` from them with the vertex's own
+`α` and `β`, the metric it evolves; the alternative of 2026-11-06 averaged
+eight cells' `T_ab`, each assembled with that cell's interpolated lapse and
+shift. A 4th-order option is kept, and which one wins is (open).
+
+This is this package's matter adapter (`TreeGRRMHD.ADMMatter`, proposed),
+which TreeGH binds to its vertex set and calls at its owned vertices
+(GH-3). Whether it stores `(ρ, S_i, S_ij)` at the cells during `prepare!`
+(10 values a cell, the `Tsrc` row of "Field sets") and averages per call,
+or computes everything per call, is this package's choice, made in step 11
+(open). Estimated 2026-11-05 for `T_ab`, the stored form reads about 80
+values per vertex; per call, each of the `2^D` cells needs its metric
+again, a 64-point interpolation from `Mv` (about 5000 reads). *(Amended
+2026-11-06: the average was written into `Tsrc`, a vertex set TreeGH
+read.)*
 
 ### Gauge for the TOV milestones
 
@@ -3315,8 +3497,9 @@ primitives, decided by Erik 2026-10-15):
    2026-10-23, decided by Erik.)
 4. `q = ∇·E` at cells.
 5. Nothing of TreeGH's. In a coupled run the script calls TreeGH's
-   right-hand side, which reads `T_ab` through this package's adapter
-   ([The coupling contract](#the-coupling-contract)). *(Amended
+   right-hand side, which reads `(ρ, S_i, S_ij)` through this package's
+   adapter ([The coupling contract](#the-coupling-contract); `T_ab` until
+   2026-11-08). *(Amended
    2026-11-06: this was `T_ab` at cells, averaged to vertices into `Tsrc`,
    and TreeGH's right-hand side, if evolved.)*
 6. Reconstruction and Riemann fluxes into `F_d` over the closed face
@@ -5337,7 +5520,7 @@ named as claims.
 5. **TOV in a dynamical spacetime**: the frozen TreeGH metric, through its
    adapter, reproducing rung 4 (added 2026-11-06); the F, H1, H2 radial
    modes against the literature (Font et al. 2002); convergence of the GH
-   and ADM constraints with matter (needs GH-1 to GH-4).
+   and ADM constraints with matter (needs GH-2 to GH-4; GH-1 landed 2026-11-08).
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
    2013).
@@ -5362,7 +5545,8 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - *(Closed in step 10, decided by Erik 2026-11-08.)* Riemann wave speeds:
   light cone for all variables (default), or split. The light cone; the
   split speeds fail on the Cowling star ("Riemann solver").
-- `T_ab` to vertices: 2nd order (default) or 4th.
+- `(ρ, S_i, S_ij)` to vertices: 2nd order (default) or 4th (`T_ab` until
+  2026-11-08).
 - *(Closed in step 8.)* Conservative prolongation width for the matter at
   stellar surfaces: width 3, bounded (TreeAMR's limited operator, AMR-4);
   the TOV surface's check is step 10's. *(Measured in step 10; width 3
@@ -5404,6 +5588,23 @@ Each is decided by a measurement in the step named in `PLAN.md`:
 - Whether `D s` earns its keep; the threshold that switches to it.
   *(Measured in step 9:)* on the stationary Kerr-Schild flows it drifts
   further from `D s_exact` than `D` does (see "Validation ladder" 3).
+  *(Measured 2026-11-09, reverted by Erik the same day:)* the reset writing
+  `√γ D s = (√γ D) s` from the recovered `s` in every cell it did not
+  repair, in both roles. The suite beside cf021db's in one job (593879,
+  cn088, one thread): 55 of 26538 fail, every one through `D s` — its
+  totals no longer conserved (3·10⁻⁷ of the scale a step on the EM wave,
+  0.1–14% of the boundary budget on the Balsara tubes, the entropy their
+  shocks make), the reset no longer a no-op where it repairs nothing, the
+  interior's bit identity, and the Cowling star's vertex-against-analytic
+  difference (3.1e−2, all of it `D s`; `D`, `S_i`, `τ`, `D Yₑ` at
+  0.3–2.1·10⁻⁴). `D`, `S_i`, `τ`, `D Yₑ`, `A_j` and `𝔈` moved in the 9th
+  to 12th digit only (the recovery's seed), and the `D s` errors grew
+  eightfold (EM wave 4.1e−6 → 3.4e−5, Alfvén 1.4e−3 → 1.1e−2). Without
+  it, `(√γ D s)/(√γ D)` leaves the window where `D` is thin — −410 … 1220
+  outside the Cowling star's surface at 200 M ("As built in step 10,
+  round 2") — which only seeds the recovery and changes nothing it
+  returns. It earns its keep only once it is the fallback of a failed
+  energy inversion, which is not built.
 - *(Added in step 9.)* The interior's form: the hard paste in both
   limiters at `r_in = M` (proposed), against TreeGH's smooth damping layer
   inside the right-hand side ("The interior"). *(Decided by Erik 2026-11-03:

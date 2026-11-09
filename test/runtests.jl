@@ -79,6 +79,9 @@ include("tiers.jl")
     # Step 10: the TOV star in the Cowling approximation, on `Analytic(TOVMetric)`; uses
     # `pointwise_tests.jl`'s `ForwardDiff`.
     include("tov_tests.jl")
+    # Step 10, round 2: the vertex metric of the coupling contract (redesigned 2026-11-08),
+    # through a sampled metric in TreeGH's `ADMMetric` form; uses `tov_tests.jl`'s star.
+    include("vertex_metric_tests.jl")
 end
 
 isempty(TIER_SKIPPED) ||
