@@ -644,10 +644,10 @@ Changes:
   - the limiters composed; `Δt = min(GH, matter)`;
   - regrid of every set, and the rebuild of both problems.
 
-  Where the script and the coupled tests live, and how they load both packages, is decided
-  here (open); so is skipping TreeGH's repeated fill (eleven per step written plainly, four
-  needed; `CODE.md`, "Two scripts"), measured. The regrid branch, unused by the star's static
-  boxes, gets a test of its own.
+  The script and the coupled tests live in `coupled/`, an environment of their own (decided by
+  Erik 2026-11-10). TreeGH's repeated fill is skipped by a key on its input: five fills per
+  step instead of eleven (**(proposed)**; `CODE.md`, "Two scripts"). The regrid branch, unused
+  by the star's static boxes, gets a test of its own.
 - **The GH CFL factor under SSP3(4,3,3)'s explicit part**, measured here.
 
 Accept:
@@ -660,6 +660,21 @@ Accept:
 - **Conservation:** rest mass to round-off.
 - **Decides:** the largest stable GH `cfl` under SSP3, on the gauge wave and on the TOV star,
   which becomes the default; and **the matter's transfer order (open)**.
+
+**State (2026-11-10).** Built and measured, except for the long runs (`CODE.md`, "Validation
+ladder" 5).
+
+Done:
+- the frozen metric, to round-off;
+- GH-3's static-matter check (rate 1.87);
+- rest mass, to 1e−14 net of the reset's injection;
+- the constraints at ≥ 1.8 to 80 M (2.2 inside, ≥ 1.87 outside);
+- the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` **(proposed)**;
+- `ADMMatter` computed per call **(proposed)**.
+
+Running on Symmetry: the studies to 1000 M at `h = 0.6, 0.5, 0.375` (amdpreq, jobs
+595057–595059, checkpointed). They give the modes (`bin/tov_modes.jl ref=coupled`), the
+constraints to 1000 M and the transfer order.
 
 ## Step 12 — The magnetized TOV star (rung 6)
 

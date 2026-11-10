@@ -115,6 +115,19 @@ TREEGRRMHD_TEST_TIER=quick julia --project=. -e 'using Pkg; Pkg.test(; julia_arg
 TREEGRRMHD_TEST_TIER=threaded julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4", "--check-bounds=yes"])'
 ```
 
+The coupled suite (step 11; `CODE.md`, "The coupling contract") runs in
+`coupled/`, an environment of its own that loads TreeGeneralizedHarmonic
+beside this checkout, never in the package's suite. The same three ways, the
+thread count and bounds checks passed to `julia` itself:
+
+```bash
+julia --project=coupled -e 'using Pkg; Pkg.instantiate()'
+```
+
+```bash
+julia --project=coupled -t 4 --check-bounds=yes coupled/runtests.jl
+```
+
 The full suite as a commit status: `ci/full-suite.sh` runs the
 clean-checkout check on a commit at four threads and, with `--post`, sets
 the commit's status `full-suite/<host>` to pending and then to the result.
@@ -154,8 +167,9 @@ The design rules, each explained in the `CODE.md` section named:
   run is a script that owns the loop and calls `TreeGH.prepare!`,
   `TreeGRRMHD.prepare!` and the rest; data passes through pointwise
   adapters that the producer supplies, called at TreeGH's owned vertices.
-  Do not add a driver framework or a TreeGH dependency (`CODE.md`, "The
-  coupling contract").
+  Do not add a driver framework or a TreeGH dependency: the coupled script
+  and its tests live in `coupled/`, an environment of its own (`CODE.md`,
+  "The coupling contract").
 - **Upstream changes are Erik's.** When this package needs something from
   TreeAMR, TreeGeneralizedHarmonic or EntropyEOS, it goes in as a precise
   request — the reason in `CODE.md`'s "Upstream prerequisites", the exact

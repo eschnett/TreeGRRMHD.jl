@@ -2992,6 +2992,33 @@ same day:
 
 ("—": the original table gave no earlier value for that cell.)
 
+**2026-11-10, step 11.** TreeGH's CFL factor under SSP3(4,3,3)'s explicit
+part was measured with `coupled/gh_cfl.jl` on Symmetry (jobs 595054 and
+595055, amddebugq, EPYC 7532).
+
+How the scan works:
+- TreeGH runs alone, and its implicit part is a copy.
+- A factor counts as stable if the final RMS error stays finite and within
+  100 times the error at the grid's first factor, times `(cfl/0.1)³`.
+
+The results:
+- **TreeGH's gauge wave** (`A = 1/20`, periodic, `h = 1/16`, `q = 4`,
+  `ε_KO = 1/2`, `γ0 = 1`, `γ2 = −1/2`, to `t = 20`): stable at every factor
+  from 0.10 to 1.50, under both tableaux. At 1.50 the error is 1.28e−2
+  under SSP3(4,3,3) (4.62e−3 at 0.85) and 4.56e−3 under RK4 (4.25e−3 at
+  0.10).
+- **The star** (`N = 12`, one box level, `h = 0.5`, the matter held fixed,
+  to `t = 100`): the error is 7.1328e−4 at every factor from 0.10 to 1.10,
+  5.48e−3 at 1.15, 14.1 at 1.20 and `NaN` at 1.25. So the limit is 1.10.
+  The scan's own criterion passed 1.15 and 1.20: it is too loose for a
+  stationary case, whose error does not grow with the factor.
+- **RK4 on the star** did not run within the job's hour.
+
+`cfl_gh = 1/2` is proposed, half of 1.10, replacing the script's 1/4
+(TreeGH's RK4 value). At `cfl_gh = 1/4` on the star, the two bounds are
+6.48/h steps per M for TreeGH and 6.55/h for the matter. So the studies run
+at 1/4 (jobs 595057–595059) take the same step counts as a run at 1/2.
+
 ### The implicit stage solve
 
 **2026-09-25.** "The solve writes only `E` into `U`" was amended
@@ -3219,6 +3246,64 @@ was amended 2026-11-08, with the contract's redesign. The repeated-fill
 item was amended 2026-11-08: each `metric_at` "now also" fills this
 package's vertex metric set, so the same skip saves twice as much.
 
+**2026-11-10, step 11.** The step-11 sketch was built as
+`coupled/tov_coupled.jl`; its departures are in `CODE.md`, "Two scripts",
+"As built". TreeGH's damping there is `ε_KO = 1/2`, `γ0 = 1/M`, `γ2 = 0`
+(proposed). This is TreeGH's own recipe for its black-hole cases
+(`TreeGeneralizedHarmonic/src/initialdata.jl`, GHSO2's measured
+requirements), taken over for the star without a measurement of its own.
+
+**2026-11-10, step 11: the repeated fill.** The fill is keyed on its input
+in the script (`FillKey`, proposed). The item had been (open):
+
+> Whether the script skips a fill when a limiter reports that it wrote
+> nothing, or `prepare!` does, is step 11's to decide.
+
+Its cost had been estimated from TreeGH's H200 measurements: the seven
+extra fills at 3–7 ns per point and step, against TreeGH's 20 ("estimated,
+not measured"). The item also said one fill per distinct state, four, would
+do.
+
+Measured before the key, in job 595056 (cn091, EPYC 7532):
+- **`N = 16`, one box level, 64 threads** (120 blocks, 491520 owned
+  vertices):
+
+  | Piece | Time |
+  |---|---|
+  | One step | 2.49 s |
+  | One fill (TreeGH's `prepare!` and `Mv`'s) | 58 ms (117 ns per vertex) |
+  | TreeGH's `prepare!` alone | 26 ms |
+  | TreeGH's right-hand side | 9.6 ms |
+  | The matter's `prepare!` | 48 ms |
+  | The matter's `rhs!` | 357 ms |
+
+  The seven extra fills are 16.2% of the step.
+- **`N = 12`, one thread:** the step takes 20.6 s and a fill 0.64 s, so the
+  seven extra fills are 21.8%.
+
+Why neither of the item's alternatives:
+- TreeGH's limiters report nothing.
+- A `prepare!` that skips itself would be an upstream change.
+
+The key compares the state itself instead. It includes `t`, so that a run
+whose boundary data depend on time is unaffected. Without `t`, the key
+would skip one more fill per step: the step limiter's and the next first
+stage solve's see the same state at different `t`. So a step fills five
+times, not four.
+
+Measured with the key in job 595135 (cn104, EPYC 7543), one step without
+the key against one with it, on the same node:
+
+| Run | Every fill | Keyed | Shorter |
+|---|---|---|---|
+| `N = 16`, 64 threads | 2.56 s | 2.08 s | 18.8% |
+| `N = 12`, one thread | 16.2 s | 13.2 s | 18.6% |
+
+The six skipped fills (59 ms each at 64 threads) account for 0.35 s of the
+0.48 s saved; the rest was not localised. In the same job the coupled
+suite passed whole at one thread, at four and with bounds checks (22 tests;
+3m37.5s, 2m47.2s, 3m31.1s).
+
 ### Metric providers
 
 **Step 2.** `Flat` and `Analytic` were built in step 2 (`src/metric.jl`).
@@ -3333,6 +3418,19 @@ assembled with that cell's interpolated lapse and shift.
 was "Stress-energy to the vertices", the covariant `T_ab` averaged; now
 `(ρ, S_i, S_ij)` are averaged and TreeGH assembles `T_ab` with the vertex's
 own `α` and `β`.
+
+**2026-11-10, step 11.** `ADMMatter` computes per call (proposed). Job
+595056 measured it against a stored form: the same numbers bit for bit,
+and less than 1% of a step apart (`CODE.md`, "Matter to the vertices", has
+the times).
+
+The 2026-11-05 estimate assumed that a call interpolates each cell's metric
+again from `Mv`, about 5000 reads. In fact `P` holds the cell's metric
+after `prepare!`, so a call reads 8 × 30 values.
+
+The `Tsrc` row of "Field sets" went with the decision. It had read:
+"`(ρ, S_i, S_ij)` at cells, only if this package's matter adapter stores
+it (step 11, (open))".
 
 ### Gauge for the TOV milestones
 
@@ -4607,6 +4705,10 @@ difference (3.1e−2, all of it `D s`; `D`, `S_i`, `τ`, `D Yₑ` at
 12th digit only (the recovery's seed), and the `D s` errors grew eightfold
 (EM wave 4.1e−6 → 3.4e−5, Alfvén 1.4e−3 → 1.1e−2).
 
+**2026-11-10, step 11.** TreeGH's CFL factor under the SSP3 explicit
+tableau: `cfl_gh = 1/2` is proposed, half of the star's measured limit of
+1.10 (see "Time integration").
+
 ## Known risks
 
 **Step 0.** "No MPI yet: single node, although TreeAMR now has its M7" was
@@ -4880,3 +4982,16 @@ Symmetry cn103, EPYC 7543, uncommitted tree): **26538 tests, every run
 passing whole** — 16m19s at one thread, 11m41s at four, 20m44s with
 `--check-bounds=yes`; one and four threads identical, bounds checks moving
 70 lines.
+
+**2026-11-10, step 11.** The suite at step 11's package side (ADMMatter,
+`flags`; commit 23f8b36, Symmetry, jobs 595048–595053): **26552 tests,
+every run passing whole**:
+- 21m58.0s at one thread in a tree without a `Manifest.toml` (cn090, EPYC
+  7532);
+- 11m41.6s at four threads (cn104, EPYC 7543);
+- 20m47.7s with `--check-bounds=yes` (cn107, EPYC 7543).
+
+The coupled suite, `coupled/runtests.jl`, which is new: 20 tests, then 22
+with the fill key's testset (c7e5eb2). At one thread, at four and with
+bounds checks it took 4m35.2s, 3m31.0s and 4m42.9s at 23f8b36, and 3m37.5s,
+2m47.2s and 3m31.1s at c7e5eb2.

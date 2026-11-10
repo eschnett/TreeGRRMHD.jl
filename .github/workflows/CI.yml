@@ -127,3 +127,24 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           # A Codecov outage should not turn a green test run red.
           fail_ci_if_error: false
+
+  # The coupled suite of step 11 (`coupled/`, an environment of its own that loads
+  # TreeGeneralizedHarmonic beside this checkout; `CODE.md`, "The coupling contract"): one
+  # Linux cell at one thread with bounds checks, the same tier as the cell above it. Its own
+  # job, so that the package's cells never load TreeGH, its HDF5 and its horizon finder.
+  # TreeGH and its unregistered dependencies come from `coupled/Project.toml`'s `[sources]`
+  # (GH-2 workaround).
+  coupled:
+    name: Coupled to TreeGeneralizedHarmonic - Julia 1.13 - ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TREEGRRMHD_TEST_TIER: ${{ (github.event.inputs.tier == 'full' || github.event_name == 'schedule') && 'full' || 'quick' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13"
+      - uses: julia-actions/cache@v3
+      - run: julia --project=coupled -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=coupled --check-bounds=yes coupled/runtests.jl
