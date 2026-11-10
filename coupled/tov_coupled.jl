@@ -28,7 +28,57 @@ segments(sets) = (staterange(sets, 1), first(staterange(sets, 2)):statelength(se
 # TreeGH's metric at a state: its fill and its adapter (GH-1), then this package's vertex
 # set filled from it (the owned vertices copied, its own ghost fill), which every kernel
 # interpolates.
-metric_at(p, u, t) = MHD.vertex_metric!(p.vm, GH.ADMMetric(p.gh, view(u, p.s[1]), t), t)
+#
+# The fill is skipped when its input repeats (proposed in step 11, "Two scripts" in
+# `CODE.md`): an SSP3(4,3,3) step calls `metric_at` eleven times, and at a stage whose two
+# abscissae agree the stage limiter's call and `f_exp!`'s see the state the stage solve's
+# call filled, since TreeGH has no implicit part and its limiter changes nothing on the
+# star. The key is TreeGH's segment bit for bit and `t`, so a skipped fill is the fill it
+# replaces; TreeGH's prepared state and `Mv` are still that fill's, since nothing else
+# writes them between calls, and any other TreeGH verb the script calls on `p.gh` drops the
+# key first (`forget_fill!`). `key = nothing` fills every time.
+struct FillKey{V,T}
+    seg::V                                           # TreeGH's segment, as last filled
+    t::Base.RefValue{T}
+    valid::Base.RefValue{Bool}
+    count::Base.RefValue{Int}                        # fills done, for the measurements
+end
+FillKey(u, s) = FillKey(similar(view(u, s)), Ref(zero(eltype(u))), Ref(false), Ref(0))
+forget_fill!(p) = (p.key === nothing || (p.key.valid[] = false); p)
+
+# Bitwise equality and a copy, threaded: the segment is 20 variables at every owned vertex.
+function chunked(f, n)
+    nt = Threads.nthreads()
+    r = fill(true, nt)
+    Threads.@threads for c in 1:nt
+        r[c] = f((c - 1) * n ÷ nt + 1, c * n ÷ nt)
+    end
+    return all(r)
+end
+same_bits(a, b) = chunked(length(a)) do lo, hi
+    for i in lo:hi
+        @inbounds a[i] === b[i] || return false
+    end
+    return true
+end
+threaded_copy!(a, b) = chunked(length(a)) do lo, hi
+    @inbounds copyto!(a, lo, b, lo, hi - lo + 1)
+    return true
+end
+
+fill_metric(p, u, t) = MHD.vertex_metric!(p.vm, GH.ADMMetric(p.gh, view(u, p.s[1]), t), t)
+metric_at(p, u, t) = metric_at(p.key, p, u, t)
+metric_at(::Nothing, p, u, t) = fill_metric(p, u, t)
+function metric_at(k::FillKey, p, u, t)
+    ug = view(u, p.s[1])
+    k.valid[] && k.t[] == t && same_bits(ug, k.seg) && return MHD.VertexMetric(p.vm)
+    k.valid[] = false                                # until the fill has finished
+    m = fill_metric(p, u, t)
+    threaded_copy!(k.seg, ug)
+    k.t[], k.valid[] = t, true
+    k.count[] += 1
+    return m
+end
 
 # IMEXRungeKutta's four callbacks. The order of the calls is the data flow: the matter is
 # recovered in TreeGH's metric, and TreeGH reads the matter of that recovery.
@@ -65,7 +115,7 @@ end
 # star's own metric, sampled and frozen. Its damping (proposed in step 11): `γ0 = 1/M`,
 # `γ2 = 0`, `ε_KO = 1/2`.
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
-                  refinement=nothing)
+                  refinement=nothing, reuse_fill=true)
     star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
@@ -79,7 +129,8 @@ function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
     vm = MHD.VertexMetricSet(T, forest; boundary=star.provider)  # Mv: G = 4, N ≥ 10
     sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
     u = statevector(sets)
-    p = (; gh, mhd, vm, s=segments(sets))
+    s = segments(sets)
+    p = (; gh, mhd, vm, s, key=reuse_fill ? FillKey(u, s[1]) : nothing)
     GH.initial_state!(view(u, p.s[1]), gh, zero(T))             # fill_exact!
     MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))     # exact_state
     return (; p, u, star, forest, sets)
@@ -90,6 +141,7 @@ end
 function step_count(p, u, t, t1, forest, cfl_gh, cfl_mhd)
     T = eltype(u)
     λ = GH.max_speed(p.gh, view(u, p.s[1]), t)
+    forget_fill!(p)
     rate = MHD.max_rate(p.mhd, view(u, p.s[2]), t; metric=metric_at(p, u, t))
     return max(MHD.chunk_count((t1 - t) * λ, cfl_gh * minimum_spacing(T, forest)),
                MHD.chunk_count((t1 - t) * 3 * rate, cfl_mhd))
@@ -105,13 +157,15 @@ function regrid_all(p, u, sets, forest, t; mhd_flags)
     metric = metric_at(p, u, t)
     fl = refine_wins.(plain.(gh_flags(p.gh, view(u, p.s[1]), t).flags),     # GH-7
                       plain.(MHD.flags(p.mhd, view(u, p.s[2]), t; metric, mhd_flags...)))
+    forget_fill!(p)
     scatter!(sets, u)
     pairs = (gh_regrid_pairs(p.gh, t)..., MHD.regrid_pairs(p.mhd, t)...,     # GH-7
              MHD.regrid_pairs(p.vm)...)
     regrid!(forest, pairs; flags=fl) || return (; moved=false, p, u)
-    p = (; gh=gh_rebuild(p.gh, t), mhd=MHD.rebuild(p.mhd), vm=MHD.rebuild(p.vm),  # GH-7
-         s=segments(sets))
+    s = segments(sets)
     u = statevector(sets)
+    p = (; gh=gh_rebuild(p.gh, t), mhd=MHD.rebuild(p.mhd), vm=MHD.rebuild(p.vm),  # GH-7
+         s, key=p.key === nothing ? nothing : FillKey(u, s[1]))
     gather!(u, sets)
     MHD.clear_tally!(p.mhd)
     step_limit!(u, nothing, p, t)
@@ -119,9 +173,10 @@ function regrid_all(p, u, sets, forest, t; mhd_flags)
 end
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
-              cfl_gh=T(1 // 4), refinement=nothing, mhd_flags=nothing,
+              cfl_gh=T(1 // 2), refinement=nothing, mhd_flags=nothing, reuse_fill=true,
               record=(t, ρ_c, c) -> println(t, "  ", ρ_c, "  ", c.ham_l2, "  ", c.mom_l2))
-    (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement)
+    (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement,
+                                      reuse_fill)
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
@@ -139,6 +194,7 @@ function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, lim
         ρ_c = MHD.central_density(p.mhd, view(u, p.s[2]), t; metric)  # prepares the matter
         record(t, ρ_c, gh_constraint_norms(p.gh, view(u, p.s[1]), t;   # GH-7
                                            matter=MHD.ADMMatter(p.mhd)))
+        forget_fill!(p)
         mhd_flags === nothing && continue            # the star's boxes are static
         r = regrid_all(p, u, sets, forest, t; mhd_flags)
         r.moved || continue

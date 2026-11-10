@@ -1,12 +1,14 @@
 # Step 11: what the coupling costs, for two decisions ("Two scripts", "Matter to the
 # vertices" in `CODE.md`): whether the script should skip TreeGH's repeated fill (written
-# plainly, an SSP3(4,3,3) step fills TreeGH's set and `Mv` eleven times, four would do),
+# plainly, an SSP3(4,3,3) step fills TreeGH's set and `Mv` eleven times; `FillKey` in
+# `tov_coupled.jl` skips the repeats),
 # and whether `ADMMatter` should store its cell values rather than compute them per call.
 # On the coupled star (`problems`, default `N = 16`, one box level), each piece timed
 # alone after a warm-up, the median of `reps`:
 #
-# - one SSP3(4,3,3) step of the script, its four callbacks as written;
-# - `metric_at`: TreeGH's `prepare!` (scatter and fill) and `vertex_metric!` (the owned
+# - one SSP3(4,3,3) step of the script, its four callbacks as written, with the fill's key
+#   and with every fill done;
+# - one fill (`fill_metric`): TreeGH's `prepare!` (scatter and fill) and `vertex_metric!` (the owned
 #   copy and `Mv`'s fill), and TreeGH's `prepare!` alone;
 # - TreeGH's `rhs!` without the matter, with `ADMMatter` (per call), and with the stored
 #   form (the cells' 10 values filled first by a host loop over the stored cells, then a
@@ -86,15 +88,27 @@ function cost(T=Float64; N=16, levels=1, reps=5)
     diff = maximum(abs(a1((i, j, k), b).ρ - a2((i, j, k), b).ρ)
                    for b in 1:nblocks(U), k in 1:N, j in 1:N, i in 1:N)
     GH.prepare!(p.gh, ug, t)
+    forget_fill!(p)
     cfl_mhd = T(MHD.default_cfl(:ppm))
-    nsteps = step_count(p, u, t, one(T), forest, T(1 // 4), cfl_mhd)
+    nsteps = step_count(p, u, t, one(T), forest, T(1 // 2), cfl_mhd)
     dt = one(T) / nsteps
     integ = IRK.init(IRK.IMEXProblem(f_exp!, solve_imp!, copy(u), (t, T(1000)), p),
                      IRK.IMEXSSP3433(); dt, stage_limiter=stage_limit!,
                      step_limiter=step_limit!, partition=:even, alias_u0=true)
+    # The same step with every fill done (`key = nothing`), on the same state, and the
+    # fills a step does with the key.
+    pf = merge(p, (; key=nothing))
+    integf = IRK.init(IRK.IMEXProblem(f_exp!, solve_imp!, copy(u), (t, T(1000)), pf),
+                      IRK.IMEXSSP3433(); dt, stage_limiter=stage_limit!,
+                      step_limiter=step_limit!, partition=:even, alias_u0=true)
+    c0 = p.key.count[]
+    MHD.with_step_cache(() -> IRK.step!(integ), p.mhd)
+    fills = p.key.count[] - c0
     r = (;
          step=timed(() -> MHD.with_step_cache(() -> IRK.step!(integ), p.mhd), reps),
-         metric_at=timed(() -> metric_at(p, u, t), reps),
+         step_every_fill=timed(() -> MHD.with_step_cache(() -> IRK.step!(integf), pf.mhd),
+                               reps),
+         metric_at=timed(() -> fill_metric(p, u, t), reps),
          gh_prepare=timed(() -> GH.prepare!(p.gh, ug, t), reps),
          gh_rhs_vacuum=timed(() -> (GH.prepare!(p.gh, ug, t);
                                     GH.rhs!(dug, p.gh, t)), reps) -
@@ -110,9 +124,11 @@ function cost(T=Float64; N=16, levels=1, reps=5)
     for (k, v) in pairs(r)
         @printf("  %-18s %10.4f s  %8.2f ns per vertex\n", k, v, 1e9 * v / nv)
     end
+    @printf("  fills per step with the key: %d of 11; the step %.1f%% shorter\n", fills,
+            100 * (1 - r.step / r.step_every_fill))
     seven = 7 * r.metric_at
     @printf("  seven extra fills (TreeGH's and Mv's) per step: %.4f s, %.1f%% of a step\n",
-            seven, 100 * seven / r.step)
+            seven, 100 * seven / r.step_every_fill)
     return r
 end
 

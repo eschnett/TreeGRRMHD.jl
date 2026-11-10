@@ -185,6 +185,29 @@ end
     @test all(==(0), values(fb))
 end
 
+@testset "The fill's key skips only fills that repeat, bit for bit" begin
+    # Guards `FillKey` in `tov_coupled.jl` (proposed in step 11): a skipped fill must be
+    # the fill it replaces, so the run with the key and the run that fills at every call
+    # end in the same state bit for bit, and the key must skip, or it costs a comparison
+    # and a copy for nothing. A key that ignored `t`, missed a change of TreeGH's segment
+    # or survived another TreeGH verb would leave the two runs apart.
+    run(reuse_fill) = main(; N=10, levels=0, L=CT_L, roots=CT_ROOTS, t_end=1, chunk=1 // 2,
+                           limiter=:mc, reuse_fill, record=(t, ρ_c, c) -> nothing)
+    a, b = run(true), run(false)
+    (; p, u) = ct_problems(10)
+    integ = IRK.init(IRK.IMEXProblem(f_exp!, solve_imp!, u, (0.0, 1.0), p),
+                     IRK.IMEXSSP3433(); dt=1 / 16, stage_limiter=stage_limit!,
+                     step_limiter=step_limit!, partition=:even, alias_u0=true)
+    MHD.with_step_cache(() -> IRK.step!(integ), p.mhd)       # the first fill of a step
+    c0 = p.key.count[]                                       # finds the key empty
+    MHD.with_step_cache(() -> IRK.step!(integ), p.mhd)
+    fills = p.key.count[] - c0
+    @info "FillKey: $(fills) fills in an SSP3(4,3,3) step of 11 calls; the runs with and " *
+          "without the key agree bit for bit: $(isequal(a.u, b.u))"
+    @test isequal(a.u, b.u) && a.t == b.t
+    @test fills < 11
+end
+
 @testset "The script's regrid moves every set together and conserves rest mass" begin
     # Guards `regrid_all` (and through it GH-7's workaround): one `regrid!` over TreeGH's
     # set, the matter's and `Mv`, both problems rebuilt, the state gathered, both limiters

@@ -8,7 +8,7 @@
 #     julia --project=coupled -t T coupled/tov_coupled_study.jl [key=value...]
 #
 # Keys: `N` (16), `levels` (1), `L` (24), `roots` (4), `t_end` (200), `chunk` (the sampling
-# interval, 1), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor, 1/4), `out` (the series,
+# interval, 1), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor, 1/2), `out` (the series,
 # `t ρ_c ‖ℋ‖₂in ‖ℳ‖₂in ‖ℋ‖₂out ‖ℳ‖₂out injected_D steps` per chunk), `checkpoint` (a file
 # saved every `every` chunks, default 20, and resumed from if it exists).
 
@@ -24,12 +24,13 @@ function study_norms(p, u, t)
     c(lo, hi) = gh_constraint_norms(p.gh, view(u, p.s[1]), t; matter=m,
                                     mask=GH.ShellMask(SVector{3,T}(0, 0, 0), T(lo), T(hi)))
     ci, co = c(0, 6), c(10, 1000)
+    forget_fill!(p)                                  # TreeGH was prepared by another verb
     mom(x) = sqrt(sum(abs2, x.mom_l2))
     return (; ρ_c, ham_in=ci.ham_l2, mom_in=mom(ci), ham_out=co.ham_l2, mom_out=mom(co))
 end
 
 function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, limiter=:ppm,
-               cfl_gh=T(1 // 4), out=nothing, checkpoint=nothing, every=20)
+               cfl_gh=T(1 // 2), out=nothing, checkpoint=nothing, every=20)
     (; p, u, forest) = problems(T; N, levels, L, roots, limiter)
     M0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1]
     cfl_mhd = T(MHD.default_cfl(limiter))
