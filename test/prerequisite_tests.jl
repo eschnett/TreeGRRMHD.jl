@@ -334,14 +334,12 @@ end
                   "no β-equilibrium slice; blocks step 13")
 end
 
-@testset "GH-$n: reported once TreeGeneralizedHarmonic is a dependency" for n in 0:6
-    # Guards nothing yet. TreeGH is not in this package's environment until
-    # step 10 (it is unregistered, and its own unregistered dependencies
-    # would each need a `[sources]` entry here — GH-2), so its items cannot
-    # be detected from this suite. The step that adds TreeGH replaces this
-    # loop with one detecting testset per item (proposed in step 0).
-    ghloaded = Base.find_package("TreeGeneralizedHarmonic") !== nothing
-    prereq_report("GH-$n", false,
-                  ghloaded ? "TreeGH is loadable but not yet checked here" :
-                  "TreeGH is not a dependency before step 10, so not detectable")
+@testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)
+    # Guards nothing here. TreeGH is not a dependency of this package or of
+    # this suite (`CODE.md`, "The coupling contract"); the coupled suite in
+    # `coupled/` loads it beside this package and detects each GH item
+    # there (step 11). This suite only names the ones `PLAN.md` lists as
+    # open (GH-0, GH-1, GH-3 and GH-4 have landed, GH-5 is withdrawn), so
+    # that a grep of its log for `waiting:` still lists every upstream item.
+    prereq_report("GH-$n", false, "open in PLAN.md; detected in coupled/")
 end

@@ -14,22 +14,15 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3 and 5 to 9 of `PLAN.md` are done, as are steps 4a–4c
+*Status: steps 0 to 3 and 5 to 10 of `PLAN.md` are done, as are steps 4a–4c
 in IMEXRungeKutta (what each delivered is recorded in [HISTORY.md, "The
-steps of the plan"](HISTORY.md#the-steps-of-the-plan)). Step 10, the TOV
+steps of the plan"](HISTORY.md#the-steps-of-the-plan)); step 10 is the TOV
 star in the Cowling approximation on the analytic TOV metric, with no
-TreeGH ([The coupling contract](#the-coupling-contract)), is built and
-measured (rung 4), its decisions proposed for review. Step 11, the coupled
-run, waits on GH-2 to GH-4 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)).
-The numbers below about the scheme are measured where they say so and
-unmeasured otherwise.*
-
-**Inconsistent:** the status says step 10's decisions are proposed for
-review, while `CLAUDE.md`'s former "Current state" said that on 2026-11-08 Erik
-decided step 10's light cone, width 3 bounded, the reset's two roles, PPM
-for stars and the per-centering binding of the contract (now in
-[HISTORY.md, "Open questions"](HISTORY.md#open-questions) and ["The coupling
-contract"](HISTORY.md#the-coupling-contract)).
+TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
+the coupled run, is in progress; of its upstream items only GH-2,
+registration, is open, and its `[sources]` workaround applies
+([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). The numbers below
+about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
 confirmed; **(open)** is deferred to a measurement or to a later review and
@@ -358,12 +351,19 @@ contract](#the-coupling-contract)). GH-5 is withdrawn.
   `notes/formulation.md` §1–2: `R^H_ab = 8π(T_ab − ½g_abT)` turns `S0`
   into `S0 − 16πT̄_ab`, and the source enters as `−α√γ S0`). The ADM
   monitor gains the matter terms, `ℋ − 16πρ` and `ℳ_i − 8π S_i`.
+  **Landed on TreeGH's `main`** (79ad132, still 0.1.1, unregistered):
+  `rhs!(du, p, t; matter)` and `adm_constraint!(p, u, t; matter)`, the
+  adapter bound once per call as `at = matter(p.U)` and called as
+  `(; ρ, S, Sij) = at(n, b)` at an owned vertex `n` of local block `b`.
 - **GH-4 (req, step 11) A right-hand side callable inside an external
   integrator**: TreeGH's own verbs under the names this package shares —
   `TreeGH.prepare!`, `TreeGH.rhs!`, the integrator-free limiters, the
   speed for `Δt` — all accepting segment views of a multi-set state
   vector, and `evolve!` as a composition of them. A script calls them;
-  neither package drives a coupled run.
+  neither package drives a coupled run. **Landed on TreeGH's `main`**
+  (0cd5f00): `prepare!(p, u, t) -> p`, `rhs!`, `stage_limit!`,
+  `step_limit!`, `initial_state!(u, p, t)` and `evolved_sets` are `public`;
+  `max_speed(p, u, t)` is exported. A segment must be a contiguous view.
 - **GH-5 (withdrawn) A ghost width of at least `q/2 + 1`**, so
   that a 4th-order vertex→cell metric interpolation reaches every stored
   cell of a `G = 3` matter set. Not needed: the interpolation reads this
@@ -372,6 +372,13 @@ contract](#the-coupling-contract)). GH-5 is withdrawn.
 - **GH-6 (later)** A damped-harmonic gauge driver, radiative or
   constraint-preserving outer boundaries, excision or a generalized
   interior for collapse, Ψ₄ extraction.
+- **GH-7 (wanted, step 11; workaround) The regrid verbs and the
+  constraint norms of a segment**: `TreeGH.flags`, `regrid_pairs`,
+  `rebuild` and `constraint_norms(p, u, t; matter)`, so that the coupled
+  script regrids TreeGH's set with this package's in one `regrid!` and
+  monitors a segment's constraints. Until then the script composes them
+  from TreeGH's exports (`coupled/gh7.jl`, [`PLAN.md`,
+  GH-7](PLAN.md#gh-7--the-regrid-verbs-and-the-constraint-norms-of-a-segment-wanted-step-11-workaround)).
 
 The CFL factor of TreeGH under an SSP3 explicit tableau (`cfl = 1/4` was
 measured with RK4, whose stability region on the imaginary axis is wider)
@@ -2125,7 +2132,7 @@ contract"](HISTORY.md#the-coupling-contract).)
   `TreeGH.prepare!` and `TreeGRRMHD.prepare!`, then `rhs!`, the limiters,
   and the speed or rate for `Δt`. There is no shared interface package.
   They are declared `public`, not exported, so that loading both packages
-  does not make the names ambiguous (proposed). `prepare!` makes a
+  does not make the names ambiguous. `prepare!` makes a
   package's state readable at `(u, t)` — scatter, ghost fill, recovery —
   and returns what the other package reads, so the order of the calls is
   the data flow, written in the script.
@@ -2153,8 +2160,8 @@ contract"](HISTORY.md#the-coupling-contract).)
   adapter at TreeGH's. The precedent is TreeGH's provider for
   ApparentHorizonFinder (`GHADMProvider`, which returns
   ApparentHorizonFinder's `ADMVars`). Neither package depends on the other.
-- **The contract uses only what both packages already depend on**
-  (proposed). A contract owned by the consumer, as ApparentHorizonFinder's
+- **The contract uses only what both packages already depend on**.
+  A contract owned by the consumer, as ApparentHorizonFinder's
   is, works there because ApparentHorizonFinder is below TreeGH; here each
   package is the other's consumer, and the two dependencies would form a
   cycle.
@@ -2397,7 +2404,7 @@ The kernels dispatch on a metric provider (proposed):
 - `Analytic(m::SpacetimeMetrics.AbstractMetric)` — evaluated at the point
   (cell, face, edge or vertex), all `D`; the Kerr-Schild tests, and the
   Cowling TOV star as `Analytic(TOVMetric)`.
-- `VertexMetric` (proposed), a producer's metric in [the coupling
+- `VertexMetric`, a producer's metric in [the coupling
   contract](#the-coupling-contract): this package's own 16-variable vertex
   set `Mv`, its owned vertices copied from a producer's ADM adapter —
   TreeGH's `ADMMetric` (GH-1, step 11), or in tests and studies
@@ -2495,7 +2502,7 @@ are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
 The conversion is this package's ([The coupling
 contract](#the-coupling-contract)).
 
-**The vertex set** (proposed). `Mv` holds `(α, β^i, γ_ij, K_ij)`, 16
+**The vertex set**. `Mv` holds `(α, β^i, γ_ij, K_ij)`, 16
 variables, vertex-centered, on the matter's forest:
 - **Owned vertices** are copied from the producer's ADM adapter, bound to
   `Mv` (`vertex_metric!(vm, adm, t)`, one kernel over the owned range); no
@@ -2511,26 +2518,26 @@ variables, vertex-centered, on the matter's forest:
   q + 1` for first, so **width 6** (PointValue widths are even; proposed).
 - **The outer boundary** (the shared plane `n = N + 1` and the ghosts
   beyond it) is this package's hook: Dirichlet from the case's own analytic
-  provider where it has one, as the TOV star's static exterior (proposed);
+  provider where it has one, as the TOV star's static exterior;
   what a case without one does is (open).
 - A snapshot: valid until the producer's state changes; a regrid replaces
   `Mv` with the other sets, and the script refills it from the rebuilt
   adapter.
 
-**Interpolated within a block** from `Mv` (proposed):
+**Interpolated within a block** from `Mv`:
 - **Cells**: 4th-order tensor Lagrange, 64 points; `∂ᵢα`, `∂ᵢβ`, `∂ᵢγ` at
   cells by the staggered 4th-order derivative along `i` times the
   transverse interpolation, the derivative of the same interpolant; `K_ij`
   interpolated, not differentiated.
 - **Faces**: 2D, 16 points. **Edges**: 1D, 4 points. **Vertices**: read.
-- **The fallback** (proposed). Where the Lagrange result has `α ≤ 0`, or a
+- **The fallback**. Where the Lagrange result has `α ≤ 0`, or a
   `γ` that fails a Cholesky factorization, the point falls back to
   multilinear weights (8, 4 or 2 vertices), counted by `metric_fallbacks`
   (below). Multilinear weights make `(α, γ_ij)` a convex combination of the
   corners, so `α > 0` and `γ` positive definite survive, and an
   `(α, β, γ)` with those properties always rebuilds a Lorentzian metric;
   interpolating `g_ab` could not promise that. At a fallback cell the
-  derivatives are the multilinear interpolant's too, 2nd order (proposed).
+  derivatives are the multilinear interpolant's too, 2nd order.
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
 edges. The derivatives and `K_ij` are not stored but evaluated where the
@@ -2558,7 +2565,7 @@ withdrawn).
 - **The fallback is counted by `metric_fallbacks(prov, f)`**, a diagnostic
   pass over every stored point of `P`, `B[d]`, `A[j]` and `Φ̃`, not by a
   tally in `X`: the provider is a pure function of the point, and a face,
-  edge or vertex has no cell of its own (proposed).
+  edge or vertex has no cell of its own.
 - **`SampledADM(metric, vm, t)`**, a SpacetimeMetrics metric in
   `ADMMetric`'s form (exact `K`), is in `src/`, not only in the tests: the
   study (`bin/tov_study.jl metric=vertex`) and step 11 (GH-1's reference)
@@ -2653,7 +2660,7 @@ again, a 64-point interpolation from `Mv` (about 5000 reads).
 
 ### Gauge for the TOV milestones
 
-TreeGH's static-background path, with no gauge driver (proposed): the TOV
+TreeGH's static-background path, with no gauge driver: the TOV
 star is a static, `isbits` `SpacetimeMetrics.AbstractMetric` in isotropic
 coordinates, generic over dual numbers so TreeGH can differentiate it
 inside kernels. `H_a = −Γ_a[g_TOV]` is sampled and frozen, as TreeGH
@@ -2665,7 +2672,7 @@ the Cowling star, `Analytic(TOVMetric)`, with no TreeGH, and the frozen
 TreeGH metric of the same background is checked against that run in step
 11.
 
-**As built** (proposed): `src/tov.jl`. **The solve** is Lindblom's (1992)
+**As built**: `src/tov.jl`. **The solve** is Lindblom's (1992)
 enthalpy form: RK4 in `η = log h` from the centre to the surface, `η = 0`,
 a grid point rather than a root to find, for `q = r²`, `μ = m/r³` and
 `λ = log(r̄/r)`, all smooth in `η` at the centre (where
@@ -3261,7 +3268,7 @@ gauge), `charge_norms`.
 
 A Löhner indicator on `ρ`, optionally on `|B|` and `|E|`, following
 TreeHydro's `hydro_flags`, plus geometric radius boxes around a star that
-fix the levels the star is resolved with (proposed). `regrid!` is given
+fix the levels the star is resolved with. `regrid!` is given
 every set over the forest: the evolved ones with their schedules, the rest
 `=> nothing`.
 
