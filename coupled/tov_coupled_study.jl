@@ -45,11 +45,13 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
     else
         push!(rows, (; t, study_norms(p, u, t)..., injected=zero(T), steps=0))
     end
-    io = out === nothing ? nothing : open(out, c0 == 0 ? "w" : "a")
+    # The series is rewritten from the rows the checkpoint holds, so that a resumed run's
+    # file has no row twice (a pre-emption after a row and before its checkpoint).
+    io = out === nothing ? nothing : open(out, "w")
     put(r) = io === nothing ? nothing :
              (println(io, join((r.t, r.ρ_c, r.ham_in, r.mom_in, r.ham_out, r.mom_out,
                                 r.injected, r.steps), "  ")); flush(io))
-    c0 == 0 && put(rows[1])
+    foreach(put, rows)
     wall0 = time()
     for c in (c0 + 1):nchunks
         t1 = c == nchunks ? t_end : c * chunk
