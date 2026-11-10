@@ -132,6 +132,21 @@ function mhd_flags(P::FieldSet{T,D}; refine_tol, coarsen_tol, maxlevel::Integer,
 end
 
 """
+    flags(p::MHDProblem, u, t; metric = p.provider, kwargs...) -> flags
+
+The refinement flags of the state `u` at time `t` in `metric`: [`prepare!`](@ref) at
+`(u, t)`, which fills `P`, ghosts included, then [`mhd_flags`](@ref)`(p; kwargs...)` —
+what `evolve!` does before a regrid, as one verb for a script that owns the loop and
+passes a producer's metric (step 11; "Two scripts" in `CODE.md`). The keywords are
+`mhd_flags`', none of them defaulted. Like every `prepare!`, it leaves `p` prepared at
+`(u, t)`.
+"""
+function flags(p::MHDProblem, u, t; metric=p.provider, kwargs...)
+    prepare!(p, u, t; metric)
+    return mhd_flags(p; kwargs...)
+end
+
+"""
     regrid_pairs(p::MHDProblem, t) -> Tuple
 
 Every field set of `p.f` as `regrid!` takes them ("Field sets" in

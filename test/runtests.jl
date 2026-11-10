@@ -82,6 +82,9 @@ include("tiers.jl")
     # Step 10, round 2: the vertex metric of the coupling contract (redesigned 2026-11-08),
     # through a sampled metric in TreeGH's `ADMMetric` form; uses `tov_tests.jl`'s star.
     include("vertex_metric_tests.jl")
+    # Step 11: the matter adapter of the coupling contract (GH-3) and the `flags` verb,
+    # without TreeGH; uses `tov_tests.jl`'s star. The coupled runs are `coupled/`'s.
+    include("adm_matter_tests.jl")
 end
 
 isempty(TIER_SKIPPED) ||
