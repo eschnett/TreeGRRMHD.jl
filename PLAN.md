@@ -668,12 +668,14 @@ Done:
 - the frozen metric, to round-off;
 - GH-3's static-matter check (rate 1.87);
 - rest mass, to 1e−14 net of the reset's injection;
-- the constraints at ≥ 1.8 to 80 M (2.2 inside, ≥ 1.87 outside);
+- the constraints at ≥ 1.86 to 75 M, flat in time (`h = 0.6` to 300 M);
 - the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` **(proposed)**;
-- `ADMMatter` computed per call **(proposed)**.
+- `ADMMatter` computed per call **(proposed)**;
+- TreeGH's damping `γ0 = 1/(10M)` **(proposed)**; the first studies, at `γ0 = 1/M`,
+  collapsed near 400 M (`HISTORY.md`, "Two scripts").
 
 Running on Symmetry: the studies to 1000 M at `h = 0.6, 0.5, 0.375` (amdpreq, jobs
-595057–595059, checkpointed). They give the modes (`bin/tov_modes.jl ref=coupled`), the
+595407–595409, checkpointed). They give the modes (`bin/tov_modes.jl ref=coupled`), the
 constraints to 1000 M and the transfer order.
 
 ## Step 12 — The magnetized TOV star (rung 6)

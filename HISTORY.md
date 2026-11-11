@@ -3253,6 +3253,74 @@ package's vertex metric set, so the same skip saves twice as much.
 (`TreeGeneralizedHarmonic/src/initialdata.jl`, GHSO2's measured
 requirements), taken over for the star without a measurement of its own.
 
+**2026-11-10, step 11: the damping.** The first studies (jobs
+595057–595059: `N = 10, 12, 16`, `h = 0.6, 0.5, 0.375`, to 1000 M) ran with
+`γ0 = 1/M` and all three failed near 400 M, with a `DomainError` from `sqrt`
+in TreeGH's `metric_quantities` after an exponential collapse. To 80 M they
+had looked converged. These were the `‖ℋ‖₂` rates with the matter, inside
+`r < 6` and outside `r ≥ 10`:
+
+| `t` (M) | inside | outside |
+|---|---|---|
+| 0 | 1.96, 2.00 | — |
+| 20 | 2.23, 2.22 | 2.16, 2.15 |
+| 40 | 2.24, 2.23 | 2.04, 2.03 |
+| 60 | 2.21, 2.22 | 2.02, 2.01 |
+| 80 | 2.18, 2.20 | 1.87, 1.92 |
+
+But the norms grew at about the same rate at every resolution: inside,
+1.16-fold by 80 M at `h = 0.375` and 8.6-fold by 247 M at `h = 0.6`. At
+300 M they were 6.45e−3, 3.79e−3 and 1.76e−3, and the central density had
+risen by 40%, 24% and 11%, after first drifting down (−5.35%, −3.70% and
+−2.04% at 60 M).
+
+The diagnosis used a script outside the package, run at `h = 0.6` unless
+stated. It records, every 5 M:
+- the constraints;
+- the minimum lapse and the largest `|K|` at the owned vertices;
+- the largest change of TreeGH's state.
+
+It also has a mode that evolves TreeGH alone, with the initial star's
+`ADMMatter` held fixed (TreeGH's limiters and step bound only).
+
+TreeGH alone on the frozen matter:
+- **`γ0 = 1/M`:** the change doubles every 25 M (an e-fold of about 36 M).
+  At `h = 0.375` the rate is the same and the amplitude 2.5 times smaller,
+  so the mode is seeded at second order by the truncation error and grows
+  at a rate the resolution does not change. `ε_KO = 0` and a box twice as
+  large (`L = 48`, eight roots) give identical interiors.
+- **`γ0 = 0`:** bounded, but the constraints are noisy, `ℋ` up to 3e−4.
+- **`γ0 = 1/(20M)`, `1/(10M)`:** flat; the change is 1.6–1.7e−2 and `ℋ`
+  inside 3–5e−5. At `h = 0.375` and `1/(10M)`: 6.7e−3 and 1.6–2.2e−5
+  (second order).
+- **`γ0 = 1/(4M)`:** slow growth that saturates (1.5e−2 to 2.76e−2; at
+  `h = 0.375`, 6.1e−3 to 1.1e−2).
+- **`γ0 = 1/(2M)`:** grows, 2.7e−2 at 100 M and 0.43 at 500 M.
+- **`γ0 = 4/M`:** `NaN` at 105 M.
+- **`γ0 = 1/M`, `γ2 = −1/2`:** bounded, 3e−2, with `ℋ` 3e−4.
+
+Coupled, to 250 M:
+- **`γ0 = 1/M`:** the studies' growth repeats.
+- **`γ0 = 4/M`:** the star disperses; the central density falls to 5.5e−5
+  and the minimum lapse rises to 0.90.
+- **`γ0 = 1/(4M)`:** stable. The central density oscillates between 1.13e−3
+  and 1.21e−3, with a period near the F mode's; `ℋ` inside stays at 5–8e−5.
+- **`γ0 = 1/M`, `γ2 = 1`:** crashes at 80 M.
+- **`γ0 = 1/M`, `γ2 = −1/2`** (job 595410, to 390 M): stable, with `ℋ`
+  inside at 6–9e−5, about twice that at `1/(10M)`.
+
+So the cause was the damping proposed for step 11, not the coupling: it was
+TreeGH's near-hole value applied everywhere. `γ0 = 1/(10M)` (TreeGH's
+far-zone value for a hole), `γ2 = 0`, is proposed instead and is the
+scripts' default (`problems`' keyword `γ0M = 1/10`). With it, the coupled
+suite passed at one thread, at four and with bounds checks (22 tests each;
+4m41.2s, 2m47.4s, 4m48.1s; jobs 595411–595413). The studies were restarted
+as jobs 595407–595409; at `h = 0.6` the run is stable to 300 M, `ℋ` inside
+at 3.2–5.4e−5 throughout.
+
+`cfl_gh`'s scan (`coupled/gh_cfl.jl`, "Time integration" above) was
+measured at `γ0 = 1/M` and not repeated.
+
 **2026-11-10, step 11: the repeated fill.** The fill is keyed on its input
 in the script (`FillKey`, proposed). The item had been (open):
 

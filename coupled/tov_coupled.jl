@@ -10,7 +10,8 @@
 #
 # Keys (`coupled/tov_coupled_cli.jl`): `N` (cells per block, 16), `levels` (box levels
 # around the star, 1), `L` (the box `[−L, L]³`, 24), `roots` (4), `t_end` (200), `chunk`
-# (10), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor), `out` (a file for the record,
+# (10), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor), `γ0M` and `γ2` (TreeGH's
+# damping, `γ0 = γ0M/M`), `out` (a file for the record,
 # `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂` per chunk; default the terminal).
 
 using TreeAMR
@@ -112,16 +113,17 @@ end
 # The star of step 10 on one forest, TreeGH's problem on it, the matter's, and the vertex
 # set the metric crosses into; the state vector holds TreeGH's set first. TreeGH's gauge is
 # its static-background path ("Gauge for the TOV milestones" in `CODE.md`): `H_a` of the
-# star's own metric, sampled and frozen. Its damping (proposed in step 11): `γ0 = 1/M`,
-# `γ2 = 0`, `ε_KO = 1/2`.
+# star's own metric, sampled and frozen. Its damping (proposed in step 11): `γ0 = γ0M/M`
+# with `γ0M = 1/10`, `γ2 = 0`, `ε_KO = 1/2`. `γ0M = 1`, TreeGH's value at a hole, grows a
+# mode of the star e-folding in about 36 M ("Two scripts", "As built" in `CODE.md`).
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
-                  refinement=nothing, reuse_fill=true)
+                  refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0)
     star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
     tov = star.provider.metric
     ghcase = GH.GHCase(T, tov; box=star.extents, periodic=star.periodic, ε_KO=T(1 // 2),
-                       γ0=inv(tov.M), γ2=zero(T), refinement)
+                       γ0=T(γ0M) / tov.M, γ2=T(γ2), refinement)
     U = FieldSet{T}(forest, 20; G=q ÷ 2 + 1, centering=vertexcentered(3))
     ops = Operators(; prolongation=q + 2, restriction=q + 2)
     gh = GH.GHProblem(U, GhostSchedule(U, ops), ghcase; q)   # q ≥ 4: K at the contract's order
@@ -174,9 +176,10 @@ end
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
               cfl_gh=T(1 // 2), refinement=nothing, mhd_flags=nothing, reuse_fill=true,
+              γ0M=1 // 10, γ2=0,
               record=(t, ρ_c, c) -> println(t, "  ", ρ_c, "  ", c.ham_l2, "  ", c.mom_l2))
     (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement,
-                                      reuse_fill)
+                                      reuse_fill, γ0M, γ2)
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)

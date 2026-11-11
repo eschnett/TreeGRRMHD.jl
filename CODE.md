@@ -1770,7 +1770,9 @@ coupled run it is the smaller of the matter's step and TreeGH's,
 stable under SSP3(4,3,3)'s explicit part on the TOV star, with the star's
 matter held fixed:
 - **The star:** stable up to 1.10, on a grid in steps of 0.05. At 1.15 the
-  error grows 7.7-fold, and at 1.25 it is `NaN`.
+  error grows 7.7-fold, and at 1.25 it is `NaN`. This was measured with
+  TreeGH's damping at `γ0 = 1/M` and not repeated at today's `1/(10M)`
+  ("Two scripts", "As built").
 - **TreeGH's gauge wave:** stable to the end of the grid, 1.5, under both
   SSP3(4,3,3) and RK4. The wave varies in one direction only.
 - **The source of the runs:** `coupled/gh_cfl.jl`;
@@ -2398,14 +2400,36 @@ fill. The command line and the record are an included file's
 The step-11 sketch is `coupled/tov_coupled.jl` (step 11), its `main` run by
 the coupled suite. Its departures from the sketch:
 - **`import`, not `using`,** for both packages, and `IRK = TreeGRRMHD.IRK`.
-- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill)`** builds the
+- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill, γ0M, γ2)`** builds the
   mesh, the two problems, `Mv` and the initial state, apart from `main`, so
   that the suite and the studies build the same run. TreeGH's problem is
   `GHProblem(U, GhostSchedule(U, ops), case; q)` on a vertex set the script
   makes (TreeGH has no `GHProblem(forest, case; q)`), with
   `ops = Operators(; prolongation = q + 2, restriction = q + 2)`, TreeGH's
   own. Its case is `GHCase(T, TOVMetric; box, periodic, ε_KO = 1/2,
-  γ0 = 1/M, γ2 = 0)` (the damping proposed in step 11).
+  γ0 = γ0M/M, γ2)` with `γ0M = 1/10` and `γ2 = 0` (proposed in step 11).
+- **The damping `γ0 = 1/(10M)`** is TreeGH's far-zone value for a hole,
+  used everywhere. TreeGH's near-hole value `1/M`, used everywhere, grows a
+  mode of the star that e-folds in about 36 M at every resolution, seeded
+  by the truncation error; the star then collapses near 400 M. The mode
+  needs the matter (TreeGH alone in vacuum does not grow it) and the
+  damping (at `γ0 = 0` the run is bounded). In TreeGH alone on the star's
+  frozen matter, at `h = 0.6` to 500 M:
+
+  | `γ0 M` | `γ2` | largest change of TreeGH's state |
+  |---|---|---|
+  | 0 | 0 | bounded; `ℋ` noisy, to 3e−4 |
+  | 1/20, 1/10 | 0 | flat, 1.6e−2; at `h = 0.375`, 6.7e−3 |
+  | 1/4 | 0 | grows, saturates at 2.8e−2 |
+  | 1/2 | 0 | grows, 0.43 at 500 M |
+  | 1 | 0 | doubles every 25 M |
+  | 1 | −1/2 | bounded, 3e−2; `ℋ` 3e−4 |
+  | 4 | 0 | `NaN` at 105 M |
+
+  `γ0 M = 1/10` is the smallest flat constraint norm in the scan. Coupled,
+  `γ0 M = 1/4` and `γ0 M = 1, γ2 = −1/2` are also stable (to 250 M and
+  390 M), the latter with twice the `ℋ`; `γ2 = 1` crashes at 80 M. The
+  runs are [HISTORY.md, "Two scripts"](HISTORY.md#two-scripts).
 - **The step count** is the larger of TreeGH's, `chunk_count((t1 − t)·λ,
   cfl_gh·h_min)` with `λ = GH.max_speed`, and the matter's, step 10's
   `chunk_count((t1 − t)·3·rate, cfl)` in TreeGH's metric (`step_count`).
@@ -4933,8 +4957,8 @@ named as claims.
    - **The coupled suite:** step 10's star on `[−16, 16]³`, two roots, no
      boxes, MC, at `N = 10` and `N = 20`.
    - **The studies:** `[−24, 24]³`, four roots, one box level, PPM, at
-     `N = 10, 12, 16` (`h = 0.6, 0.5, 0.375`), to 1000 M. Run on amdpreq,
-     jobs 595057–595059.
+     `N = 10, 12, 16` (`h = 0.6, 0.5, 0.375`), to 1000 M, with TreeGH's
+     damping `γ0 = 1/(10M)`. Run on amdpreq, jobs 595407–595409.
 
    The results:
    - **The frozen metric:**
@@ -4963,17 +4987,15 @@ named as claims.
      | `t` (M) | inside | outside |
      |---|---|---|
      | 0 | 1.96, 2.00 | — |
-     | 20 | 2.23, 2.22 | 2.16, 2.15 |
-     | 40 | 2.24, 2.23 | 2.04, 2.03 |
-     | 60 | 2.21, 2.22 | 2.02, 2.01 |
-     | 80 | 2.18, 2.20 | 1.87, 1.92 |
+     | 25 | 1.95, 1.86 | 1.86, 1.87 |
+     | 50 | 1.92, 2.10 | 1.95, 1.97 |
+     | 75 | 1.88, 2.02 | 1.87, 1.91 |
 
-     The norms grow with time, and the growth converges away with the
-     error. Inside, they grow 1.16-fold by 80 M at `h = 0.375`, and
-     8.6-fold by 247 M at `h = 0.6`.
-   - **The central density** first drifts down: −5.35%, −3.70% and −2.04%
-     at 60 M (rates 2.0 and 2.1). At `h = 0.6` it then rises past its
-     initial value, to +13% at 247 M.
+     They do not grow with time. Inside, at `h = 0.6`, the norm falls from
+     3.5e−4 at `t = 0` to 4.3e−5 by 25 M and stays between 3.2e−5 and
+     5.4e−5 to 300 M.
+   - **The central density** oscillates, at `h = 0.6` between 1.13e−3 and
+     1.20e−3 to 300 M (initially 1.26e−3), with no secular drift.
    - **Not yet measured:** the modes, the constraints and the drift to
      1000 M, and the matter's transfer order decided from them. The
      studies are still running.

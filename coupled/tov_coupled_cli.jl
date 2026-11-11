@@ -8,7 +8,7 @@ function run_cli(main, args)
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots")
             kw[Symbol(k)] = parse(Int, v)
-        elseif k in ("L", "t_end", "chunk", "cfl_gh")
+        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2")
             kw[Symbol(k)] = parse(Float64, v)
         elseif k == "limiter"
             kw[:limiter] = Symbol(v)
@@ -16,7 +16,7 @@ function run_cli(main, args)
             out = v
         else
             error("tov_coupled.jl: unknown key `$k` (N, levels, L, roots, t_end, chunk, " *
-                  "cfl_gh, limiter, out)")
+                  "cfl_gh, γ0M, γ2, limiter, out)")
         end
     end
     io = out === nothing ? stdout : open(out, "w")

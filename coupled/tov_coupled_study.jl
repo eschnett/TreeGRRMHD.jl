@@ -8,7 +8,8 @@
 #     julia --project=coupled -t T coupled/tov_coupled_study.jl [key=value...]
 #
 # Keys: `N` (16), `levels` (1), `L` (24), `roots` (4), `t_end` (200), `chunk` (the sampling
-# interval, 1), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor, 1/2), `out` (the series,
+# interval, 1), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor, 1/2), `γ0M` and `γ2`
+# (TreeGH's damping, `γ0 = γ0M/M`; 1/10 and 0), `out` (the series,
 # `t ρ_c ‖ℋ‖₂in ‖ℳ‖₂in ‖ℋ‖₂out ‖ℳ‖₂out injected_D steps` per chunk), `checkpoint` (a file
 # saved every `every` chunks, default 20, and resumed from if it exists).
 
@@ -30,8 +31,9 @@ function study_norms(p, u, t)
 end
 
 function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, limiter=:ppm,
-               cfl_gh=T(1 // 2), out=nothing, checkpoint=nothing, every=20)
-    (; p, u, forest) = problems(T; N, levels, L, roots, limiter)
+               cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, out=nothing, checkpoint=nothing,
+               every=20)
+    (; p, u, forest) = problems(T; N, levels, L, roots, limiter, γ0M, γ2)
     M0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1]
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
@@ -86,7 +88,7 @@ function study_main(args)
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every")
             kw[Symbol(k)] = parse(Int, v)
-        elseif k in ("L", "t_end", "chunk", "cfl_gh")
+        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2")
             kw[Symbol(k)] = parse(Float64, v)
         elseif k == "limiter"
             kw[:limiter] = Symbol(v)
