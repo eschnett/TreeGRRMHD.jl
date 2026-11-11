@@ -19,9 +19,9 @@ in IMEXRungeKutta (what each delivered is recorded in [HISTORY.md, "The
 steps of the plan"](HISTORY.md#the-steps-of-the-plan)); step 10 is the TOV
 star in the Cowling approximation on the analytic TOV metric, with no
 TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
-the coupled run, is built and measured except for its long runs (the modes
-and the constraints to 1000 M, "Validation ladder" 5), which are still
-running. Two of its upstream items are open, GH-2 (registration) and GH-7
+the coupled run, is built and measured ("Validation ladder" 5): F within
+1%, but H1 and H2 miss Font et al.'s 3%, and outside the star the
+constraints' rate falls to 1.74 after 500 M. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
@@ -2752,8 +2752,10 @@ combination, so `ρ ≥ 0` holds at the vertex exactly where a higher-order
 interpolation would ring at a stellar surface. TreeGH assembles `T_ab` from
 them with the vertex's own `α` and `β`, the metric it evolves (the earlier
 alternative: [HISTORY.md, "Matter to the
-vertices"](HISTORY.md#matter-to-the-vertices)). A 4th-order option is kept,
-and which one wins is (open).
+vertices"](HISTORY.md#matter-to-the-vertices)). The second order is the
+transfer (proposed in step 11): with it the constraints converge at about 2
+inside the star and F is within 1% of Font et al. ("Validation ladder" 5).
+A 4th-order transfer was not built.
 
 This is this package's matter adapter, `TreeGRRMHD.ADMMatter(p)`. TreeGH
 binds it to its vertex set and calls it at its owned vertices (GH-3).
@@ -4984,25 +4986,69 @@ named as claims.
    - **Rest mass:** it changes by exactly what the reset injects, to
      1e−14 relative. At `N = 10` to `t = 1`, the change is −1.0847101e−10
      and the injection −1.0847041e−10.
-   - **The constraints over time** (the studies): `‖ℋ‖₂` with the matter,
-     inside `r < 6` and outside `r ≥ 10`. The rates between
-     `h = 0.6, 0.5, 0.375`:
+   - **The constraints over time** (the studies): the `‖·‖₂` norms with
+     the matter, inside `r < 6` and outside `r ≥ 10`, each averaged over a
+     window. The rates between `h = 0.6, 0.5` and between `h = 0.5, 0.375`:
 
-     | `t` (M) | inside | outside |
-     |---|---|---|
-     | 0 | 1.96, 2.00 | — |
-     | 25 | 1.95, 1.86 | 1.86, 1.87 |
-     | 50 | 1.92, 2.10 | 1.95, 1.97 |
-     | 75 | 1.88, 2.02 | 1.87, 1.91 |
+     | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+     |---|---|---|---|---|
+     | 0 | 1.96, 2.00 | — | 4.31, 4.10 | — |
+     | 20–30 | 1.95, 1.96 | 2.09, 2.07 | 1.88, 1.88 | 1.86, 1.84 |
+     | 95–105 | 2.12, 2.23 | 2.19, 2.32 | 1.87, 1.90 | 1.88, 1.92 |
+     | 240–260 | 2.02, 2.15 | 2.11, 2.29 | 1.79, 1.85 | 1.87, 1.91 |
+     | 490–510 | 1.83, 1.99 | 1.99, 2.21 | 1.70, 1.79 | 1.77, 1.87 |
+     | 740–760 | 2.02, 2.22 | 1.85, 2.14 | 1.65, 1.87 | 1.68, 1.81 |
+     | 900–1000 | 1.78, 2.01 | 1.78, 2.11 | 1.63, 1.74 | 1.62, 1.74 |
 
-     They do not grow with time. Inside, at `h = 0.6`, the norm falls from
-     3.5e−4 at `t = 0` to 4.3e−5 by 25 M and stays between 3.2e−5 and
-     5.4e−5 to 300 M.
-   - **The central density** oscillates, at `h = 0.6` between 1.13e−3 and
-     1.20e−3 to 300 M (initially 1.26e−3), with no secular drift.
-   - **Not yet measured:** the modes, the constraints and the drift to
-     1000 M, and the matter's transfer order decided from them. The
-     studies are still running.
+     The norms do not grow: inside, at `h = 0.375`, `ℋ` falls from 1.4e−4
+     at `t = 0` to 1.9e−5 by 25 M and stays at 1.4–1.6e−5 to 1000 M.
+     **`PLAN.md`'s ≥ 1.8 holds inside on the finer pair throughout, and
+     fails outside after about 500 M** (1.74 on the finer pair over
+     900–1000 M), where the outside norm grows again from 1.1e−6 to
+     1.4e−6 at `h = 0.375`. Not localised.
+   - **The central density** oscillates in the F mode and drifts down, the
+     drift converging. Relative to `t = 0`, averaged over a window:
+
+     | `t` (M) | `h = 0.6` | `h = 0.5` | `h = 0.375` | rates |
+     |---|---|---|---|---|
+     | 50–70 | −9.55% | −6.72% | −3.79% | 1.93, 1.99 |
+     | 240–260 | −8.06% | −5.31% | −2.75% | 2.28, 2.29 |
+     | 490–510 | −11.52% | −7.57% | −3.95% | 2.30, 2.26 |
+     | 900–1000 | −14.49% | −9.19% | −4.41% | 2.50, 2.55 |
+
+     After 200 M it drifts at 8.3e−5, 4.9e−5 and 2.0e−5 per M (a
+     linear fit, relative; rates 2.9 and 3.1).
+   - **Rest mass** over the 1000 M: its change minus what the reset
+     injected is 1.0e−9, 6.1e−10 and 2.6e−10 of 1.506 (rates 2.8, 3.0).
+     That is truncation error, not round-off, unlike the suite's 1e−14 at
+     `t = 1`. Something converging takes mass out, presumably through the
+     outer faces, where the shift is TreeGH's and not zero. Not localised.
+   - **Modes** (`bin/tov_modes.jl ref=coupled`, the whole series, 0.20 kHz
+     resolution), against Font et al. (2002), Table II (1.442, 3.955,
+     5.916 kHz):
+
+     | `h` | F | H1 | H2 |
+     |---|---|---|---|
+     | 0.6 | 1.452 (+0.71%) | 3.171 (**−19.81%**) | 5.282 (**−10.71%**) |
+     | 0.5 | 1.453 (+0.78%) | 4.225 (**+6.82%**) | 5.298 (**−10.44%**) |
+     | 0.375 | 1.452 (+0.67%) | 4.287 (**+8.38%**) | 5.292 (**−10.56%**) |
+
+     **F holds the 3%; H1 and H2 fail it.** F's peak is 100 times the
+     others: the coupled run's start excites F, and little else. The
+     peak in H2's window, 5.29 kHz at every resolution, is the spacetime's,
+     not the star's: it is the strongest line of `ℋ` inside the star, as
+     are 2.79 and 7.33 kHz, which also appear in `ρ_c`. Its amplitude in
+     `ρ_c` converges at 1.9. H1's peak moves with the window and the
+     detrending (4.06–4.35 kHz at `h = 0.375`). Over `[0, 500]` M alone,
+     at `h = 0.375`, the tool gives H1 +3.17% or +2.52% (detrending degree
+     1 or 3) and H2 +1.31%; at `h = 0.5`, H1 +19.9% or +3.2% and H2 +2.0%;
+     at `h = 0.6` both fail. A window picked after seeing the spectra is
+     not the measure, so this is a miss.
+   - **The transfer order:** second order (proposed; "Matter to the
+     vertices"). With it, the constraints converge at about 2 and F is
+     within 1%. What fails, H1, H2 and the late rate outside, points at
+     the overtones' weak excitation and the spacetime's lines, not at the
+     transfer. A 4th-order transfer was not built or measured.
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
    2013).

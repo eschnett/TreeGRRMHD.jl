@@ -712,22 +712,27 @@ Accept:
 - **Decides:** the largest stable GH `cfl` under SSP3, on the gauge wave and on the TOV star,
   which becomes the default; and **the matter's transfer order (open)**.
 
-**State (2026-11-10).** Built and measured, except for the long runs (`CODE.md`, "Validation
-ladder" 5).
+**State (2026-11-11).** Built and measured (`CODE.md`, "Validation ladder" 5).
 
 Done:
 - the frozen metric, to round-off;
 - GH-3's static-matter check (rate 1.87);
-- rest mass, to 1e−14 net of the reset's injection;
-- the constraints at ≥ 1.86 to 75 M, flat in time (`h = 0.6` to 300 M);
+- rest mass, to 1e−14 net of the reset's injection to `t = 1`; over 1000 M, 1.0e−9 to
+  2.6e−10 of 1.506, converging at about 3: **a miss**, not localised;
+- the constraints at ≥ 1.8 to 1000 M inside (finer pair); outside, 1.74 after 500 M:
+  **a miss**;
+- the modes: F +0.67% at `h = 0.375`; H1 +8.38% and H2 −10.56%: **a miss**, with H2's window
+  holding a spacetime line at 5.29 kHz;
 - the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` **(proposed)**;
 - `ADMMatter` computed per call **(proposed)**;
 - TreeGH's damping `γ0 = 1/(10M)` **(proposed)**; the first studies, at `γ0 = 1/M`,
-  collapsed near 400 M (`HISTORY.md`, "Two scripts").
+  collapsed near 400 M (`HISTORY.md`, "Two scripts");
+- the matter's transfer order: second order **(proposed)**.
 
-Running on Symmetry: the studies to 1000 M at `h = 0.6, 0.5, 0.375` (amdpreq, jobs
-595407–595409, checkpointed). They give the modes (`bin/tov_modes.jl ref=coupled`), the
-constraints to 1000 M and the transfer order.
+Open for Erik: whether the H1 and H2 miss, the outside rate and the rest-mass budget are
+accepted, or are followed up. One follow-up is to excite the overtones with a perturbation of
+the initial star, so that they stand above the spacetime's lines. Another is to localise the
+rest-mass loss at the outer faces.
 
 ## Step 12 — The magnetized TOV star (rung 6)
 

@@ -3500,6 +3500,13 @@ The `Tsrc` row of "Field sets" went with the decision. It had read:
 "`(ρ, S_i, S_ij)` at cells, only if this package's matter adapter stores
 it (step 11, (open))".
 
+**2026-11-11, step 11.** The transfer order is second order, the mean of
+the `2^D` cells (proposed). It had been (open), with "a 4th-order option
+kept". `PLAN.md` asked for it to be decided from the long studies'
+constraints and modes. These converge at about 2 and put F within 1%, and
+their misses point elsewhere (`CODE.md`, "Validation ladder" 5). The
+4th-order option was never built, so this is not a measured comparison.
+
 ### Gauge for the TOV milestones
 
 **2026-11-06, step 10.** `TOVMetric` as this package's provider for the
@@ -4674,6 +4681,21 @@ the layer's L1 at 2.03 on the finest pair): its ratio `s★` leaves the window t
 1220), since the reset rewrites `D s` only in repaired cells, while the recovered `s` and `T`
 agree. Holds; `CODE.md`, "As built in step 10, round 2". The vertex metric's step costs 2.0–2.5
 times less than `Analytic(TOVMetric)`'s.)*
+
+**2026-11-11, step 11: the studies to 1000 M.** Jobs 595407–595409
+(`h = 0.6, 0.5, 0.375`, `γ0 = 1/(10M)`) reached 1000 M; on amdpreq the
+`h = 0.375` run was pre-empted ten times and resumed from its checkpoints.
+`CODE.md`, "Validation ladder" 5, has the results. Measured against
+`PLAN.md`'s predictions:
+- the constraints at ≥ 1.8 away from the surface: *(holds inside on the
+  finer pair to 1000 M; outside it falls to 1.74 after about 500 M)*;
+- F, H1 and H2 within 3% of Font et al. (2002), Table II: *(F holds,
+  +0.67% at `h = 0.375`; H1 +8.38% and H2 −10.56% over the whole run.
+  H2's window holds a spacetime line at 5.29 kHz, the strongest line of
+  `ℋ`. Over `[0, 500]` M alone, H1 is +2.5–3.2% and H2 +1.3% at
+  `h = 0.375`, a window chosen after seeing the spectra)*;
+- rest mass to round-off: *(1e−14 to `t = 1` in the suite; over 1000 M,
+  1.0e−9 to 2.6e−10 of 1.506 net of the reset, converging at about 3)*.
 
 ## Open questions
 
