@@ -381,6 +381,10 @@ contract](#the-coupling-contract)). GH-5 is withdrawn.
   monitors a segment's constraints. Until then the script composes them
   from TreeGH's exports (`coupled/gh7.jl`, [`PLAN.md`,
   GH-7](PLAN.md#gh-7--the-regrid-verbs-and-the-constraint-norms-of-a-segment-wanted-step-11-workaround)).
+- **GH-8 (note) Constraint damping on a star.** No change requested: at
+  TreeGH's near-hole `γ0 = 1/M` the star grows a mode, and this package
+  uses `γ0 = 1/(10M)` ("Two scripts", "As built";
+  [`PLAN.md`, GH-8](PLAN.md#gh-8--constraint-damping-on-a-star-note)).
 
 The CFL factor of TreeGH under SSP3(4,3,3)'s explicit tableau is *not* an
 upstream item: this package owns the integrator, and step 11 measured the

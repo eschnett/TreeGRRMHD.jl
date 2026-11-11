@@ -59,6 +59,7 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
   - [GH-5 — Ghost width `≥ q/2 + 1` (withdrawn 2026-11-06; was wanted, step 10)](#gh-5--ghost-width--q2--1-withdrawn-2026-11-06-was-wanted-step-10)
   - [GH-6 — Later](#gh-6--later)
   - [GH-7 — The regrid verbs and the constraint norms of a segment (wanted, step 11; workaround)](#gh-7--the-regrid-verbs-and-the-constraint-norms-of-a-segment-wanted-step-11-workaround)
+  - [GH-8 — Constraint damping on a star (note)](#gh-8--constraint-damping-on-a-star-note)
   - [SM-1 — Allocation-free extrinsic curvature (wanted, step 9; workaround)](#sm-1--allocation-free-extrinsic-curvature-wanted-step-9-workaround)
 - [Step 0 — Scaffolding](#step-0--scaffolding)
 - [Step 1 — Units, variables and the 3+1 primitive recovery](#step-1--units-variables-and-the-31-primitive-recovery)
@@ -239,6 +240,7 @@ landing in EntropyEOS 2.2.1 (2026-10-30) and GH-1's as `ADMMetric` (2026-11-08).
 | GH-5 | TreeGH | — | — | was: ghost width `≥ q/2 + 1`, wanted, step 10; not needed: the interpolation reads this package's own `G = 4` vertex set | withdrawn |
 | GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
 | GH-7 | TreeGH | wanted, workaround | 11 | the regrid verbs (`flags`, `regrid_pairs`, `rebuild`) and `constraint_norms(p, u, t)` on a segment | waiting |
+| GH-8 | TreeGH | note | — | constraint damping on a star: `γ0 = 1/M` grows a mode with matter; no change requested | written, not sent |
 | SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed in SpacetimeMetrics 1.7.0 (workaround dropped) |
 
 **Inconsistent:** the EOS-11 row gives `[compat]` `"2.2"`; `CLAUDE.md`'s former "Current state"
@@ -533,6 +535,55 @@ of the workaround, is bit-identical to the workaround's.
 TreeGH's exports (`gh_indicator!`, `dirichlet`, `GHProblem(U, schedule, case; q)`,
 `GhostSchedule`, `adm_constraint!`, `constraint_norms(p)`), reading `GHProblem`'s fields `U`,
 `schedule` and `case`.
+
+### GH-8 — Constraint damping on a star (note)
+
+A measurement for TreeGH, from step 11. No change is requested; what to do with it is TreeGH's
+call.
+
+**What was found.** The star is TreeGRRMHD's TOV star: `K = 100`, `Γ = 2`, `ρ_c = 1.28e−3`,
+`M = 1.400`, `R = 9.586`. TreeGH evolves it with a frozen sampled `H_a`, `ε_KO = 1/2` and a
+constant `γ0`. At `γ0 = 1/M`, the near-hole value of `GHCase`'s docstring, a mode grows. It
+doubles every 25 M (an e-fold of about 36 M) at `h = 0.6` and at `h = 0.375`. The rate does not
+change with resolution, and the amplitude is 2.5 times smaller at the finer `h`: the truncation
+error seeds it at second order. In the coupled run the star collapses near 400 M. TreeGH alone
+shows the same growth, on the initial star's matter held fixed (GH-3's adapter, the anti-Cowling
+setting).
+
+The largest change of TreeGH's state, TreeGH alone on the frozen matter, at `h = 0.6` to 500 M:
+
+| `γ0 M` | `γ2` | result |
+|---|---|---|
+| 0 | 0 | bounded; `ℋ` noisy, to 3e−4 |
+| 1/20, 1/10 | 0 | flat, 1.6e−2 (6.7e−3 at `h = 0.375`); `ℋ` 3–5e−5 |
+| 1/4 | 0 | grows, then saturates at 2.8e−2 |
+| 1/2 | 0 | grows, 0.43 at 500 M |
+| 1 | 0 | doubles every 25 M |
+| 1 | −1/2 | bounded, 3e−2; `ℋ` 3e−4 |
+| 4 | 0 | `NaN` at 105 M |
+
+Neither `ε_KO = 0` nor a box twice as wide changes the interior. Coupled: `γ0 M = 1/4` is
+stable to 250 M, `γ0 M = 1` with `γ2 = −1/2` to 390 M, and `γ2 = 1` crashes at 80 M.
+TreeGRRMHD now uses `γ0 = 1/(10M)`, `γ2 = 0`, which is `GaussianDamping`'s far-zone value for
+a hole, and `ℋ` stays flat to 300 M. The runs:
+[HISTORY.md, "Two scripts"](HISTORY.md#two-scripts).
+
+**Not measured:**
+- which scale sets the threshold (`M`, `R`, or the light-crossing time);
+- the mechanism: the mode needs both the matter and `γ0 ≳ 1/(4M)`, and `γ2 = −1/2` suppresses
+  it;
+- TreeGH's Plummer star (`test/matter_tests.jl`, `star_case`), which uses `γ0 = 1`, that is
+  `10/M`, on short runs.
+
+**Possibly relevant to TreeGH:**
+- `GHCase`'s docstring and `CODE.md`, "Gauge and constraint damping", give `γ0 ≈ 1/M` as the
+  recipe near a hole. A matter case inherits it unless told otherwise.
+- Long matter runs at `γ0 ≳ 1/(2M)` may grow this mode.
+
+**Reproducer** (TreeGRRMHD's `coupled/` environment, about an hour on 64 cores):
+```bash
+julia --project=coupled -t 64 coupled/tov_coupled_study.jl N=10 t_end=400 γ0M=1
+```
 
 ### SM-1 — Allocation-free extrinsic curvature (wanted, step 9; workaround)
 
