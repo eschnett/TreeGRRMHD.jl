@@ -1067,7 +1067,7 @@ build them in every ghost ([`update_primitives!`](@ref)), in the metric
 [`rhs!`](@ref); a script that owns the time loop calls the two in turn
 ("The coupling contract", "Two scripts" in `CODE.md`; added in step 10).
 Returns `p`, whose prepared state the producer's adapters read (step 11's
-`T_ab`). `metric` reaches the kernels only: the boundary hooks, the
+[`ADMMatter`](@ref)). `metric` reaches the kernels only: the boundary hooks, the
 interior and the initial data keep the case's own provider (proposed in
 step 10). Public, not exported.
 """

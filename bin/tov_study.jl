@@ -17,7 +17,9 @@
 # `metric` (`analytic`, the default, `Analytic(TOVMetric)` at every point; or `vertex`, the
 # same metric sampled at the owned vertices into the vertex metric set and interpolated,
 # step 10's round 2, `N ≥ 10`), `state` (a file the final state is serialized to, for
-# `bin/tov_compare.jl`; default none). The summary goes to the terminal; a resumed run's
+# `bin/tov_compare.jl`; default none), `δv` (the star's initial velocity along its
+# Cowling radial modes, the amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, `δv=a₁,a₂,a₃`;
+# `tov_case`; none). The summary goes to the terminal; a resumed run's
 # wall time is its own part only.
 
 using TreeAMR
@@ -43,8 +45,8 @@ const OPS_W = Dict(
 
 function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
                limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing,
-               checkpoint=nothing, every=20, metric="analytic")
-    star = MHD.tov_case(T; L, roots)
+               checkpoint=nothing, every=20, metric="analytic", δv=(0, 0, 0))
+    star = MHD.tov_case(T; L, roots, δv, δv_modes=:cowling)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels, half_width=half * star.fields.w.metric.R̄)
     mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter, riemann,
@@ -132,6 +134,8 @@ function main(args)
             kw[Symbol(k)] = Symbol(v)
         elseif k in ("opsW", "reset", "checkpoint", "metric")
             kw[Symbol(k)] = String(v)
+        elseif k == "δv"
+            kw[:δv] = Tuple(parse.(Float64, split(v, ',')))
         elseif k == "out"
             out = v
         elseif k == "state"

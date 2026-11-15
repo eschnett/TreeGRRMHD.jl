@@ -96,6 +96,8 @@ export primitive_state, prim2con, con2prim_hydro, con2prim_ideal, guesses, cold_
 export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_gradient
 # The vertex metric of the coupling contract (step 10, round 2)
 export VertexMetricSet, VertexMetric, SampledADM, metric_fallbacks
+# The matter of the coupling contract (step 11)
+export ADMMatter, adm_matter_set
 # The pointwise physics
 export stress_energy, T4_lower
 export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, MagnetizationCutoff,
@@ -125,7 +127,7 @@ export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning
        kerr_schild_r
 # The TOV star (step 10)
 export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
-       tov_boxes!
+       tov_boxes!, TOVModes, tov_radial_modes, tov_mode_velocity
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -140,7 +142,8 @@ export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_
 # `CODE.md`): public, not exported, so that loading TreeGH beside this package, whose verbs
 # have the same names, makes nothing ambiguous.
 public prepare!, rhs!, stage_solve!, stage_limit!, step_limit!, max_rate, initial_state!,
-       chunk_count, default_cfl, central_density, rebuild, vertex_metric!, regrid_pairs
+       chunk_count, default_cfl, central_density, rebuild, vertex_metric!, regrid_pairs,
+       flags
 
 include("precision.jl")
 include("device.jl")
@@ -151,6 +154,7 @@ include("prim2con.jl")
 include("con2prim.jl")
 include("metric.jl")
 include("tov.jl")
+include("tov_pulsation.jl")
 include("stress_energy.jl")
 include("ohm.jl")
 include("flux.jl")
@@ -165,6 +169,7 @@ include("evolution.jl")
 include("driver.jl")
 include("refinement.jl")
 include("vertex_metric.jl")
+include("adm_matter.jl")
 include("interior.jl")
 include("cases/em_wave.jl")
 include("cases/alfven_wave.jl")

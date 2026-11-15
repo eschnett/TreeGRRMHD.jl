@@ -1,0 +1,38 @@
+# The coupled runs of step 11: TreeGRRMHD's matter on TreeGeneralizedHarmonic's spacetime,
+# a script that owns the loop and calls both packages' verbs ("The coupling contract",
+# "Two scripts" in `CODE.md`). An environment of its own (decided by Erik 2026-11-10), so
+# that neither package depends on the other and the package's own suite and CI never load
+# TreeGH and its dependencies.
+[deps]
+ApparentHorizonFinder = "2326d305-03d0-4260-ba27-fc7d1edfc55d"
+EntropyEOS = "75b96802-7bb2-4b1d-85f8-8113624a580e"
+IMEXRungeKutta = "6f46d5f7-e15e-41aa-a098-eed9d1a63ad8"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+SpacetimeMetrics = "77e61b41-605e-43a6-b70f-04b7dcd1f572"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
+TreeGRRMHD = "f3727fb5-afac-43cc-bb8c-9034b99ae834"
+TreeGeneralizedHarmonic = "ec251ae6-5b3e-4df5-a9c7-7e3f01cdd68c"
+
+# TreeGRRMHD is this checkout. TreeGeneralizedHarmonic is unregistered, and so is
+# IMEXRungeKutta; TreeGH needs ApparentHorizonFinder 2.1, ahead of the registry's 2.0.0
+# (GH-2 workaround: by URL until TreeGH and its dependencies are registered). EntropyEOS
+# and IMEXRungeKutta are named as the package names them, since a dependency's own
+# `[sources]` are not read here. Never a sibling checkout.
+[sources]
+ApparentHorizonFinder = {rev = "main", url = "https://github.com/eschnett/ApparentHorizonFinder.jl"}
+EntropyEOS = {url = "https://github.com/eschnett/EntropyEOS.jl", rev = "v2.2.1"}
+IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
+TreeGRRMHD = {path = ".."}
+TreeGeneralizedHarmonic = {rev = "main", url = "https://github.com/eschnett/TreeGeneralizedHarmonic.jl"}
+
+[compat]
+ApparentHorizonFinder = "2.1"
+EntropyEOS = "2.2.1"
+IMEXRungeKutta = "1.4"
+SpacetimeMetrics = "1.7"
+StaticArrays = "1"
+TreeAMR = "0.2.6"
+julia = "1.13"

@@ -1,9 +1,12 @@
-# Step 10 (rung 4): the radial mode frequencies of the Cowling TOV star, from the central
-# density's time series that `bin/tov_study.jl` writes (`out=…`), against Font et al. (2002,
-# PRD 65, 084024, Table I: the fixed-spacetime frequencies of this model from an independent
-# 2D code, F = 2.701, H1 = 4.563, H2 = 6.352 kHz).
+# Steps 10 and 11 (rungs 4 and 5): the radial mode frequencies of the TOV star, from the
+# central density's time series that `bin/tov_study.jl` or `coupled/tov_coupled_study.jl`
+# writes (`out=…`, the density in the second column), against Font et al. (2002, PRD 65,
+# 084024): `ref=cowling`, the default, Table I, the fixed-spacetime frequencies of this model
+# from an independent 2D code, F = 2.701, H1 = 4.563, H2 = 6.352 kHz; `ref=coupled`, Table
+# II, the coupled frequencies from linear perturbation theory, F = 1.442, H1 = 3.955,
+# H2 = 5.916 kHz (added in step 11).
 #
-#     julia --project=. bin/tov_modes.jl SERIES [t_skip=T] [t_end=T] [degree=K]
+#     julia --project=. bin/tov_modes.jl SERIES [t_skip=T] [t_end=T] [degree=K] [ref=coupled]
 #
 # The series' polynomial trend of degree `degree` is removed (1: the mean and a linear
 # drift; higher for a run whose central density decays), the rest is Hann-windowed, and its discrete
@@ -19,6 +22,7 @@ using Printf
 
 const MSUN_TIME_MS = 4.925490947e-3
 const FONT2002_COWLING = (; F=2.701, H1=4.563, H2=6.352)
+const FONT2002_COUPLED = (; F=1.442, H1=3.955, H2=5.916)
 
 function read_series(path)
     t, ρ = Float64[], Float64[]
@@ -53,7 +57,7 @@ function peak(fs, P, lo, hi)
     return fs[i] + δ * (fs[2] - fs[1]), b
 end
 
-function modes(path; t_skip=0.0, t_end=Inf, degree=1)
+function modes(path; t_skip=0.0, t_end=Inf, degree=1, ref="cowling")
     t, ρ = read_series(path)
     keep = t_skip .≤ t .≤ t_end
     t, ρ = t[keep], ρ[keep]
@@ -64,7 +68,9 @@ function modes(path; t_skip=0.0, t_end=Inf, degree=1)
             length(t), t[1], t[end], (t[end] - t[1]) * MSUN_TIME_MS,
             1 / ((t[end] - t[1]) * MSUN_TIME_MS))
     out = Dict{Symbol,Float64}()
-    for (name, ref) in pairs(FONT2002_COWLING)
+    refs = ref == "coupled" ? FONT2002_COUPLED : ref == "cowling" ? FONT2002_COWLING :
+           error("tov_modes.jl: ref is `cowling` or `coupled`, got `$ref`")
+    for (name, ref) in pairs(refs)
         f, p = peak(fs, P, 0.8 * ref * MSUN_TIME_MS, 1.2 * ref * MSUN_TIME_MS)
         out[name] = f_kHz(f)
         @printf("  %-2s %.3f kHz (Font et al. 2002: %.3f), %+.2f%%, peak %.3g\n", name,
@@ -75,6 +81,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     path = ARGS[1]
-    kw = Dict(Symbol(k) => parse(Float64, v) for (k, v) in (split(a, '=') for a in ARGS[2:end]))
+    kw = Dict{Symbol,Any}(Symbol(k) => k == "ref" ? String(v) : parse(Float64, v)
+                          for (k, v) in (split(a, '=') for a in ARGS[2:end]))
     modes(path; kw...)
 end

@@ -706,8 +706,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
         t1 = c == nchunks ? t_end : c * chunk
         clear_tally!(p)
         if maxlevel > 0 && c > 1
-            update_primitives!(p, u, t)
-            r = regrid_state!(p, u, t; flags=mhd_flags(p; flagkw...), buffer=buffer)
+            r = regrid_state!(p, u, t; flags=flags(p, u, t; flagkw...), buffer=buffer)
             if r.moved
                 p, u = r.p, r.u
                 integ = nothing                       # the scratch has the old length
