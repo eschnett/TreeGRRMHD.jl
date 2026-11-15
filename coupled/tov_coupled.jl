@@ -11,8 +11,11 @@
 # Keys (`coupled/tov_coupled_cli.jl`): `N` (cells per block, 16), `levels` (box levels
 # around the star, 1), `L` (the box `[−L, L]³`, 24), `roots` (4), `t_end` (200), `chunk`
 # (10), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor), `γ0M` and `γ2` (TreeGH's
-# damping, `γ0 = γ0M/M`), `out` (a file for the record,
-# `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂` per chunk; default the terminal).
+# damping, `γ0 = γ0M/M`), `δv` (the star's initial velocity along its coupled radial
+# modes, the amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, `δv=a₁,a₂,a₃`; `tov_case`), `order`
+# (the matter's transfer to the vertices, 2 or 4; 4), `ρ_min` (the atmosphere's density;
+# 1e−12, below `tov_case`'s 1e−10: "Validation ladder" 5 in `CODE.md`), `out` (a file for the record, `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂` per chunk; default
+# the terminal).
 
 using TreeAMR
 import TreeGRRMHD
@@ -30,10 +33,9 @@ segments(sets) = (staterange(sets, 1), first(staterange(sets, 2)):statelength(se
 # set filled from it (the owned vertices copied, its own ghost fill), which every kernel
 # interpolates.
 #
-# The fill is skipped when its input repeats (proposed in step 11, "Two scripts" in
-# `CODE.md`): an SSP3(4,3,3) step calls `metric_at` eleven times, and at a stage whose two
-# abscissae agree the stage limiter's call and `f_exp!`'s see the state the stage solve's
-# call filled, since TreeGH has no implicit part and its limiter changes nothing on the
+# The fill is skipped when its input repeats ("Two scripts" in `CODE.md`): an SSP3(4,3,3)
+# step calls `metric_at` eleven times, and at a stage whose two abscissae agree the stage
+# limiter's call and `f_exp!`'s see the state the stage solve's call filled, since TreeGH has no implicit part and its limiter changes nothing on the
 # star. The key is TreeGH's segment bit for bit and `t`, so a skipped fill is the fill it
 # replaces; TreeGH's prepared state and `Mv` are still that fill's, since nothing else
 # writes them between calls, and any other TreeGH verb the script calls on `p.gh` drops the
@@ -81,13 +83,18 @@ function metric_at(k::FillKey, p, u, t)
     return m
 end
 
+# The matter adapter at the run's transfer order ("Matter to the vertices" in `CODE.md`):
+# the per-call eight-cell mean (`order = 2`, `p.am === nothing`), or the stored form at
+# fourth order, which first copies the prepared cells into `p.am`.
+matter(p) = p.am === nothing ? MHD.ADMMatter(p.mhd) : MHD.ADMMatter(p.mhd, p.am; order=4)
+
 # IMEXRungeKutta's four callbacks. The order of the calls is the data flow: the matter is
 # recovered in TreeGH's metric, and TreeGH reads the matter of that recovery.
 function f_exp!(du, u, p, t)
     (; gh, mhd, s) = p
     metric = metric_at(p, u, t)
-    m = MHD.prepare!(mhd, view(u, s[2]), t; metric)
-    GH.rhs!(view(du, s[1]), gh, t; matter=MHD.ADMMatter(m))           # GH-3
+    MHD.prepare!(mhd, view(u, s[2]), t; metric)
+    GH.rhs!(view(du, s[1]), gh, t; matter=matter(p))                  # GH-3
     MHD.rhs!(view(du, s[2]), mhd, t; metric)
     return nothing
 end
@@ -113,12 +120,17 @@ end
 # The star of step 10 on one forest, TreeGH's problem on it, the matter's, and the vertex
 # set the metric crosses into; the state vector holds TreeGH's set first. TreeGH's gauge is
 # its static-background path ("Gauge for the TOV milestones" in `CODE.md`): `H_a` of the
-# star's own metric, sampled and frozen. Its damping (proposed in step 11): `γ0 = γ0M/M`
+# star's own metric, sampled and frozen. Its damping: `γ0 = γ0M/M`
 # with `γ0M = 1/10`, `γ2 = 0`, `ε_KO = 1/2`. `γ0M = 1`, TreeGH's value at a hole, grows a
 # mode of the star e-folding in about 36 M ("Two scripts", "As built" in `CODE.md`).
+# `order` is the matter's transfer to the vertices, 2 or 4 (4, decided in step 11);
+# `ρ_min` the atmosphere's density (1e−12, decided in step 11).
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
-                  refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0)
-    star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
+                  refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0, δv=(0, 0, 0),
+                  order=4, ρ_min=1e-12)
+    order in (2, 4) || throw(ArgumentError("the transfer order is 2 or 4, got $order"))
+    star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots, ρ_min, δv,
+                        δv_modes=:coupled)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
     tov = star.provider.metric
@@ -132,7 +144,8 @@ function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
     sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
     u = statevector(sets)
     s = segments(sets)
-    p = (; gh, mhd, vm, s, key=reuse_fill ? FillKey(u, s[1]) : nothing)
+    am = order == 4 ? MHD.adm_matter_set(mhd) : nothing
+    p = (; gh, mhd, vm, am, s, key=reuse_fill ? FillKey(u, s[1]) : nothing)
     GH.initial_state!(view(u, p.s[1]), gh, zero(T))             # fill_exact!
     MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))     # exact_state
     return (; p, u, star, forest, sets)
@@ -166,7 +179,9 @@ function regrid_all(p, u, sets, forest, t; mhd_flags)
     regrid!(forest, pairs; flags=fl) || return (; moved=false, p, u)
     s = segments(sets)
     u = statevector(sets)
-    p = (; gh=gh_rebuild(p.gh, t), mhd=MHD.rebuild(p.mhd), vm=MHD.rebuild(p.vm),  # GH-7
+    mhd = MHD.rebuild(p.mhd)
+    am = p.am === nothing ? nothing : MHD.adm_matter_set(mhd)  # scratch, made anew
+    p = (; gh=gh_rebuild(p.gh, t), mhd, vm=MHD.rebuild(p.vm), am,                # GH-7
          s, key=p.key === nothing ? nothing : FillKey(u, s[1]))
     gather!(u, sets)
     MHD.clear_tally!(p.mhd)
@@ -176,10 +191,10 @@ end
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
               cfl_gh=T(1 // 2), refinement=nothing, mhd_flags=nothing, reuse_fill=true,
-              γ0M=1 // 10, γ2=0,
+              γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12,
               record=(t, ρ_c, c) -> println(t, "  ", ρ_c, "  ", c.ham_l2, "  ", c.mom_l2))
     (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement,
-                                      reuse_fill, γ0M, γ2)
+                                      reuse_fill, γ0M, γ2, δv, order, ρ_min)
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
@@ -196,7 +211,7 @@ function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, lim
         metric = metric_at(p, u, t)
         ρ_c = MHD.central_density(p.mhd, view(u, p.s[2]), t; metric)  # prepares the matter
         record(t, ρ_c, gh_constraint_norms(p.gh, view(u, p.s[1]), t;   # GH-7
-                                           matter=MHD.ADMMatter(p.mhd)))
+                                           matter=matter(p)))
         forget_fill!(p)
         mhd_flags === nothing && continue            # the star's boxes are static
         r = regrid_all(p, u, sets, forest, t; mhd_flags)

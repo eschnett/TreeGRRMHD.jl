@@ -89,6 +89,64 @@ end
     @test e2[:neg] ≥ 0 && e2[:sym] == 0
 end
 
+# The stored adapter's errors as `am_errors` takes them, inside the star (`r ≤ 4`), its
+# least `ρ`, and the radius of the innermost vertex where order 4 fell back to the mean.
+function am_stored_errors(N; r_in=4.0)
+    forest, p, _ = am_star(N)
+    U = FieldSet{Float64}(forest, 1; G=0, centering=vertexcentered(3))
+    a2 = ADMMatter(p)(U)
+    s2 = ADMMatter(p, adm_matter_set(p); order=2)(U)
+    s4 = ADMMatter(p, adm_matter_set(p); order=4)(U)
+    origins, spacings = block_origins(forest, Float64), block_spacings(forest, Float64)
+    e_c, p_c = am_exact(SVector(0.0, 0.0, 0.0))
+    p_c = p_c[1, 1]
+    r = (; same2=true, ρ_in=0.0, Sij_in=0.0, neg=0.0, r_fallback=Inf, sym=0.0)
+    for b in 1:nblocks(U), k in 1:N, j in 1:N, i in 1:N
+        n = (i, j, k)
+        x = AM.point_x(origins[b], spacings[b], n, Val((1, 1, 1)))
+        rx = sqrt(sum(abs2, x))
+        v2, w2, w4 = a2(n, b), s2(n, b), s4(n, b)
+        e, Sij = am_exact(x)
+        r = merge(r, (; same2=r.same2 && v2 == w2, neg=min(r.neg, w4.ρ),
+                      sym=max(r.sym, maximum(abs, w4.Sij - w4.Sij'))))
+        # Order 4 falls back to the mean exactly: equal to the bit, away from the
+        # atmosphere's constant state, means the fallback.
+        w4 == w2 && e > 1.01 * TV_CASE.fields.w.ρ_atm &&
+            (r = merge(r, (; r_fallback=min(r.r_fallback, rx))))
+        if rx ≤ r_in
+            r = merge(r, (; ρ_in=max(r.ρ_in, abs(w4.ρ - e) / e_c),
+                          Sij_in=max(r.Sij_in, maximum(abs, w4.Sij - Sij) / p_c)))
+        end
+    end
+    return r
+end
+
+@testset "The stored matter adapter is the mean at order 2 and converges at fourth order" begin
+    # Guards the stored form (`src/adm_matter.jl`): at order 2 it must be the per-call
+    # mean to the bit (the same cells, the same sums); at order 4 a weight from the
+    # point-to-point stencil where the average-to-point one belongs, a missing
+    # densitization by `√γ`, a stencil off by one, or a fallback that fires inside the
+    # star would cost the order or leave an O(h²) error, and a fallback that never fires
+    # would let `ρ` go negative beyond the surface. On the Cowling star at rest at
+    # `h = 2` and `1`, inside the star (`r ≤ 4`).
+    e1 = am_stored_errors(8)
+    e2 = am_stored_errors(16)
+    rate(k) = log2(e1[k] / e2[k])
+    @info "ADMMatter stored, order 4, on the Cowling star: errors at h = 1 ρ " *
+          "$(tv3(e2.ρ_in)), S_ij $(tv3(e2.Sij_in)) (rates $(round(rate(:ρ_in); digits=2)), " *
+          "$(round(rate(:Sij_in); digits=2))); innermost fallback at r = " *
+          "$(tv3(e2.r_fallback))"
+    @test e1.same2 && e2.same2
+    @test 3.2 < rate(:ρ_in) < 4.6
+    @test 3.2 < rate(:Sij_in) < 4.6
+    # Measured 2026-11-12: 4.72e−3 and 1.05e−2 of `e_c` and `p_c` at `h = 1` (rates 3.46,
+    # 3.57), against the mean's 4.74e−2 and 8.85e−2; at `h = 0.5`, 3.27e−4 and 1.95e−4.
+    @test e2.ρ_in < 6e-3 && e2.Sij_in < 1.3e-2
+    # Nonnegative and symmetric; the fallback only near the surface at `R̄ = 8.1`.
+    @test e1.neg ≥ 0 && e2.neg ≥ 0 && e2.sym == 0
+    @test e2.r_fallback > 6
+end
+
 # A stand-in for a device adaptor: an array becomes its pointer, an `isbits` value.
 struct AMPointer end
 AM.Adapt.adapt_storage(::AMPointer, a::Array) = pointer(a)
@@ -112,6 +170,18 @@ AM.Adapt.adapt_storage(::AMPointer, a::Array) = pointer(a)
                                                               centering=vertexcentered(3)))
     @test_throws ArgumentError ADMMatter(p)(FieldSet{Float64}(forest, 1; G=0,
                                                               centering=cellcentered(3)))
+    # The stored form, at order 4: the same contract, and its own set checked.
+    s4 = ADMMatter(p, adm_matter_set(p); order=4)(U)
+    @test isbits(AM.Adapt.adapt(AMPointer(), s4))
+    f(s4)
+    @test (@allocated f(s4)) == 0
+    @test f(s4).Sij isa SMatrix{3,3,Float64,9} && f(s4).ρ isa Float64
+    @test_throws ArgumentError ADMMatter(p, adm_matter_set(p); order=3)
+    @test_throws ArgumentError ADMMatter(p, FieldSet{Float64}(forest, 11; G=1,
+                                                              centering=cellcentered(3));
+                                         order=4)
+    @test_throws ArgumentError ADMMatter(p, adm_matter_set(p); order=4)(
+        FieldSet{Float64}(other, 1; G=0, centering=vertexcentered(3)))
 end
 
 @testset "The flags verb is evolve!'s indicator on a prepared state" begin

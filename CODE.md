@@ -20,8 +20,11 @@ steps of the plan"](HISTORY.md#the-steps-of-the-plan)); step 10 is the TOV
 star in the Cowling approximation on the analytic TOV metric, with no
 TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
 the coupled run, is built and measured ("Validation ladder" 5): F within
-1%, but H1 and H2 miss Font et al.'s 3%, and outside the star the
-constraints' rate falls to 1.74 after 500 M. Two of its upstream items are open, GH-2 (registration) and GH-7
+1%; H1 and H2, excited along their eigenfunctions, within 1% of Font et
+al. at `h = 0.25`; the constraints converge at 1.88 or better to 1000 M,
+inside and outside the star; the rest mass changes by 1.3e−10 of 1.506 over
+1000 M at `h = 0.375` net of the reset, at a rate of about 3, entering
+with the atmosphere at the outer faces and scaling with `ρ_min`. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
@@ -1770,7 +1773,7 @@ schemes, which are stiffly accurate, are the alternative if it matters.
 coupled run it is the smaller of the matter's step and TreeGH's,
 `cfl_gh · h_min / λ` with `λ = GH.max_speed`.
 
-`cfl_gh = 1/2` (proposed in step 11) is half the largest factor that is
+`cfl_gh = 1/2` is half the largest factor that is
 stable under SSP3(4,3,3)'s explicit part on the TOV star, with the star's
 matter held fixed:
 - **The star:** stable up to 1.10, on a grid in steps of 0.05. At 1.15 the
@@ -2224,7 +2227,7 @@ contract"](HISTORY.md#the-coupling-contract).)
   `paste_interior!`).
 - A prepared state is reused when the state it was prepared from repeats.
   The script keys the fill on that state ("Two scripts", "The repeated
-  fill"; proposed in step 11).
+  fill").
 - (open) Whether the script overlaps TreeGH's ghost fill
   with this package's recovery on a device; and a thread partition over
   several sets aligned with their owners (TreeGH's `state_partition` is
@@ -2353,7 +2356,7 @@ function main(T = Float64; t_end = 200, chunk = 10, adaptive = false)
     p = (; gh, mhd, vm, s = segments(sets))
     GH.initial_state!(view(u, p.s[1]), gh, zero(T))            # fill_exact!
     MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))    # exact_state
-    cfl_gh, cfl_mhd = T(1 // 2), MHD.default_cfl(:ppm)  # TreeGH's under SSP3 (proposed)
+    cfl_gh, cfl_mhd = T(1 // 2), MHD.default_cfl(:ppm)  # TreeGH's under SSP3
     t, integ = zero(T), nothing
     for t1 in T(chunk):T(chunk):T(t_end)
         metric = metric_at(p, u, t)
@@ -2404,14 +2407,14 @@ fill. The command line and the record are an included file's
 The step-11 sketch is `coupled/tov_coupled.jl` (step 11), its `main` run by
 the coupled suite. Its departures from the sketch:
 - **`import`, not `using`,** for both packages, and `IRK = TreeGRRMHD.IRK`.
-- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill, γ0M, γ2)`** builds the
+- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill, γ0M, γ2, δv)`** builds the
   mesh, the two problems, `Mv` and the initial state, apart from `main`, so
   that the suite and the studies build the same run. TreeGH's problem is
   `GHProblem(U, GhostSchedule(U, ops), case; q)` on a vertex set the script
   makes (TreeGH has no `GHProblem(forest, case; q)`), with
   `ops = Operators(; prolongation = q + 2, restriction = q + 2)`, TreeGH's
   own. Its case is `GHCase(T, TOVMetric; box, periodic, ε_KO = 1/2,
-  γ0 = γ0M/M, γ2)` with `γ0M = 1/10` and `γ2 = 0` (proposed in step 11).
+  γ0 = γ0M/M, γ2)` with `γ0M = 1/10` and `γ2 = 0`.
 - **The damping `γ0 = 1/(10M)`** is TreeGH's far-zone value for a hole,
   used everywhere. TreeGH's near-hole value `1/M`, used everywhere, grows a
   mode of the star that e-folds in about 36 M at every resolution, seeded
@@ -2437,7 +2440,7 @@ the coupled suite. Its departures from the sketch:
 - **The step count** is the larger of TreeGH's, `chunk_count((t1 − t)·λ,
   cfl_gh·h_min)` with `λ = GH.max_speed`, and the matter's, step 10's
   `chunk_count((t1 − t)·3·rate, cfl)` in TreeGH's metric (`step_count`).
-  `cfl_gh = 1/2` (proposed; "Time integration").
+  `cfl_gh = 1/2` ("Time integration").
 - **The fill is keyed** (`FillKey`, `reuse_fill = true`; "The repeated fill"
   below).
 - **The record** is the central density and TreeGH's matter-corrected
@@ -2460,7 +2463,7 @@ What the sketches leave visible, on purpose:
   limiters, so that the matter reads the limited metric. TreeGH's limiter
   never runs inside `solve_imp!`, whose implicit tendency
   IMEXRungeKutta recovers as `(U − u★)/(γΔt)`.
-- **The repeated fill is keyed** (proposed in step 11). Written plainly,
+- **The repeated fill is keyed.** Written plainly,
   the script fills TreeGH's ghosts and `Mv` eleven times per SSP3(4,3,3)
   step: four stage solves, three stage limiters, three right-hand sides and
   one step limiter. Each fill covers TreeGH's 20 variables at `G = 3` and
@@ -2746,38 +2749,71 @@ of every centering, ghosts included, the first root refined; `N = 12 → 24`):
 
 `(ρ, S_i, S_ij)` are computed at the cells from the primitives, the fields
 and the cell's own metric — `stress_energy`'s `𝓔`, `S_i` and `S^ij`, the
-last lowered with `γ_ij` — then averaged to each owned vertex from its
-`2^D` neighbouring cells: second order, and the mean is a convex
-combination, so `ρ ≥ 0` holds at the vertex exactly where a higher-order
-interpolation would ring at a stellar surface. TreeGH assembles `T_ab` from
-them with the vertex's own `α` and `β`, the metric it evolves (the earlier
-alternative: [HISTORY.md, "Matter to the
-vertices"](HISTORY.md#matter-to-the-vertices)). The second order is the
-transfer (proposed in step 11): with it the constraints converge at about 2
-inside the star and F is within 1% of Font et al. ("Validation ladder" 5).
-A 4th-order transfer was not built.
+last lowered with `γ_ij` — then carried to each owned vertex in one of two
+ways. TreeGH assembles `T_ab` from them with the vertex's own `α` and `β`,
+the metric it evolves (the earlier alternative: [HISTORY.md, "Matter to the
+vertices"](HISTORY.md#matter-to-the-vertices)).
 
-This is this package's matter adapter, `TreeGRRMHD.ADMMatter(p)`. TreeGH
-binds it to its vertex set and calls it at its owned vertices (GH-3).
+- **Second order:** the mean of the `2^D` cells around the vertex. It is
+  a convex combination, so `ρ ≥ 0` holds at the vertex.
+- **Fourth order:** an interpolation from the `4^D` cells around the
+  vertex. The cells hold averages: `√γ 𝓔` and `√γ S_i` are `U`'s cell
+  averages to round-off, and `√γ S_ij` is one to second order, since it is
+  the pressure of the average. So the densitized values are interpolated
+  from averages to the vertex's point value with the weights
+  `(−1, 7, 7, −1)/12` along each direction, and divided by `√γ`
+  interpolated from the cells' point values with `(−1, 9, 9, −1)/16`.
+  Beyond a stellar surface the interpolation rings. Where it would put
+  `𝓔` or a diagonal `S_ii` below the least of the eight nearest cells'
+  values, the vertex takes the mean instead. On the
+  star, the fallback fires only within a cell of the surface.
 
-It computes per call (proposed in step 11). It recomputes each of the
-`2^D` cells' `(𝓔, S_i, S_ij)` from `P`, which holds the cell's metric, `E`
-and `B` after `prepare!`. So a call reads 8 × 30 values and stores nothing.
+The fourth order matters ("Validation ladder" 5). The transfer was the
+largest error in the matter TreeGH sees. On the static star at `h = 0.5`,
+the mean is 1.2% of `e_c` off inside the star, and the interpolation is
+3.3 · 10⁻⁴ off. In the coupled script at `t = 0`, `ℋ` inside the star
+converges at 2.0 with the mean and at 3.93–3.98 with the interpolation,
+which is 160–400 times smaller at `h = 0.6` to 0.3. So the coupled runs
+use the fourth order: the script's `order` (2 or 4) defaults to 4. The
+modes do not decide between the two: at `h = 0.25` both put H1 and H2
+within 1% of Font et al., the mean the closer ("Validation ladder" 5,
+"The transfer order"); the constraints do. From 250 M to 1000 M, `ℋ` outside
+the star is 10–14 times smaller with the fourth order, and converges at 1.88
+or better where the mean's fell to 1.74. The mean stays for comparison
+and for the per-call adapter.
 
-The stored form keeps the 10 values per cell in a set of their own, filled
-once per `prepare!`. It gives the same numbers bit for bit, and saves less
-than 1% of a step. On the star (`coupled/coupling_cost.jl`):
+This is this package's matter adapter. TreeGH binds it to its vertex set
+and calls it at its owned vertices (GH-3). It comes in two forms:
+
+- **`TreeGRRMHD.ADMMatter(p)`, per call:** the mean only. It recomputes
+  each of the `2^D` cells' `(𝓔, S_i, S_ij)` from `P`, which holds the
+  cell's metric, `E` and `B` after `prepare!`. So a call reads 8 × 30
+  values and stores nothing.
+- **`ADMMatter(p, M; order)`, stored:** first copies every stored cell's
+  `(𝓔, S_i, S_ij, √γ)` into `M = adm_matter_set(p)`, a set the caller owns
+  and makes anew after a regrid. Then it answers from `M`. `order` is 2 or
+  4, with no default. At order 2 it is the per-call mean bit for bit. At
+  order 4, recomputing 64 cells per call would cost eight times the mean's
+  work, so only the stored form offers it.
+
+For the mean, storing saves less than 1% of a step. On the star
+(`coupled/coupling_cost.jl`):
 - **`N = 16`, 64 threads:** TreeGH's right-hand side takes 11.5 ms with
   the per-call adapter. With the stored one it takes 7.0 ms, plus 3.5 ms
   for the fill. The step takes 2.49 s.
 - **`N = 12`, one thread:** 0.223 s per call, against 0.143 s plus 0.041 s
   stored. The step takes 20.6 s.
 
-The bound adapter is `isbits` through Adapt and allocates nothing. It is
-second order against the analytic star away from the surface
-(`test/adm_matter_tests.jl`).
+The fourth order cost about 10% more wall time than the mean in a 4 M
+smoke run at `N = 10` on the laptop, at 8 threads; this is not a benchmark.
+
+Both forms' bound adapters are `isbits` through Adapt and allocate
+nothing. Against the analytic star away from the surface
+(`test/adm_matter_tests.jl`), the mean converges at second order and the
+interpolation at 3.5 to 3.9.
 [HISTORY.md, "Matter to the vertices"](HISTORY.md#matter-to-the-vertices)
-has the estimate this measurement replaced.
+has the estimate the per-call measurement replaced, and the fourth order's
+origin.
 
 ### Gauge for the TOV milestones
 
@@ -3943,7 +3979,8 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   its testsets run in every tier, unmarked.
 - `test/vertex_metric_tests.jl`: the vertex metric at every centering.
 - `test/adm_matter_tests.jl`: `ADMMatter` on the Cowling star, bound to a
-  vertex set of the suite's own making (no TreeGH), and `flags`.
+  vertex set of the suite's own making (no TreeGH), both forms and both
+  orders, and `flags`.
 
 **The coupled suite** is `coupled/runtests.jl`, in `coupled/`'s own
 environment, which loads TreeGeneralizedHarmonic beside this checkout
@@ -3954,7 +3991,8 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   asserted; GH-2 and GH-7 reported.
 - `coupled/coupled_tests.jl`: TreeGH's `ADMMetric` against the analytic
   star; the frozen metric against the Cowling run; GH-3's static-matter
-  check; `ℋ − 16πρ` of the initial state; the script's `main`; the fill's
+  check; `ℋ − 16πρ` of the initial state, with either transfer; the
+  script's `main`; the fill's
   key, bit for bit; the regrid branch.
 
 **Inconsistent:** the helper dependencies listed above
@@ -3989,7 +4027,9 @@ bit-identically to the host; "Precision and devices"):
   `SampledADM` ("Metric at cells, faces and edges");
 - `src/adm_matter.jl`: `ADMMatter`, the matter adapter of the coupling
   contract (GH-3): the mean of the `2³` cells' `(𝓔, S_i, S_ij)` at a
-  producer's owned vertex, per call from `P` ("Matter to the vertices");
+  producer's owned vertex, per call from `P`, or, stored in
+  `adm_matter_set`'s cells, the mean or the 4th-order interpolation from
+  `4³` cells ("Matter to the vertices");
 - `src/stress_energy.jl`, `src/ohm.jl` (with
   `MagnetizationCutoff(model, μ_max)`, "Ohm's law and the conductivity"),
   `src/flux.jl`, `src/riemann.jl` (the light-cone Riemann solvers, and
@@ -4024,6 +4064,9 @@ bit-identically to the host; "Precision and devices"):
   `charge_norms` ("The interior");
 - `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form,
   `TOVMetric` ("Gauge for the TOV milestones").
+- `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
+  theory, coupled and Cowling, `tov_radial_modes`, and the velocity that
+  starts them, `tov_mode_velocity` ("Validation ladder" 5).
 - `reset_step!`, the reset as the step limiter, counted with the step
   limiter's injection (`ohm_tally`); `max_div_B` and `evolve!`'s
   `after_step` monitor.
@@ -4084,8 +4127,9 @@ contract"):
   regrid verbs and a segment's constraint norms composed from its exports
   (GH-7 workaround);
 - `coupled/tov_coupled_study.jl` (checkpointed, for `amdpreq`), with
-  `bin/tov_modes.jl ref=coupled`: the rung-5 record ("Validation ladder"
-  5); `coupled/gh_cfl.jl`: TreeGH's CFL factor under SSP3 ("Time
+  `bin/tov_modes.jl ref=coupled` and `bin/tov_overtones.jl` (the matrix
+  pencil on a perturbed run minus an unperturbed one): the rung-5 record
+  ("Validation ladder" 5); `coupled/gh_cfl.jl`: TreeGH's CFL factor under SSP3 ("Time
   integration"); `coupled/coupling_cost.jl`: the fills and the matter
   adapter's cost ("Two scripts", "Matter to the vertices").
 
@@ -4984,45 +5028,75 @@ named as claims.
      - outside `r ≥ 10`: 2.7e−6 and 8.8e−8;
      - without the matter, inside: 3.39e−2.
    - **Rest mass:** it changes by exactly what the reset injects, to
-     1e−14 relative. At `N = 10` to `t = 1`, the change is −1.0847101e−10
-     and the injection −1.0847041e−10.
-   - **The constraints over time** (the studies): the `‖·‖₂` norms with
-     the matter, inside `r < 6` and outside `r ≥ 10`, each averaged over a
-     window. The rates between `h = 0.6, 0.5` and between `h = 0.5, 0.375`:
+     1e−14 relative. At `N = 10` to `t = 1`, with `ρ_min = 1e−12`, the
+     change is −1.0960122e−12 and the injection −1.0976710e−12.
+   - **The constraints over time** (the studies, jobs 597892–597894, with
+     the fourth-order transfer): the `‖·‖₂` norms with the matter, inside
+     `r < 6` and outside `r ≥ 10`, each averaged over a window. The rates
+     between `h = 0.6, 0.5` and between `h = 0.5, 0.375`:
 
      | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
      |---|---|---|---|---|
-     | 0 | 1.96, 2.00 | — | 4.31, 4.10 | — |
-     | 20–30 | 1.95, 1.96 | 2.09, 2.07 | 1.88, 1.88 | 1.86, 1.84 |
-     | 95–105 | 2.12, 2.23 | 2.19, 2.32 | 1.87, 1.90 | 1.88, 1.92 |
-     | 240–260 | 2.02, 2.15 | 2.11, 2.29 | 1.79, 1.85 | 1.87, 1.91 |
-     | 490–510 | 1.83, 1.99 | 1.99, 2.21 | 1.70, 1.79 | 1.77, 1.87 |
-     | 740–760 | 2.02, 2.22 | 1.85, 2.14 | 1.65, 1.87 | 1.68, 1.81 |
-     | 900–1000 | 1.78, 2.01 | 1.78, 2.11 | 1.63, 1.74 | 1.62, 1.74 |
+     | 0 | 3.93, 3.97 | — | 4.31, 4.10 | — |
+     | 20–30 | 2.07, 2.30 | 2.39, 2.42 | 1.58, 2.13 | 1.69, 2.11 |
+     | 95–105 | 2.26, 2.37 | 2.32, 2.44 | 1.91, 2.17 | 2.26, 2.00 |
+     | 240–260 | 2.20, 2.28 | 2.21, 2.39 | 2.11, 1.88 | 2.05, 2.00 |
+     | 490–510 | 2.02, 2.18 | 2.08, 2.31 | 2.29, 1.93 | 2.37, 1.96 |
+     | 740–760 | 1.91, 2.10 | 2.00, 2.26 | 2.37, 2.42 | 2.39, 2.37 |
+     | 900–1000 | 1.80, 2.03 | 1.88, 2.21 | 2.16, 2.40 | 2.06, 2.30 |
 
-     The norms do not grow: inside, at `h = 0.375`, `ℋ` falls from 1.4e−4
-     at `t = 0` to 1.9e−5 by 25 M and stays at 1.4–1.6e−5 to 1000 M.
-     **`PLAN.md`'s ≥ 1.8 holds inside on the finer pair throughout, and
-     fails outside after about 500 M** (1.74 on the finer pair over
-     900–1000 M), where the outside norm grows again from 1.1e−6 to
-     1.4e−6 at `h = 0.375`. Not localised.
+     **`PLAN.md`'s ≥ 1.8 holds on the finer pair, inside and outside, to
+     1000 M**; the least is 1.88 (`ℋ` outside, 240–260 M). The coarse
+     pair falls below it only outside over 20–30 M. The norms do not
+     grow. At `h = 0.375`, `ℋ` inside rises from 5.4e−7 at `t = 0` to
+     1.3e−5 by 25 M, the matter scheme's own error once the star moves,
+     and stays at 9.5–9.7e−6 to 1000 M. Outside it is 7.1e−7 over
+     20–30 M and 0.9–1.2e−7 from 250 M on. With the mean, the outside norm
+     was 3 times larger over 20–30 M and 10–14 times from 250 M on; it
+     grew after 500 M, and its rate fell to 1.74 over 900–1000 M
+     ([HISTORY.md, "Matter to the
+     vertices"](HISTORY.md#matter-to-the-vertices)): most of the error
+     outside the star was the mean's, carried out by the spacetime.
+     Inside, the fourth order's `ℋ` is 36% below the mean's at 1000 M and
+     its `ℳ` 24% above (1.05e−5).
    - **The central density** oscillates in the F mode and drifts down, the
      drift converging. Relative to `t = 0`, averaged over a window:
 
      | `t` (M) | `h = 0.6` | `h = 0.5` | `h = 0.375` | rates |
      |---|---|---|---|---|
-     | 50–70 | −9.55% | −6.72% | −3.79% | 1.93, 1.99 |
-     | 240–260 | −8.06% | −5.31% | −2.75% | 2.28, 2.29 |
-     | 490–510 | −11.52% | −7.57% | −3.95% | 2.30, 2.26 |
-     | 900–1000 | −14.49% | −9.19% | −4.41% | 2.50, 2.55 |
+     | 50–70 | −3.14% | −1.96% | −0.95% | 2.60, 2.53 |
+     | 240–260 | −5.03% | −2.90% | −1.23% | 3.02, 2.99 |
+     | 490–510 | −7.78% | −4.50% | −1.88% | 3.00, 3.03 |
+     | 900–1000 | −12.00% | −7.06% | −2.89% | 2.91, 3.11 |
 
-     After 200 M it drifts at 8.3e−5, 4.9e−5 and 2.0e−5 per M (a
-     linear fit, relative; rates 2.9 and 3.1).
+     After 200 M it drifts at 9.9e−5, 5.9e−5 and 2.4e−5 per M (a
+     linear fit, relative; rates 2.8 and 3.2). The mean's initial drop
+     was four times larger (−3.79% over 50–70 M at `h = 0.375`) and its
+     later drift about the same.
    - **Rest mass** over the 1000 M: its change minus what the reset
-     injected is 1.0e−9, 6.1e−10 and 2.6e−10 of 1.506 (rates 2.8, 3.0).
-     That is truncation error, not round-off, unlike the suite's 1e−14 at
-     `t = 1`. Something converging takes mass out, presumably through the
-     outer faces, where the shift is TreeGH's and not zero. Not localised.
+     injected is 5.3e−10, 3.2e−10 and 1.3e−10 of 1.506 (rates 2.8, 3.1),
+     half the mean's. The box gains it: the reset removes 2.0e−6 at
+     `h = 0.375`, and the total falls by 1.3e−10 less. That is truncation
+     error, not round-off, unlike the suite's 1e−14 at `t = 1`.
+   - **Both parts are the atmosphere's.** At `h = 0.5` to 300 M, with
+     `ρ_min` = 1e−10, 1e−12 and 1e−14 (jobs 598455–598457), the reset
+     removes 6.06e−7, 4.85e−9 and 3.58e−11, and the gain net of it is
+     1.01e−10, 1.03e−12 and 1.5e−14 (the last at round-off). Both scale
+     with `ρ_min`, and the gain has the same history at each value: none
+     before 20 M, then increments in the same ratio. The coarse-fine
+     faces conserve to round-off and the reset is counted, so the gain
+     enters through the outer faces, whose Dirichlet data is the
+     atmosphere at rest and where TreeGH's shift is not zero. Nothing else
+     changes with `ρ_min`: `ρ_c` agrees to 3e−5 relative throughout, `ℋ`
+     and `ℳ` inside to 5%, and outside within ±25% at any instant (+1–2%
+     on average). The reset writes 185,000 of the 207,360 cells a step at
+     each value. The energy it removes grows as `ρ_min` falls, −3.8e−5,
+     −4.8e−5 and −5.0e−5 of `τ` over the 300 M, the difference arising
+     after 25 M. So the coupled script's `ρ_min` is 1e−12, below
+     `tov_case`'s 1e−10: the rest-mass budget falls a hundredfold, and the
+     EOS's lower bound (1e−14) keeps a factor 100 of margin. The tables
+     above are at 1e−10; the 1000 M studies at 1e−12 are jobs
+     598575–598577.
    - **Modes** (`bin/tov_modes.jl ref=coupled`, the whole series, 0.20 kHz
      resolution), against Font et al. (2002), Table II (1.442, 3.955,
      5.916 kHz):
@@ -5044,11 +5118,116 @@ named as claims.
      1 or 3) and H2 +1.31%; at `h = 0.5`, H1 +19.9% or +3.2% and H2 +2.0%;
      at `h = 0.6` both fail. A window picked after seeing the spectra is
      not the measure, so this is a miss.
-   - **The transfer order:** second order (proposed; "Matter to the
-     vertices"). With it, the constraints converge at about 2 and F is
-     within 1%. What fails, H1, H2 and the late rate outside, points at
-     the overtones' weak excitation and the spacetime's lines, not at the
-     transfer. A 4th-order transfer was not built or measured.
+   - **The perturbed star** (proposed, to excite the overtones above the
+     spacetime's lines). `tov_case(T; δv = (a₁, a₂, a₃), δv_modes)` starts
+     the star moving in its radial modes F, H1 and H2 at the phase of zero
+     displacement, mode `n` with the amplitude `aₙ` in `ρ_c/ρ_c` (`aₙ > 0`
+     expands the centre first). The velocity is the modes' eigenfunctions
+     inside the star and nothing outside. The density, the entropy and the
+     metric stay the static star's, and the surface and the Dirichlet
+     faces are untouched. The default `(0, 0, 0)` branches to the star at
+     rest, bit for bit. A sine-shaped velocity came first and did not
+     excite the overtones (`HISTORY.md`, "a velocity perturbation to excite
+     the overtones").
+     - **The modes** (`src/tov_pulsation.jl`): adiabatic radial
+       perturbations of the TOV solution, `ξ = Δr/r` and `ζ = Δn/n`, in the
+       log-enthalpy on `tov_solve`'s RK4 nodes, so that the centre and the
+       surface are nodes. `δv_modes = :coupled` takes Chandrasekhar's
+       equation with the metric perturbed, in Gondek, Haensel & Zdunik's
+       (1997) first-order form. `:cowling` holds the metric fixed. There is
+       no default: a run uses the version that matches its spacetime
+       (`coupled/` the first, `bin/tov_study.jl` the second). Shooting from
+       the centre, the residual at the last node before the surface is the
+       bracket that a regular solution makes vanish there. Its sign changes
+       are bisected to round-off. The frequencies, converged to 10⁻⁶ in the
+       step count:
+
+       | | F | H1 | H2 |
+       |---|---|---|---|
+       | coupled | 1.4425 (+0.036%) | 3.9540 (−0.024%) | 5.9149 (−0.019%) |
+       | Cowling | 2.6861 (−0.55%) | 4.5494 (−0.30%) | 6.3411 (−0.17%) |
+
+       against Font et al.'s (2002) Table II, which is linear perturbation
+       theory given to four digits, and Table I, which is a 2D code's. The
+       coupled modes reproduce Table II to its last digit, so their
+       equations and the star are the paper's. The Cowling ones are not
+       Font et al.'s method. Rung 4's measurements at `h = 0.375` (2.677,
+       4.563, 6.492) are within 0.4%, 0.3% and 2.4% of them.
+     - **The velocity:** the Valencia `vⁱ = g(r̄²) xⁱ` with `g = ω ξ/(α
+       √(1 − 2m/r))`, which is even and smooth in `r̄`. `Σₙ aₙ gₙ/3` is
+       fitted by 12 Chebyshev terms in `2r̄²/R̄² − 1` over `r̄² ≤ 0.99 R̄²`,
+       to 10⁻⁷ of `g` for H1 and H2, and extrapolated over the last 1%:
+       the last nodes before the surface carry RK4's error of the stiff
+       `1/η` term. `TOVStar` stores the coefficients, so it stays `isbits`.
+     - **The constraints:** the data violate the momentum constraint by
+       `8π S_i` (`K_ij = 0` with `S_i ≠ 0`), at order `a` and independent
+       of `h`. TreeGH's damping is left to remove it. The mode's own `K_rr`
+       would satisfy it at linear order, but it is TreeGH's initial data
+       and is not built. The sine-shaped velocity decayed the same way
+       without TreeGH, so the violation is not what removes a
+       perturbation. The perturbed runs measure the modes only; the
+       constraints, the drift and the rest mass stay the unperturbed runs'.
+     - **The studies:** `δv = (0, 5·10⁻³, 5·10⁻³)`, so that H1 and H2 each
+       move `ρ_c` by 0.5%, a sixth of the 3% the start gives F. The coupled
+       runs are at `h = 0.6, 0.5, 0.375` to 1000 M (jobs 596447–596449)
+       with the mean, and at `h = 0.25` to 300 M with either transfer
+       (jobs 596586, 596587, 596599, 596600). A Cowling run at `h = 0.6`
+       to 150 M (job 596446) is compared with the unperturbed run on the
+       same mesh. The overtones are measured in the difference
+       `Δρ_c/ρ_c` between the perturbed and unperturbed runs, by a
+       matrix-pencil fit to damped sinusoids (`bin/tov_overtones.jl`,
+       orders 6–10; the ranges below are over the orders). The unperturbed
+       signal's spacetime lines cancel there.
+
+       | run | H1 kHz | τ(H1) | H2 kHz | τ(H2) |
+       |---|---|---|---|---|
+       | Cowling, `h = 0.6` | 4.38–4.52 (−0.6 to −3.7%) | 50–62 M | not resolved | |
+       | mean, `h = 0.6` | 3.80–3.83 (−3.2 to −3.9%) | 73–78 M | 6.12–6.39 (+3.5 to +7.9%) | 40–42 M |
+       | mean, `h = 0.5` | 3.89–3.96 (−1.6 to +0.2%) | 89–101 M | 5.65–6.06 (−4.5 to +2.5%) | 47–64 M |
+       | mean, `h = 0.375` | 3.92–3.95 (−0.9 to −0.1%) | 122–154 M | 5.76–6.03 (−2.6 to +1.9%) | 78–88 M |
+       | mean, `h = 0.25` | 3.956–3.960 (+0.0 to +0.1%) | 435–441 M | 5.923–5.939 (+0.1 to +0.4%) | 138 M |
+       | 4th order, `h = 0.25` | 3.987–3.989 (+0.8 to +0.9%) | 384–389 M | 5.943–5.952 (+0.5 to +0.6%) | 134–135 M |
+
+       against this module's frequencies (Cowling) and Font et al.'s
+       Table II (coupled). H1 and H2 are within the 3% target from
+       `h = 0.375`, and within 1% at `h = 0.25`, where the fits agree
+       across the model orders to 0.1%. The fits leave residuals of 7–16%
+       of the signal. The overtones decay, and `τ` grows as `h` shrinks:
+       H1's by 4.3–5.0 from `h = 0.5` to 0.25, about `h⁻²`. The damping
+       is linear: Cowling runs at `a = 10⁻³` and `2.5 · 10⁻⁴` (jobs
+       596572, 596573) decay as the `5 · 10⁻³` run does per unit
+       amplitude, within 5% over the first 75 M, and the smallest if
+       anything faster. So it is the scheme's dissipation of a mode a few
+       cells per node across, not a surface or atmosphere effect at large
+       amplitude.
+   - **The transfer order:** fourth order, the script's default ("Matter to the
+     vertices"). At `t = 0` the interpolation's `ℋ` inside the star is
+     160–400 times smaller than the mean's and converges at 3.9–4.0; from
+     250 M to 1000 M, `ℋ` outside is 10–14 times smaller and keeps its
+     rate, which
+     the mean's lost ("The constraints over time" above). The modes do not decide it. Its
+     runs with and without `δv` to 300 M (jobs 596595–596600), against
+     the mean's over the same window:
+
+     | `h` | transfer | H1 kHz | H2 kHz |
+     |---|---|---|---|
+     | 0.5 | mean | 3.89–3.92 (−0.9 to −1.7%) | 5.76–6.08 |
+     | 0.5 | 4th order | 3.95–4.00 (−0.2 to +1.1%) | 6.06–6.21 |
+     | 0.375 | mean | 3.90–3.95 (−0.1 to −1.3%) | 5.81–6.03 (−1.8 to +2.0%) |
+     | 0.375 | 4th order | 3.94–4.02 (−0.3 to +1.6%) | 5.85–6.07 (−1.1 to +2.6%) |
+     | 0.25 | mean | 3.956–3.960 (+0.0 to +0.1%) | 5.923–5.939 (+0.1 to +0.4%) |
+     | 0.25 | 4th order | 3.987–3.989 (+0.8 to +0.9%) | 5.943–5.952 (+0.5 to +0.6%) |
+
+     Both transfers are within 1% at `h = 0.25`. There the 4th order
+     sits 0.8% above the mean in H1 and 0.3% in H2, more than the fits'
+     spread, so the difference is real. It shrinks with `h` (about 1.8%
+     in H1 at `h = 0.5`, from the ranges' middles), as two consistent
+     transfers' must. The mean is the closer to linear theory at
+     `h = 0.25`, which one resolution with each cannot tell from a
+     cancellation of the mean's error against the scheme's. Whether the
+     4th order's 0.8% closes at a finer `h` is **(open)**. H1's damping
+     does not depend on the transfer (`τ` 384–389 M against 435–441 M at
+     `h = 0.25`), since it comes from the matter scheme.
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
    2013).
@@ -5080,7 +5259,9 @@ questions already decided, and when, are in
 Cowling star settled are under "Validation ladder" 4, "What the star
 decides".
 
-- **(open)** `(ρ, S_i, S_ij)` to vertices: 2nd order (default) or 4th.
+- **(open)** `(ρ, S_i, S_ij)` to vertices at fourth order: whether its H1,
+  0.8% above linear theory at `h = 0.25`, closes at a finer `h` ("Matter
+  to the vertices").
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 

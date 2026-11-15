@@ -135,11 +135,11 @@ end
 end
 
 # The matter-corrected ADM constraints of the initial state, inside the star away from its
-# surface and outside it, with this package's matter or none.
-function ct_constraints(N; matter::Bool)
-    (; p, u, star) = ct_problems(N)
+# surface and outside it, with this package's matter at the transfer `order` or none.
+function ct_constraints(N; matter::Bool, order::Integer)
+    (; p, u, star) = ct_problems(N; order)
     MHD.prepare!(p.mhd, view(u, p.s[2]), 0.0; metric=star.provider)
-    m = matter ? MHD.ADMMatter(p.mhd) : nothing
+    m = matter ? Main.matter(p) : nothing
     c(lo, hi) = gh_constraint_norms(p.gh, view(u, p.s[1]), 0.0; matter=m,
                                     mask=GH.ShellMask(SVector(0.0, 0.0, 0.0), lo, hi))
     return (; inside=c(0.0, 6.0).ham_l2, outside=c(10.0, 100.0).ham_l2,
@@ -153,14 +153,37 @@ end
     # second order inside the star (`r < 6`) and stay at TreeGH's own truncation error
     # outside it (`r ≥ 10`); without the matter it is `16πρ` inside. A `ρ` with the wrong
     # factor or the wrong vertex would leave an O(1) residual.
-    c1, c2 = ct_constraints(10; matter=true), ct_constraints(20; matter=true)
-    v2 = ct_constraints(20; matter=false)
+    c1 = ct_constraints(10; matter=true, order=2)
+    c2 = ct_constraints(20; matter=true, order=2)
+    v2 = ct_constraints(20; matter=false, order=2)
     rate = log2(c1.inside / c2.inside)
     @info "ℋ − 16πρ at t = 0, N = 10, 20: inside $(ct3.((c1.inside, c2.inside))) (rate " *
           "$(round(rate; digits=2))), outside $(ct3.((c1.outside, c2.outside))), ℳ inside " *
           "$(ct3.((c1.mom, c2.mom))); without the matter inside $(ct3(v2.inside))"
     @test rate > 1.8
     @test v2.inside > 10 * c2.inside
+end
+
+@testset "With the fourth-order transfer the star's Hamiltonian constraint converges at fourth order" begin
+    # Guards the stored adapter at order 4 as TreeGH reads it (`order = 4` in
+    # `tov_coupled.jl`; "Matter to the vertices" in `CODE.md`): `ℋ − 16πρ` at the initial
+    # state inside the star (`r < 6`) must fall at the transfer's fourth order, far below
+    # the mean's, and stay at TreeGH's own truncation error outside (`r ≥ 10`), as the
+    # mean's does there. A stored set not filled before TreeGH reads it, the mean's
+    # weights at order 4, or a fallback firing inside the star would leave the second
+    # order.
+    c1 = ct_constraints(10; matter=true, order=4)
+    c2 = ct_constraints(20; matter=true, order=4)
+    m2 = ct_constraints(20; matter=true, order=2)
+    rate = log2(c1.inside / c2.inside)
+    @info "ℋ − 16πρ at t = 0 with the 4th-order transfer, N = 10, 20: inside " *
+          "$(ct3.((c1.inside, c2.inside))) (rate $(round(rate; digits=2))), outside " *
+          "$(ct3.((c1.outside, c2.outside))); the mean's inside at N = 20 $(ct3(m2.inside))"
+    # Measured 2026-11-12: 1.62e−4 and 1.30e−5 (rate 3.64), against the mean's 6.17e−4 at
+    # `N = 20`; outside 9.19e−8 against the mean's 8.76e−8.
+    @test rate > 3.3
+    @test m2.inside > 10 * c2.inside
+    @test c2.outside < 1.2 * m2.outside
 end
 
 @testset "The coupled script runs, conserves rest mass and never falls back" begin
@@ -186,7 +209,7 @@ end
 end
 
 @testset "The fill's key skips only fills that repeat, bit for bit" begin
-    # Guards `FillKey` in `tov_coupled.jl` (proposed in step 11): a skipped fill must be
+    # Guards `FillKey` in `tov_coupled.jl`: a skipped fill must be
     # the fill it replaces, so the run with the key and the run that fills at every call
     # end in the same state bit for bit, and the key must skip, or it costs a comparison
     # and a copy for nothing. A key that ignored `t`, missed a change of TreeGH's segment

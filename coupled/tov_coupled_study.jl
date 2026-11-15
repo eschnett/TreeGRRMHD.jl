@@ -9,9 +9,14 @@
 #
 # Keys: `N` (16), `levels` (1), `L` (24), `roots` (4), `t_end` (200), `chunk` (the sampling
 # interval, 1), `limiter` (`ppm`), `cfl_gh` (TreeGH's CFL factor, 1/2), `γ0M` and `γ2`
-# (TreeGH's damping, `γ0 = γ0M/M`; 1/10 and 0), `out` (the series,
-# `t ρ_c ‖ℋ‖₂in ‖ℳ‖₂in ‖ℋ‖₂out ‖ℳ‖₂out injected_D steps` per chunk), `checkpoint` (a file
-# saved every `every` chunks, default 20, and resumed from if it exists).
+# (TreeGH's damping, `γ0 = γ0M/M`; 1/10 and 0), `δv` (the star's initial velocity along its
+# coupled radial modes, the amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, `δv=a₁,a₂,a₃`;
+# `tov_case`; none), `order` (the matter's transfer to the vertices, 2 or 4; 4), `ρ_min`
+# (the atmosphere's density; 1e−12), `out` (the series,
+# `t ρ_c ‖ℋ‖₂in ‖ℳ‖₂in ‖ℋ‖₂out ‖ℳ‖₂out injected_D steps ΔM resets injected_τ` per chunk:
+# the injections, the reset's writes and `steps` since `t = 0`, `ΔM` the rest mass's change),
+# `checkpoint` (a file saved every `every` chunks, default 20, and resumed from if it
+# exists).
 
 include(joinpath(@__DIR__, "tov_coupled.jl"))
 using Serialization
@@ -20,7 +25,7 @@ using StaticArrays: SVector
 function study_norms(p, u, t)
     metric = metric_at(p, u, t)
     ρ_c = MHD.central_density(p.mhd, view(u, p.s[2]), t; metric)   # prepares the matter
-    m = MHD.ADMMatter(p.mhd)
+    m = matter(p)
     T = eltype(u)
     c(lo, hi) = gh_constraint_norms(p.gh, view(u, p.s[1]), t; matter=m,
                                     mask=GH.ShellMask(SVector{3,T}(0, 0, 0), T(lo), T(hi)))
@@ -31,29 +36,34 @@ function study_norms(p, u, t)
 end
 
 function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, limiter=:ppm,
-               cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, out=nothing, checkpoint=nothing,
-               every=20)
-    (; p, u, forest) = problems(T; N, levels, L, roots, limiter, γ0M, γ2)
+               cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12,
+               out=nothing, checkpoint=nothing, every=20)
+    (; p, u, forest) = problems(T; N, levels, L, roots, limiter, γ0M, γ2, δv, order, ρ_min)
     M0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1]
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
     t, integ, steps, injected, c0 = zero(T), nothing, 0, zero(T), 0
+    resets, injected_τ = 0, zero(T)
     rows = Any[]
     if checkpoint !== nothing && isfile(checkpoint)
         s = deserialize(checkpoint)
         copyto!(u, s.u)
         c0, t, steps, injected, rows = s.c, s.t, s.steps, s.injected, s.rows
+        # Checkpoints from before the reset's counts have none (they start at the resume).
+        resets, injected_τ = get(s, :resets, 0), get(s, :injected_τ, zero(T))
         @info "resumed from $checkpoint at chunk $c0, t = $t"
     else
-        push!(rows, (; t, study_norms(p, u, t)..., injected=zero(T), steps=0))
+        push!(rows, (; t, study_norms(p, u, t)..., injected=zero(T), steps=0,
+                     ΔM=zero(T), resets=0, injected_τ=zero(T)))
     end
     # The series is rewritten from the rows the checkpoint holds, so that a resumed run's
     # file has no row twice (a pre-emption after a row and before its checkpoint).
     io = out === nothing ? nothing : open(out, "w")
     put(r) = io === nothing ? nothing :
              (println(io, join((r.t, r.ρ_c, r.ham_in, r.mom_in, r.ham_out, r.mom_out,
-                                r.injected, r.steps), "  ")); flush(io))
+                                r.injected, r.steps, get(r, :ΔM, NaN), get(r, :resets, -1),
+                                get(r, :injected_τ, NaN)), "  ")); flush(io))
     foreach(put, rows)
     wall0 = time()
     for c in (c0 + 1):nchunks
@@ -67,18 +77,23 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         steps += nsteps
         t = t1
-        injected += MHD.ohm_tally(p.mhd).injected_D
-        r = (; t, study_norms(p, u, t)..., injected, steps)
+        tally = MHD.ohm_tally(p.mhd)
+        injected += tally.injected_D
+        resets += tally.step_resets
+        injected_τ += tally.injected_τ
+        ΔM = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1] - M0
+        r = (; t, study_norms(p, u, t)..., injected, steps, ΔM, resets, injected_τ)
         push!(rows, r)
         put(r)
         if checkpoint !== nothing && (c % every == 0 || c == nchunks)
-            serialize(checkpoint * ".tmp", (; c, t, steps, injected, rows, u=Array(u)))
+            serialize(checkpoint * ".tmp",
+                      (; c, t, steps, injected, resets, injected_τ, rows, u=Array(u)))
             mv(checkpoint * ".tmp", checkpoint; force=true)
         end
     end
     io === nothing || close(io)
     ΔM = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1] - M0
-    return (; rows, M0, ΔM, injected, steps, h=minimum_spacing(forest),
+    return (; rows, M0, ΔM, injected, resets, injected_τ, steps, h=minimum_spacing(forest),
             nblocks=nblocks(p.gh.U), wall=time() - wall0)
 end
 
@@ -86,10 +101,12 @@ function study_main(args)
     kw = Dict{Symbol,Any}()
     for a in args
         k, v = split(a, '='; limit=2)
-        if k in ("N", "levels", "roots", "every")
+        if k in ("N", "levels", "roots", "every", "order")
             kw[Symbol(k)] = parse(Int, v)
-        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2")
+        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2", "ρ_min")
             kw[Symbol(k)] = parse(Float64, v)
+        elseif k == "δv"
+            kw[:δv] = Tuple(parse.(Float64, split(v, ',')))
         elseif k == "limiter"
             kw[:limiter] = Symbol(v)
         elseif k in ("out", "checkpoint")
@@ -104,7 +121,8 @@ function study_main(args)
     println("ρ_c: $(first_row.ρ_c) → $(last_row.ρ_c) (drift $((last_row.ρ_c - first_row.ρ_c) / first_row.ρ_c))")
     println("‖ℋ‖₂ inside: $(first_row.ham_in) → $(last_row.ham_in); outside: $(first_row.ham_out) → $(last_row.ham_out)")
     println("rest mass $(r.M0), change $(r.ΔM), injected $(r.injected) (the whole run), " *
-            "difference $(r.ΔM - r.injected)")
+            "difference $(r.ΔM - r.injected); the reset wrote $(r.resets) cells and " *
+            "injected $(r.injected_τ) of τ")
     return nothing
 end
 

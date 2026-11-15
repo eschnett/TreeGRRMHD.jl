@@ -138,6 +138,65 @@ end
     end
 end
 
+@testset "The radial modes are Font et al.'s, coupled and in the Cowling approximation" begin
+    # Guards `tov_radial_modes` (`src/tov_pulsation.jl`; "Validation ladder" 5 in
+    # `CODE.md`): a wrong term in either version's equations, a wrong centre limit or a
+    # wrong surface condition would move the frequencies or the nodes. Against Font et al.
+    # (2002, PRD 65, 084024): Table II's coupled frequencies from linear perturbation theory
+    # (1.442, 3.955, 5.916 kHz, given to four digits), and Table I's fixed-spacetime ones
+    # from a 2D code (2.701, 4.563, 6.352 kHz), which carry that code's truncation error.
+    sol = tov_solve(; TV_STAR...)
+    fine = tov_solve(; TV_STAR..., steps=16000)
+    for (cowling, ref, rtol) in ((false, (1.442, 3.955, 5.916), 5e-4),
+                                 (true, (2.701, 4.563, 6.352), 1e-2))
+        m = tov_radial_modes(sol; cowling)
+        mf = tov_radial_modes(fine; cowling)
+        @info "TOV radial modes, cowling = $cowling: $(round.(m.f_kHz; digits=4)) kHz; " *
+              "relative to Font et al. $(tv3.((m.f_kHz .- ref) ./ ref))"
+        @test all(isapprox.(m.f_kHz, ref; rtol))
+        @test all(isapprox.(m.f_kHz, mf.f_kHz; rtol=1e-6))
+        for n in 1:3
+            ξ = m.ξ[n]
+            @test count(i -> ξ[i] * ξ[i + 1] < 0, 1:(length(ξ) - 1)) == n - 1
+            @test ξ[1] == 1 && m.ζ[n][1] == -3
+        end
+    end
+end
+
+@testset "The perturbed star moves along its modes, inside the surface, and the default is at rest" begin
+    # Guards `tov_case`'s `δv` (`src/cases/tov.jl`; "Validation ladder" 5 in `CODE.md`): a
+    # velocity that is not the modes' eigenfunctions or not radial, a wrong amplitude, a
+    # velocity outside the surface (which would move the Dirichlet faces off the static
+    # exterior), anything but the velocity changed, or a default that is not the star at
+    # rest bit for bit.
+    a = (1e-3, -2e-3, 3e-3)
+    c = tov_case(Float64; L=16, roots=2, δv=a, δv_modes=:coupled)
+    R̄ = c.fields.w.metric.R̄
+    m = tov_radial_modes(tov_solve(; TV_STAR...); cowling=false)
+    z = zero(SVector{3,Float64})
+    for x in (SVector(1.0, 2.0, -0.5), SVector(-3.0, 0.0, 4.0), SVector(0.0, 0.0, 7.9))
+        r̄ = sqrt(sum(abs2, x))
+        i = searchsortedlast(m.r̄, r̄)
+        t = (r̄ - m.r̄[i]) / (m.r̄[i + 1] - m.r̄[i])
+        g = sum(a[n] / 3 * ((1 - t) * m.g[n][i] + t * m.g[n][i + 1]) for n in 1:3)
+        f, f0 = c.fields(x, 0.0), TV_CASE.fields(x, 0.0)
+        @test f[2] ≈ g * x rtol = 1e-5
+        @test f[[1, 3, 4, 5, 6]] == f0[[1, 3, 4, 5, 6]]
+        @test f0[2] === z
+    end
+    # The amplitude is the mode's in ρ_c/ρ_c: ξ = a/3 at the centre, where vⁱ/xⁱ = ω ξ/α.
+    c2 = tov_case(Float64; L=16, roots=2, δv=(0, 3e-3, 0), δv_modes=:coupled)
+    x = SVector(1e-3, 0.0, 0.0)
+    α_c = TV.tov_potentials(c2.fields.w.metric, 0.0)[2]
+    @test c2.fields(x, 0.0)[2][1] / x[1] ≈ m.ω[2] * 1e-3 / α_c rtol = 1e-6
+    @test c.fields(z, 0.0)[2] == z
+    @test c.fields(SVector(R̄, 0.0, 0.0), 0.0)[2] === z
+    @test c.fields(SVector(0.0, -12.0, 0.0), 0.0)[2] === z
+    @test isbits(c.fields.w)
+    @test_throws ArgumentError tov_case(Float64; L=16, roots=2, δv=(1e-3, 0), δv_modes=:coupled)
+    @test_throws ArgumentError tov_case(Float64; L=16, roots=2, δv=(0, 1e-3, 0))
+end
+
 @testset "The split-speed HLLE is consistent, and its fluid speeds lie in the light cone" begin
     # Guards `riemann_flux(::Val{:hlle_split}, …)` and `fluid_speeds` (step 10's measurement
     # of the Riemann speeds, "Riemann solver" in `CODE.md`): a wrong sign of the shift or of

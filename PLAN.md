@@ -682,7 +682,7 @@ TreeGH's `main`.
 Changes:
 - **This package's verbs** are step 10's; this step adds `flags`, `regrid_pairs` (today's,
   public) and `rebuild`, as the script's regrid needs them.
-- **This package's matter adapter** (`TreeGRRMHD.ADMMatter`, **(proposed)**): `(ρ, S_i, S_ij)`
+- **This package's matter adapter** (`TreeGRRMHD.ADMMatter`): `(ρ, S_i, S_ij)`
   at TreeGH's owned vertices, the mean of the `2^D` cells' `stress_energy` (its `S^ij` lowered),
   2nd order, with a 4th-order option. Whether it stores them at the cells during `prepare!` or
   computes them per call is measured and decided here.
@@ -697,7 +697,7 @@ Changes:
 
   The script and the coupled tests live in `coupled/`, an environment of their own (decided by
   Erik 2026-11-10). TreeGH's repeated fill is skipped by a key on its input: five fills per
-  step instead of eleven (**(proposed)**; `CODE.md`, "Two scripts"). The regrid branch, unused
+  step instead of eleven (accepted by Erik 2026-11-13; `CODE.md`, "Two scripts"). The regrid branch, unused
   by the star's static boxes, gets a test of its own.
 - **The GH CFL factor under SSP3(4,3,3)'s explicit part**, measured here.
 
@@ -712,27 +712,38 @@ Accept:
 - **Decides:** the largest stable GH `cfl` under SSP3, on the gauge wave and on the TOV star,
   which becomes the default; and **the matter's transfer order (open)**.
 
-**State (2026-11-11).** Built and measured (`CODE.md`, "Validation ladder" 5).
+**State (2026-11-14).** Built and measured (`CODE.md`, "Validation ladder" 5).
 
 Done:
 - the frozen metric, to round-off;
 - GH-3's static-matter check (rate 1.87);
-- rest mass, to 1e−14 net of the reset's injection to `t = 1`; over 1000 M, 1.0e−9 to
-  2.6e−10 of 1.506, converging at about 3: **a miss**, not localised;
-- the constraints at ≥ 1.8 to 1000 M inside (finer pair); outside, 1.74 after 500 M:
-  **a miss**;
-- the modes: F +0.67% at `h = 0.375`; H1 +8.38% and H2 −10.56%: **a miss**, with H2's window
-  holding a spacetime line at 5.29 kHz;
-- the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` **(proposed)**;
-- `ADMMatter` computed per call **(proposed)**;
-- TreeGH's damping `γ0 = 1/(10M)` **(proposed)**; the first studies, at `γ0 = 1/M`,
+- rest mass, to 1e−14 net of the reset's injection to `t = 1`; over 1000 M with the fourth
+  order, 5.3e−10 to 1.3e−10 of 1.506, converging at about 3 (half the mean's): **a miss**.
+  A scan of `ρ_min` (1e−10, 1e−12, 1e−14; jobs 598455–598457) shows it is atmosphere entering
+  at the outer faces, proportional to `ρ_min`, as is the reset's part; `ρ_c` and the constraints do not change;
+- the constraints at ≥ 1.8 to 1000 M on the finer pair, inside and outside, with the fourth
+  order (least 1.88; jobs 597892–597894). With the mean the outside rate fell to 1.74 after
+  500 M;
+- the modes: F +0.67% at `h = 0.375` in the unperturbed runs. H1 and H2 are excited along
+  their eigenfunctions (`δv`) and measured in the difference from the unperturbed run. With the
+  mean they are within 3% from `h = 0.375`, and at `h = 0.25` within 0.13% and 0.39%. They decay
+  by the scheme's dissipation, as `h⁻²`. Unperturbed, they missed (+8.38%, −10.56%);
+- the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` (accepted by Erik, 2026-11-13);
+- `ADMMatter`: the mean computed per call, and the fourth order from a stored cell set with
+  its fallback to the mean at the surface (both accepted by Erik, 2026-11-13);
+- TreeGH's damping `γ0 = 1/(10M)` (accepted by Erik, 2026-11-13); the first studies, at `γ0 = 1/M`,
   collapsed near 400 M (`HISTORY.md`, "Two scripts");
-- the matter's transfer order: second order **(proposed)**.
+- the matter's transfer order: fourth order, the script's default (Erik, 2026-11-13), from the
+  constraints at `t = 0`; the modes do not decide it. At `h = 0.25` to 300 M, its H1 and H2
+  are +0.8% and +0.5%, against the mean's +0.1% and +0.4%.
 
-Open for Erik: whether the H1 and H2 miss, the outside rate and the rest-mass budget are
-accepted, or are followed up. One follow-up is to excite the overtones with a perturbation of
-the initial star, so that they stand above the spacetime's lines. Another is to localise the
-rest-mass loss at the outer faces.
+- the atmosphere: `ρ_min = 1e−12` for the coupled runs, the script's default (Erik,
+  2026-11-14). The three 1000 M studies are rerun at it (jobs 598575–598577); the coarsest,
+  at `h = 0.6`, gains 5.4e−12 net of the reset where it gained 5.3e−10 at 1e−10, and its
+  `ρ_c` and constraints agree to 1%.
+
+Open: the two finer 1000 M studies at 1e−12. Open for Erik: a run at `h = 0.1875` to see
+whether the 4th order's 0.8% in H1 closes.
 
 ## Step 12 — The magnetized TOV star (rung 6)
 

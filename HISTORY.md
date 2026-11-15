@@ -3507,6 +3507,155 @@ constraints and modes. These converge at about 2 and put F within 1%, and
 their misses point elsewhere (`CODE.md`, "Validation ladder" 5). The
 4th-order option was never built, so this is not a measured comparison.
 
+**2026-11-12, step 11.** Erik passed on two comments from colleagues about
+H1 and H2: the modes may need a higher resolution, and `T_ab` must reach the
+spacetime code at 4th order. The second was right about the constraints:
+the mean had been the largest error in the matter TreeGH sees. Erik agreed
+to build the 4th order and to run `h = 0.25`. The stored form
+(`ADMMatter(p, M; order)`, `adm_matter_set`) was built for it, since 64
+cells per call would cost eight times the mean's work. The 4th order is
+proposed as the transfer. Measured:
+
+- **On the static star, at `h = 2, 1, 0.5`** (`test/adm_matter_tests.jl`,
+  `r ≤ 4`, relative to `e_c` and `p_c`):
+
+  | | `ρ` | `S_ij` |
+  |---|---|---|
+  | mean | 1.68e−1, 4.74e−2, 1.23e−2 (rates 1.82, 1.95) | 2.95e−1, 8.85e−2, 2.33e−2 |
+  | 4th order | 5.19e−2, 4.72e−3, 3.27e−4 (rates 3.46, 3.85) | 1.25e−1, 1.05e−2, 1.95e−4 |
+
+- **`ℋ` inside the star (`r < 6`) at `t = 0`**, in the coupled script on
+  the study's mesh (`L = 24`, four roots, one box level):
+
+  | `h` | mean | 4th order |
+  |---|---|---|
+  | 0.6 | 3.54e−4 | 3.45e−6 |
+  | 0.5 | 2.47e−4 | 1.69e−6 |
+  | 0.375 | 1.39e−4 | 5.38e−7 |
+  | 0.3 | 8.91e−5 | 2.21e−7 |
+
+  The rates are 1.96–2.00 and 3.93–3.98. Outside (`r ≥ 10`), both are the
+  same, at TreeGH's truncation error. In a 4 M smoke run at `h = 0.6`,
+  `ℋ` inside after 1 M was 6.4e−5 with the 4th order and 3.5e−4 with the
+  mean.
+
+- **The modes** (`bin/tov_overtones.jl`, orders 6, 8, 10, the
+  ranges over the orders). At `h = 0.5` the 4th-order pair (jobs 596595,
+  596596) ran to 300 M in 1 h 41 min. The mean's pair is 596448 against
+  the unperturbed 595408, cut to the same window. The `h = 0.375` pairs
+  are at 155 M, and below them the same pairs to 300 M (the 4th order's
+  jobs 596597, 596598, 3 h 56 min):
+
+  | `h`, window | transfer | H1 kHz, `τ` | H2 kHz, `τ` |
+  |---|---|---|---|
+  | 0.5, 3–300 M | mean | 3.887, 3.898, 3.918; 87–106 M | 5.763, 5.786, 6.084; 43–59 M |
+  | 0.5, 3–300 M | 4th order | 3.949, 3.974, 4.000; 75–87 M | 6.062, 6.214 (order 8: 5.512 and 6.992); 45–47 M |
+  | 0.375, 3–155 M | mean | 3.915, 3.970 (order 6: 4.036, residual 35%) | 5.743, 6.010 (order 6: 6.799) |
+  | 0.375, 3–155 M | 4th order | 3.994, 3.994, 4.012; 168–370 M | 5.890, 5.970 (order 6: 6.400) |
+  | 0.375, 3–300 M | mean | 3.950, 3.936, 3.902; 133–173 M | 5.916, 5.807, 6.033; 78–88 M |
+  | 0.375, 3–300 M | 4th order | 4.018, 4.003, 3.942; 119–145 M | 5.953, 5.854, 6.067; 59–78 M |
+
+  Against Font et al.'s 3.955 and 5.916 kHz. Over 3–155 M at `h = 0.5`,
+  both transfers' fits spread by 0.2–0.35 kHz in H1, so that window is
+  too short at that resolution. F's amplitude in the difference is
+  about 10⁻³, a tenth of H1's, and its fits (1.2–1.5 kHz) measure nothing.
+  To 300 M at `h = 0.375`, the two transfers differ by less than the
+  spread over the model orders, and both are within 3% in H1 and H2.
+  The 4th order's best fit (order 10) leaves 3.6% of the signal against
+  the mean's 6.8%.
+
+  **2026-11-13.** The `h = 0.25` pairs finished at 300 M (jobs 596586,
+  596587 with the mean in 15 h 20 min; 596599, 596600 with the 4th order
+  in 15 h 44 min), and the mean's `h = 0.6, 0.5, 0.375` runs at 1000 M
+  (596447–596449; 596449 in 12 h 26 min). The fits over 3–300 M at
+  `h = 0.25`, orders 6, 8, 10:
+
+  | transfer | H1 kHz; `τ` | H2 kHz; `τ` | residual |
+  |---|---|---|---|
+  | mean | 3.960, 3.956, 3.957; 435–441 M | 5.939, 5.923, 5.927; 138 M | 12.4%, 9.4%, 9.3% |
+  | 4th order | 3.989, 3.987, 3.989; 384–389 M | 5.952, 5.943, 5.951; 134–135 M | 10.2%, 7.5%, 7.0% |
+
+  and over 3–1000 M with the mean: `h = 0.6` H1 3.799, 3.816, 3.829 and
+  H2 6.385, 6.340, 6.124; `h = 0.5` H1 3.901, 3.890, 3.961 and H2 6.062,
+  5.652, 5.813; `h = 0.375` H1 3.950, 3.938, 3.921 and H2 5.899, 5.762,
+  6.029. So the step-11 miss in H1 and H2 (+8.38%, −10.56% from the
+  unperturbed runs, whose windows held spacetime lines) was the
+  measurement's, not the scheme's: excited along their eigenfunctions,
+  they reach Font et al.'s Table II to 0.1–0.4% with the mean. The 4th
+  order sits above it by 0.8% in H1 and 0.5% in H2. It was expected to
+  agree better, and it did not; a single resolution with each cannot
+  say why.
+
+**2026-11-13.** Erik made the fourth order the coupled script's default
+(`problems`, `main` and `study` in `coupled/`, `order = 4`), on the
+constraints. Until then the default had been the mean, and every coupled
+study before jobs 596595–596600 ran with it. The coupled suite's
+second-order constraint test now names `order = 2`, and the other coupled
+tests run at the new default, so `regrid_all`'s rebuild of the stored set
+is now under test.
+
+**2026-11-13.** Erik accepted three of step 11's proposals: TreeGH's CFL
+factor `cfl_gh = 1/2` under SSP3(4,3,3), TreeGH's damping `γ0 = 1/(10M)`
+on the star, and the key that skips TreeGH's repeated fill (`FillKey`, five
+fills per step instead of eleven). He asked for the two misses, the
+constraints' rate outside the star and the rest mass over 1000 M, to be
+remeasured with the fourth-order transfer: jobs 597892–597894, `h = 0.6,
+0.5, 0.375` to 1000 M, the last two resumed from the 300 M checkpoints of
+596596 and 596598.
+
+**2026-11-13.** Erik accepted the other two: `ADMMatter(p)` computed per
+call, kept beside the stored form, which the fourth order needs and which
+the coupled script now uses by default; and the fourth order's fallback to
+the mean where it would undershoot the eight nearest cells' `𝓔` or a
+diagonal `S_ii`. A smooth blend (WENO-like) was considered and not built,
+with no measured need. The fallback does not catch overshoots just inside
+the surface, which leave the values positive.
+
+**2026-11-13.** Jobs 597892–597894 reran the 1000 M studies with the
+fourth-order transfer. Outside the star the miss closed; the rest-mass
+budget halved but is still a miss. `CODE.md`, "Validation ladder" 5, now
+carries these runs. Here are the mean's numbers from the earlier runs
+(595407–595409) that `CODE.md` showed until then. They are window-averaged
+rates between `h = 0.6, 0.5` and `h = 0.5, 0.375`:
+
+| `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+|---|---|---|---|---|
+| 0 | 1.96, 2.00 | — | 4.31, 4.10 | — |
+| 20–30 | 1.95, 1.96 | 2.09, 2.07 | 1.88, 1.88 | 1.86, 1.84 |
+| 95–105 | 2.12, 2.23 | 2.19, 2.32 | 1.87, 1.90 | 1.88, 1.92 |
+| 240–260 | 2.02, 2.15 | 2.11, 2.29 | 1.79, 1.85 | 1.87, 1.91 |
+| 490–510 | 1.83, 1.99 | 1.99, 2.21 | 1.70, 1.79 | 1.77, 1.87 |
+| 740–760 | 2.02, 2.22 | 1.85, 2.14 | 1.65, 1.87 | 1.68, 1.81 |
+| 900–1000 | 1.78, 2.01 | 1.78, 2.11 | 1.63, 1.74 | 1.62, 1.74 |
+
+- **`ℋ` at `h = 0.375`:**
+  - inside it fell from 1.4e−4 at `t = 0` to 1.9e−5 by 25 M and stayed at
+    1.4–1.6e−5;
+  - outside it grew again after 500 M, from 1.1e−6 to 1.4e−6.
+- **With the fourth order:**
+  - outside, the norm is 0.9–1.2e−7 from 250 M on, and the finer pair's
+    rate is 1.88 or better throughout;
+  - inside, `ℋ` at 1000 M is 9.6e−6 against 1.5e−5, while `ℳ` is 1.05e−5
+    against 8.5e−6.
+- **The central density**, relative to `t = 0`, with the mean:
+  - over 50–70 M: −9.55%, −6.72%, −3.79% (rates 1.93, 1.99);
+  - over 900–1000 M: −14.49%, −9.19%, −4.41% (rates 2.50, 2.55);
+  - after 200 M, a drift of 8.3e−5, 4.9e−5 and 2.0e−5 per M.
+
+  With the fourth order, the start's drop is four times smaller, −0.95%
+  over 50–70 M at `h = 0.375`, and converges at about 3. The later drift is
+  about the same, 2.4e−5 per M.
+- **The rest mass** over 1000 M, its change net of the reset: 1.0e−9,
+  6.1e−10, 2.6e−10 with the mean, and 5.3e−10, 3.2e−10, 1.3e−10 with the
+  fourth order. Both converge at about 3 (2.8, 3.0 and 2.8, 3.1).
+- **What it costs:** the `h = 0.375` run took 32,256 s from 300 M to
+  1000 M, about 78 M per hour.
+
+The first fallback rule considered was to fall back wherever the
+interpolation left the eight nearest cells' range. It would have fired at
+the star's centre too, where the true value lies above every cell's, so the
+rule only guards against undershoots.
+
 ### Gauge for the TOV milestones
 
 **2026-11-06, step 10.** `TOVMetric` as this package's provider for the
@@ -4696,6 +4845,168 @@ times less than `Analytic(TOVMetric)`'s.)*
   `h = 0.375`, a window chosen after seeing the spectra)*;
 - rest mass to round-off: *(1e−14 to `t = 1` in the suite; over 1000 M,
   1.0e−9 to 2.6e−10 of 1.506 net of the reset, converging at about 3)*.
+
+**2026-11-11, step 11: a velocity perturbation to excite the overtones.** Erik asked
+for the initial star to be perturbed so that H1 and H2 rise above the spacetime's
+lines. The first version of `tov_case(T; δv)` added the radial velocity
+`Σ aₙ sin(nπ r/R̄)` inside the star; its `n`-th term has the `(n − 1)`-th overtone's
+nodes. With `δv = (0, 10⁻³, 10⁻³)` it did not work. `ρ_c` minus the unperturbed run's
+`ρ_c`, on the same mesh, was a transient of about 1% that lasted about 30 M, then
+dropped tenfold. Its largest value in each 15 M window:
+
+| run | 0–15 | 15–30 | 30–45 | 45–60 | 60–75 |
+|---|---|---|---|---|---|
+| Cowling, `h = 0.6` | 8.1e−3 | 6.9e−3 | 2.2e−3 | 3.4e−4 | 4.9e−4 |
+| coupled, `h = 0.6` | 8.7e−3 | 7.7e−3 | 2.8e−3 | 2.9e−3 | 1.8e−3 |
+| coupled, `h = 0.5` | 1.0e−2 | 8.8e−3 | 2.6e−3 | 2.8e−3 | 2.4e−3 |
+| coupled, `h = 0.375` | 1.1e−2 | 9.9e−3 | 2.3e−3 | 2.9e−3 | 2.6e−3 |
+
+The first guess, that TreeGH's constraint damping removed the response, was wrong: the
+Cowling pair (jobs 596098, 596099) decayed in the same way, so neither the coupling nor
+the violated momentum constraint (`K_ij = 0`) removed it. The finer meshes dropped it no
+slower, so it was not the scheme's damping of a mode either: rung 4's truncation-excited
+H1 rings for hundreds of M. What remained after 40 M was F. Over `[40, 150]` M the Cowling
+`ρ_c` had the same overtone peaks with and without `δv` (6.6e−6 and 7.1e−6 near H2). The
+coupled `h = 0.6` run to 1000 M (job 595986) gave the unperturbed run's modes and peaks:
+F 1.453, H1 3.175, H2 5.268 kHz, peaks 3.29e−3, 2.22e−5, 4.69e−5, against 1.452, 3.171,
+5.282 kHz and 3.27e−3, 2.27e−5, 4.43e−5. The presumed reason, not measured: the sine
+profile projects only weakly onto H1 and H2, whose velocities do not vanish at the
+surface as `sin(nπ r/R̄)` does, and the rest is a pulse lost within a sound-crossing
+time. The `h = 0.5` and `0.375` runs to 1000 M (jobs 595987, 595988) agreed with the
+unperturbed runs in the same way. In kHz, with the unperturbed values in parentheses:
+
+| `h` | F | H1 | H2 |
+|---|---|---|---|
+| 0.5 | 1.453 (1.453) | 4.181 (4.225) | 5.268 (5.298) |
+| 0.375 | 1.452 (1.452) | 4.222 (4.287) | 5.239 (5.292) |
+
+**2026-11-12, step 11: the perturbation along the eigenfunctions.** Erik chose to
+perturb along the radial modes' eigenfunctions instead. `src/tov_pulsation.jl` solves the
+coupled and Cowling radial-pulsation equations on `tov_solve`'s nodes. The coupled
+frequencies reproduce Font et al.'s Table II to its last digit (+0.036%, −0.024%,
+−0.019%). `tov_case`'s `δv` became the
+amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, with `δv_modes` naming the version.
+`CODE.md`, "Validation ladder" 5, has the design and the interim results.
+
+With `δv = (0, 5·10⁻³, 5·10⁻³)`, the response lasts longer than the sine's. The largest
+`|Δρ_c/ρ_c|` in each 25 M window:
+
+| run | 0–25 | 25–50 | 50–75 | 75–100 | 100–125 | 125–150 |
+|---|---|---|---|---|---|---|
+| Cowling, `h = 0.6` | 8.8e−3 | 6.3e−3 | 2.1e−3 | 2.2e−3 | 1.0e−3 | 5.0e−4 |
+| coupled, `h = 0.6` | 8.4e−3 | 4.3e−3 | 2.5e−3 | 2.7e−3 | 1.4e−3 | 1.1e−3 |
+| coupled, `h = 0.5` | 8.6e−3 | 4.8e−3 | 2.8e−3 | 4.0e−3 | 1.8e−3 | 1.6e−3 |
+
+Unlike the sine's, the difference rings at H1 and H2, and it decays more slowly on the
+finer mesh. A windowed spectrum of `ρ_c` itself, as `bin/tov_modes.jl` takes it, does
+not separate a mode that decays in about 100 M: over the first 404 M at `h = 0.6` it gave
+H1 3.819 and H2 5.887 kHz with the perturbation, and 4.723 and 5.206 kHz without it. So
+the overtones are fitted in the difference instead, by a matrix pencil.
+
+The overtones still decay, with `τ` growing as `h` shrinks. A smaller amplitude
+checked whether the damping is nonlinear: Cowling runs at `h = 0.6` with `δv = (0, a,
+a)`, `a = 10⁻³` and `2.5 · 10⁻⁴` (jobs 596572, 596573), against the `5 · 10⁻³` run.
+The largest `|Δρ_c/ρ_c| / a` in each 25 M window:
+
+| `a` | 0–25 | 25–50 | 50–75 | 75–100 | 100–125 | 125–150 |
+|---|---|---|---|---|---|---|
+| 5e−3 | 1.76 | 1.27 | 0.42 | 0.43 | 0.21 | 0.10 |
+| 1e−3 | 1.71 | 1.22 | 0.41 | 0.28 | 0.14 | 0.09 |
+| 2.5e−4 | 1.70 | 1.22 | 0.38 | 0.23 | 0.12 | 0.09 |
+
+H1's fitted `τ` is 50–62, 42–45 and 36–41 M. So the damping is linear, and the
+smallest amplitude decays no slower than the largest. It is the scheme's
+dissipation, which agrees with the colleagues' first comment ("Matter to the
+vertices", 2026-11-12). The Cowling H2 fits came out at 7.3–7.4 kHz with `τ` of about
+20 M, which is about two periods. That is too short to tell H2 from H3.
+
+**2026-11-14, step 11: the rest-mass budget against the literature.** Erik asked
+whether other codes see a similar rest-mass error. Several of them evolve the same
+star, A0 (`K = 100`, `Γ = 2`, `M_b = 1.506`, `M = 1.4`). They report only the
+total change, `|1 − M_b(t)/M_b(0)|`, and the atmosphere dominates it.
+
+This package's runs (jobs 597892–597894, the fourth-order transfer) report the
+change in two parts. Both are relative to 1.506, over 1000 M ≈ 4.9 ms, at
+`ρ_min = 10⁻¹⁰` (7.8e−8 of `ρ_c`), in the box `[−24, 24]³` M:
+- the reset's injection: −1.44e−6, −1.43e−6 and −1.35e−6 at `h = 0.6`, 0.5 and
+  0.375;
+- what the reset does not account for: 3.5e−10, 2.1e−10 and 8.8e−11, converging
+  at about 3.
+
+The second part is `PLAN.md`'s miss. It is a gain, not a loss: the box's rest mass
+falls by less than the reset removes. `CODE.md` and `PLAN.md` had called it a
+loss, taking mass out at the outer faces, from 2026-11-11 until this comparison
+read the sign of `ΔM − injected` (`coupled/tov_coupled_study.jl`).
+The 1000 M runs with the mean (595407–595409) also gained. The literature:
+
+| paper | setup | rest-mass change | cause given |
+|---|---|---|---|
+| GR-Athena++: Cook et al. 2023, arXiv:2311.04989; Daszuta & Cook, arXiv:2406.05126 | A0, Z4c, box ±378 km ≈ ±256 M, `f_atm` 1e−13 to 1e−18 of `ρ_max` | ~1e−11 at every scheme and resolution | the atmosphere; fluid expanding out of the domain |
+| BAM: Poudel et al. 2020, arXiv:2009.06617 | A0 to 1000 M, atmosphere threshold 1.28e−12 (~1e−9 of `ρ_c`) | atmosphere: a jump at the first step and no convergence; vacuum treatment: < 1e−8 at the finest resolution | the atmosphere; mass crossing refinement boundaries; low-density matter reaching the outer boundary (from about 600 M in the migrating star) |
+| BAM: Dietrich et al. 2015, arXiv:1504.01266 | TOV tests on refinement levels, `ρ_atm = 10⁻⁹` and `10⁻¹¹` | refluxing improves it about 100-fold; a lower atmosphere, much more | the atmosphere treatment, then the refinement boundaries |
+| WhiskyTHC: Radice et al. 2014, arXiv:1312.5004 | perturbed TOV, Cowling | up to about 1e−3 | surface oscillations pulling matter out of the atmosphere; a floor fed in at the outer boundary |
+| Daszuta et al. 2026, arXiv:2605.30430 | binary neutron stars | round-off, with a local rescaling of the atmosphere | the atmosphere breaks conservation even in conservative schemes |
+| Font et al. 2002, arXiv:gr-qc/0110047 | A0, coupled | not reported | — |
+
+What the comparison shows:
+- **The total is the atmosphere's.**
+  - It is 1.35e−6 here, against GR-Athena++'s 1e−11 and BAM's vacuum treatment's
+    1e−8.
+  - Every paper attributes it to the atmosphere, and this package's atmosphere is
+    the densest: 5–10 orders of magnitude above GR-Athena++'s and about 80 times
+    above BAM's.
+  - The remedies in the literature are a lower atmosphere, positivity-preserving
+    limiters, a vacuum treatment and a conservative rescaling.
+- **The part net of the reset is small by these standards.**
+  - No paper separates it from the rest.
+  - At `h = 0.375` it is the size of GR-Athena++'s whole budget.
+  - It converges at about 3, where GR-Athena++'s is flat in resolution and BAM's
+    atmosphere runs do not converge.
+- **The outer boundary is a known channel, in both directions.**
+  - GR-Athena++ and Poudel et al. name matter leaving the domain.
+  - Radice et al. name the opposite, a floor fed in at the outer boundary and
+    accreting, which is what a gain here would be. The box's Dirichlet faces hold
+    the atmosphere at `ρ_min` at rest, while the atmosphere inside falls toward
+    the star.
+  - The box is about ten times smaller than GR-Athena++'s, so its faces are only
+    three stellar radii out.
+  - That fits the guess that the mass enters at the outer faces, but it is not
+    localised.
+- **Round-off conservation over 1000 M is not achieved with an atmosphere.** No
+  published run achieves it except Daszuta et al.'s rescaling, which is built for
+  that purpose. The suite's 1e−14 holds only to `t = 1`.
+
+Erik left the flux diagnostic at the outer faces for later.
+
+**2026-11-14, step 11: the atmosphere density scanned.** Erik asked whether the
+atmosphere could be lower. `tov_case` takes `ρ_min` already and the gas's
+`ρ_bounds` reach 1e−14, so only the scripts gained a `ρ_min` key, and the study's
+series three columns: `ΔM` since `t = 0`, the reset's cell count and its `τ`.
+Three runs to 300 M at `h = 0.5` (N = 12, the fourth-order transfer; jobs
+598455–598457, 5065–6116 s each, cn104, cn112, cn095):
+
+| `ρ_min` | reset's `D` | gain net of it | reset's `τ` | `ρ_c` drift | `‖ℋ‖` in, out at 300 M |
+|---|---|---|---|---|---|
+| 1e−10 | −6.06e−7 | 1.01e−10 | −3.84e−5 | −3.1037% | 1.809e−5, 2.09e−7 |
+| 1e−12 | −4.85e−9 | 1.03e−12 | −4.83e−5 | −3.1030% | 1.812e−5, 2.31e−7 |
+| 1e−14 | −3.58e−11 | 1.5e−14 | −4.99e−5 | −3.1029% | 1.811e−5, 2.25e−7 |
+
+The gain is zero to round-off (≤ 1e−14) until 20 M at every `ρ_min`; from then on
+its increments over each window stand 100 : 1 between neighbouring values (for
+example 2.32e−11 and 2.31e−13 over 75–100 M). At 1e−14 it stays at round-off. The
+laptop's smoke test (`h = 0.6`, `t = 2`) had already shown the reset's part
+proportional to `ρ_min` and `ρ_c` identical. Before the scan, the gain's origin
+was open; proportional to `ρ_min` on a mesh that conserves across coarse-fine
+faces, it can only be atmosphere coming in at the outer faces. The reset's `τ`
+agrees to three digits until 25 M and then grows by 26% at 1e−12 and 30% at 1e−14;
+where those repairs are was not measured.
+
+Erik accepted `ρ_min = 1e−12` for the coupled runs the same day, and it became the
+coupled script's default. The three 1000 M studies were rerun at it (jobs
+598575–598577). At `h = 0.6` (598575, cn106, 10,114 s) the rest mass gains
+5.36e−12 net of the reset, against 5.33e−10 at 1e−10 (597892); the reset removes
+1.83e−8, against 2.17e−6; `ρ_c` drifts −12.413% against −12.414%; and `ℋ` at
+1000 M is 2.367e−5 inside and 3.83e−7 outside, against 2.361e−5 and 3.87e−7.
 
 ## Open questions
 

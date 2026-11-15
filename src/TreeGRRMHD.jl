@@ -97,7 +97,7 @@ export MetricProvider, Flat, Analytic, MetricGradient, point_metric, metric_grad
 # The vertex metric of the coupling contract (step 10, round 2)
 export VertexMetricSet, VertexMetric, SampledADM, metric_fallbacks
 # The matter of the coupling contract (step 11)
-export ADMMatter
+export ADMMatter, adm_matter_set
 # The pointwise physics
 export stress_energy, T4_lower
 export Conductivity, Vacuum, Constant, DensityProfile, IdealConductor, MagnetizationCutoff,
@@ -127,7 +127,7 @@ export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning
        kerr_schild_r
 # The TOV star (step 10)
 export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
-       tov_boxes!
+       tov_boxes!, TOVModes, tov_radial_modes, tov_mode_velocity
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -154,6 +154,7 @@ include("prim2con.jl")
 include("con2prim.jl")
 include("metric.jl")
 include("tov.jl")
+include("tov_pulsation.jl")
 include("stress_energy.jl")
 include("ohm.jl")
 include("flux.jl")
