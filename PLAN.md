@@ -792,10 +792,12 @@ Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
   fails nowhere outside the atmosphere at `t = 2M`); with it, nothing can be measured, so
   whether `D s` earns its keep stays open;
-- the studies on the default box with boxes at three resolutions, and the suite on Symmetry,
-  on Symmetry's CPU nodes: queued in `amddebugq` as jobs 598948, 598988, 598989 (the study at
-  `h = 0.75, 0.5, 0.375` to 10 M) and 598990–598992 (the suite at four threads, one, and with
-  bounds checks), chained, their logs in `/mnt/beegfs/eschnetter/claude/step12/`.
+- the studies on the default box with boxes at three resolutions, and the suite on a cluster:
+  Symmetry's CPU nodes and Nibi's (674 down, 82 drained) have been down since the morning of
+  2026-11-15. The CPU runs go to Nibi (Erik, 2026-11-15; the Symmetry jobs were cancelled), queued
+  as jobs 27443903 (the suite at four threads), then 27443904 and 27443905 (one thread, bounds
+  checks) and 27443906–27443908 (the study at `h = 0.75, 0.5, 0.375` to 50 M), their logs in
+  `/scratch/eschnett/claude/step12/`.
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
