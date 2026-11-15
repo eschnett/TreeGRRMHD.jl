@@ -414,6 +414,10 @@ Symmetry. The entropy fallback is blocked on EOS-3. Step 12 proposed:
   the policy's repairs counted with the atmosphere left out, the outcome map by
   region.
 
+It also opened one question in `CODE.md`, "Open questions": whether the
+conductivity should fall where the field's energy dwarfs the fluid's, since the
+star's stage fallbacks just outside its surface do not move with `μ_max`.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -5508,3 +5512,11 @@ The coupled suite, `coupled/runtests.jl`, which is new: 20 tests, then 22
 with the fill key's testset (c7e5eb2). At one thread, at four and with
 bounds checks it took 4m35.2s, 3m31.0s and 4m42.9s at 23f8b36, and 3m37.5s,
 2m47.2s and 3m31.1s at c7e5eb2.
+
+**2026-11-15, step 12.** The suite with `test/magnetized_tov_tests.jl`
+(dc8214b), on the laptop only (Apple M-series, aarch64, Julia 1.13.4), since
+every CPU node of Symmetry was down: **26635 tests, every run passing
+whole** — 13m01.6s at one thread, 11m05.3s at four, 15m36.4s with
+`--check-bounds=yes`. The new file alone, full tier, at four threads:
+39 tests in 1m38s, of which the `@full_tier` convergence run (`h = 1/2` to
+`2M`) takes 39 s and the `h = 1` run 83 s, most of it compilation.

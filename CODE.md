@@ -627,10 +627,10 @@ the same family — GRaM-X's resistive module (arXiv:2510.18968) takes
 arXiv:1502.02021) a smoothed step at `100 D_atm` — and on the magnetized
 star ("Validation ladder" 6) the profile acts only in the atmosphere's own
 band: at `ρ_atm = 10⁻¹⁰` it holds σ within `2·10⁻⁴` of `σ₀` wherever
-`ρ > 10⁻⁶`. The cells where the stage solve needs its fallback there are the
-surface's cold envelope, where the fluid's energy is a small part of the
-field's, and no profile tied to `ρ_atm` reaches them; the star's outcome map
-records them instead. The squared form, `C¹` at the threshold, is the
+`ρ > 10⁻⁶`. The cells where the stage solve needs its fallback there hold
+the cold gas just outside the surface, where the fluid's energy is a small
+part of the field's, and the fallbacks do not move with σ₀ or `μ_max`; the
+star's outcome map records them. The squared form, `C¹` at the threshold, is the
 obvious alternative, not measured. For `IdealConductor`
 the conduction current is not a function of the state — it is whatever
 holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
@@ -1015,8 +1015,8 @@ the atmosphere left out, where `½(E² + B²) > τ_fluid` (the threshold of the
 2026-10-16 investigation below); and `repaired_*`, the cells whose energy
 inversion the policy repaired on a level-1 face, the atmosphere left out —
 the failures the fallback is for. On the magnetized star the trigger fires
-only in the surface band outside `R̄`, and no recovery outside the
-atmosphere is repaired after the initial data ("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
+only in the surface band outside `R̄`, and at `t = 2M` no recovery outside
+the atmosphere is repaired ("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
 atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere): measured on the magnetized atmosphere
 tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
 the advected `s` in those cells is itself noise.)*
@@ -5397,6 +5397,12 @@ decides".
 - **(open)** `(ρ, S_i, S_ij)` to vertices at fourth order: whether its H1,
   0.8% above linear theory at `h = 0.25`, closes at a finer `h` ("Matter
   to the vertices").
+- **(open)** Whether the conductivity should also fall where the field's
+  energy dwarfs the fluid's, not only its rest mass (`B²/D`): the
+  magnetized star's stage fallbacks, 2.9% of the stages outside it at
+  `h = 1`, sit in the cold gas just outside its surface and do not move with
+  `μ_max` ("Validation ladder" 6). They are caught and repaired; nothing
+  built or measured beyond that.
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 
