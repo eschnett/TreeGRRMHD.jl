@@ -27,7 +27,11 @@ for `ℋ` outside at 1.76 over one 20 M window; the rest mass changes by 1.3e−
 `h = 0.375` net of the reset, at a rate of about 3, entering with the
 atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
-([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). The numbers below
+([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12, the
+magnetized star on the Cowling metric, is built and measured on the laptop
+("Validation ladder" 6): `∇·B` at 1.9e−16, the exterior dipole's drift
+converging at 1.85, `E·B` inside at 2.45, the stage solve by fixed point
+everywhere inside the star; its entropy fallback waits for EOS-3. The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -616,8 +620,18 @@ The `q v` part is explicit. The `σ` part is **stiff** inside a star
 `conductivity(model, prim)` takes the whole primitive state, so that a
 later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2)`
 is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)`: continuous, `σ₀` deep inside matter
-and zero at and below `cutoff·ρ_atm`, so the atmosphere carries no current;
-rung 6 settles its shape against Palenzuela (2013). For `IdealConductor`
+and zero at and below `cutoff·ρ_atm`, so the atmosphere carries no current.
+*Its shape is kept* (proposed): the density-tracking profiles in use are of
+the same family — GRaM-X's resistive module (arXiv:2510.18968) takes
+`σ₀ max(1 − D_atm/D, 0)²`, Dionysopoulou, Alic & Rezzolla (2015,
+arXiv:1502.02021) a smoothed step at `100 D_atm` — and on the magnetized
+star ("Validation ladder" 6) the profile acts only in the atmosphere's own
+band: at `ρ_atm = 10⁻¹⁰` it holds σ within `2·10⁻⁴` of `σ₀` wherever
+`ρ > 10⁻⁶`. The cells where the stage solve needs its fallback there are the
+surface's cold envelope, where the fluid's energy is a small part of the
+field's, and no profile tied to `ρ_atm` reaches them; the star's outcome map
+records them instead. The squared form, `C¹` at the threshold, is the
+obvious alternative, not measured. For `IdealConductor`
 the conduction current is not a function of the state — it is whatever
 holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 `Inf` and `ohm_current` throws an `ArgumentError` rather than return
@@ -987,11 +1001,22 @@ confined to the density box, the sound-speed flags), are recorded in
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
 
-**Entropy fallback** (proposed): where `τ_fluid = τ − D − ½(E² + B²)` is a
-small difference of large numbers (electromagnetically dominated cells, the
-magnetosphere) or the energy inversion fails, invert at the advected `s`
-instead (EOS-3). The switch is a threshold on
-`½(E² + B²) / τ` (open). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
+**Entropy fallback** (proposed; **waits for EOS-3**): where
+`τ_fluid = τ − ½(E² + B²)` is a small difference of large numbers
+(electromagnetically dominated cells, the magnetosphere, a magnetized star's
+cold surface) or the energy inversion fails, invert at the advected `s`
+instead. The switch is a threshold on `½(E² + B²) / τ_fluid` (open). *Not
+built:* the fixed-entropy inversion is EntropyEOS's internal
+`inner_solve_w`, and this package neither adds a second inversion nor calls
+an internal one, so the fallback waits for EOS-3's public
+`con2prim_entropy`. What it would act on is counted
+(`field_diagnostics`, `src/field_diagnostics.jl`): `trigger_*`, the cells,
+the atmosphere left out, where `½(E² + B²) > τ_fluid` (the threshold of the
+2026-10-16 investigation below); and `repaired_*`, the cells whose energy
+inversion the policy repaired on a level-1 face, the atmosphere left out —
+the failures the fallback is for. On the magnetized star the trigger fires
+only in the surface band outside `R̄`, and no recovery outside the
+atmosphere is repaired after the initial data ("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
 atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere): measured on the magnetized atmosphere
 tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
 the advected `s` in those cells is itself noise.)*
@@ -3985,6 +4010,10 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
 - `test/adm_matter_tests.jl`: `ADMMatter` on the Cowling star, bound to a
   vertex set of the suite's own making (no TreeGH), both forms and both
   orders, and `flags`.
+- `test/magnetized_tov_tests.jl`: the exterior dipole and its interior
+  continuation pointwise; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
+  the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
+  is `@full_tier`.
 
 **The coupled suite** is `coupled/runtests.jl`, in `coupled/`'s own
 environment, which loads TreeGeneralizedHarmonic beside this checkout
@@ -4095,7 +4124,15 @@ bit-identically to the host; "Precision and devices"):
   monopole) and `spinning_wald_case` on `Analytic(KerrSchild(1))`;
   `kerr_schild_r`;
 - `src/cases/tov.jl`: `tov_case`, `tov_boxes!`, `central_density` (the
-  largest cell average of `ρ`).
+  largest cell average of `ρ`);
+- `src/cases/magnetized_tov.jl`: `exterior_dipole` (the static vacuum
+  dipole of Schwarzschild in isotropic coordinates), `StellarDipole` and
+  `stellar_dipole` (its quadratic continuation inside the star),
+  `magnetized_tov_case` ("Validation ladder" 6).
+
+**The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
+step): `cell_profile`, `field_diagnostics`, `field_drift`, `ohm_map`
+("Validation ladder" 6, "Primitive recovery").
 
 **Scripts** (`bin/`), the measurements and studies behind this
 document's tables:
@@ -4120,6 +4157,8 @@ document's tables:
   `bin/tov_study.jl` (checkpointed, for `amdpreq`; `metric=analytic|vertex`),
   `bin/tov_compare.jl`, `bin/tov_drift.jl` and `bin/tov_modes.jl`: the
   rung-4 record ("Validation ladder" 4);
+- `bin/magnetized_tov_study.jl`: the magnetized star's time series and
+  outcome map per chunk ("Validation ladder" 6);
 - `bin/recovery_cost.jl`: `steptime` times the fused and the two-phase
   recovery, `finish` counts the share that reaches finish ("Primitive
   recovery").
@@ -5246,6 +5285,87 @@ named as claims.
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
    2013).
+
+   *As built in step 12* (`magnetized_tov_case`,
+   `src/cases/magnetized_tov.jl`; `test/magnetized_tov_tests.jl`;
+   `bin/magnetized_tov_study.jl`; the diagnostics in
+   `src/field_diagnostics.jl`):
+   - **The spacetime** (proposed): the Cowling one, rung 4's star on
+     `Analytic(TOVMetric)`. The field is a test field (below), whose
+     stress-energy is `10⁻⁵` of the star's, so the coupled spacetime of
+     rung 5 would change nothing the rung measures; a coupled magnetized
+     star waits for a case that needs it.
+   - **The exterior** (proposed): the static, current-free dipole of the
+     Schwarzschild spacetime outside the star (Wasserman & Shapiro 1983),
+     `A_φ = 3μ sin²θ S(x)/r`, `x = 2M/r`, `S = Σ_{k≥3} x^{k−3}/k`, which
+     is `μ sin²θ/r` far away. `A_φ` is the same covariant component in
+     isotropic coordinates, so `A_i = a(r̄²) (−y, x, 0)` with
+     `a = A_φ/ϖ̄²`. It is a static solution with `E = 0`, `Φ̃ = 0`: on
+     `TOVMetric`, `∇ × (αB)` outside the star is the difference's own
+     error (4.0 times smaller per halving of the step, 3.6e−9 of `𝔅` at
+     `δ = 5·10⁻⁴`), where the flat dipole leaves 1.5–2.4e−2. The Lorenz
+     gauge holds exactly in the continuum. "Vacuum `E` outside" is
+     therefore `E = 0` for a static star; a rotating one would need the
+     exterior's own `E`.
+   - **The interior** (proposed): `a(u)` continued inside `u = R̄²` by the
+     quadratic in `u` that matches the exterior's value and first two
+     derivatives at the surface, so `B` and the current are continuous and
+     the current falls to zero at the surface, where σ does. Poloidal and
+     axisymmetric, so the current and the resistive `E` are toroidal, and so
+     is `−v × B` of a radial flow: `E·B = 0` in the continuum at any σ,
+     which makes `E·B` inside a measure of the scheme's error alone. The
+     central field `B_c` sets `μ` (default `10⁻⁴`, `B²/(2p) = 3·10⁻⁵` at
+     the centre, Heaviside–Lorentz geometric units): a test field, its
+     Lorentz force far below the Cowling star's own truncation error.
+   - **The conductivity** (proposed):
+     `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`, both with no
+     default; the suite and the studies take `σ₀ = 10⁶` (σΔt ≈ 10⁵ at
+     `h = 1`) and `μ_max = 10`. `DensityProfile`'s shape is kept ("Ohm's
+     law and the conductivity").
+   - **The diagnostics** (`src/field_diagnostics.jl`): `cell_profile`, the
+     owned cells' `E`, `B`, `q`, flags and metric from one recovery;
+     `field_diagnostics`, the field energy inside and outside a sphere,
+     `Σ|E·B|/ΣB²` and `|E|/|B|` inside, the charge's L1, and the entropy
+     fallback's trigger and the policy's repairs, the atmosphere left out
+     ("Primitive recovery"); `field_drift`, `Σ|B − B₀|/Σ|B₀|` inside a
+     sphere and in a shell; `ohm_map`, the diagnostics set's stage tallies
+     per region.
+
+   **Measured** (the suite's star: `[−12, 12]³`, three roots, no boxes,
+   MC; laptop, Julia 1.13, four threads):
+   - **∇·B**: `max |∇·𝔅| h/max |𝔅|` 1.9e−16 in the initial data and at
+     `t = 2M`, at `h = 1` and `1/2`.
+   - **The exterior dipole** stays the initial field to truncation error:
+     `Σ|B − B₀|/Σ|B₀|` outside `R̄` at `t = 2M` is 1.21e−2 at `h = 1` and
+     3.35e−3 at `1/2` (rate 1.85), in the shell `R̄ + 1 … 11` 1.43e−2 and
+     3.87e−3 (1.88); inside, 1.69e−2 and 4.12e−3 (2.03). The field energy
+     outside changes by 0.5% at `h = 1`.
+   - **Inside the star**, `Σ|E·B|/ΣB²` is 9.2e−5 and 1.7e−5 (rate 2.45):
+     `E·B → 0` at truncation error. `|E|/|B|` inside is 1.1e−2 and
+     5.7e−3 (0.95): `E` is `−v × B` of the star's own truncation velocity,
+     whose error at the surface is first order.
+   - **Rest mass**: its change equals what the reset injects to 1.6e−15
+     of 1.506 (2.5e−10 injected by `t = 2M`).
+   - **The stage solve's outcome map**: inside `R̄` every stage converges
+     by the fixed point (127232 at `h = 1`), with no fallback, no repair
+     and no reset. Outside, 92.8% of the stages are `σ = 0`
+     (electrovacuum), and 18920 of 646912 (2.9%) take the lagged-velocity
+     fallback, every one with its state repaired by the policy — all in the
+     cells whose centre lies just outside the surface, into which the
+     star's matter spreads: cold gas whose energy is a small part of the
+     field's. The map does not change with σ or the cutoff: 18888 at
+     `σ₀ = 10³`, 18528 at `μ_max = 1`, 16960 at `μ_max = 0.1`; 14120 at
+     `B_c = 10⁻⁵` and 16768 at `10⁻³` (where Newton steps appear in the
+     envelope, 1680 of its 35392 stages). At `h = 1/2` all fallbacks are
+     within one cell of `R̄` (none beyond `R̄ + 1`).
+   - **The entropy fallback's trigger** fires in no cell inside `R̄`, and
+     in 136 outside it in the initial data (the cells whose Gauss points
+     straddle the surface) and 256 at `t = 2M` (`h = 1`; 584 and 1224 at
+     `h = 1/2`); no recovery outside the atmosphere is repaired at
+     `t = 2M`. **Whether `D s` earns its keep (open) is not decided**: the
+     fallback is blocked on EOS-3, and without it the energy inversion
+     never fails on this star outside the atmosphere — the stage solve's
+     repaired fallbacks above are the stage's, not the recovery's.
 7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
    data).
 
@@ -5293,7 +5413,11 @@ decides".
   is thin — −410 … 1220 outside the Cowling star's surface at 200 M ("As
   built in step 10, round 2") — which only seeds the recovery and changes
   nothing it returns. It earns its keep only once it is the fallback of a
-  failed energy inversion, which is not built.
+  failed energy inversion, which is not built: it waits for EOS-3. On the
+  magnetized star (rung 6) the energy inversion fails nowhere outside the
+  atmosphere at `t = 2M`, and the trigger `½(E² + B²) > τ_fluid` fires
+  only just outside the surface ("Validation ladder" 6), so that star does
+  not decide it either.
 - **(open)** For a hole that forms in a collapse, with no analytic
   solution inside: a field-only interior — paste or damp `𝔈` and `A`
   inside, and leave the matter to the ordinary reset, which rung 3 found
@@ -5346,7 +5470,11 @@ decides".
   at all, where a magnetosphere's plasma would carry the force-free one —
   and the taper already begins at `μ = μ_max/10`, so σ is reduced a decade
   below the threshold a case states. Rung 1 sees how often an evolution
-  meets the taper.
+  meets the taper. On the magnetized star (rung 6) the stage's fallbacks
+  are not the taper's to remove: 2.9% of the stages outside the star at
+  `h = 1`, in the cold gas just outside its surface, and as many at
+  `μ_max = 0.1` and at `σ₀ = 10³` — there the fluid's energy, not its rest
+  mass, is what is small against the field's, which `B²/D` does not see.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's

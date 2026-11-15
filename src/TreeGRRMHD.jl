@@ -128,6 +128,10 @@ export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning
 # The TOV star (step 10)
 export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
        tov_boxes!, TOVModes, tov_radial_modes, tov_mode_velocity
+# The magnetized TOV star (step 12)
+export StellarDipole, stellar_dipole, exterior_dipole, dipole_potential, dipole_curl,
+       MagnetizedTOVStar, magnetized_tov_case, cell_profile, field_diagnostics, field_drift,
+       ohm_map
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
@@ -179,5 +183,7 @@ include("cases/multid.jl")
 include("cases/gauge.jl")
 include("cases/kerr_schild.jl")
 include("cases/tov.jl")
+include("cases/magnetized_tov.jl")
+include("field_diagnostics.jl")
 
 end # module TreeGRRMHD

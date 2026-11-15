@@ -769,6 +769,30 @@ Accept:
 - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
   keep (open)**.
 
+**State (2026-11-15).** Built and measured on the laptop (`CODE.md`, "Validation ladder" 6);
+the Symmetry runs wait for its CPU nodes, all down since 08:00 that day.
+
+Done:
+- `magnetized_tov_case` (`src/cases/magnetized_tov.jl`): rung 4's Cowling star threaded by the
+  static vacuum dipole of Schwarzschild outside the surface (Wasserman & Shapiro 1983), its
+  quadratic continuation in `r̄²` inside, `E = 0`, `Φ̃ = 0`, under
+  `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`; `DensityProfile`'s shape kept;
+- the diagnostics (`src/field_diagnostics.jl`): field energy inside and outside, `E·B`, `|q|`,
+  the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
+  `bin/magnetized_tov_study.jl`;
+- ∇·B at round-off: 1.9e−16;
+- the exterior dipole: the drift outside the star at `t = 2M` converges at 1.85 (`h = 1, 1/2`);
+- `E·B` inside converges at 2.45;
+- the outcome map, recorded: fixed point everywhere inside the star; 2.9% fallbacks outside, all
+  in the cells just outside the surface, the same at any σ₀ or `μ_max` tried.
+
+Blocked:
+- the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
+  fails nowhere outside the atmosphere at `t = 2M`); with it, nothing can be measured, so
+  whether `D s` earns its keep stays open;
+- the studies on the default box with boxes at three resolutions, and the suite on Symmetry,
+  on Symmetry's CPU nodes.
+
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
 `CODE.md`: "Thermodynamics". Waits: **EOS-4**.

@@ -392,6 +392,28 @@ gave it, at its acceptance:
 >   **decide the prolongation**.
 > - **Light-cone against split speeds** on the star **decides the Riemann speeds**.
 
+**2026-11-15, step 12 — The magnetized TOV star (rung 6).** Started on
+`claude/step-12-magnetized-tov`, based on step 11's draft PR #9 (63f5aa4) while
+it is reviewed, at Erik's request. Built: `magnetized_tov_case`
+(`src/cases/magnetized_tov.jl`), the field diagnostics
+(`src/field_diagnostics.jl`), `test/magnetized_tov_tests.jl` and
+`bin/magnetized_tov_study.jl`. Measured on the laptop (`CODE.md`, "Validation
+ladder" 6), since every CPU node of Symmetry was down ("Not responding" from
+08:00 that day; only the H200 nodes up), which also kept the suite off
+Symmetry. The entropy fallback is blocked on EOS-3. Step 12 proposed:
+- the Cowling spacetime for rung 6, rather than the coupled one;
+- the exterior field, the static vacuum dipole of Schwarzschild (Wasserman &
+  Shapiro 1983) in isotropic coordinates, `E = 0`, `Φ̃ = 0`;
+- the interior field, the quadratic in `r̄²` matching the exterior to second
+  order at the surface, and `B_c = 10⁻⁴` at the centre by default;
+- the conductivity `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`,
+  with `σ₀ = 10⁶`, `μ_max = 10` in the suite and studies;
+- `DensityProfile`'s shape kept, which step 2 left for rung 6 to settle;
+- the diagnostics' definitions: `Σ|E·B|/ΣB²` inside, the drift
+  `Σ|B − B₀|/Σ|B₀|`, the entropy fallback's trigger `½(E² + B²) > τ_fluid` and
+  the policy's repairs counted with the atmosphere left out, the outcome map by
+  region.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -1773,6 +1795,17 @@ measured in step 3.
 
 **Step 6.** `μ = +∞` where `D ≤ 0` was proposed in step 6.
 
+**2026-11-15, step 12.** `DensityProfile`'s shape, which step 2 left for
+rung 6 to settle "against Palenzuela (2013)", is kept as proposed (proposed in
+step 12): the profiles in use are of its family (GRaM-X's resistive module,
+`σ₀ max(1 − D_atm/D, 0)²`; Dionysopoulou, Alic & Rezzolla 2015, a smoothed
+step at `100 D_atm`), and on the magnetized star the stage's fallbacks do not
+move with the conductivity: 18920 of 646912 stages outside the star at
+`σ₀ = 10⁶`, `μ_max = 10`; 18888 at `σ₀ = 10³`; 18528 at `μ_max = 1`; 16960 at
+`μ_max = 0.1` (`h = 1`, `t = 2M`, laptop). The sentence "rung 6 settles its
+shape against Palenzuela (2013)" was replaced in `CODE.md` by the decision and
+its reasons.
+
 ### Stress-energy for the spacetime
 
 **Step 2.** `stress_energy` and `T4_lower` in `src/stress_energy.jl` were
@@ -2211,6 +2244,15 @@ open decision of 2026-10-30.
 **Step 9.** The step cache's curved-space keys were exercised in step 9: on
 the Kerr-Schild cases, with the interior, one integration, two and a restart
 agree bit for bit ("Validation ladder" 3).
+
+**2026-11-15, step 12.** The entropy fallback paragraph of `CODE.md` was
+amended: it is blocked on EOS-3 (the fixed-entropy inversion is internal to
+EntropyEOS, and this package adds no second inversion), and what it would act
+on is now counted by `field_diagnostics` (its trigger and the policy's
+repairs, the atmosphere left out). Its definition of the fluid's energy read
+`τ_fluid = τ − D − ½(E² + B²)`; this package's `τ` is `𝓔 − D` already, so it
+now reads `τ − ½(E² + B²)`, which is what the 2026-10-16 investigation's
+harness computed (`field_budget`).
 
 ### Where the fields live
 
@@ -5031,6 +5073,15 @@ and 2.14 at 1e−10. Over 50 M windows from 300 M, the 1e−10 runs also fall to
 (350–400 M); over the whole of 250–1000 M the rates are 2.14, 2.14 at 1e−10 and
 2.03, 2.24 at 1e−12. The outside norm is the spacetime's error in a region holding
 only atmosphere, and a 20 M window does not average its noise below about ±0.2.
+
+**2026-11-15, step 12 (rung 6).** Built and measured on the laptop
+(Apple M-series, Julia 1.13.4, four threads; Symmetry's CPU nodes were down).
+The record is `CODE.md`, "Validation ladder" 6. The first outcome map read the
+surface band's fallbacks as 10% of its stages; that was the last of two chunks
+only (`evolve!` clears the tally per chunk). Over the whole run at `h = 1` the
+band `R̄ ± 1` had 18560 of 90496 (20.5%), and by the cells' initial density all
+fallbacks lie in cells whose centre is outside `R̄`, which is how the test now
+states the map.
 
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%

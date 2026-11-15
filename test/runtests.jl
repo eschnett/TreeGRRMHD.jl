@@ -85,6 +85,9 @@ include("tiers.jl")
     # Step 11: the matter adapter of the coupling contract (GH-3) and the `flags` verb,
     # without TreeGH; uses `tov_tests.jl`'s star. The coupled runs are `coupled/`'s.
     include("adm_matter_tests.jl")
+    # Step 12: the magnetized TOV star on the Cowling metric — the exterior dipole and its
+    # continuation, ∇·B, `E·B`, the drift and the stage solve's outcome map.
+    include("magnetized_tov_tests.jl")
 end
 
 isempty(TIER_SKIPPED) ||
