@@ -46,18 +46,18 @@ function study(T=Float64; N=8, levels=1, L=24, roots=4, t_end=10, chunk=1, limit
         ρc = maximum(prof.ρ)
         ΔM = conserved_totals(p, u)[1] - M0[]
         injected[] += MHD.ohm_tally(p).injected_D
-        @printf("CHUNK t=%.3f wall=%.1f ρc=%.10e E_in=%.6e E_out=%.6e EB_in=%.4e EB_max_in=%.4e " *
+        Printf.format(stdout, Printf.Format("CHUNK t=%.3f wall=%.1f ρc=%.10e E_in=%.6e E_out=%.6e EB_in=%.4e EB_max_in=%.4e " *
                 "|E|/|B|_in=%.4e drift_in=%.4e drift_shell=%.4e q_in=%.4e q_out=%.4e " *
                 "q_max=%.4e trigger=%d/%d repaired=%d/%d divB=%.3e ΔM=%.6e injected=%.6e " *
-                "budget=%.3e\n",
+                "budget=%.3e\n"),
                 t, time() - t0, ρc, fd.energy_in, fd.energy_out, fd.EB_in, fd.EB_max_in, fd.E_in,
                 dr.inside, sh.outside, fd.q_in, fd.q_out, fd.q_max, fd.trigger_in,
                 fd.trigger_out, fd.repaired_in, fd.repaired_out, max_div_B(p, u, t), ΔM,
                 injected[], ΔM - injected[])
         for (k, e) in enumerate(ohm_map(p, region, 4))
             stages = e.bits[1] + e.bits[2] + e.bits[3] + e.bits[4] + e.bits[5]
-            @printf("MAP t=%.3f region=%d cells=%d stages=%d %s policy=%d resets=%d/%d " *
-                    "recoveries=%d\n", t, k, e.cells, stages,
+            Printf.format(stdout, Printf.Format("MAP t=%.3f region=%d cells=%d stages=%d %s policy=%d resets=%d/%d " *
+                    "recoveries=%d\n"), t, k, e.cells, stages,
                     join(("$(BIT_NAMES[j])=$(e.bits[j])" for j in 1:9), " "), e.policy,
                     e.resets, e.step_resets, e.recoveries)
         end
@@ -77,9 +77,9 @@ function study(T=Float64; N=8, levels=1, L=24, roots=4, t_end=10, chunk=1, limit
     prof0[] = cell_profile(r0.p, exact_state(r0.p, case, zero(T)), zero(T))
     M0[] = r0.totals0[1]
     fd0 = field_diagnostics(prof0[]; radius=R̄)
-    @printf("RUN N=%d levels=%d L=%g roots=%d h=%.5f cells=%d σ₀=%g μ_max=%g B_c=%g ρ_min=%g " *
+    Printf.format(stdout, Printf.Format("RUN N=%d levels=%d L=%g roots=%d h=%.5f cells=%d σ₀=%g μ_max=%g B_c=%g ρ_min=%g " *
             "limiter=%s R̄=%.6f μ=%.6e E_in=%.6e E_out=%.6e trigger=%d/%d repaired=%d/%d " *
-            "divB=%.3e threads=%d\n",
+            "divB=%.3e threads=%d\n"),
             N, levels, L, roots, minimum(prof0[].h), length(prof0[].h), σ₀, μ_max, B_c, ρ_min,
             limiter, R̄, case.fields.w.dipole.μ, fd0.energy_in, fd0.energy_out, fd0.trigger_in,
             fd0.trigger_out, fd0.repaired_in, fd0.repaired_out,
@@ -107,4 +107,6 @@ function main(args)
     return nothing
 end
 
-abspath(PROGRAM_FILE) == @__FILE__ && main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end

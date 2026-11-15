@@ -5520,3 +5520,6 @@ whole** — 13m01.6s at one thread, 11m05.3s at four, 15m36.4s with
 `--check-bounds=yes`. The new file alone, full tier, at four threads:
 39 tests in 1m38s, of which the `@full_tier` convergence run (`h = 1/2` to
 `2M`) takes 39 s and the `h = 1` run 83 s, most of it compilation.
+
+The clean-checkout check (no `Manifest.toml`, a `git archive` of 603c63b,
+Julia 1.13.4, four threads, laptop): **26635/26635** in 13m04.0s.

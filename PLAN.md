@@ -785,7 +785,8 @@ Done:
 - `E·B` inside converges at 2.45;
 - the outcome map, recorded: fixed point everywhere inside the star; 2.9% fallbacks outside, all
   in the cells just outside the surface, the same at any σ₀ or `μ_max` tried.
-- the suite on the laptop: 26635/26635 at one thread, at four and with bounds checks.
+- the suite on the laptop: 26635/26635 at one thread, at four and with bounds checks, and in
+  the clean-checkout check under 1.13.
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
