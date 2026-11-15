@@ -718,12 +718,15 @@ Done:
 - the frozen metric, to round-off;
 - GH-3's static-matter check (rate 1.87);
 - rest mass, to 1e−14 net of the reset's injection to `t = 1`; over 1000 M with the fourth
-  order, 5.3e−10 to 1.3e−10 of 1.506, converging at about 3 (half the mean's): **a miss**.
+  order and `ρ_min = 1e−12`, 5.4e−12 to 1.3e−12 of 1.506, converging at about 3 (at 1e−10,
+  5.3e−10 to 1.3e−10): **a miss**.
   A scan of `ρ_min` (1e−10, 1e−12, 1e−14; jobs 598455–598457) shows it is atmosphere entering
   at the outer faces, proportional to `ρ_min`, as is the reset's part; `ρ_c` and the constraints do not change;
 - the constraints at ≥ 1.8 to 1000 M on the finer pair, inside and outside, with the fourth
-  order (least 1.88; jobs 597892–597894). With the mean the outside rate fell to 1.74 after
-  500 M;
+  order and `ρ_min = 1e−12` (jobs 598575–598577), but for `ℋ` outside over 490–510 M, 1.76:
+  **a miss** in one 20 M window, between 1.96 and 2.01 on either side and 2.24 over
+  250–1000 M. At 1e−10 the least was 1.88 (597892–597894). With the mean the outside rate
+  fell to 1.74 after 500 M;
 - the modes: F +0.67% at `h = 0.375` in the unperturbed runs. H1 and H2 are excited along
   their eigenfunctions (`δv`) and measured in the difference from the unperturbed run. With the
   mean they are within 3% from `h = 0.375`, and at `h = 0.25` within 0.13% and 0.39%. They decay
@@ -736,13 +739,10 @@ Done:
 - the matter's transfer order: fourth order, the script's default (Erik, 2026-11-13), from the
   constraints at `t = 0`; the modes do not decide it. At `h = 0.25` to 300 M, its H1 and H2
   are +0.8% and +0.5%, against the mean's +0.1% and +0.4%.
-
 - the atmosphere: `ρ_min = 1e−12` for the coupled runs, the script's default (Erik,
-  2026-11-14). The three 1000 M studies are rerun at it (jobs 598575–598577); the coarsest,
-  at `h = 0.6`, gains 5.4e−12 net of the reset where it gained 5.3e−10 at 1e−10, and its
-  `ρ_c` and constraints agree to 1%.
+  2026-11-14), with the three 1000 M studies rerun at it (jobs 598575–598577).
 
-Open: the two finer 1000 M studies at 1e−12. Open for Erik: a run at `h = 0.1875` to see
+Open for Erik: whether the constraint miss in one window is accepted; a run at `h = 0.1875` to see
 whether the 4th order's 0.8% in H1 closes.
 
 ## Step 12 — The magnetized TOV star (rung 6)

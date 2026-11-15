@@ -21,10 +21,11 @@ star in the Cowling approximation on the analytic TOV metric, with no
 TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
 the coupled run, is built and measured ("Validation ladder" 5): F within
 1%; H1 and H2, excited along their eigenfunctions, within 1% of Font et
-al. at `h = 0.25`; the constraints converge at 1.88 or better to 1000 M,
-inside and outside the star; the rest mass changes by 1.3e−10 of 1.506 over
-1000 M at `h = 0.375` net of the reset, at a rate of about 3, entering
-with the atmosphere at the outer faces and scaling with `ρ_min`. Two of its upstream items are open, GH-2 (registration) and GH-7
+al. at `h = 0.25`; the constraints converge at 1.8 or better to 1000 M,
+inside and outside the star, but for `ℋ` outside at 1.76 over one 20 M
+window; the rest mass changes by 1.3e−12 of 1.506 over 1000 M at
+`h = 0.375` net of the reset, at a rate of about 3, entering with the
+atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
@@ -5030,28 +5031,33 @@ named as claims.
    - **Rest mass:** it changes by exactly what the reset injects, to
      1e−14 relative. At `N = 10` to `t = 1`, with `ρ_min = 1e−12`, the
      change is −1.0960122e−12 and the injection −1.0976710e−12.
-   - **The constraints over time** (the studies, jobs 597892–597894, with
-     the fourth-order transfer): the `‖·‖₂` norms with the matter, inside
+   - **The constraints over time** (the studies, jobs 598575–598577, with
+     the fourth-order transfer and `ρ_min = 1e−12`): the `‖·‖₂` norms with the matter, inside
      `r < 6` and outside `r ≥ 10`, each averaged over a window. The rates
      between `h = 0.6, 0.5` and between `h = 0.5, 0.375`:
 
      | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
      |---|---|---|---|---|
-     | 0 | 3.93, 3.97 | — | 4.31, 4.10 | — |
-     | 20–30 | 2.07, 2.30 | 2.39, 2.42 | 1.58, 2.13 | 1.69, 2.11 |
-     | 95–105 | 2.26, 2.37 | 2.32, 2.44 | 1.91, 2.17 | 2.26, 2.00 |
-     | 240–260 | 2.20, 2.28 | 2.21, 2.39 | 2.11, 1.88 | 2.05, 2.00 |
-     | 490–510 | 2.02, 2.18 | 2.08, 2.31 | 2.29, 1.93 | 2.37, 1.96 |
-     | 740–760 | 1.91, 2.10 | 2.00, 2.26 | 2.37, 2.42 | 2.39, 2.37 |
-     | 900–1000 | 1.80, 2.03 | 1.88, 2.21 | 2.16, 2.40 | 2.06, 2.30 |
+     | 0 | 3.93, 3.97 | — | 4.33, 4.31 | — |
+     | 20–30 | 2.07, 2.30 | 2.39, 2.42 | 1.59, 2.13 | 1.70, 2.12 |
+     | 95–105 | 2.28, 2.38 | 2.32, 2.43 | 2.42, 2.31 | 2.63, 2.04 |
+     | 240–260 | 2.20, 2.28 | 2.21, 2.39 | 2.18, 1.95 | 2.05, 2.06 |
+     | 490–510 | 2.01, 2.18 | 2.08, 2.31 | 2.27, **1.76** | 2.30, 1.88 |
+     | 740–760 | 1.91, 2.10 | 2.00, 2.26 | 2.19, 2.46 | 2.29, 2.44 |
+     | 900–1000 | 1.81, 2.03 | 1.88, 2.21 | 2.09, 2.50 | 2.02, 2.40 |
 
      **`PLAN.md`'s ≥ 1.8 holds on the finer pair, inside and outside, to
-     1000 M**; the least is 1.88 (`ℋ` outside, 240–260 M). The coarse
-     pair falls below it only outside over 20–30 M. The norms do not
-     grow. At `h = 0.375`, `ℋ` inside rises from 5.4e−7 at `t = 0` to
+     1000 M, but for `ℋ` outside over 490–510 M (1.76): a miss.** The
+     windows on either side give 2.01 (500–520 M) and 1.96 (480–500 M),
+     and the whole of 250–1000 M gives 2.03 and 2.24. A 20 M window
+     outside is noisy at about ±0.2: at `ρ_min = 1e−10` the same window
+     gave 1.93, and a 50 M window (350–400 M) 1.76 ([HISTORY.md, "Validation
+     ladder"](HISTORY.md#validation-ladder), the scan of `ρ_min`). The
+     coarse pair falls below 1.8 only outside over 20–30 M. The norms do
+     not grow. At `h = 0.375`, `ℋ` inside rises from 5.4e−7 at `t = 0` to
      1.3e−5 by 25 M, the matter scheme's own error once the star moves,
      and stays at 9.5–9.7e−6 to 1000 M. Outside it is 7.1e−7 over
-     20–30 M and 0.9–1.2e−7 from 250 M on. With the mean, the outside norm
+     20–30 M and 0.9–1.3e−7 from 250 M on. At `ρ_min = 1e−10`, with the mean, the outside norm
      was 3 times larger over 20–30 M and 10–14 times from 250 M on; it
      grew after 500 M, and its rate fell to 1.74 over 900–1000 M
      ([HISTORY.md, "Matter to the
@@ -5064,20 +5070,21 @@ named as claims.
 
      | `t` (M) | `h = 0.6` | `h = 0.5` | `h = 0.375` | rates |
      |---|---|---|---|---|
-     | 50–70 | −3.14% | −1.96% | −0.95% | 2.60, 2.53 |
+     | 50–70 | −3.15% | −1.96% | −0.95% | 2.60, 2.52 |
      | 240–260 | −5.03% | −2.90% | −1.23% | 3.02, 2.99 |
      | 490–510 | −7.78% | −4.50% | −1.88% | 3.00, 3.03 |
-     | 900–1000 | −12.00% | −7.06% | −2.89% | 2.91, 3.11 |
+     | 900–1000 | −11.99% | −7.06% | −2.89% | 2.91, 3.11 |
 
      After 200 M it drifts at 9.9e−5, 5.9e−5 and 2.4e−5 per M (a
      linear fit, relative; rates 2.8 and 3.2). The mean's initial drop
      was four times larger (−3.79% over 50–70 M at `h = 0.375`) and its
      later drift about the same.
    - **Rest mass** over the 1000 M: its change minus what the reset
-     injected is 5.3e−10, 3.2e−10 and 1.3e−10 of 1.506 (rates 2.8, 3.1),
-     half the mean's. The box gains it: the reset removes 2.0e−6 at
-     `h = 0.375`, and the total falls by 1.3e−10 less. That is truncation
-     error, not round-off, unlike the suite's 1e−14 at `t = 1`.
+     injected is 5.36e−12, 3.21e−12 and 1.33e−12 of 1.506 (rates 2.8,
+     3.1), a hundredth of what it is at `ρ_min = 1e−10`. The box gains it:
+     the reset removes 1.57e−8 at `h = 0.375`, and the total falls by
+     1.33e−12 less. That is truncation error, not round-off, unlike the
+     suite's 1e−14 at `t = 1`.
    - **Both parts are the atmosphere's.** At `h = 0.5` to 300 M, with
      `ρ_min` = 1e−10, 1e−12 and 1e−14 (jobs 598455–598457), the reset
      removes 6.06e−7, 4.85e−9 and 3.58e−11, and the gain net of it is
@@ -5094,9 +5101,7 @@ named as claims.
      −4.8e−5 and −5.0e−5 of `τ` over the 300 M, the difference arising
      after 25 M. So the coupled script's `ρ_min` is 1e−12, below
      `tov_case`'s 1e−10: the rest-mass budget falls a hundredfold, and the
-     EOS's lower bound (1e−14) keeps a factor 100 of margin. The tables
-     above are at 1e−10; the 1000 M studies at 1e−12 are jobs
-     598575–598577.
+     EOS's lower bound (1e−14) keeps a factor 100 of margin.
    - **Modes** (`bin/tov_modes.jl ref=coupled`, the whole series, 0.20 kHz
      resolution), against Font et al. (2002), Table II (1.442, 3.955,
      5.916 kHz):

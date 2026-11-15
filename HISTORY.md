@@ -5007,6 +5007,30 @@ coupled script's default. The three 1000 M studies were rerun at it (jobs
 5.36e−12 net of the reset, against 5.33e−10 at 1e−10 (597892); the reset removes
 1.83e−8, against 2.17e−6; `ρ_c` drifts −12.413% against −12.414%; and `ℋ` at
 1000 M is 2.367e−5 inside and 3.83e−7 outside, against 2.361e−5 and 3.87e−7.
+At `h = 0.5` (598576, cn109, 20,423 s) and `h = 0.375` (598577, cn112, 43,808 s)
+the gains are 3.21e−12 and 1.33e−12, against 3.2e−10 and 1.3e−10, and the reset
+removes 1.74e−8 and 1.57e−8. `CODE.md`'s tables of rung 5 were remeasured on these
+runs. The central density's moved by at most 0.01 percentage points. The
+constraints' rates at 1e−10 (597892–597894), which `CODE.md` showed until then, the
+rates between `h = 0.6, 0.5` and `h = 0.5, 0.375`:
+
+| `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+|---|---|---|---|---|
+| 0 | 3.93, 3.97 | — | 4.31, 4.10 | — |
+| 20–30 | 2.07, 2.30 | 2.39, 2.42 | 1.58, 2.13 | 1.69, 2.11 |
+| 95–105 | 2.26, 2.37 | 2.32, 2.44 | 1.91, 2.17 | 2.26, 2.00 |
+| 240–260 | 2.20, 2.28 | 2.21, 2.39 | 2.11, 1.88 | 2.05, 2.00 |
+| 490–510 | 2.02, 2.18 | 2.08, 2.31 | 2.29, 1.93 | 2.37, 1.96 |
+| 740–760 | 1.91, 2.10 | 2.00, 2.26 | 2.37, 2.42 | 2.39, 2.37 |
+| 900–1000 | 1.80, 2.03 | 1.88, 2.21 | 2.16, 2.40 | 2.06, 2.30 |
+
+Inside, the two agree to 0.02. Outside, the finer pair's rate over 490–510 M fell
+from 1.93 to 1.76, below `PLAN.md`'s 1.8; over 20 M windows from 470 to 540 M it is
+2.24, 1.96, 1.75, 2.01, 2.20 and 2.11 at 1e−12, and 1.94, 2.03, 1.93, 1.95, 2.13
+and 2.14 at 1e−10. Over 50 M windows from 300 M, the 1e−10 runs also fall to 1.76
+(350–400 M); over the whole of 250–1000 M the rates are 2.14, 2.14 at 1e−10 and
+2.03, 2.24 at 1e−12. The outside norm is the spacetime's error in a region holding
+only atmosphere, and a 20 M window does not average its noise below about ±0.2.
 
 ## Open questions
 
