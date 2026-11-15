@@ -793,7 +793,9 @@ Blocked:
   fails nowhere outside the atmosphere at `t = 2M`); with it, nothing can be measured, so
   whether `D s` earns its keep stays open;
 - the studies on the default box with boxes at three resolutions, and the suite on Symmetry,
-  on Symmetry's CPU nodes.
+  on Symmetry's CPU nodes: queued in `amddebugq` as jobs 598948, 598988, 598989 (the study at
+  `h = 0.75, 0.5, 0.375` to 10 M) and 598990–598992 (the suite at four threads, one, and with
+  bounds checks), chained, their logs in `/mnt/beegfs/eschnetter/claude/step12/`.
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
