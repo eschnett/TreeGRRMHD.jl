@@ -418,6 +418,16 @@ It also opened one question in `CODE.md`, "Open questions": whether the
 conductivity should fall where the field's energy dwarfs the fluid's, since the
 star's stage fallbacks just outside its surface do not move with `μ_max`.
 
+Later the same day Symmetry's and Nibi's CPU nodes were both down (Nibi: 674
+down, 82 drained from 08:10). Erik directed the CPU work to Nibi, then to
+Trillium (SciNet; AMD EPYC 9655), and no CPU jobs onto Symmetry's H200 nodes; the
+queued Symmetry jobs (598948, 598988–598992) and Nibi jobs (27443903–27443908)
+were cancelled unrun. On Trillium the studies on the default box missed the plan's
+claim that the exterior's drift converges, and the measurement that followed
+(under [Validation ladder](#validation-ladder)) led step 12 to propose one more
+decision: the case's `DensityProfile` cutoff `10⁴ ρ_min`, where it had been the
+model's default 2.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -1798,6 +1808,11 @@ table gave "(step 3)" for its use). The safe value `μ_max = 10` was
 measured in step 3.
 
 **Step 6.** `μ = +∞` where `D ≤ 0` was proposed in step 6.
+
+**2026-11-15, step 12, later.** The shape was kept, but the magnetized star
+needs its own threshold: `cutoff = 10⁴` (proposed in step 12; the case's
+default), measured under [Validation ladder](#validation-ladder) the same day.
+The paragraph below was written before that measurement, at `cutoff = 2`.
 
 **2026-11-15, step 12.** `DensityProfile`'s shape, which step 2 left for
 rung 6 to settle "against Palenzuela (2013)", is kept as proposed (proposed in
@@ -5086,6 +5101,35 @@ only (`evolve!` clears the tally per chunk). Over the whole run at `h = 1` the
 band `R̄ ± 1` had 18560 of 90496 (20.5%), and by the cells' initial density all
 fallbacks lie in cells whose centre is outside `R̄`, which is how the test now
 states the map.
+
+**2026-11-15, step 12, on Trillium: the exterior's drift at `cutoff = 2`.** The
+studies on the default box (`[−24, 24]³`, four roots, one box level, PPM, to 50 M;
+AMD EPYC 9655, 64 threads; jobs 2864696–2864698 at `h = 0.75, 0.5, 0.375`, 345 s,
+1200 s, 2686 s), with the case as first built, σ cut at `2ρ_min`. The shell
+`R̄ + 1 ≤ r̄ < 23`'s drift `Σ|B − B₀|/Σ|B₀|` and its rates:
+
+| `t` (M) | shell | rates | inside | rates |
+|---|---|---|---|---|
+| 2 | 2.97e−3, 1.86e−3, 1.39e−3 | 1.15, 1.00 | 9.43e−3, 4.01e−3, 2.18e−3 | 2.11, 2.12 |
+| 5 | 1.08e−2, 8.55e−3, 7.57e−3 | 0.58, 0.42 | 1.45e−2, 5.90e−3, 3.54e−3 | 2.21, 1.77 |
+| 10 | 3.66e−2, 3.29e−2, 2.99e−2 | 0.27, 0.32 | 1.77e−2, 9.99e−3, 8.78e−3 | 1.42, 0.45 |
+| 20 | 1.39e−1, 1.24e−1, 1.03e−1 | 0.27, 0.65 | 3.23e−2, 2.60e−2, 2.17e−2 | 0.54, 0.63 |
+| 30 | 2.51e−1, 1.94e−1, 1.34e−1 | 0.64, 1.28 | 5.26e−2, 4.09e−2, 3.10e−2 | 0.62, 0.97 |
+
+At `h = 0.75` the shell's drift reached 0.418 by 50 M and the field energy
+outside `R̄` grew by 20%. A miss against `PLAN.md`'s "the drift converges",
+not loosened. The outcome maps showed why: the band `R̄ … R̄ + 1.5` was `σ = 0` in
+only 7200 of 6.0 million stages at `h = 0.75` and fell back in 51%, 59%, 55% of
+its stages; beyond it, 6.2%, 1.7%, 0.2%. The gas the atmosphere piles up outside
+a star on a fixed metric exceeded `2ρ_min` and conducted. Variants at `h = 0.75`
+to 20 M (jobs 2864848, 2864889–2864892, 2864906, 2864907, 2864943), the shell's
+drift at 20 M: the default 0.139; the same box uniform, without coarse-fine faces,
+0.1386; `B_c = 10⁻⁶` 0.146; `σ₀ = 10³` 0.138; `ρ_min = 10⁻¹²` 0.142;
+`μ_max = 0.001` 0.032; `cutoff = 100` (Dionysopoulou, Alic & Rezzolla 2015's
+`D_rel`) 0.139; `10³` 0.084; `10⁴` 0.019. So it is the conducting exterior, not
+the faces, the field's strength, σ₀ or the atmosphere's density. At `cutoff = 10⁴`
+the three studies (jobs 2864940–2864942) converge, and `CODE.md`'s rung 6 is
+theirs.
 
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%

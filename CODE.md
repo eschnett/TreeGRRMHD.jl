@@ -28,10 +28,11 @@ for `ℋ` outside at 1.76 over one 20 M window; the rest mass changes by 1.3e−
 atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12, the
-magnetized star on the Cowling metric, is built and measured on the laptop
-("Validation ladder" 6): `∇·B` at 1.9e−16, the exterior dipole's drift
-converging at 1.85, `E·B` inside at 2.45, the stage solve by fixed point
-everywhere inside the star; its entropy fallback waits for EOS-3. The numbers below
+magnetized star on the Cowling metric, is built and measured ("Validation
+ladder" 6): `∇·B` at round-off; the exterior dipole's drift converging at
+1.2–2.3 to 50 M once σ is zero below `10⁴ ρ_min`; `E·B` inside converging at
+1.7–2.5; the stage solve by fixed point everywhere inside the star; its
+entropy fallback waits for EOS-3. The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -624,14 +625,13 @@ and zero at and below `cutoff·ρ_atm`, so the atmosphere carries no current.
 *Its shape is kept* (proposed): the density-tracking profiles in use are of
 the same family — GRaM-X's resistive module (arXiv:2510.18968) takes
 `σ₀ max(1 − D_atm/D, 0)²`, Dionysopoulou, Alic & Rezzolla (2015,
-arXiv:1502.02021) a smoothed step at `100 D_atm` — and on the magnetized
-star ("Validation ladder" 6) the profile acts only in the atmosphere's own
-band: at `ρ_atm = 10⁻¹⁰` it holds σ within `2·10⁻⁴` of `σ₀` wherever
-`ρ > 10⁻⁶`. The cells where the stage solve needs its fallback there hold
-the cold gas just outside the surface, where the fluid's energy is a small
-part of the field's, and the fallbacks do not move with σ₀ or `μ_max`; the
-star's outcome map records them. The squared form, `C¹` at the threshold, is the
-obvious alternative, not measured. For `IdealConductor`
+arXiv:1502.02021) a smoothed step at `100 D_atm`. *The threshold is the
+case's*: the magnetized star needs `cutoff = 10⁴` ("Validation ladder" 6),
+because the atmosphere it accretes reaches `10⁻⁸ … 10⁻⁶` outside its
+surface, and at 2 or 100 that gas conducts, ties the exterior field to its
+motion and leaves the drift unconverged; at `10⁴` the exterior is
+electrovacuum and the stage's fallbacks there all but vanish. The squared
+form, `C¹` at the threshold, is the obvious alternative, not measured. For `IdealConductor`
 the conduction current is not a function of the state — it is whatever
 holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 `Inf` and `ohm_current` throws an `ArgumentError` rather than return
@@ -1015,8 +1015,9 @@ the atmosphere left out, where `½(E² + B²) > τ_fluid` (the threshold of the
 2026-10-16 investigation below); and `repaired_*`, the cells whose energy
 inversion the policy repaired on a level-1 face, the atmosphere left out —
 the failures the fallback is for. On the magnetized star the trigger fires
-only in the surface band outside `R̄`, and at `t = 2M` no recovery outside
-the atmosphere is repaired ("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
+only outside the star, in the gas it accretes, and the energy inversion
+fails outside the atmosphere in at most 10 cells at a time over 50 M
+("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
 atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere): measured on the magnetized atmosphere
 tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
 the advected `s` in those cells is itself noise.)*
@@ -5318,9 +5319,15 @@ named as claims.
      the centre, Heaviside–Lorentz geometric units): a test field, its
      Lorentz force far below the Cowling star's own truncation error.
    - **The conductivity** (proposed):
-     `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`, both with no
-     default; the suite and the studies take `σ₀ = 10⁶` (σΔt ≈ 10⁵ at
-     `h = 1`) and `μ_max = 10`. `DensityProfile`'s shape is kept ("Ohm's
+     `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`, `σ₀`
+     and `μ_max` with no default; the suite and the studies take
+     `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **The cutoff is
+     `10⁴ ρ_min`** (the case's default; proposed): σ is zero below
+     `ρ = 10⁻⁶` at `ρ_min = 10⁻¹⁰`. The atmosphere of a star on a fixed
+     metric falls onto it and piles up outside the surface, and with
+     `DensityProfile`'s own `cutoff = 2`, or the literature's 100, that gas
+     conducts and carries the exterior field, whose drift then does not
+     converge (measured below). `DensityProfile`'s shape is kept ("Ohm's
      law and the conductivity").
    - **The diagnostics** (`src/field_diagnostics.jl`): `cell_profile`, the
      owned cells' `E`, `B`, `q`, flags and metric from one recovery;
@@ -5331,41 +5338,72 @@ named as claims.
      sphere and in a shell; `ohm_map`, the diagnostics set's stage tallies
      per region.
 
-   **Measured** (the suite's star: `[−12, 12]³`, three roots, no boxes,
-   MC; laptop, Julia 1.13, four threads):
-   - **∇·B**: `max |∇·𝔅| h/max |𝔅|` 1.9e−16 in the initial data and at
-     `t = 2M`, at `h = 1` and `1/2`.
-   - **The exterior dipole** stays the initial field to truncation error:
-     `Σ|B − B₀|/Σ|B₀|` outside `R̄` at `t = 2M` is 1.21e−2 at `h = 1` and
-     3.35e−3 at `1/2` (rate 1.85), in the shell `R̄ + 1 … 11` 1.43e−2 and
-     3.87e−3 (1.88); inside, 1.69e−2 and 4.12e−3 (2.03). The field energy
-     outside changes by 0.5% at `h = 1`.
-   - **Inside the star**, `Σ|E·B|/ΣB²` is 9.2e−5 and 1.7e−5 (rate 2.45):
-     `E·B → 0` at truncation error. `|E|/|B|` inside is 1.1e−2 and
-     5.7e−3 (0.95): `E` is `−v × B` of the star's own truncation velocity,
-     whose error at the surface is first order.
-   - **Rest mass**: its change equals what the reset injects to 1.6e−15
-     of 1.506 (2.5e−10 injected by `t = 2M`).
-   - **The stage solve's outcome map**: inside `R̄` every stage converges
-     by the fixed point (127232 at `h = 1`), with no fallback, no repair
-     and no reset. Outside, 92.8% of the stages are `σ = 0`
-     (electrovacuum), and 18920 of 646912 (2.9%) take the lagged-velocity
-     fallback, every one with its state repaired by the policy — all in the
-     cells whose centre lies just outside the surface, into which the
-     star's matter spreads: cold gas whose energy is a small part of the
-     field's. The map does not change with σ or the cutoff: 18888 at
-     `σ₀ = 10³`, 18528 at `μ_max = 1`, 16960 at `μ_max = 0.1`; 14120 at
-     `B_c = 10⁻⁵` and 16768 at `10⁻³` (where Newton steps appear in the
-     envelope, 1680 of its 35392 stages). At `h = 1/2` all fallbacks are
-     within one cell of `R̄` (none beyond `R̄ + 1`).
+   **Measured.** The studies: `bin/magnetized_tov_study.jl` on the default
+   box (`[−24, 24]³`, four roots, one box level, PPM) at `h = 0.75, 0.5,
+   0.375` to 50 M, on Trillium (AMD EPYC 9655, 64 threads; jobs
+   2864940–2864942, 268 s, 936 s and 2286 s). The suite's star
+   (`test/magnetized_tov_tests.jl`): `[−12, 12]³`, three roots, no boxes,
+   MC, `h = 1` and `1/2` to `t = 2M`.
+   - **∇·B**: `max |∇·𝔅| h/max |𝔅|` at most 3.4e−16 in every chunk of every
+     study, 1.9e−16 in the suite's runs.
+   - **The exterior dipole** stays the initial field to truncation error,
+     and its drift converges. `Σ|B − B₀|/Σ|B₀|` in the shell
+     `R̄ + 1 ≤ r̄ < 23`, and inside `R̄`, with the rates between `h = 0.75,
+     0.5` and `0.5, 0.375`:
+
+     | `t` (M) | shell | rates | inside | rates |
+     |---|---|---|---|---|
+     | 2 | 2.87e−3, 1.37e−3, 7.86e−4 | 1.83, 1.93 | 9.67e−3, 4.15e−3, 2.30e−3 | 2.08, 2.05 |
+     | 10 | 1.17e−2, 5.91e−3, 3.92e−3 | 1.68, 1.42 | 2.01e−2, 8.78e−3, 5.30e−3 | 2.04, 1.76 |
+     | 20 | 1.92e−2, 1.18e−2, 7.93e−3 | 1.20, 1.39 | 2.57e−2, 1.34e−2, 8.41e−3 | 1.61, 1.62 |
+     | 30 | 2.88e−2, 1.40e−2, 7.89e−3 | 1.78, 1.99 | 3.26e−2, 1.71e−2, 1.03e−2 | 1.59, 1.74 |
+     | 50 | 4.27e−2, 1.74e−2, 9.03e−3 | 2.22, 2.28 | 4.47e−2, 2.21e−2, 1.32e−2 | 1.74, 1.79 |
+
+     The field energy outside `R̄` changes by −5.0% at `h = 0.75` and
+     −1.1% at `0.375` over the 50 M. In the suite's run the drift outside `R̄`
+     at `t = 2M` is 1.21e−2 and 3.54e−3 (rate 1.77), inside 2.01.
+   - **It holds only with the exterior electrovacuum** (the cutoff,
+     above). With `DensityProfile`'s own `cutoff = 2` the same studies
+     (jobs 2864696–2864698) drift in the shell by 3.66e−2, 3.29e−2,
+     2.99e−2 at 10 M (rates 0.27, 0.32) and 0.418 at 50 M at `h = 0.75`,
+     and the field energy outside grows by 20%: the gas the atmosphere
+     piles up outside the star conducts and carries the field. At
+     `h = 0.75` to 20 M the shell's drift is 0.139 at `cutoff = 2`, 0.139
+     at 100, 0.084 at `10³`, 0.019 at `10⁴`; 0.146 at `B_c = 10⁻⁶`, 0.138
+     at `σ₀ = 10³`, 0.142 at `ρ_min = 10⁻¹²` (all at `cutoff = 2`), and
+     0.032 at `μ_max = 0.001`, where the taper takes σ to zero outside the
+     star. The same box without its coarse-fine faces (uniform `h = 0.75`)
+     drifts as with them (0.1386 against 0.1389 at 20 M), so the faces are
+     not the cause.
+   - **Inside the star**, `Σ|E·B|/ΣB²` converges: 5.26e−5, 1.90e−5,
+     1.07e−5 at 2 M (rates 2.51, 2.00) and 1.76e−4, 8.73e−5, 5.11e−5 at
+     50 M (1.73, 1.86): `E·B → 0` at truncation error. `|E|/|B|` inside is
+     9.3e−3, 5.8e−3, 4.5e−3 at 50 M (0.93–1.16): `E` is `−v × B` of the
+     star's own truncation velocity, whose error at the surface is first
+     order.
+   - **Rest mass**: its change equals what the reset injects to at most
+     7.7e−15 of 1.506 at every chunk (−9.4e−8 to −1.2e−7 injected by
+     50 M).
+   - **The stage solve's outcome map** (the studies, summed over 50 M):
+     inside `R̄` every stage converges by the fixed point (153 million at
+     `h = 0.375`), with no fallback, no repair and no reset. In the band
+     `R̄ … R̄ + 1.5` 51%, 75% and 83% of the stages are `σ = 0` (by
+     resolution), nearly all the rest fixed point,
+     and the lagged-velocity fallback takes 244658 at `h = 0.75` (4.1%),
+     1184 at `0.5` and 624 at `0.375` (6·10⁻⁶); beyond it every stage is
+     `σ = 0`. At `cutoff = 2` the band fell back in 51%, 59% and 55% of
+     its stages and the exterior in 6.2%, 1.7% and 0.2%. In the suite's
+     run at `h = 1` the fallbacks outside are 2032 of 646912 stages
+     (0.31%; 18920 at `cutoff = 2`), all in cells whose centre is just
+     outside `R̄`.
    - **The entropy fallback's trigger** fires in no cell inside `R̄`, and
-     in 136 outside it in the initial data (the cells whose Gauss points
-     straddle the surface) and 256 at `t = 2M` (`h = 1`; 584 and 1224 at
-     `h = 1/2`); no recovery outside the atmosphere is repaired at
-     `t = 2M`. **Whether `D s` earns its keep (open) is not decided**: the
-     fallback is blocked on EOS-3, and without it the energy inversion
-     never fails on this star outside the atmosphere — the stage solve's
-     repaired fallbacks above are the stage's, not the recovery's.
+     outside in 4654–21370 cells (by resolution, at 50 M; the atmosphere
+     left out): the gas outside the star, whose fields' energy exceeds its
+     own. The energy inversion fails outside the atmosphere in at most 10
+     cells at a time, in 12 of the 50 samples at `h = 0.375`, once at
+     `0.5`, never at `0.75`, and never inside `R̄`. **Whether `D s` earns
+     its keep (open) is not decided**: the fallback is blocked on EOS-3,
+     and without it this star gives it almost nothing to repair.
 7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
    data).
 
@@ -5397,12 +5435,11 @@ decides".
 - **(open)** `(ρ, S_i, S_ij)` to vertices at fourth order: whether its H1,
   0.8% above linear theory at `h = 0.25`, closes at a finer `h` ("Matter
   to the vertices").
-- **(open)** Whether the conductivity should also fall where the field's
-  energy dwarfs the fluid's, not only its rest mass (`B²/D`): the
-  magnetized star's stage fallbacks, 2.9% of the stages outside it at
-  `h = 1`, sit in the cold gas just outside its surface and do not move with
-  `μ_max` ("Validation ladder" 6). They are caught and repaired; nothing
-  built or measured beyond that.
+- **(open)** Whether the conductivity should fall where the field's energy
+  dwarfs the fluid's, not only by density or `B²/D`: on the magnetized star
+  the cold gas outside the surface fell back in half its stages until the
+  density cutoff was raised to `10⁴ ρ_min`, which a case must choose by
+  hand ("Validation ladder" 6). Nothing built or measured beyond that.
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 
@@ -5477,10 +5514,11 @@ decides".
   and the taper already begins at `μ = μ_max/10`, so σ is reduced a decade
   below the threshold a case states. Rung 1 sees how often an evolution
   meets the taper. On the magnetized star (rung 6) the stage's fallbacks
-  are not the taper's to remove: 2.9% of the stages outside the star at
-  `h = 1`, in the cold gas just outside its surface, and as many at
-  `μ_max = 0.1` and at `σ₀ = 10³` — there the fluid's energy, not its rest
-  mass, is what is small against the field's, which `B²/D` does not see.
+  were not the taper's to remove: with σ cut at `2ρ_min`, half the stages
+  just outside the star fell back, and as many at `μ_max = 0.1` and at
+  `σ₀ = 10³` — there the fluid's energy, not its rest mass, is what is
+  small against the field's, which `B²/D` does not see. The case's density
+  cutoff at `10⁴ ρ_min` removes all but 6·10⁻⁶ of them at `h = 0.375`.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's

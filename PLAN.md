@@ -769,35 +769,34 @@ Accept:
 - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
   keep (open)**.
 
-**State (2026-11-15).** Built and measured on the laptop (`CODE.md`, "Validation ladder" 6);
-the Symmetry runs wait for its CPU nodes, all down since 08:00 that day.
+**State (2026-11-15).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
+and the suite ran on Trillium (AMD EPYC 9655), since Symmetry's and Nibi's CPU nodes were down
+(Erik, 2026-11-15: use Trillium).
 
 Done:
 - `magnetized_tov_case` (`src/cases/magnetized_tov.jl`): rung 4's Cowling star threaded by the
   static vacuum dipole of Schwarzschild outside the surface (Wasserman & Shapiro 1983), its
   quadratic continuation in `r̄²` inside, `E = 0`, `Φ̃ = 0`, under
-  `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`; `DensityProfile`'s shape kept;
+  `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)` with `cutoff = 10⁴`;
+  `DensityProfile`'s shape kept;
 - the diagnostics (`src/field_diagnostics.jl`): field energy inside and outside, `E·B`, `|q|`,
   the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
   `bin/magnetized_tov_study.jl`;
-- ∇·B at round-off: 1.9e−16;
-- the exterior dipole: the drift outside the star at `t = 2M` converges at 1.85 (`h = 1, 1/2`);
-- `E·B` inside converges at 2.45;
-- the outcome map, recorded: fixed point everywhere inside the star; 2.9% fallbacks outside, all
-  in the cells just outside the surface, the same at any σ₀ or `μ_max` tried.
-- the suite on the laptop: 26635/26635 at one thread, at four and with bounds checks, and in
-  the clean-checkout check under 1.13.
+- ∇·B at round-off: at most 3.4e−16;
+- the exterior dipole: the drift outside the star converges at 1.2–2.3 to 50 M
+  (`h = 0.75, 0.5, 0.375`) — once σ is zero below `10⁴ ρ_min`. With `DensityProfile`'s
+  `cutoff = 2` it did not (0.3–0.6 over 5–20 M): a miss that decided the cutoff;
+- `E·B` inside converges at 1.7–2.5;
+- the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
+  the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
+  stages by resolution;
+- the suite at one thread, at four, with bounds checks and in the clean checkout, and the
+  coupled suite (the record is `HISTORY.md`, "The test suite").
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
-  fails nowhere outside the atmosphere at `t = 2M`); with it, nothing can be measured, so
-  whether `D s` earns its keep stays open;
-- the studies on the default box with boxes at three resolutions, and the suite on a cluster:
-  Symmetry's CPU nodes and Nibi's (674 down, 82 drained) have been down since the morning of
-  2026-11-15. The CPU runs go to Nibi (Erik, 2026-11-15; the Symmetry jobs were cancelled), queued
-  as jobs 27443903 (the suite at four threads), then 27443904 and 27443905 (one thread, bounds
-  checks) and 27443906–27443908 (the study at `h = 0.75, 0.5, 0.375` to 50 M), their logs in
-  `/scratch/eschnett/claude/step12/`.
+  fails outside the atmosphere in at most 10 cells at a time over 50 M); with it, nothing can be
+  measured, so whether `D s` earns its keep stays open.
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 

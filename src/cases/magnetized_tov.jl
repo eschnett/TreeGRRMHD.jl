@@ -37,10 +37,17 @@
 # this package's Heaviside–Lorentz geometric units, is `B²/(2p) = 3·10⁻⁵` at the centre: a
 # test field, whose Lorentz force is far below the star's own truncation error.
 #
-# **The conductivity.** `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`: `σ₀` deep
-# inside the star, zero at and below `2ρ_min` (the atmosphere carries no current), and zero
-# where `B²/D ≥ μ_max`, the magnetically dominated layer at the surface. `σ₀` and `μ_max` have
-# no default (`CODE.md`, "Ohm's law and the conductivity").
+# **The conductivity.** `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`: `σ₀`
+# deep inside the star, zero at and below `cutoff·ρ_min`, and zero where `B²/D ≥ μ_max`. `σ₀`
+# and `μ_max` have no default (`CODE.md`, "Ohm's law and the conductivity").
+#
+# **The cutoff, `10⁴ ρ_min`** (proposed in step 12). The atmosphere of a star in the Cowling
+# approximation falls onto it and piles up outside the surface, to densities of order
+# `10⁻⁸ … 10⁻⁶` within tens of `M` at `ρ_min = 10⁻¹⁰`. With `DensityProfile`'s own `cutoff = 2`
+# (or the literature's 100) that gas conducts at `σ₀`, the exterior field is carried by the
+# atmosphere's motion, and its drift outside the star does not converge (rates 0.3–0.6 over
+# 5–20 M on the studies' box); at `10⁴` σ is zero below `ρ = 10⁻⁶`, the exterior is
+# electrovacuum as intended, and the drift converges at 1.2–2.0 to 50 M ("Validation ladder" 6).
 
 """
     dipole_S(x) -> (S, dS/dx)
@@ -187,8 +194,9 @@ end
     dipole_potential(w.dipole, x), zero(T)
 
 """
-    magnetized_tov_case([T]; σ₀, μ_max, B_c = 1e-4, K = 100, Γ = 2, ρ_c = 1.28e-3, L = 24,
-                        roots = 4, ρ_min = 1e-10, NK = 129, steps = 4000)
+    magnetized_tov_case([T]; σ₀, μ_max, cutoff = 10_000, B_c = 1e-4, K = 100, Γ = 2,
+                        ρ_c = 1.28e-3, L = 24, roots = 4, ρ_min = 1e-10, NK = 129,
+                        steps = 4000)
 
 The magnetized TOV star ("Validation ladder" 6 in `CODE.md`) as a three-dimensional
 [`MHDCase`](@ref): [`tov_case`](@ref)'s star at rest on `Analytic(TOVMetric)`, threaded by
@@ -196,13 +204,14 @@ the poloidal field of [`stellar_dipole`](@ref) — the static vacuum dipole of S
 outside the surface, its quadratic continuation in `r̄²` inside, `|B| = B_c` at the centre —
 with `E = 0` and `Φ̃ = 0` everywhere, the solution of the field equations outside and of the
 ideal ones inside. The conductivity is
-`MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`: σ follows the density to zero at
-`2ρ_min`, and the magnetically dominated layer is electrovacuum; `σ₀` and `μ_max` have no
-default. The potential does not depend on `t`, so its Dirichlet faces are absolute
+`MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`: σ follows the density to
+zero at `cutoff·ρ_min`, `10⁻⁶` at the defaults, below which the atmosphere that piles up
+outside the star carries no current, and the magnetically dominated plasma is electrovacuum;
+`σ₀` and `μ_max` have no default (the cutoff's reason: `src/cases/magnetized_tov.jl`). The potential does not depend on `t`, so its Dirichlet faces are absolute
 (`static_potential = true`). The case's data is `case.fields.w`, a
 [`MagnetizedTOVStar`](@ref); [`tov_boxes!`](@ref) refines around it as around rung 4's.
 """
-function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, B_c=1e-4, K=100, Γ=2,
+function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, cutoff=10_000, B_c=1e-4, K=100, Γ=2,
                              ρ_c=1.28e-3, L=24, roots=4, ρ_min=1e-10, NK::Integer=129,
                              steps::Integer=4000) where {T}
     T(σ₀) > 0 || throw(ArgumentError(
@@ -210,7 +219,7 @@ function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, B_c=1e-4, K=100, 
     star = tov_case(T; K, Γ, ρ_c, L, roots, ρ_min, NK, steps)
     w0 = star.fields.w
     w = MagnetizedTOVStar(w0, stellar_dipole(w0.metric, T(B_c)))
-    model = MagnetizationCutoff(DensityProfile(T(σ₀), T(ρ_min)), T(μ_max))
+    model = MagnetizationCutoff(DensityProfile(T(σ₀), T(ρ_min), T(cutoff)), T(μ_max))
     return MHDCase(T, Val(3); fields=WaveFields(w), potential=WavePotential(w), eos=star.eos,
                    proj=star.proj, pol=star.pol, model, provider=star.provider,
                    periodic=false, extents=star.extents, roots=star.roots,

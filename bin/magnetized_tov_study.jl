@@ -16,7 +16,8 @@
 #
 # Keys: `N` (cells per block, 8), `levels` (box levels around the star, `tov_boxes!`, 1), `L`
 # (24), `roots` (4), `t_end` (10), `chunk` (1), `limiter` (`ppm`), `sigma0` (σ₀, 1e6),
-# `mumax` (μ_max, 10), `Bc` (the central field, 1e-4), `rhomin` (ρ_min, 1e-10). The lines
+# `mumax` (μ_max, 10), `cutoff` (`DensityProfile`'s, in units of ρ_min, 2), `Bc` (the central
+# field, 1e-4), `rhomin` (ρ_min, 1e-10). The lines
 # start with a tag (`CHUNK`, `MAP`, `RUN`) for grepping.
 
 using TreeAMR
@@ -28,8 +29,8 @@ const BIT_NAMES = ("σ=0", "ideal", "fixed-point", "Newton", "fallback", "ideal-
                    "backtracked", "repaired")
 
 function study(T=Float64; N=8, levels=1, L=24, roots=4, t_end=10, chunk=1, limiter=:ppm,
-               σ₀=1e6, μ_max=10, B_c=1e-4, ρ_min=1e-10)
-    case = magnetized_tov_case(T; σ₀, μ_max, B_c, L, roots, ρ_min)
+               σ₀=1e6, μ_max=10, cutoff=2, B_c=1e-4, ρ_min=1e-10)
+    case = magnetized_tov_case(T; σ₀, μ_max, cutoff, B_c, L, roots, ρ_min)
     R̄ = case.fields.w.star.metric.R̄
     region(x) = (r = sqrt(sum(abs2, x)); r < 4R̄ / 5 ? 1 : r < R̄ ? 2 : r < R̄ + 3 // 2 ? 3 : 4)
     prof0 = Ref{Any}(nothing)
@@ -94,7 +95,7 @@ end
 function main(args)
     kw = Dict(split(a, '='; limit=2) for a in args)
     known = ("N", "levels", "L", "roots", "t_end", "chunk", "limiter", "sigma0", "mumax", "Bc",
-             "rhomin")
+             "rhomin", "cutoff")
     for k in keys(kw)
         k in known || error("magnetized_tov_study.jl: unknown key `$k` ($(join(known, ", ")))")
     end
@@ -103,7 +104,8 @@ function main(args)
     study(; N=int("N", 8), levels=int("levels", 1), L=num("L", 24), roots=int("roots", 4),
           t_end=num("t_end", 10), chunk=num("chunk", 1),
           limiter=Symbol(get(kw, "limiter", "ppm")), σ₀=num("sigma0", 1e6),
-          μ_max=num("mumax", 10), B_c=num("Bc", 1e-4), ρ_min=num("rhomin", 1e-10))
+          μ_max=num("mumax", 10), cutoff=num("cutoff", 2), B_c=num("Bc", 1e-4),
+          ρ_min=num("rhomin", 1e-10))
     return nothing
 end
 

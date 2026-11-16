@@ -125,7 +125,7 @@ const MT_R̄ = MT_CASE.fields.w.star.metric.R̄
     # cell whatever `A` holds; inside the conductor the field is frozen into a star at rest,
     # so `E·B` is the truncation error of a poloidal field (zero in the continuum); the
     # rest mass changes by exactly what the reset injects. Measured at `h = 1`, `t = 2M`:
-    # `∇·B` 1.9e−16; `Σ|E·B|/ΣB²` inside 9.2e−5, `|E|/|B|` 1.1e−2 (the star's own truncation
+    # `∇·B` 1.9e−16; `Σ|E·B|/ΣB²` inside 9.3e−5, `|E|/|B|` 1.1e−2 (the star's own truncation
     # velocity times `B`); the field outside `R̄` within 1.2% of the initial one.
     run = mt_run(8)
     r = run.r
@@ -159,10 +159,10 @@ end
     # surface every stage converges by the fixed point, with no fallback and no repair; the
     # lagged-velocity fallback (flagged, `OHM_FALLBACK`, its state repaired by the policy)
     # appears only outside it, in the cells the star's surface spreads into, cold matter
-    # whose energy is a small part of the field's. Measured at `h = 1`, `t ≤ 2M`: inside,
-    # 127232 stages, all fixed point; outside, 18920 fallbacks of 646912 stages (2.9%),
-    # every one in a cell whose centre lies outside `R̄`; the same within 25% at
-    # `σ₀ = 10³` or `μ_max = 1, 0.1` (`CODE.md`, "Validation ladder" 6).
+    # whose energy is a small part of the field's. Measured at `h = 1`, `t ≤ 2M`, with the
+    # case's `cutoff = 10⁴`: inside, 127232 stages, all fixed point; outside, 2032 fallbacks
+    # of 646912 stages (0.31%), 95.6% at `σ = 0`. With `DensityProfile`'s own `cutoff = 2`
+    # the fallbacks outside were 18920 (2.9%) (`CODE.md`, "Validation ladder" 6).
     run = mt_run(8)
     region(x) = sum(abs2, x) < MT_R̄^2 ? 1 : 2
     mp = ohm_map(run.r.p, region, 2)
@@ -174,7 +174,7 @@ end
     @test inside.bits[3] == stages(inside) > 0 && inside.policy == 0 && inside.resets == 0
     @test all(iszero, inside.bits[[1, 2, 4, 5, 6, 7, 8, 9]])
     @test outside.bits[1] ≥ 0.9 * stages(outside)  # the exterior is electrovacuum
-    @test 0 < outside.bits[5] ≤ 0.04 * stages(outside)
+    @test 0 < outside.bits[5] ≤ 0.01 * stages(outside)
     @test outside.bits[9] == outside.bits[5]        # every fallback's state is repaired
 end
 
@@ -182,9 +182,10 @@ end
     # Guards the claim of rung 6 (`PLAN.md`, step 12): the field outside the star is a static
     # vacuum solution, so it moves only by the scheme's truncation error, which converges.
     # `h = 1` and `1/2` to `t = 2M`; measured on the laptop: the drift outside `R̄` 1.21e−2,
-    # 3.35e−3 (rate 1.85), in the shell `R̄ + 1 … 11` 1.43e−2, 3.87e−3 (1.88), inside
-    # 1.69e−2, 4.12e−3 (2.03); `E·B` inside 9.2e−5, 1.6e−5 (2.5); `|E|/|B|` inside 1.1e−2,
-    # 5.5e−3 (1.0, the star's own velocity, whose surface error is first order).
+    # 3.54e−3 (rate 1.77), in the shell `R̄ + 1 … 11` 1.43e−2, 4.35e−3 (1.72), inside
+    # 1.68e−2, 4.17e−3 (2.01); `E·B` inside 9.3e−5, 1.7e−5 (2.45); `|E|/|B|` inside 1.1e−2,
+    # 5.7e−3 (0.95, the star's own velocity, whose surface error is first order). The
+    # studies' box to 50 M is `CODE.md`'s ("Validation ladder" 6).
     runs = (mt_run(8), mt_run(16))
     drift = [field_drift(x.prof, x.prof0; radius=MT_R̄) for x in runs]
     shell = [field_drift(x.prof, x.prof0; radius=MT_R̄ + 1, outer=11) for x in runs]
