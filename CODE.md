@@ -32,7 +32,9 @@ magnetized star on the Cowling metric, is built and measured ("Validation
 ladder" 6): `∇·B` at round-off; the exterior dipole's drift converging at
 1.2–2.3 to 50 M once σ is zero below `10⁴ ρ_min`; `E·B` inside converging at
 1.7–2.5; the stage solve by fixed point everywhere inside the star; its
-entropy fallback waits for EOS-3. The numbers below
+entropy fallback waits for EOS-3. The literature's confined-field star loses
+its central field to the scheme at 2.4–4.3 in `h`, and at σ₀ = 100 falls by
+two decades in 9.65 ms, as GRaM-X's and Dionysopoulou et al.'s do. The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -4027,7 +4029,8 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   vertex set of the suite's own making (no TreeGH), both forms and both
   orders, and `flags`.
 - `test/magnetized_tov_tests.jl`: the exterior dipole and its interior
-  continuation pointwise; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
+  continuation pointwise; the confined field (Duez et al.'s, at GRaM-X's
+  `B_c`) and the squared density profile pointwise; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
 
@@ -4144,6 +4147,7 @@ bit-identically to the host; "Precision and devices"):
 - `src/cases/magnetized_tov.jl`: `exterior_dipole` (the static vacuum
   dipole of Schwarzschild in isotropic coordinates), `StellarDipole` and
   `stellar_dipole` (its quadratic continuation inside the star),
+  `ConfinedField` and `confined_field` (Duez et al.'s interior-only field),
   `magnetized_tov_case` ("Validation ladder" 6).
 
 **The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
@@ -5442,6 +5446,82 @@ named as claims.
      `0.5`, never at `0.75`, and never inside `R̄`. **Whether `D s` earns
      its keep (open) is not decided**: the fallback is blocked on EOS-3,
      and without it this star gives it almost nothing to repair.
+
+   **The confined-field star** (`field = :confined`): the resistive star
+   of the literature, against which σ's own decay of the field is
+   measured. The field is Duez et al.'s (2006),
+   `A_φ = ϖ² max[A_b(P − P_cut), 0]²` with `P_cut = 0.04 P_c`, zero where
+   `P ≤ P_cut` (`r̄ ≳ 6.6`) and so zero at the surface and outside;
+   `confined_field` sets `A_b` from `B_c` (the same contravariant `Bᶻ`),
+   and GRaM-X's `A_b = 1.58` is `B_c = 4.26e−8` here, its quoted
+   `4.3e−8`. This is Dionysopoulou et al.'s (2013, Sec. IV.3.1) and
+   GRaM-X's (Azizi et al. 2025, Eq. 60, Sec. IV.5.1) star. The
+   conductivity is theirs too, `power = 2`, `cutoff = 1` (in `ρ`); with
+   no field outside `P_cut`, the conducting gas outside the surface
+   carries none. The runs are a study, not a test (proposed): the
+   cheapest that tells σ₀ = 100 from 10⁶ (`h = 0.75` to 200 M) takes
+   740 s on 96 threads, and its own numerical loss is 79%; the suite
+   checks the initial field ("Tests").
+
+   **Measured** (`bin/magnetized_tov_study.jl field=confined power=2
+   cutoff=1 Bc=4.26e-8`, `[−12, 12]³`, four roots, no boxes, PPM,
+   `μ_max = 10`, to 200 M at `h = 0.75, 0.5, 0.375, 0.25`; σ₀ = 10⁶,
+   10³ (not at 0.25), 100; Trillium, AMD EPYC 9655, 96 threads, jobs
+   2870561–2870573, 737 s at `h = 0.75` to 23.5 ks at `0.25`; and
+   σ₀ = 100 at `h = 0.5` to 2000 M, job 2870574, 24.0 ks). `B_c(t)` is
+   the volume-weighted mean `|B|` within `r̄ < 1`; `1 M = 4.93 μs`.
+   - **∇·B** at most 2.7e−16 in every chunk; the rest mass changes by
+     what the reset injects to 3.5e−14 at `h ≤ 0.5`. At `h = 0.75` the
+     two differ by up to 2.8e−8, the same at every σ₀ and not monotonic
+     in time: matter crossing the outer faces of this small box (3.9 M
+     beyond the surface), which the budget does not count (not
+     measured further).
+   - **The numerical loss** (σ₀ = 10⁶, where σ's own decay time is about
+     10⁷ M), `1 − B_c(t)/B_c(0)` and its rates between successive `h`:
+
+     | `t` (M) | `h = 0.75, 0.5, 0.375, 0.25` | rates |
+     |---|---|---|
+     | 10 | 0.225, 0.0798, 0.0305, 0.0059 | 2.55, 3.34, 4.04 |
+     | 50 | 0.516, 0.198, 0.0767, 0.0133 | 2.36, 3.30, 4.32 |
+     | 100 | 0.676, 0.234, 0.0975, 0.0201 | 2.61, 3.05, 3.89 |
+     | 200 | 0.790, 0.290, 0.124, 0.0265 | 2.48, 2.95, 3.80 |
+
+     It converges at 2.4–4.3, faster than Dionysopoulou et al.'s about
+     1.7 (Sec. IV.3.1, at Δx = 0.30, 0.20, 0.15 M), though at `h = 0.75`
+     the star loses most of its field in 200 M. Their losses saturate at
+     about 20% over 12 ms at their finest resolution; ours at
+     `h = 0.25` is 2.7% at 200 M (1 ms), its rate falling.
+   - **σ's decay scales as 1/σ₀.** The decay rate of `B_c` fitted over
+     50–200 M (per M), and its excess over σ₀ = 10⁶'s at the same `h`:
+
+     | `h` | σ₀ = 10⁶ | 10³ (excess) | 100 (excess) |
+     |---|---|---|---|
+     | 0.75 | 5.46e−3 | 5.53e−3 (6.9e−5) | 6.13e−3 (6.6e−4) |
+     | 0.5 | 7.68e−4 | 9.87e−4 (2.2e−4) | 4.77e−3 (4.00e−3) |
+     | 0.375 | 3.47e−4 | 6.98e−4 (3.5e−4) | 4.59e−3 (4.24e−3) |
+     | 0.25 | 8.9e−5 | — | 4.35e−3 (4.26e−3) |
+
+     At σ₀ = 100 the excess converges (4.00, 4.24, 4.26e−3); σ₀ = 10³'s
+     is 12 times smaller at `h = 0.375`, against 10 for 1/σ₀, where it
+     is the size of the numerical loss itself. At `h = 0.75` the scheme
+     swamps both.
+   - **Two decades by 10 ms.** At σ₀ = 100, `h = 0.5`, `B_c` falls to
+     0.517 by 100 M, 0.161 by 400 M, 0.040 by 1000 M and 0.0100 at
+     1960 M (9.65 ms; 0.0095 at 2000 M). GRaM-X's Fig. 7 has σ₀ = 100
+     fall by almost two orders within 10 ms, Dionysopoulou et al.'s
+     Fig. 8 within about 12 ms. The decay is not one exponential: its
+     rate is 4.8e−3 over 50–200 M, 2.2e−3 over 500–1000 M, 1.3e−3 over
+     1500–2000 M — the shorter scales go first, toward the slowest
+     mode, for which a uniformly conducting sphere of radius `R̄` in
+     vacuum gives `π²/(σ₀R̄²) = 1.5e−3` (the same size; the metric and
+     the profile change it). At `h = 0.5` the numerical loss is part of
+     this (7.7e−4 over 50–200 M at σ₀ = 10⁶); a 2000 M run at
+     `h = 0.25`, about 65 h on 96 threads, would separate it (not run).
+   - **The outcome map** at the literature's threshold: inside `R̄`
+     every stage is fixed point; the band `R̄ … R̄ + 1.5` falls back in
+     37% of its stages at `h = 0.375` (the last chunk), beyond it 1.4% —
+     as the dipole star did at `cutoff = 1`, and harmless here, where
+     the field there is zero.
 7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
    data).
 

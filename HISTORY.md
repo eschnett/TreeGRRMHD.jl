@@ -5159,6 +5159,20 @@ the faces, the field's strength, σ₀ or the atmosphere's density. At `cutoff =
 the three studies (jobs 2864940–2864942) converge, and `CODE.md`'s rung 6 is
 theirs.
 
+**2026-11-16, step 12, after review: the confined-field star.** Erik asked for
+the literature's resistive star (Duez et al. 2006's field at GRaM-X's
+`A_b = 1.58`, the squared profile at `D_atm`, σ₀ = 10⁶, 10³, 100) at three
+resolutions, its central field's drift and rate against Dionysopoulou et al.'s
+1.7, and the decay time against 1/σ₀. Run on Trillium (jobs 2870561–2870574,
+96 threads; the record is `CODE.md`, "Validation ladder" 6). Before the long
+run, the fitted rate over 50–200 M at σ₀ = 100 (4.3–4.8e−3 per M) read as
+about twice the literature's two decades in 10 ms (≈ 2.3e−3 per M on
+average); the 2000 M run showed why: the decay slows (1.3e−3 per M over
+1500–2000 M) and reaches two decades at 1960 M, 9.65 ms, as the literature
+does. Step 12 proposed that the confined-star runs stay a study, with the
+initial field in the suite, since the cheapest run that separates σ₀ = 100
+from 10⁶ takes 740 s on 96 threads.
+
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%
 and H1 −0.20%, where rung 5's table at the same `h` had F +0.78% and H1

@@ -769,7 +769,7 @@ Accept:
 - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
   keep (open)**.
 
-**State (2026-11-15).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
+**State (2026-11-16).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
 and the suite ran on Trillium (AMD EPYC 9655), since Symmetry's and Nibi's CPU nodes were down
 (Erik, 2026-11-15: use Trillium).
 
@@ -790,8 +790,12 @@ Done:
 - the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
   the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
   stages by resolution;
+- after review: the squared profile (`power = 2`, `cutoff = 1`) changes nothing on the
+  dipole star; the confined-field star of Dionysopoulou et al. (2013) and GRaM-X: its numerical
+  loss converges at 2.4–4.3 (`h = 0.75 … 0.25`), σ's excess decay converges and scales near
+  1/σ₀, and at σ₀ = 100 the central field falls two decades by 9.65 ms;
 - the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
-  each, and the coupled suite, 25/25 three ways, on Trillium (`HISTORY.md`, "The test suite").
+  each at 01ff9cf and 26658/26658 at a237712, and the coupled suite, 25/25 three ways, on Trillium (`HISTORY.md`, "The test suite").
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
