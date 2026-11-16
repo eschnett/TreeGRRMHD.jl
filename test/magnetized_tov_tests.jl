@@ -35,7 +35,7 @@ end
     # flat dipole `μ ẑ × x/r̄³` on the same metric is the negative control: its current is
     # the metric's, independent of the difference step.
     w = MT_CASE.fields.w
-    d = w.dipole
+    d = w.field
     flat(y) = (r² = sum(abs2, y);
                (d.μ / r²^(3 // 2)) * SVector(3 * y[3] * y[1], 3 * y[3] * y[2], 3 * y[3]^2 - r²) /
                r²)
@@ -83,7 +83,7 @@ end
     # Guards `stellar_dipole`: a mismatch of `a` or `da/du` at the surface is a jump of `B`
     # (a surface current no conductor holds there), a mismatch of the second derivative a
     # jump of the current where σ falls to zero; a wrong normalization another field.
-    d = MT_CASE.fields.w.dipole
+    d = MT_CASE.fields.w.field
     u = d.u_s
     for δ in (1e-4, 1e-5)
         a₋, da₋ = MT.dipole_a(d, u - δ * u)
@@ -107,6 +107,61 @@ end
                    rtol=1e-14)
     @test_throws ArgumentError magnetized_tov_case(; σ₀=0, μ_max=10)
     @test_throws UndefKeywordError magnetized_tov_case(; σ₀=1e6)
+end
+
+@testset "The confined field is Duez et al.'s, at GRaM-X's central field, and zero outside P_cut" begin
+    # Guards `confined_field` (step 12, after review): the interior-only field of Duez et al.
+    # (2006) that Dionysopoulou et al. (2013) and GRaM-X (Azizi et al. 2025, Eq. 60) evolve. A
+    # wrong `dP/du` (the chain `ρ dh/du`) breaks its curl; a wrong normalization another star;
+    # a field beyond `P_cut` is no longer confined. GRaM-X's `A_φ = ϖ² max[A_b(P − P_cut), 0]²`
+    # at `A_b = 1.58`, `P_cut = 0.04 P_c` is `Bᶻ = 4.26e−8` at the centre here, its quoted
+    # `B_c ≈ 4.3e−8`.
+    c = magnetized_tov_case(Float64; σ₀=100, μ_max=10, field=:confined, cutoff=1, power=2,
+                            B_c=1.0, L=12, roots=3)
+    f = c.fields.w.field
+    m = c.fields.w.star.metric
+    ψ_c, α_c = MT.tov_potentials(m, 0.0)
+    P_c = MT.polytrope_state(m.eq, m.α_s / α_c).p
+    @test isapprox(f.P_cut, 0.04 * P_c; rtol=1e-15)
+    B_gramx = 2 * 1.58^2 * (P_c - f.P_cut)^2 / ψ_c^6
+    @info "Confined field: P_c = $(mt3(P_c)), P_cut = $(mt3(f.P_cut)); GRaM-X's A_b = 1.58 " *
+          "is B_c = $(mt3(B_gramx))"
+    @test isapprox(B_gramx, 4.3e-8; rtol=0.02)
+    mc = point_metric(c.provider, 0.0, SVector(0.0, 0.0, 0.0))
+    @test isapprox(MT.field_curl(f, m, SVector(0.0, 0.0, 0.0)) / mc.sqrtγ,
+                   SVector(0.0, 0.0, 1.0); rtol=1e-14)
+    # Zero where `P ≤ P_cut` (`r̄ ≳ 6.6` here) and outside the star, nonzero inside.
+    @test MT.field_a(f, m, 4.0) != (0.0, 0.0)
+    @test all(r -> MT.field_a(f, m, r^2) == (0.0, 0.0), (6.8, 7.5, 8.0, 8.2, 12.0))
+    # The closed-form curl is the potential's, by differences.
+    x = SVector(2.0, -1.5, 3.0)
+    e(j) = SVector(ntuple(k -> k == j ? 1e-5 : 0.0, 3))
+    A(y) = MT.field_potential(f, m, y)
+    J = hcat(((A(x + e(j)) - A(x - e(j))) / 2e-5 for j in 1:3)...)
+    @test isapprox(SVector(J[3, 2] - J[2, 3], J[1, 3] - J[3, 1], J[2, 1] - J[1, 2]),
+                   MT.field_curl(f, m, x); rtol=1e-8)
+    @test isbits(c.fields.w)
+    @test_throws ArgumentError magnetized_tov_case(; σ₀=1, μ_max=10, field=:quadrupole)
+end
+
+@testset "The squared density profile is the literature's, and power 1 is unchanged" begin
+    # Guards `DensityProfile`'s `power` (step 12, after review): `σ₀ max(1 − cutoff ρ_atm/ρ,
+    # 0)²` is Dionysopoulou et al. (2013, Eq. 50) and GRaM-X (Eq. 61) in `ρ`; its slope feeds
+    # the stage solve's Newton Jacobian, so a wrong one costs iterations; `power = 1` must stay
+    # the form every earlier step measured, bit for bit.
+    prim(ρ) = ntuple(i -> i == MT.P_RHO ? ρ : 0.0, MT.NP)
+    sq = DensityProfile(1e6, 1e-10, 1, 2)
+    lin = DensityProfile(1e6, 1e-10, 2)
+    for ρ in (2e-10, 1e-9, 1e-6, 1e-3)
+        @test conductivity(sq, prim(ρ)) == 1e6 * (1 - 1e-10 / ρ)^2
+        @test conductivity(lin, prim(ρ)) == 1e6 * (1 - 2 * 1e-10 / ρ)
+        fd = (conductivity(sq, prim(ρ * (1 + 1e-4))) - conductivity(sq, prim(ρ * (1 - 1e-4)))) /
+             (2e-4 * ρ)
+        @test isapprox(MT.conductivity_slope(sq, prim(ρ)), fd; rtol=1e-5)  # the difference: 1.9e−6
+    end
+    @test conductivity(sq, prim(1e-10)) == 0 && MT.conductivity_slope(sq, prim(5e-11)) == 0
+    @test lin.power == 1 && DensityProfile(1e6, 1e-10) == DensityProfile(1e6, 1e-10, 2, 1)
+    @test_throws ArgumentError DensityProfile(1e6, 1e-10, 1, 0)
 end
 
 # The suite's run: `h = 1`, MC, to `t = 2M`, with the initial profile on the same mesh.

@@ -1825,6 +1825,29 @@ move with the conductivity: 18920 of 646912 stages outside the star at
 shape against Palenzuela (2013)" was replaced in `CODE.md` by the decision and
 its reasons.
 
+**2026-11-16, step 12, after review.** Erik asked for step 12's decisions to be
+compared with the literature (the review's notes, passed on by the step-11
+session). `DensityProfile` gained `power` (`power = 2`, `cutoff = 1` is the
+squared profile of Dionysopoulou et al. 2013, Eq. 50, and of GRaM-X, Eq. 61,
+in `ρ`; `power = 1` bit for bit the old form). On the dipole star at
+`h = 0.75` to 20 M (Trillium, jobs 2870559, 2870560) the squared profile drifts
+in the shell by 0.132 at threshold 1 and 0.139 at 100, against 0.139 for the
+linear one at 2 and at 100, with the same share of fallbacks in the band
+(49.2%, 48.1%). So "the shape is kept" stands (proposed), and the threshold,
+not the shape, decides. `CODE.md` now says that the case's `10⁴ ρ_min` is
+above every published threshold (`D_atm`; `100 D_atm` in Dionysopoulou, Alic &
+Rezzolla 2015, for binaries; 50–400 `ρ_atm` for Palenzuela 2013's
+force-free switch), why, and what it costs; and that the magnetization or
+field-energy switch stays the open question, with Palenzuela 2013's as the
+nearest published version. Citations corrected: the Ohm section said
+Dionysopoulou, Alic & Rezzolla 2015 alone, a binaries paper; the magnetized
+star's source is Dionysopoulou et al. 2013 (arXiv:1208.3487). Rung 6 said "a
+vacuum dipole exterior (Palenzuela 2013)": Palenzuela 2013 has a force-free
+exterior around a rotating star; the electrovacuum dipole exterior is
+Dionysopoulou et al. 2013's (LORENE), and step 12's exact form is Wasserman &
+Shapiro 1983. The conductivity table's row named Palenzuela 2013 for the
+same reason.
+
 ### Stress-energy for the spacetime
 
 **Step 2.** `stress_energy` and `T4_lower` in `src/stress_energy.jl` were
@@ -2272,6 +2295,11 @@ repairs, the atmosphere left out). Its definition of the fluid's energy read
 `τ_fluid = τ − D − ½(E² + B²)`; this package's `τ` is `𝓔 − D` already, so it
 now reads `τ − ½(E² + B²)`, which is what the 2026-10-16 investigation's
 harness computed (`field_budget`).
+
+**2026-11-16, step 12, after review.** The entropy fallback's paragraph now
+names its precedent: Palenzuela (2013) falls back to the isentropic `p = Kρ^Γ`
+near a star's surface; Dionysopoulou et al. (2013) treat a failed cell as
+atmosphere; GRaM-X has no fallback.
 
 ### Where the fields live
 

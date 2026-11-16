@@ -58,13 +58,17 @@ sphere, each sum over cells weighted by the proper volume `√γ h³`:
   recovery" in `CODE.md`; its fallback waits for EOS-3);
 - `repaired_in`, `repaired_out`: the cells, the atmosphere left out, whose recovery the
   policy repaired (any level-1 face);
-- `cells_in`, `cells_out`.
+- `cells_in`, `cells_out`;
+- `B_max`, the largest `|B|` (the metric's norm) on any cell, and `B_center`, the
+  volume-weighted mean `|B|` over the cells within `center_radius` of `center`: the
+  central field whose decay a resistive star measures (added in step 12, after review).
 """
-function field_diagnostics(prof; radius, center=zero(eltype(prof.x)))
+function field_diagnostics(prof; radius, center=zero(eltype(prof.x)), center_radius=1)
     T = eltype(prof.h)
     e, eb, b², e², qa = (zeros(T, 2) for _ in 1:5)
     trig, rep, cells = zeros(Int, 2), zeros(Int, 2), zeros(Int, 2)
     ebmax, bmax, qmax = zero(T), zero(T), zero(T)
+    Bmax, Bc, wc = zero(T), zero(T), zero(T)
     for i in eachindex(prof.x)
         m = prof.m[i]
         k = sum(abs2, prof.x[i] - center) < T(radius)^2 ? 1 : 2
@@ -77,6 +81,11 @@ function field_diagnostics(prof; radius, center=zero(eltype(prof.x)))
         e²[k] += w * EE
         qa[k] += w * abs(prof.q[i])
         qmax = max(qmax, abs(prof.q[i]))
+        Bmax = max(Bmax, sqrt(BB))
+        if sum(abs2, prof.x[i] - center) < T(center_radius)^2
+            Bc += w * sqrt(BB)
+            wc += w
+        end
         cells[k] += 1
         if k == 1
             ebmax = max(ebmax, abs(EB))
@@ -92,7 +101,7 @@ function field_diagnostics(prof; radius, center=zero(eltype(prof.x)))
             EB_out=ratio(eb[2], b²[2]), EB_max_in=ratio(ebmax, bmax),
             E_in=sqrt(ratio(e²[1], b²[1])), q_in=qa[1], q_out=qa[2], q_max=qmax,
             trigger_in=trig[1], trigger_out=trig[2], repaired_in=rep[1], repaired_out=rep[2],
-            cells_in=cells[1], cells_out=cells[2])
+            cells_in=cells[1], cells_out=cells[2], B_max=Bmax, B_center=ratio(Bc, wc))
 end
 
 """

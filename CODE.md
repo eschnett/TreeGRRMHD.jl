@@ -610,7 +610,7 @@ jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 |---|---|---|
 | `Vacuum()` | 0 | electrovacuum tests |
 | `Constant(σ₀)` | σ₀ | resistive shock tubes, current sheet |
-| `DensityProfile(σ₀, ρ_atm, …)` | σ₀ inside, → 0 toward `ρ_atm` | stars with a magnetosphere (Palenzuela 2013) |
+| `DensityProfile(σ₀, ρ_atm, …)` | σ₀ inside, → 0 toward `ρ_atm` | magnetized stars (Dionysopoulou et al. 2013) |
 | `IdealConductor()` | ∞ | the exact ideal limit: `E = −v × B`, for Balsara 1–5 and comparison with GRaM-X |
 | `MagnetizationCutoff(model, μ_max)` | `model`'s, → 0 where `B²/D → μ_max` | any finite σ, where the plasma is magnetically dominated |
 
@@ -619,19 +619,30 @@ The `q v` part is explicit. The `σ` part is **stiff** inside a star
 
 *(Proposed:)* the models are in `src/ohm.jl`, and
 `conductivity(model, prim)` takes the whole primitive state, so that a
-later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2)`
-is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)`: continuous, `σ₀` deep inside matter
-and zero at and below `cutoff·ρ_atm`, so the atmosphere carries no current.
-*Its shape is kept* (proposed): the density-tracking profiles in use are of
-the same family — GRaM-X's resistive module (arXiv:2510.18968) takes
-`σ₀ max(1 − D_atm/D, 0)²`, Dionysopoulou, Alic & Rezzolla (2015,
-arXiv:1502.02021) a smoothed step at `100 D_atm`. *The threshold is the
-case's*: the magnetized star needs `cutoff = 10⁴` ("Validation ladder" 6),
-because the atmosphere it accretes reaches `10⁻⁸ … 10⁻⁶` outside its
-surface, and at 2 or 100 that gas conducts, ties the exterior field to its
-motion and leaves the drift unconverged; at `10⁴` the exterior is
-electrovacuum and the stage's fallbacks there all but vanish. The squared
-form, `C¹` at the threshold, is the obvious alternative, not measured. For `IdealConductor`
+later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2,
+power = 1)` is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)^power`: continuous, `σ₀`
+deep inside matter and zero at and below `cutoff·ρ_atm`, so the atmosphere
+carries no current. The literature's profiles are of this family. For a
+magnetized star, Dionysopoulou et al. (2013, arXiv:1208.3487, Eq. 50) take
+`σ₀ max(1 − D_atm/D, 0)²`, and so does GRaM-X's resistive module (Azizi et
+al. 2025, arXiv:2510.18968, Eq. 61) — `power = 2`, `cutoff = 1`, there in
+`D` rather than `ρ`. For binaries, Dionysopoulou, Alic & Rezzolla (2015,
+arXiv:1502.02021, Eq. 22) take a smoothed step at `100 D_atm`, because
+winds fill the domain, and call that choice arbitrary. Palenzuela (2013,
+arXiv:1212.0130) switches to a force-free exterior between 50 and 400
+`ρ_atm`. *The shape is kept* (proposed): the linear form stays the
+default, since the squared one changes nothing measured ("Validation
+ladder" 6). *The threshold is the case's*: the magnetized star takes
+`cutoff = 10⁴` (proposed). That is far above every published threshold
+(`D_atm`, `100 D_atm`, 50–400 `ρ_atm`), and it is tuned to what a star on a
+fixed metric does: the atmosphere it accretes reaches `10⁻⁸ … 10⁻⁶` outside
+its surface, and at 2 or 100, linear or squared, that gas conducts, ties
+the exterior field to its motion and leaves the drift unconverged; at
+`10⁴` the exterior is electrovacuum and the stage's fallbacks there all but
+vanish. Its costs: it scales with `ρ_min`, and it turns off the ideal limit
+in the star's own outer layers below `ρ = 10⁻⁶`. A switch on the
+magnetization or the field's energy is the general answer (open; "Open
+questions"). For `IdealConductor`
 the conduction current is not a function of the state — it is whatever
 holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 `Inf` and `ohm_current` throws an `ArgumentError` rather than return
@@ -1017,7 +1028,11 @@ inversion the policy repaired on a level-1 face, the atmosphere left out —
 the failures the fallback is for. On the magnetized star the trigger fires
 only outside the star, in the gas it accretes, and the energy inversion
 fails outside the atmosphere in at most 10 cells at a time over 50 M
-("Validation ladder" 6). *(Investigation 2026-10-16, [HISTORY.md, "Floors, the
+("Validation ladder" 6). The precedent is Palenzuela (2013), whose
+magnetized stars fall back to the isentropic `p = Kρ^Γ` near the surface;
+Dionysopoulou et al. (2013) treat a failed cell as atmosphere, as this
+package's policy does, and GRaM-X's resistive module has no such fallback.
+*(Investigation 2026-10-16, [HISTORY.md, "Floors, the
 atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere): measured on the magnetized atmosphere
 tube at a threshold of `e_em > τ_f`, it removes the chaos as B + hot does, but
 the advected `s` in those cells is itself noise.)*
@@ -5284,8 +5299,10 @@ named as claims.
      does not depend on the transfer (`τ` 384–389 M against 435–441 M at
      `h = 0.25`), since it comes from the matter scheme.
 6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
-   σ(ρ) through `DensityProfile`, a vacuum dipole exterior (Palenzuela
-   2013).
+   σ(ρ) through `DensityProfile`, an electrovacuum dipole exterior: the
+   magnetized star of Dionysopoulou et al. (2013), whose field is LORENE's,
+   and here the exact static form (Wasserman & Shapiro 1983). Palenzuela
+   (2013) has a force-free exterior around a rotating star instead.
 
    *As built in step 12* (`magnetized_tov_case`,
    `src/cases/magnetized_tov.jl`; `test/magnetized_tov_tests.jl`;
@@ -5305,7 +5322,11 @@ named as claims.
      `TOVMetric`, `∇ × (αB)` outside the star is the difference's own
      error (4.0 times smaller per halving of the step, 3.6e−9 of `𝔅` at
      `δ = 5·10⁻⁴`), where the flat dipole leaves 1.5–2.4e−2. The Lorenz
-     gauge holds exactly in the continuum. "Vacuum `E` outside" is
+     gauge holds exactly in the continuum. This is stricter than the
+     literature's: GRaM-X's extended field is an ad hoc
+     `A_φ ∝ r₀³ r sinθ/(r³ + r₀³)` that relaxes for about 8 ms, and
+     Dionysopoulou et al. (2013) take LORENE's; both report the exterior
+     flux oscillating, not drifting. "Vacuum `E` outside" is
      therefore `E = 0` for a static star; a rotating one would need the
      exterior's own `E`.
    - **The interior** (proposed): `a(u)` continued inside `u = R̄²` by the
@@ -5315,15 +5336,21 @@ named as claims.
      axisymmetric, so the current and the resistive `E` are toroidal, and so
      is `−v × B` of a radial flow: `E·B = 0` in the continuum at any σ,
      which makes `E·B` inside a measure of the scheme's error alone. The
-     central field `B_c` sets `μ` (default `10⁻⁴`, `B²/(2p) = 3·10⁻⁵` at
-     the centre, Heaviside–Lorentz geometric units): a test field, its
-     Lorentz force far below the Cowling star's own truncation error.
+     central field sets `μ`: `B_c` is the contravariant `Bᶻ` at the centre
+     (default `10⁻⁴`; the norm there is `ψ_c² B_c = 1.43 B_c`, and
+     `B²/(2p) = 6·10⁻⁵`, Heaviside–Lorentz geometric units; proposed: the
+     component is the convention that reproduces GRaM-X's `B_c` from its
+     `A_b`): a test field, its Lorentz force far below the Cowling star's
+     own truncation error.
    - **The conductivity** (proposed):
      `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`, `σ₀`
      and `μ_max` with no default; the suite and the studies take
      `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **The cutoff is
      `10⁴ ρ_min`** (the case's default; proposed): σ is zero below
-     `ρ = 10⁻⁶` at `ρ_min = 10⁻¹⁰`. The atmosphere of a star on a fixed
+     `ρ = 10⁻⁶` at `ρ_min = 10⁻¹⁰`, far above every published threshold
+     (`D_atm` in Dionysopoulou et al. 2013 and GRaM-X, `100 D_atm` in
+     Dionysopoulou, Alic & Rezzolla 2015, a force-free switch at 50–400
+     `ρ_atm` in Palenzuela 2013; "Ohm's law and the conductivity"). The atmosphere of a star on a fixed
      metric falls onto it and piles up outside the surface, and with
      `DensityProfile`'s own `cutoff = 2`, or the literature's 100, that gas
      conducts and carries the exterior field, whose drift then does not
@@ -5368,11 +5395,22 @@ named as claims.
      2.99e−2 at 10 M (rates 0.27, 0.32) and 0.418 at 50 M at `h = 0.75`,
      and the field energy outside grows by 20%: the gas the atmosphere
      piles up outside the star conducts and carries the field. At
-     `h = 0.75` to 20 M the shell's drift is 0.139 at `cutoff = 2`, 0.139
-     at 100, 0.084 at `10³`, 0.019 at `10⁴`; 0.146 at `B_c = 10⁻⁶`, 0.138
-     at `σ₀ = 10³`, 0.142 at `ρ_min = 10⁻¹²` (all at `cutoff = 2`), and
-     0.032 at `μ_max = 0.001`, where the taper takes σ to zero outside the
-     star. The same box without its coarse-fine faces (uniform `h = 0.75`)
+     `h = 0.75` to 20 M, the shell's drift and the share of stages that
+     fall back in the band `R̄ … R̄ + 1.5` and beyond it:
+
+     | profile | threshold (`ρ_min`) | drift | band | beyond |
+     |---|---|---|---|---|
+     | linear | 2 | 0.139 | 49.2% | 6.0% |
+     | squared (the literature's) | 1 | 0.132 | 49.2% | 9.8% |
+     | linear | 100 | 0.139 | 48.1% | 1.4% |
+     | squared | 100 | 0.139 | 48.1% | 1.4% |
+     | linear | `10³` | 0.084 | 36.8% | 0.11% |
+     | linear | `10⁴` | 0.019 | 0.69% | 0 |
+
+     The squared profile changes nothing; the threshold does. At
+     `cutoff = 2` the drift is also 0.146 at `B_c = 10⁻⁶`, 0.138 at
+     `σ₀ = 10³` and 0.142 at `ρ_min = 10⁻¹²`, and 0.032 at
+     `μ_max = 0.001`, where the taper takes σ to zero outside the star. The same box without its coarse-fine faces (uniform `h = 0.75`)
      drifts as with them (0.1386 against 0.1389 at 20 M), so the faces are
      not the cause.
    - **Inside the star**, `Σ|E·B|/ΣB²` converges: 5.26e−5, 1.90e−5,
@@ -5437,9 +5475,13 @@ decides".
   to the vertices").
 - **(open)** Whether the conductivity should fall where the field's energy
   dwarfs the fluid's, not only by density or `B²/D`: on the magnetized star
-  the cold gas outside the surface fell back in half its stages until the
-  density cutoff was raised to `10⁴ ρ_min`, which a case must choose by
-  hand ("Validation ladder" 6). Nothing built or measured beyond that.
+  the cold gas outside the surface fell back in half its stages, with the
+  linear profile or the literature's squared one, until the density cutoff
+  was raised to `10⁴ ρ_min` — above every published threshold, tuned to a
+  star on a fixed metric, and to be chosen by hand ("Ohm's law and the
+  conductivity", "Validation ladder" 6). The nearest published version is
+  Palenzuela (2013)'s switch to a force-free exterior at 50–400 `ρ_atm`.
+  Nothing built or measured beyond that.
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 
