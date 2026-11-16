@@ -790,8 +790,8 @@ Done:
 - the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
   the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
   stages by resolution;
-- the suite at one thread, at four, with bounds checks and in the clean checkout, and the
-  coupled suite (the record is `HISTORY.md`, "The test suite").
+- the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
+  each, and the coupled suite, 25/25 three ways, on Trillium (`HISTORY.md`, "The test suite").
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion

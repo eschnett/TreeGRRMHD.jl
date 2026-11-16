@@ -5567,3 +5567,14 @@ whole** — 13m01.6s at one thread, 11m05.3s at four, 15m36.4s with
 
 The clean-checkout check (no `Manifest.toml`, a `git archive` of 603c63b,
 Julia 1.13.4, four threads, laptop): **26635/26635** in 13m04.0s.
+
+**2026-11-15, step 12, on Trillium** (SciNet; AMD EPYC 9655, whole nodes;
+Julia 1.13.4; the depot on scratch, the jobs offline). The suite at 01ff9cf, the
+case at `cutoff = 10⁴`: **26635 tests, every run passing whole** — 13m33.6s at one
+thread (tri0008, job 2865283), 10m42.2s at four (tri0021, 2865282), 16m33.3s with
+`--check-bounds=yes` (tri0021, 2865284), and 10m07.3s at four threads in the clean
+checkout (`git archive`, no `Manifest.toml`, resolved on the login node; tri0171,
+2865285). The coupled suite: 25/25 at one thread (3m01.2s), at four (2m24.4s) and
+at four with bounds checks (3m04.4s) (tri0369, 2865286). At 2cc2faa, before the
+cutoff, the same runs had passed too (26635; 13m40.4s, 10m08.3s, 16m39.2s,
+10m57.6s; coupled 25/25 ×3; jobs 2864691–2864695).
