@@ -5606,3 +5606,11 @@ checkout (`git archive`, no `Manifest.toml`, resolved on the login node; tri0171
 at four with bounds checks (3m04.4s) (tri0369, 2865286). At 2cc2faa, before the
 cutoff, the same runs had passed too (26635; 13m40.4s, 10m08.3s, 16m39.2s,
 10m57.6s; coupled 25/25 ×3; jobs 2864691–2864695).
+
+**2026-11-16, step 12, after review** (Trillium, AMD EPYC 9655). The suite at
+a237712, with the squared profile and the confined field: **26658 tests, every
+run passing whole** — 18m09.9s at one thread (tri0349, job 2870892), 11m02.5s at
+four (tri0103, 2870891), 16m36.0s with `--check-bounds=yes` (tri0033, 2870893),
+10m09.5s in the clean checkout at four threads (tri0103, 2870894). The coupled
+suite: 25/25 at one thread (3m01.4s), four (2m33.2s) and four with bounds checks
+(3m01.3s) (tri0370, 2870895).
