@@ -428,6 +428,24 @@ claim that the exterior's drift converges, and the measurement that followed
 decision: the case's `DensityProfile` cutoff `10⁴ ρ_min`, where it had been the
 model's default 2.
 
+**2026-11-16, step 12, after review: rung 6 runs coupled.** Erik reversed the
+first of step 12's proposals, the Cowling spacetime for rung 6: "i also think
+that Cowling isn't necessary, we should evolve the geometry" (passed on by the
+step-11 session). Rung 6 now runs through `coupled/` (`problems(; case)`,
+`coupled/magnetized_tov_study.jl`, two testsets in `coupled/coupled_tests.jl`).
+The Cowling case, its suite test and `bin/magnetized_tov_study.jl` stay as the
+cheaper check (proposed in step 12), since the package's suite runs without
+TreeGH and the two spacetimes give the exterior's drift to three digits through
+20 M. Erik also asked for the cutoff study to be repeated coupled, with a test
+of whether the threshold scales with `ρ_min`; it does not (under
+[Validation ladder](#validation-ladder) and [Ohm's law and the
+conductivity](#ohms-law-and-the-conductivity)). The literature's resolutions
+and diagnostics, from the same review, are now in `CODE.md`'s rung 6: neither
+Dionysopoulou et al. (2013) nor GRaM-X measures the exterior's convergence,
+and neither changes its σ threshold between Cowling and dynamical runs; the
+rung's convergence criterion, stricter than theirs, is kept, at Erik's
+direction.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -1808,6 +1826,16 @@ table gave "(step 3)" for its use). The safe value `μ_max = 10` was
 measured in step 3.
 
 **Step 6.** `μ = +∞` where `D ≤ 0` was proposed in step 6.
+
+**2026-11-16, step 12, after review: the threshold is a density.** In the
+evolved spacetime, at `h = 0.5`, `ρ_min = 10⁻¹²` with `cutoff = 10⁴` (σ zero
+below `10⁻⁸`) drifts as `ρ_min = 10⁻¹⁰` with `cutoff = 100` does, and
+`cutoff = 10⁶` (`10⁻⁶`) as `10⁴` at `10⁻¹⁰` does, to three digits at 10 M
+(jobs 2873331–2873334). `CODE.md` had listed among the cutoff's costs that it
+scales with `ρ_min`; the measurement says the threshold should not: it belongs
+to the star, `ρ = 10⁻⁶` here (proposed in step 12), and the case's
+`cutoff · ρ_min` is a parametrization that has to be rescaled with `ρ_min`.
+The case taking the density itself is proposed, not built.
 
 **2026-11-15, step 12, later.** The shape was kept, but the magnetized star
 needs its own threshold: `cutoff = 10⁴` (proposed in step 12; the case's
@@ -5173,6 +5201,25 @@ does. Step 12 proposed that the confined-star runs stay a study, with the
 initial field in the suite, since the cheapest run that separates σ₀ = 100
 from 10⁶ takes 740 s on 96 threads.
 
+**2026-11-16, step 12, after review: the magnetized star coupled.** After Erik's
+decision that rung 6 runs coupled, the cutoff study was repeated in the evolved
+spacetime (`coupled/magnetized_tov_study.jl`; Trillium, AMD EPYC 9655, 96
+threads): the dipole star at `h = 0.5, 0.375, 0.25` to 50 M at three
+thresholds — the literature's squared profile at `ρ_min = 10⁻¹⁰`, the linear one
+at `100 ρ_min` and `10⁴ ρ_min` — jobs 2873324–2873332, and at `h = 0.5` with
+`ρ_min = 10⁻¹²` at `10⁴` and `10⁶ ρ_min`, jobs 2873333–2873334. Wall times
+713–1014 s at `h = 0.5`, 1585–2038 s at `0.375` and 6259–7883 s at `0.25`. Erik
+had asked for `h = 0.25` to be submitted early and cancelled, on his decision,
+if the coarser runs were conclusive first; they finished within 2.2 h, before
+any question was due. The result, `CODE.md`'s rung 6: at `10⁻⁶` the drift
+converges at 1.4–2.6; at `10⁻¹⁰` and `10⁻⁸` it does not over the first 10 M
+(rates 0.33–0.74), as on the Cowling metric; the constraints do not depend on
+the threshold. The Cowling star's own exterior drift, which had been rung 6's
+record, became the cheaper check's. One thing the Cowling studies did not
+show: the rest-mass budget, 7.7e−15 on the Cowling metric, is up to 2.2e−12 at
+`ρ_min = 10⁻¹⁰` coupled and 2.1e−14 at `10⁻¹²`, the atmosphere entering at the
+outer faces as in rung 5 (not measured further).
+
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%
 and H1 −0.20%, where rung 5's table at the same `h` had F +0.78% and H1
@@ -5628,3 +5675,9 @@ four (tri0103, 2870891), 16m36.0s with `--check-bounds=yes` (tri0033, 2870893),
 10m09.5s in the clean checkout at four threads (tri0103, 2870894). The coupled
 suite: 25/25 at one thread (3m01.4s), four (2m33.2s) and four with bounds checks
 (3m01.3s) (tri0370, 2870895).
+
+**2026-11-16, step 12, rung 6 coupled** (Trillium, AMD EPYC 9655). The coupled
+suite with the magnetized star's two testsets, on the tree of this change
+before its commit: **32/32** at one thread (3m21.7s), four (2m36.8s) and four
+with bounds checks (3m19.6s) (tri0143, job 2873387). Nothing under `src/` or
+`test/` changed, so the package's suite was not rerun.

@@ -783,19 +783,31 @@ Done:
   the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
   `bin/magnetized_tov_study.jl`;
 - ∇·B at round-off: at most 3.4e−16;
-- the exterior dipole: the drift outside the star converges at 1.2–2.3 to 50 M
-  (`h = 0.75, 0.5, 0.375`) — once σ is zero below `10⁴ ρ_min`. With `DensityProfile`'s
-  `cutoff = 2` it did not (0.3–0.6 over 5–20 M): a miss that decided the cutoff;
-- `E·B` inside converges at 1.7–2.5;
+- rung 6 runs coupled (Erik, 2026-11-16: evolve the geometry), through `coupled/`
+  (`coupled/magnetized_tov_study.jl`, two testsets in `coupled/coupled_tests.jl`); the Cowling
+  case, test and study stay as the cheaper check;
+- the exterior dipole: coupled, the drift outside the star converges at 1.4–2.6 to 50 M
+  (`h = 0.5, 0.375, 0.25`), on the Cowling metric at 1.2–2.3 (`h = 0.75, 0.5, 0.375`) — once σ
+  is zero below `ρ = 10⁻⁶`, a density of the star's and not a multiple of `ρ_min` (measured at
+  `ρ_min = 10⁻¹⁰` and `10⁻¹²`). At the literature's threshold, `ρ_min`, or at `100 ρ_min` it does not (rates
+  0.3–0.7 over the first 10 M): a miss that decided the cutoff;
+- `E·B` inside converges at 1.7–2.5 (coupled 1.7–2.3); the constraints, coupled, at 1.7 or
+  better, the same at every threshold;
 - the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
   the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
-  stages by resolution;
+  stages by resolution (coupled at `h = 0.5 … 0.25`: 0.004%, 0.0006%, 0);
 - after review: the squared profile (`power = 2`, `cutoff = 1`) changes nothing on the
   dipole star; the confined-field star of Dionysopoulou et al. (2013) and GRaM-X: its numerical
   loss converges at 2.4–4.3 (`h = 0.75 … 0.25`), σ's excess decay converges and scales near
   1/σ₀, and at σ₀ = 100 the central field falls two decades by 9.65 ms;
 - the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
-  each at 01ff9cf and 26658/26658 at a237712, and the coupled suite, 25/25 three ways, on Trillium (`HISTORY.md`, "The test suite").
+  each at 01ff9cf and 26658/26658 at a237712, and the coupled suite, 25/25 three ways, then
+  32/32 with the magnetized star, on Trillium (`HISTORY.md`, "The test suite").
+
+Not done:
+- the confined-field star coupled (the literature runs it in both spacetimes; ours are on the
+  Cowling metric);
+- the case taking σ's threshold as a density rather than `cutoff · ρ_min` (proposed).
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion

@@ -28,13 +28,16 @@ for `ℋ` outside at 1.76 over one 20 M window; the rest mass changes by 1.3e−
 atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12, the
-magnetized star on the Cowling metric, is built and measured ("Validation
-ladder" 6): `∇·B` at round-off; the exterior dipole's drift converging at
-1.2–2.3 to 50 M once σ is zero below `10⁴ ρ_min`; `E·B` inside converging at
-1.7–2.5; the stage solve by fixed point everywhere inside the star; its
-entropy fallback waits for EOS-3. The literature's confined-field star loses
-its central field to the scheme at 2.4–4.3 in `h`, and at σ₀ = 100 falls by
-two decades in 9.65 ms, as GRaM-X's and Dionysopoulou et al.'s do. The numbers below
+magnetized star, is built and measured in the evolved spacetime and, as a
+cheaper check, on the Cowling metric ("Validation ladder" 6): `∇·B` at
+round-off; coupled, the exterior dipole's drift converging at 1.4–2.6 to
+50 M (`h = 0.5 … 0.25`) once σ is zero below `ρ = 10⁻⁶`, a density of the
+star's and not a multiple of `ρ_min`; `E·B` inside converging at 1.7–2.3;
+the constraints at 1.7 or better; the stage solve by fixed point everywhere
+inside the star; its entropy fallback waits for EOS-3. The literature's
+confined-field star, on the Cowling metric, loses its central field to the
+scheme at 2.4–4.3 in `h`, and at σ₀ = 100 falls by two decades in 9.65 ms,
+as GRaM-X's and Dionysopoulou et al.'s do. The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -634,17 +637,25 @@ winds fill the domain, and call that choice arbitrary. Palenzuela (2013,
 arXiv:1212.0130) switches to a force-free exterior between 50 and 400
 `ρ_atm`. *The shape is kept* (proposed): the linear form stays the
 default, since the squared one changes nothing measured ("Validation
-ladder" 6). *The threshold is the case's*: the magnetized star takes
-`cutoff = 10⁴` (proposed). That is far above every published threshold
-(`D_atm`, `100 D_atm`, 50–400 `ρ_atm`), and it is tuned to what a star on a
-fixed metric does: the atmosphere it accretes reaches `10⁻⁸ … 10⁻⁶` outside
-its surface, and at 2 or 100, linear or squared, that gas conducts, ties
-the exterior field to its motion and leaves the drift unconverged; at
-`10⁴` the exterior is electrovacuum and the stage's fallbacks there all but
-vanish. Its costs: it scales with `ρ_min`, and it turns off the ideal limit
-in the star's own outer layers below `ρ = 10⁻⁶`. A switch on the
-magnetization or the field's energy is the general answer (open; "Open
-questions"). For `IdealConductor`
+ladder" 6). *The threshold is the star's, a density* (proposed): σ is
+zero below `ρ = 10⁻⁶` on the magnetized star (about `8·10⁻⁴ ρ_c`), whatever
+`ρ_min` is. At `ρ_min = 10⁻¹²` a threshold of `10⁴ ρ_min = 10⁻⁸` drifts as
+`100 ρ_min` does at `10⁻¹⁰`, and `10⁶ ρ_min = 10⁻⁶` as `10⁴ ρ_min` does, to
+three digits ("Validation ladder" 6), so the threshold belongs to the gas
+outside the star, not to the atmosphere's floor. The case still states it as
+`cutoff · ρ_min`, `cutoff = 10⁴` at its default `ρ_min = 10⁻¹⁰`, so a run at
+another `ρ_min` scales `cutoff` inversely; the case taking the density itself
+is the form this measurement asks for (proposed, not built). `10⁻⁶` is far
+above every published threshold (`D_atm`, `100 D_atm`, 50–400 `ρ_atm`):
+the atmosphere the star accretes reaches `10⁻⁸ … 10⁻⁶` outside its surface,
+in the evolved spacetime as on a fixed metric, and at `10⁻¹⁰` or `10⁻⁸`,
+linear or squared, that gas conducts, ties the exterior field to its motion
+and leaves the drift unconverged; at `10⁻⁶` the exterior is electrovacuum
+and the stage's fallbacks there all but vanish. Its cost: it turns off the
+ideal limit in the star's own outer layers, the outer 0.0093 M of
+`R = 9.586 M` (`ρ < 10⁻⁵` is the outer 0.092 M, `ρ < 10⁻⁴` the outer
+0.83 M). A switch on the magnetization or the field's energy is the general
+answer (open; "Open questions"). For `IdealConductor`
 the conduction current is not a function of the state — it is whatever
 holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 `Inf` and `ohm_current` throws an `ArgumentError` rather than return
@@ -4045,7 +4056,9 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   star; the frozen metric against the Cowling run; GH-3's static-matter
   check; `ℋ − 16πρ` of the initial state, with either transfer; the
   script's `main`; the fill's
-  key, bit for bit; the regrid branch.
+  key, bit for bit; the regrid branch; the magnetized star through
+  `problems(; case)`: its field's energy `½B²` in the matter TreeGH reads,
+  and a run to `t = 1` (∇·B, the rest mass, the stage solve inside).
 
 **Inconsistent:** the helper dependencies listed above
 (`recovery_tests.jl`'s state generators, `wave_tests.jl`'s and
@@ -4194,7 +4207,10 @@ contract"):
   pencil on a perturbed run minus an unperturbed one): the rung-5 record
   ("Validation ladder" 5); `coupled/gh_cfl.jl`: TreeGH's CFL factor under SSP3 ("Time
   integration"); `coupled/coupling_cost.jl`: the fills and the matter
-  adapter's cost ("Two scripts", "Matter to the vertices").
+  adapter's cost ("Two scripts", "Matter to the vertices");
+- `coupled/magnetized_tov_study.jl`: the magnetized star in the evolved
+  spacetime, `bin/magnetized_tov_study.jl`'s measurements and TreeGH's
+  constraints per chunk (`problems(; case)`; "Validation ladder" 6).
 
 `ci/full-suite.sh` and `ci/full-suite-symmetry.sh` run the full suite as a
 commit status (`CLAUDE.md`, "Commands").
@@ -5312,11 +5328,16 @@ named as claims.
    `src/cases/magnetized_tov.jl`; `test/magnetized_tov_tests.jl`;
    `bin/magnetized_tov_study.jl`; the diagnostics in
    `src/field_diagnostics.jl`):
-   - **The spacetime** (proposed): the Cowling one, rung 4's star on
-     `Analytic(TOVMetric)`. The field is a test field (below), whose
-     stress-energy is `10⁻⁵` of the star's, so the coupled spacetime of
-     rung 5 would change nothing the rung measures; a coupled magnetized
-     star waits for a case that needs it.
+   - **The spacetime**: the evolved one. Rung 6 runs coupled, through
+     `coupled/` (`problems(; case)`): TreeGH evolves the metric from the
+     TOV star's, and the matter's stress-energy, the fields' `½(E² + B²)`
+     included, crosses back through `ADMMatter`. The case itself is built
+     on `Analytic(TOVMetric)`, and on that Cowling metric it, its suite
+     test and `bin/magnetized_tov_study.jl` stay as the cheaper check
+     the package's own suite can run without TreeGH (proposed): the field
+     is a test field (below), its stress-energy `10⁻⁵` of the star's, and
+     the two spacetimes give the shell's drift to three digits through
+     20 M and within 7% at 50 M (measured below).
    - **The exterior** (proposed): the static, current-free dipole of the
      Schwarzschild spacetime outside the star (Wasserman & Shapiro 1983),
      `A_φ = 3μ sin²θ S(x)/r`, `x = 2M/r`, `S = Σ_{k≥3} x^{k−3}/k`, which
@@ -5330,7 +5351,18 @@ named as claims.
      literature's: GRaM-X's extended field is an ad hoc
      `A_φ ∝ r₀³ r sinθ/(r³ + r₀³)` that relaxes for about 8 ms, and
      Dionysopoulou et al. (2013) take LORENE's; both report the exterior
-     flux oscillating, not drifting. "Vacuum `E` outside" is
+     flux oscillating, not drifting. Neither measures the exterior's
+     convergence: Dionysopoulou et al. run the extended field at one
+     resolution, 0.738 km (0.50 M), and report the flux through a
+     hemisphere at `r = 132.94` km against the central density's
+     spectrum; GRaM-X runs it at one resolution, 0.5 M (Z4c, the
+     innermost cube ±30 M, the outer ±240 M), and reports the flux
+     through a hemisphere at `r = 90 M`, its spectrum only. Their
+     confined-field runs, Cowling and dynamical, are at 0.30, 0.20 and
+     0.15 M (0.443, 0.295, 0.222 km in Dionysopoulou et al.), with the
+     same σ threshold in both spacetimes. So this rung's criterion, that
+     the exterior's drift converges, is stricter than the literature's;
+     it is kept (proposed). "Vacuum `E` outside" is
      therefore `E = 0` for a static star; a rotating one would need the
      exterior's own `E`.
    - **The interior** (proposed): `a(u)` continued inside `u = R̄²` by the
@@ -5349,16 +5381,17 @@ named as claims.
    - **The conductivity** (proposed):
      `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`, `σ₀`
      and `μ_max` with no default; the suite and the studies take
-     `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **The cutoff is
-     `10⁴ ρ_min`** (the case's default; proposed): σ is zero below
-     `ρ = 10⁻⁶` at `ρ_min = 10⁻¹⁰`, far above every published threshold
+     `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **σ is zero
+     below `ρ = 10⁻⁶`** (proposed), a density of the star's and not of
+     `ρ_min` (measured below); the case states it as `cutoff = 10⁴` at its
+     default `ρ_min = 10⁻¹⁰`. That is far above every published threshold
      (`D_atm` in Dionysopoulou et al. 2013 and GRaM-X, `100 D_atm` in
      Dionysopoulou, Alic & Rezzolla 2015, a force-free switch at 50–400
-     `ρ_atm` in Palenzuela 2013; "Ohm's law and the conductivity"). The atmosphere of a star on a fixed
-     metric falls onto it and piles up outside the surface, and with
-     `DensityProfile`'s own `cutoff = 2`, or the literature's 100, that gas
-     conducts and carries the exterior field, whose drift then does not
-     converge (measured below). `DensityProfile`'s shape is kept ("Ohm's
+     `ρ_atm` in Palenzuela 2013; "Ohm's law and the conductivity"). The
+     atmosphere falls onto the star and piles up outside the surface, and
+     with σ cut at `10⁻¹⁰` (the literature's `D_atm`) or `10⁻⁸` (its 100)
+     that gas conducts and carries the exterior field, whose drift then does
+     not converge (measured below). `DensityProfile`'s shape is kept ("Ohm's
      law and the conductivity").
    - **The diagnostics** (`src/field_diagnostics.jl`): `cell_profile`, the
      owned cells' `E`, `B`, `q`, flags and metric from one recovery;
@@ -5369,12 +5402,93 @@ named as claims.
      sphere and in a shell; `ohm_map`, the diagnostics set's stage tallies
      per region.
 
-   **Measured.** The studies: `bin/magnetized_tov_study.jl` on the default
-   box (`[−24, 24]³`, four roots, one box level, PPM) at `h = 0.75, 0.5,
-   0.375` to 50 M, on Trillium (AMD EPYC 9655, 64 threads; jobs
-   2864940–2864942, 268 s, 936 s and 2286 s). The suite's star
-   (`test/magnetized_tov_tests.jl`): `[−12, 12]³`, three roots, no boxes,
-   MC, `h = 1` and `1/2` to `t = 2M`.
+   **Measured, coupled.** `coupled/magnetized_tov_study.jl` on the
+   default box (`[−24, 24]³`, four roots, one box level, PPM, TreeGH's
+   CFL 1/2, the order-4 transfer, `γ0M = 1/10`), `ρ_min = 10⁻¹⁰`, at
+   `h = 0.5, 0.375, 0.25` to 50 M, at three thresholds: the literature's
+   squared profile at `ρ_min` (`power = 2`, `cutoff = 1`), the linear one
+   at `100 ρ_min` and at `10⁴ ρ_min`; and at `h = 0.5` with
+   `ρ_min = 10⁻¹²`, the linear one at `10⁴` and `10⁶ ρ_min`. Trillium,
+   AMD EPYC 9655, 96 threads, jobs 2873324–2873334; at `10⁴ ρ_min` 718 s,
+   1585 s and 6259 s. The coupled suite's star (`coupled/coupled_tests.jl`):
+   `[−12, 12]³`, three roots, no boxes, `h = 0.8` to `t = 1`.
+   - **∇·B**: `max |∇·𝔅| h/max |𝔅|` at most 3.4e−16 in every chunk of
+     every run.
+   - **The exterior dipole at `ρ = 10⁻⁶`**: its drift converges, in the
+     shell `R̄ + 1 ≤ r̄ < 23` and inside `R̄`, with the rates between
+     `h = 0.5, 0.375` and `0.375, 0.25`:
+
+     | `t` (M) | shell | rates | inside | rates |
+     |---|---|---|---|---|
+     | 2 | 1.37e−3, 7.86e−4, 3.53e−4 | 1.93, 1.97 | 4.15e−3, 2.30e−3, 9.73e−4 | 2.05, 2.12 |
+     | 10 | 5.91e−3, 3.93e−3, 1.74e−3 | 1.42, 2.01 | 8.78e−3, 5.31e−3, 2.62e−3 | 1.75, 1.74 |
+     | 20 | 1.18e−2, 7.93e−3, 2.75e−3 | 1.40, 2.61 | 1.35e−2, 8.46e−3, 3.98e−3 | 1.61, 1.86 |
+     | 30 | 1.39e−2, 7.81e−3, 2.95e−3 | 2.01, 2.40 | 1.71e−2, 1.04e−2, 4.95e−3 | 1.72, 1.84 |
+     | 50 | 1.62e−2, 8.70e−3, 3.55e−3 | 2.17, 2.21 | 2.32e−2, 1.38e−2, 6.77e−3 | 1.80, 1.76 |
+
+     At `h = 0.5` and `0.375` the shell's drift is the Cowling star's
+     (below) to three digits through 20 M and to 1% at 30 M; at 50 M it
+     is 7% and 4% below it, the inside 5% above. The field energy outside `R̄` changes by
+     −1.8%, −0.96% and −0.08% over the 50 M.
+   - **The threshold decides.** The shell's drift at 10 M and 50 M, the
+     share of stages that fall back in the band `R̄ … R̄ + 1.5` and
+     beyond it (over the 50 M), and the change of the field energy
+     outside `R̄`, at `h = 0.5, 0.375, 0.25`:
+
+     | σ zero below | shell, 10 M (rates) | shell, 50 M | band | beyond | energy outside |
+     |---|---|---|---|---|---|
+     | `10⁻¹⁰`, squared | 3.20e−2, 2.91e−2, 2.21e−2 (0.33, 0.68) | 0.271, 0.137, 0.060 | 59%, 62%, 48% | 3.9%, 1.2%, 0.015% | +11%, −2.3%, −3.0% |
+     | `10⁻⁸` | 3.35e−2, 3.04e−2, 2.25e−2 (0.34, 0.74) | 0.238, 0.139, 0.056 | 41%, 27%, 15% | 0 | +6.3%, −2.2%, −3.2% |
+     | `10⁻⁶` | 5.91e−3, 3.93e−3, 1.74e−3 (1.42, 2.01) | 1.62e−2, 8.70e−3, 3.55e−3 | 0.004%, 0.0006%, 0 | 0 | −1.8%, −0.96%, −0.08% |
+
+     At `10⁻¹⁰` and `10⁻⁸` the drift does not converge over the first
+     10 M, and at `h = 0.25` it stalls near 0.06 from 20 M to 50 M,
+     17 and 16 times the drift at `10⁻⁶`: the gas outside the surface
+     conducts and carries the field.
+   - **The threshold is a density, not a multiple of `ρ_min`.** At
+     `h = 0.5`, to 50 M:
+
+     | `ρ_min` | `cutoff` | σ zero below | shell, 10 M | shell, 50 M | band | energy outside |
+     |---|---|---|---|---|---|---|
+     | `10⁻¹⁰` | 100 | `10⁻⁸` | 3.351e−2 | 0.238 | 41.2% | +6.3% |
+     | `10⁻¹²` | `10⁴` | `10⁻⁸` | 3.365e−2 | 0.248 | 40.9% | +8.2% |
+     | `10⁻¹⁰` | `10⁴` | `10⁻⁶` | 5.910e−3 | 1.62e−2 | 0.004% | −1.77% |
+     | `10⁻¹²` | `10⁶` | `10⁻⁶` | 5.912e−3 | 1.67e−2 | 0.004% | −1.79% |
+
+   - **Inside the star**, `Σ|E·B|/ΣB²` converges at 1.7–2.3 at every
+     sample (1.97e−5, 1.10e−5, 4.52e−6 at 2 M; 8.94e−5, 5.26e−5,
+     2.09e−5 at 50 M), at `10⁻⁶`; at `10⁻¹⁰` and `10⁻⁸` at 1.2–2.1.
+   - **The constraints** are the same for every threshold to three
+     digits: the field does not reach the spacetime at this strength.
+     `ℋ` inside (`r < 6`) is 1.8e−5, 9.3e−6, 3.7e−6 at 50 M (rates 2.3,
+     2.3) and outside (`r ≥ 10`) 8.5e−7, 4.1e−7, 1.9e−7 (2.6, 1.9); the
+     momentum constraint 2.3e−5, 1.1e−5, 4.2e−6 inside (2.4, 2.5) and
+     3.2e−7, 1.6e−7, 8.1e−8 outside (2.4, 1.7). Over every sample the
+     rates of `ℋ` are 1.7–2.9 inside and 1.7–3.8 outside.
+   - **Rest mass**: its change minus what the reset injects is at most
+     2.2e−12, 1.2e−12 and 6.2e−13 of 1.506 at `ρ_min = 10⁻¹⁰` (by `h`,
+     the same at every threshold) and 2.1e−14 at `10⁻¹²`: it scales with
+     `ρ_min`, matter entering with the atmosphere at the outer faces,
+     which the budget does not count, as in rung 5. On the Cowling
+     metric it is 7.7e−15.
+   - **The outcome map**: inside `R̄` every stage converges by the fixed
+     point, at every threshold, with no fallback, repair or reset. In the
+     band at `10⁻⁶`, 74%, 83% and 91% of the stages are `σ = 0`.
+   - **The suite's run** (`h = 0.8`, `t = 1`): `∇·B` 2.7e−16, the rest
+     mass's change the reset's injection (−2.7e−9) to round-off, 176640
+     of 176640 stages inside `R̄` fixed point, the drift 0.0065 inside and
+     0.0029 outside. The field's energy reaches TreeGH: the vertices'
+     `ρ` at `B_c = 10⁻⁴` minus that at 0 is 9.89e−9 at its maximum
+     against `½B²_max = 9.87e−9`, by the per-call, eight-cell-mean
+     transfer (the order-4 one's switch to the mean near the surface
+     moves its maximum there).
+
+   **Measured on the Cowling metric**, the cheaper check. The studies:
+   `bin/magnetized_tov_study.jl` on the default box (`[−24, 24]³`, four
+   roots, one box level, PPM) at `h = 0.75, 0.5, 0.375` to 50 M, on
+   Trillium (AMD EPYC 9655, 64 threads; jobs 2864940–2864942, 268 s,
+   936 s and 2286 s). The suite's star (`test/magnetized_tov_tests.jl`):
+   `[−12, 12]³`, three roots, no boxes, MC, `h = 1` and `1/2` to `t = 2M`.
    - **∇·B**: `max |∇·𝔅| h/max |𝔅|` at most 3.4e−16 in every chunk of every
      study, 1.9e−16 in the suite's runs.
    - **The exterior dipole** stays the initial field to truncation error,
@@ -5461,7 +5575,10 @@ named as claims.
    carries none. The runs are a study, not a test (proposed): the
    cheapest that tells σ₀ = 100 from 10⁶ (`h = 0.75` to 200 M) takes
    740 s on 96 threads, and its own numerical loss is 79%; the suite
-   checks the initial field ("Tests").
+   checks the initial field ("Tests"). The runs below are on the Cowling
+   metric; the literature runs this star in both spacetimes, and
+   `coupled/magnetized_tov_study.jl field=confined` would run it coupled
+   (not run).
 
    **Measured** (`bin/magnetized_tov_study.jl field=confined power=2
    cutoff=1 Bc=4.26e-8`, `[−12, 12]³`, four roots, no boxes, PPM,
@@ -5556,10 +5673,11 @@ decides".
 - **(open)** Whether the conductivity should fall where the field's energy
   dwarfs the fluid's, not only by density or `B²/D`: on the magnetized star
   the cold gas outside the surface fell back in half its stages, with the
-  linear profile or the literature's squared one, until the density cutoff
-  was raised to `10⁴ ρ_min` — above every published threshold, tuned to a
-  star on a fixed metric, and to be chosen by hand ("Ohm's law and the
-  conductivity", "Validation ladder" 6). The nearest published version is
+  linear profile or the literature's squared one, coupled and on the Cowling
+  metric alike, until σ was cut at `ρ = 10⁻⁶` — above every published
+  threshold, a density of this star's rather than of `ρ_min`, and chosen by
+  hand ("Ohm's law and the conductivity", "Validation ladder" 6). The
+  nearest published version is
   Palenzuela (2013)'s switch to a force-free exterior at 50–400 `ρ_atm`.
   Nothing built or measured beyond that.
 - **(open)** The metric in the outermost ghost cell (see
@@ -5640,7 +5758,8 @@ decides".
   just outside the star fell back, and as many at `μ_max = 0.1` and at
   `σ₀ = 10³` — there the fluid's energy, not its rest mass, is what is
   small against the field's, which `B²/D` does not see. The case's density
-  cutoff at `10⁴ ρ_min` removes all but 6·10⁻⁶ of them at `h = 0.375`.
+  cutoff at `ρ = 10⁻⁶` removes all but 6·10⁻⁶ of them at `h = 0.375`, and
+  every one at `h = 0.25` in the evolved spacetime.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
