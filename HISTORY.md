@@ -5694,3 +5694,11 @@ suite with the magnetized star's two testsets, on the tree of this change
 before its commit: **32/32** at one thread (3m21.7s), four (2m36.8s) and four
 with bounds checks (3m19.6s) (tri0143, job 2873387). Nothing under `src/` or
 `test/` changed, so the package's suite was not rerun.
+
+**2026-11-17, step 12, σ's threshold as a density** (Trillium, AMD EPYC 9655). The
+suite at 4edf568, with the new testset (6 tests): **26664 tests, every run passing
+whole** — 13m34.9s at one thread (tri0839, job 2878361), 10m07.2s at four (tri0846,
+2878362), 16m24.0s with `--check-bounds=yes` (tri1121, 2878363), 11m00.9s in the
+clean checkout at four threads (`git archive`, no `Manifest.toml`, resolved on the
+login node; tri0466, 2878369). The coupled suite: 32/32 at one thread (3m19.7s),
+four (2m45.1s) and four with bounds checks (3m22.3s) (tri0726, 2878364).
