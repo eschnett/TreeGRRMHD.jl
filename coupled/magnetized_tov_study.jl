@@ -14,9 +14,9 @@
 # Keys: `N` (cells per block, 12), `levels` (box levels around the star, 1), `L` (24),
 # `roots` (4), `t_end` (50), `chunk` (2), `limiter` (`ppm`), `cfl_gh` (1/2), `γ0M` (1/10),
 # `γ2` (0), `order` (the matter's transfer to the vertices, 4), and the case's: `sigma0` (σ₀,
-# 1e6), `mumax` (μ_max, 10), `cutoff` (in units of ρ_min, 10⁴), `power` (1; 2 the
-# literature's squared profile), `field` (`dipole` or `confined`), `Pcut` (0.04), `Bc`
-# (1e-4), `rhomin` (ρ_min, 1e-10). Lines start with `RUN`, `CHUNK` or `MAP`, for grepping.
+# 1e6), `mumax` (μ_max, 10), `rhocut` (ρ_cut, the density below which σ is zero, 1e-6,
+# whatever ρ_min is), `power` (1; 2 with `rhocut` at ρ_min the literature's squared profile),
+# `field` (`dipole` or `confined`), `Pcut` (0.04), `Bc` (1e-4), `rhomin` (ρ_min, 1e-10). Lines start with `RUN`, `CHUNK` or `MAP`, for grepping.
 
 include(joinpath(@__DIR__, "tov_coupled_study.jl"))  # problems, callbacks, study_norms
 using Printf
@@ -29,9 +29,9 @@ const BIT_NAMES = ("σ=0", "ideal", "fixed-point", "Newton", "fallback", "ideal-
 
 function magnetized_study(T=Float64; N=12, levels=1, L=24, roots=4, t_end=50, chunk=2,
                           limiter=:ppm, cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, order=4, σ₀=1e6,
-                          μ_max=10, cutoff=10_000, power=1, field=:dipole, P_cut=0.04,
+                          μ_max=10, ρ_cut=1e-6, power=1, field=:dipole, P_cut=0.04,
                           B_c=1e-4, ρ_min=1e-10)
-    case = MHD.magnetized_tov_case(T; σ₀, μ_max, cutoff, power, field, P_cut, B_c, L, roots,
+    case = MHD.magnetized_tov_case(T; σ₀, μ_max, ρ_cut, power, field, P_cut, B_c, L, roots,
                                    ρ_min)
     (; p, u, forest) = problems(T; N, levels, limiter, γ0M, γ2, order, case)
     R̄ = case.fields.w.star.metric.R̄
@@ -42,11 +42,11 @@ function magnetized_study(T=Float64; N=12, levels=1, L=24, roots=4, t_end=50, ch
     fd0 = MHD.field_diagnostics(prof0; radius=R̄)
     n0 = study_norms(p, u, zero(T))
     Printf.format(stdout, Printf.Format("RUN coupled N=%d levels=%d L=%g roots=%d h=%.5f " *
-            "cells=%d σ₀=%g μ_max=%g cutoff=%g power=%d field=%s B_c=%g ρ_min=%g limiter=%s " *
+            "cells=%d σ₀=%g μ_max=%g ρ_cut=%g power=%d field=%s B_c=%g ρ_min=%g limiter=%s " *
             "order=%d γ0M=%g R̄=%.6f scale=%.6e E_in=%.6e E_out=%.6e divB=%.3e threads=%d " *
             "B_max=%.10e B_center=%.10e ham_in=%.6e mom_in=%.6e ham_out=%.6e mom_out=%.6e " *
             "M0=%.12e\n"),
-            N, levels, L, roots, minimum(prof0.h), length(prof0.h), σ₀, μ_max, cutoff, power,
+            N, levels, L, roots, minimum(prof0.h), length(prof0.h), σ₀, μ_max, ρ_cut, power,
             field, B_c, ρ_min, limiter, order, γ0M, R̄, field_scale(case.fields.w.field),
             fd0.energy_in, fd0.energy_out, MHD.max_div_B(p.mhd, view(u, p.s[2]), zero(T)),
             Threads.nthreads(), fd0.B_max, fd0.B_center, n0.ham_in, n0.mom_in, n0.ham_out,
@@ -101,7 +101,7 @@ end
 function main_study(args)
     kw = Dict(split(a, '='; limit=2) for a in args)
     known = ("N", "levels", "L", "roots", "t_end", "chunk", "limiter", "cfl_gh", "γ0M", "γ2",
-             "order", "sigma0", "mumax", "cutoff", "power", "field", "Pcut", "Bc", "rhomin")
+             "order", "sigma0", "mumax", "rhocut", "power", "field", "Pcut", "Bc", "rhomin")
     for k in keys(kw)
         k in known || error("magnetized_tov_study.jl: unknown key `$k` ($(join(known, ", ")))")
     end
@@ -112,7 +112,7 @@ function main_study(args)
                      limiter=Symbol(get(kw, "limiter", "ppm")), cfl_gh=num("cfl_gh", 0.5),
                      γ0M=num("γ0M", 0.1), γ2=num("γ2", 0), order=int("order", 4),
                      σ₀=num("sigma0", 1e6), μ_max=num("mumax", 10),
-                     cutoff=num("cutoff", 10_000), power=int("power", 1),
+                     ρ_cut=num("rhocut", 1e-6), power=int("power", 1),
                      field=Symbol(get(kw, "field", "dipole")), P_cut=num("Pcut", 0.04),
                      B_c=num("Bc", 1e-4), ρ_min=num("rhomin", 1e-10))
     return nothing

@@ -1827,6 +1827,19 @@ measured in step 3.
 
 **Step 6.** `μ = +∞` where `D ≤ 0` was proposed in step 6.
 
+**2026-11-17, step 12, after review: the case takes the density.** Erik
+approved the threshold as a density in the magnetized case ("Yes, build it",
+passed on by the step-11 session). `DensityProfile` gained the keyword form
+`DensityProfile(σ₀; ρ_cut, power)`, `ρ_atm = ρ_cut` with `cutoff = 1`; its
+positional `cutoff · ρ_atm` form is unchanged. `magnetized_tov_case`'s
+`cutoff = 10_000` became `ρ_cut = 1e-6` (proposed in step 12), and the study
+scripts' key `cutoff` became `rhocut`. Since `10⁴ · 10⁻¹⁰` is `10⁻⁶` in
+`Float64`, as are the other studied products (`100 · 10⁻¹⁰`, `10⁴ · 10⁻¹²`,
+`10⁶ · 10⁻¹²`), the conductivity at every studied point is bit for bit what
+the studies ran, so their records stand without a rerun; the new testset checks
+it on the initial data at 15625 points, and that σ is the same at
+`ρ_min = 10⁻¹²`.
+
 **2026-11-16, step 12, after review: the threshold is a density.** In the
 evolved spacetime, at `h = 0.5`, `ρ_min = 10⁻¹²` with `cutoff = 10⁴` (σ zero
 below `10⁻⁸`) drifts as `ρ_min = 10⁻¹⁰` with `cutoff = 100` does, and
@@ -1835,7 +1848,7 @@ below `10⁻⁸`) drifts as `ρ_min = 10⁻¹⁰` with `cutoff = 100` does, and
 scales with `ρ_min`; the measurement says the threshold should not: it belongs
 to the star, `ρ = 10⁻⁶` here (proposed in step 12), and the case's
 `cutoff · ρ_min` is a parametrization that has to be rescaled with `ρ_min`.
-The case taking the density itself is proposed, not built.
+The case taking the density itself was proposed (built the next day, above).
 
 **2026-11-15, step 12, later.** The shape was kept, but the magnetized star
 needs its own threshold: `cutoff = 10⁴` (proposed in step 12; the case's

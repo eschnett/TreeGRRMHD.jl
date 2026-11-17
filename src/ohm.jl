@@ -41,6 +41,7 @@ end
 
 """
     DensityProfile(σ₀, ρ_atm, cutoff=2, power=1)
+    DensityProfile(σ₀; ρ_cut, power=1)
 
 `σ = σ₀ max(0, 1 − cutoff·ρ_atm/ρ)^power`: `σ₀` deep inside matter, falling
 continuously to zero at `ρ = cutoff·ρ_atm` and zero below it, so that the
@@ -50,6 +51,12 @@ atmosphere carries no current and the exterior of a star is electrovacuum
 GRaM-X's resistive module (Azizi et al. 2025, Eq. 61), there in `D` rather than
 `ρ` (added in step 12); `power = 1` is the form proposed in step 2, and its
 results are bit for bit those of the form without the exponent.
+
+The keyword form states the threshold as a density, `σ = 0` at and below
+`ρ_cut` whatever the atmosphere's floor: `ρ_atm = ρ_cut`, `cutoff = 1`
+(proposed in step 12, after review). A star's threshold belongs to the gas that
+piles up outside its surface, not to `ρ_min` ("Ohm's law and the conductivity"
+in `CODE.md`).
 """
 struct DensityProfile{T} <: Conductivity
     σ₀::T
@@ -63,6 +70,7 @@ function DensityProfile(σ₀, ρ_atm, cutoff=2, power::Integer=1)
     σ, ρ, c = promote(float(σ₀), ρ_atm, cutoff)
     return DensityProfile(σ, ρ, c, Int(power))
 end
+DensityProfile(σ₀; ρ_cut, power::Integer=1) = DensityProfile(σ₀, ρ_cut, one(ρ_cut), power)
 
 """
     IdealConductor()

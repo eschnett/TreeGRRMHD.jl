@@ -769,7 +769,7 @@ Accept:
 - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
   keep (open)**.
 
-**State (2026-11-16).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
+**State (2026-11-17).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
 and the suite ran on Trillium (AMD EPYC 9655), since Symmetry's and Nibi's CPU nodes were down
 (Erik, 2026-11-15: use Trillium).
 
@@ -777,7 +777,8 @@ Done:
 - `magnetized_tov_case` (`src/cases/magnetized_tov.jl`): rung 4's Cowling star threaded by the
   static vacuum dipole of Schwarzschild outside the surface (Wasserman & Shapiro 1983), its
   quadratic continuation in `r̄²` inside, `E = 0`, `Φ̃ = 0`, under
-  `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)` with `cutoff = 10⁴`;
+  `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)` with σ's threshold a density,
+  `ρ_cut = 10⁻⁶` (Erik, 2026-11-17: "Yes, build it"), so that `ρ_min` leaves σ unchanged;
   `DensityProfile`'s shape kept;
 - the diagnostics (`src/field_diagnostics.jl`): field energy inside and outside, `E·B`, `|q|`,
   the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
@@ -807,7 +808,6 @@ Done:
 Not done:
 - the confined-field star coupled (the literature runs it in both spacetimes; ours are on the
   Cowling metric);
-- the case taking σ's threshold as a density rather than `cutoff · ρ_min` (proposed).
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion

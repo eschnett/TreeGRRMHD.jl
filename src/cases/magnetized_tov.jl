@@ -39,17 +39,21 @@
 # this package's Heaviside–Lorentz geometric units, is `B²/(2p) = 6·10⁻⁵` at the centre: a
 # test field, whose Lorentz force is far below the star's own truncation error.
 #
-# **The conductivity.** `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`: `σ₀`
-# deep inside the star, zero at and below `cutoff·ρ_min`, and zero where `B²/D ≥ μ_max`. `σ₀`
-# and `μ_max` have no default (`CODE.md`, "Ohm's law and the conductivity").
+# **The conductivity.** `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)`: `σ₀`
+# deep inside the star, zero at and below the density `ρ_cut`, and zero where `B²/D ≥ μ_max`.
+# `σ₀` and `μ_max` have no default (`CODE.md`, "Ohm's law and the conductivity").
 #
-# **The cutoff, `10⁴ ρ_min`** (proposed in step 12). The atmosphere of a star in the Cowling
-# approximation falls onto it and piles up outside the surface, to densities of order
-# `10⁻⁸ … 10⁻⁶` within tens of `M` at `ρ_min = 10⁻¹⁰`. With `DensityProfile`'s own `cutoff = 2`
-# (or the literature's 100) that gas conducts at `σ₀`, the exterior field is carried by the
-# atmosphere's motion, and its drift outside the star does not converge (rates 0.3–0.6 over
-# 5–20 M on the studies' box); at `10⁴` σ is zero below `ρ = 10⁻⁶`, the exterior is
-# electrovacuum as intended, and the drift converges at 1.2–2.0 to 50 M ("Validation ladder" 6).
+# **The threshold, `ρ_cut = 10⁻⁶`** (proposed in step 12, a density since its review). The
+# atmosphere falls onto the star and piles up outside the surface, to densities of order
+# `10⁻⁸ … 10⁻⁶` within tens of `M`, in the evolved spacetime as in the Cowling approximation.
+# With σ cut at `10⁻¹⁰` or `10⁻⁸` (at `ρ_min = 10⁻¹⁰`, the literature's `D_atm` and
+# `100 D_atm`) that gas conducts
+# at `σ₀`, the exterior field is carried by the atmosphere's motion, and its drift outside the
+# star does not converge; at `10⁻⁶` the exterior is electrovacuum as intended, and the drift
+# converges at 1.4–2.6 to 50 M ("Validation ladder" 6). The threshold is the star's, not
+# `ρ_min`'s: at `ρ_min = 10⁻¹²` the drifts follow the density, not the multiple of `ρ_min`.
+# `10⁻⁶` is about `8·10⁻⁴ ρ_c` for the default star (`ρ_c = 1.28·10⁻³`), below which lies
+# only its outer 0.0093 M; a star of another `ρ_c` states its own.
 
 """
     dipole_S(x) -> (S, dS/dx)
@@ -277,7 +281,7 @@ end
     field_potential(w.field, w.star.metric, x), zero(T)
 
 """
-    magnetized_tov_case([T]; σ₀, μ_max, cutoff = 10_000, power = 1, field = :dipole,
+    magnetized_tov_case([T]; σ₀, μ_max, ρ_cut = 1e-6, power = 1, field = :dipole,
                         P_cut = 0.04, B_c = 1e-4, K = 100, Γ = 2, ρ_c = 1.28e-3, L = 24,
                         roots = 4, ρ_min = 1e-10, NK = 129, steps = 4000)
 
@@ -287,11 +291,12 @@ the poloidal field of [`stellar_dipole`](@ref) — the static vacuum dipole of S
 outside the surface, its quadratic continuation in `r̄²` inside, `Bᶻ = B_c` at the centre —
 with `E = 0` and `Φ̃ = 0` everywhere, the solution of the field equations outside and of the
 ideal ones inside. The conductivity is
-`MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`: σ follows the density to
-zero at `cutoff·ρ_min`, `10⁻⁶` at the defaults, below which the atmosphere that piles up
+`MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)`: σ follows the density to
+zero at the density `ρ_cut`, whatever `ρ_min` is, below which the atmosphere that piles up
 outside the star carries no current, and the magnetically dominated plasma is electrovacuum;
-`σ₀` and `μ_max` have no default (the cutoff's reason: `src/cases/magnetized_tov.jl`);
-`power = 2`, `cutoff = 1` is the literature's squared profile ([`DensityProfile`](@ref)).
+`σ₀` and `μ_max` have no default (the threshold's reason and its default's:
+`src/cases/magnetized_tov.jl`); `power = 2`, `ρ_cut = ρ_min` is the literature's squared
+profile ([`DensityProfile`](@ref)).
 `field = :confined` replaces the dipole by the interior-only field of Duez et al. (2006)
 ([`confined_field`](@ref), `P_cut` the fraction of the central pressure where it ends), the
 star of Dionysopoulou et al. (2013) and GRaM-X (added in step 12, after review). The
@@ -299,7 +304,7 @@ potential does not depend on `t`, so its Dirichlet faces are absolute
 (`static_potential = true`). The case's data is `case.fields.w`, a
 [`MagnetizedTOVStar`](@ref); [`tov_boxes!`](@ref) refines around it as around rung 4's.
 """
-function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, cutoff=10_000, power::Integer=1,
+function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, ρ_cut=1e-6, power::Integer=1,
                              field::Symbol=:dipole, P_cut=0.04, B_c=1e-4, K=100, Γ=2,
                              ρ_c=1.28e-3, L=24, roots=4, ρ_min=1e-10, NK::Integer=129,
                              steps::Integer=4000) where {T}
@@ -311,7 +316,9 @@ function magnetized_tov_case(::Type{T}=Float64; σ₀, μ_max, cutoff=10_000, po
         field === :confined ? confined_field(w0.metric, T(B_c); P_cut) :
         throw(ArgumentError("the star's field is :dipole or :confined, got $field."))
     w = MagnetizedTOVStar(w0, f)
-    model = MagnetizationCutoff(DensityProfile(T(σ₀), T(ρ_min), T(cutoff), power), T(μ_max))
+    T(ρ_cut) > 0 || throw(ArgumentError(
+        "σ's threshold ρ_cut is a density and must be positive, got ρ_cut = $ρ_cut."))
+    model = MagnetizationCutoff(DensityProfile(T(σ₀); ρ_cut=T(ρ_cut), power), T(μ_max))
     return MHDCase(T, Val(3); fields=WaveFields(w), potential=WavePotential(w), eos=star.eos,
                    proj=star.proj, pol=star.pol, model, provider=star.provider,
                    periodic=false, extents=star.extents, roots=star.roots,

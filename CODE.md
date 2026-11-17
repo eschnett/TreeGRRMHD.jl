@@ -642,10 +642,12 @@ zero below `ρ = 10⁻⁶` on the magnetized star (about `8·10⁻⁴ ρ_c`), wh
 `ρ_min` is. At `ρ_min = 10⁻¹²` a threshold of `10⁴ ρ_min = 10⁻⁸` drifts as
 `100 ρ_min` does at `10⁻¹⁰`, and `10⁶ ρ_min = 10⁻⁶` as `10⁴ ρ_min` does, to
 three digits ("Validation ladder" 6), so the threshold belongs to the gas
-outside the star, not to the atmosphere's floor. The case still states it as
-`cutoff · ρ_min`, `cutoff = 10⁴` at its default `ρ_min = 10⁻¹⁰`, so a run at
-another `ρ_min` scales `cutoff` inversely; the case taking the density itself
-is the form this measurement asks for (proposed, not built). `10⁻⁶` is far
+outside the star, not to the atmosphere's floor. So the case takes it as a
+density, `ρ_cut` (proposed; `magnetized_tov_case`'s default `10⁻⁶`, below),
+through `DensityProfile(σ₀; ρ_cut, power)`, which is `ρ_atm = ρ_cut`,
+`cutoff = 1`; the form `cutoff · ρ_atm` stays `DensityProfile`'s positional
+one, for a model that does follow the floor. Changing `ρ_min` leaves the
+star's σ unchanged, bit for bit ("Tests"). `10⁻⁶` is far
 above every published threshold (`D_atm`, `100 D_atm`, 50–400 `ρ_atm`):
 the atmosphere the star accretes reaches `10⁻⁸ … 10⁻⁶` outside its surface,
 in the evolved spacetime as on a fixed metric, and at `10⁻¹⁰` or `10⁻⁸`,
@@ -4041,7 +4043,9 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   orders, and `flags`.
 - `test/magnetized_tov_tests.jl`: the exterior dipole and its interior
   continuation pointwise; the confined field (Duez et al.'s, at GRaM-X's
-  `B_c`) and the squared density profile pointwise; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
+  `B_c`) and the squared density profile pointwise; σ's threshold as a
+  density, the same σ at `ρ_min = 10⁻¹⁰` and `10⁻¹²` on the initial data and
+  the studies' `10⁴ ρ_min` bit for bit; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
 
@@ -5379,12 +5383,16 @@ named as claims.
      `A_b`): a test field, its Lorentz force far below the Cowling star's
      own truncation error.
    - **The conductivity** (proposed):
-     `MagnetizationCutoff(DensityProfile(σ₀, ρ_min, cutoff), μ_max)`, `σ₀`
+     `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)`, `σ₀`
      and `μ_max` with no default; the suite and the studies take
      `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **σ is zero
-     below `ρ = 10⁻⁶`** (proposed), a density of the star's and not of
-     `ρ_min` (measured below); the case states it as `cutoff = 10⁴` at its
-     default `ρ_min = 10⁻¹⁰`. That is far above every published threshold
+     below `ρ_cut = 10⁻⁶`** (the case's default; proposed), a density of
+     the star's and not of `ρ_min` (measured below). The default belongs
+     to this star: `10⁻⁶` is about `8·10⁻⁴ ρ_c` at `ρ_c = 1.28·10⁻³`,
+     and only the outer 0.0093 M of `R = 9.586 M` lies below it, so it
+     sits above the gas that piles up outside the surface and below
+     nearly all of the star; a star of another `ρ_c` states its own.
+     That is far above every published threshold
      (`D_atm` in Dionysopoulou et al. 2013 and GRaM-X, `100 D_atm` in
      Dionysopoulou, Alic & Rezzolla 2015, a force-free switch at 50–400
      `ρ_atm` in Palenzuela 2013; "Ohm's law and the conductivity"). The
@@ -5406,9 +5414,10 @@ named as claims.
    default box (`[−24, 24]³`, four roots, one box level, PPM, TreeGH's
    CFL 1/2, the order-4 transfer, `γ0M = 1/10`), `ρ_min = 10⁻¹⁰`, at
    `h = 0.5, 0.375, 0.25` to 50 M, at three thresholds: the literature's
-   squared profile at `ρ_min` (`power = 2`, `cutoff = 1`), the linear one
-   at `100 ρ_min` and at `10⁴ ρ_min`; and at `h = 0.5` with
-   `ρ_min = 10⁻¹²`, the linear one at `10⁴` and `10⁶ ρ_min`. Trillium,
+   squared profile at `ρ_cut = ρ_min = 10⁻¹⁰` (`power = 2`), the linear
+   one at `10⁻⁸` and at `10⁻⁶`; and at `h = 0.5` with `ρ_min = 10⁻¹²`,
+   the linear one at `10⁻⁸` and `10⁻⁶`. (Run as multiples of `ρ_min`,
+   before the case took a density; `σ` is the same bit for bit.) Trillium,
    AMD EPYC 9655, 96 threads, jobs 2873324–2873334; at `10⁴ ρ_min` 718 s,
    1585 s and 6259 s. The coupled suite's star (`coupled/coupled_tests.jl`):
    `[−12, 12]³`, three roots, no boxes, `h = 0.8` to `t = 1`.
@@ -5448,7 +5457,7 @@ named as claims.
    - **The threshold is a density, not a multiple of `ρ_min`.** At
      `h = 0.5`, to 50 M:
 
-     | `ρ_min` | `cutoff` | σ zero below | shell, 10 M | shell, 50 M | band | energy outside |
+     | `ρ_min` | multiple of `ρ_min` | σ zero below | shell, 10 M | shell, 50 M | band | energy outside |
      |---|---|---|---|---|---|---|
      | `10⁻¹⁰` | 100 | `10⁻⁸` | 3.351e−2 | 0.238 | 41.2% | +6.3% |
      | `10⁻¹²` | `10⁴` | `10⁻⁸` | 3.365e−2 | 0.248 | 40.9% | +8.2% |
@@ -5570,7 +5579,7 @@ named as claims.
    and GRaM-X's `A_b = 1.58` is `B_c = 4.26e−8` here, its quoted
    `4.3e−8`. This is Dionysopoulou et al.'s (2013, Sec. IV.3.1) and
    GRaM-X's (Azizi et al. 2025, Eq. 60, Sec. IV.5.1) star. The
-   conductivity is theirs too, `power = 2`, `cutoff = 1` (in `ρ`); with
+   conductivity is theirs too, `power = 2`, `ρ_cut = ρ_min` (in `ρ`); with
    no field outside `P_cut`, the conducting gas outside the surface
    carries none. The runs are a study, not a test (proposed): the
    cheapest that tells σ₀ = 100 from 10⁶ (`h = 0.75` to 200 M) takes
@@ -5581,7 +5590,7 @@ named as claims.
    (not run).
 
    **Measured** (`bin/magnetized_tov_study.jl field=confined power=2
-   cutoff=1 Bc=4.26e-8`, `[−12, 12]³`, four roots, no boxes, PPM,
+   rhocut=1e-10 Bc=4.26e-8`, `[−12, 12]³`, four roots, no boxes, PPM,
    `μ_max = 10`, to 200 M at `h = 0.75, 0.5, 0.375, 0.25`; σ₀ = 10⁶,
    10³ (not at 0.25), 100; Trillium, AMD EPYC 9655, 96 threads, jobs
    2870561–2870573, 737 s at `h = 0.75` to 23.5 ks at `0.25`; and
@@ -5637,7 +5646,7 @@ named as claims.
    - **The outcome map** at the literature's threshold: inside `R̄`
      every stage is fixed point; the band `R̄ … R̄ + 1.5` falls back in
      37% of its stages at `h = 0.375` (the last chunk), beyond it 1.4% —
-     as the dipole star did at `cutoff = 1`, and harmless here, where
+     as the dipole star did at `ρ_cut = ρ_min`, and harmless here, where
      the field there is zero.
 7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
    data).

@@ -16,8 +16,9 @@
 #
 # Keys: `N` (cells per block, 8), `levels` (box levels around the star, `tov_boxes!`, 1), `L`
 # (24), `roots` (4), `t_end` (10), `chunk` (1), `limiter` (`ppm`), `sigma0` (σ₀, 1e6),
-# `mumax` (μ_max, 10), `cutoff` (`DensityProfile`'s, in units of ρ_min, the case's 10⁴),
-# `power` (`DensityProfile`'s, 1; 2 the literature's squared profile), `field` (`dipole` or
+# `mumax` (μ_max, 10), `rhocut` (ρ_cut, the density below which σ is zero, the case's 1e-6,
+# whatever ρ_min is), `power` (`DensityProfile`'s, 1; 2 with `rhocut` at ρ_min the literature's
+# squared profile), `field` (`dipole` or
 # `confined`, the interior-only field of Duez et al. 2006), `Pcut` (the confined field's edge,
 # a fraction of the central pressure, 0.04), `Bc` (the central field, 1e-4), `rhomin` (ρ_min,
 # 1e-10). The `CHUNK` lines end with `B_max` and `B_center`, the mean `|B|` within `r̄ < 1`. The lines
@@ -35,9 +36,9 @@ const BIT_NAMES = ("σ=0", "ideal", "fixed-point", "Newton", "fallback", "ideal-
                    "backtracked", "repaired")
 
 function study(T=Float64; N=8, levels=1, L=24, roots=4, t_end=10, chunk=1, limiter=:ppm,
-               σ₀=1e6, μ_max=10, cutoff=10_000, power=1, field=:dipole, P_cut=0.04, B_c=1e-4,
+               σ₀=1e6, μ_max=10, ρ_cut=1e-6, power=1, field=:dipole, P_cut=0.04, B_c=1e-4,
                ρ_min=1e-10)
-    case = magnetized_tov_case(T; σ₀, μ_max, cutoff, power, field, P_cut, B_c, L, roots, ρ_min)
+    case = magnetized_tov_case(T; σ₀, μ_max, ρ_cut, power, field, P_cut, B_c, L, roots, ρ_min)
     R̄ = case.fields.w.star.metric.R̄
     region(x) = (r = sqrt(sum(abs2, x)); r < 4R̄ / 5 ? 1 : r < R̄ ? 2 : r < R̄ + 3 // 2 ? 3 : 4)
     prof0 = Ref{Any}(nothing)
@@ -85,10 +86,10 @@ function study(T=Float64; N=8, levels=1, L=24, roots=4, t_end=10, chunk=1, limit
     prof0[] = cell_profile(r0.p, exact_state(r0.p, case, zero(T)), zero(T))
     M0[] = r0.totals0[1]
     fd0 = field_diagnostics(prof0[]; radius=R̄)
-    Printf.format(stdout, Printf.Format("RUN N=%d levels=%d L=%g roots=%d h=%.5f cells=%d σ₀=%g μ_max=%g cutoff=%g power=%d field=%s B_c=%g ρ_min=%g " *
+    Printf.format(stdout, Printf.Format("RUN N=%d levels=%d L=%g roots=%d h=%.5f cells=%d σ₀=%g μ_max=%g ρ_cut=%g power=%d field=%s B_c=%g ρ_min=%g " *
             "limiter=%s R̄=%.6f scale=%.6e E_in=%.6e E_out=%.6e trigger=%d/%d repaired=%d/%d " *
             "divB=%.3e threads=%d B_max=%.10e B_center=%.10e\n"),
-            N, levels, L, roots, minimum(prof0[].h), length(prof0[].h), σ₀, μ_max, cutoff,
+            N, levels, L, roots, minimum(prof0[].h), length(prof0[].h), σ₀, μ_max, ρ_cut,
             power, field, B_c, ρ_min,
             limiter, R̄, field_scale(case.fields.w.field), fd0.energy_in, fd0.energy_out, fd0.trigger_in,
             fd0.trigger_out, fd0.repaired_in, fd0.repaired_out,
@@ -104,7 +105,7 @@ end
 function main(args)
     kw = Dict(split(a, '='; limit=2) for a in args)
     known = ("N", "levels", "L", "roots", "t_end", "chunk", "limiter", "sigma0", "mumax", "Bc",
-             "rhomin", "cutoff", "power", "field", "Pcut")
+             "rhomin", "rhocut", "power", "field", "Pcut")
     for k in keys(kw)
         k in known || error("magnetized_tov_study.jl: unknown key `$k` ($(join(known, ", ")))")
     end
@@ -113,7 +114,7 @@ function main(args)
     study(; N=int("N", 8), levels=int("levels", 1), L=num("L", 24), roots=int("roots", 4),
           t_end=num("t_end", 10), chunk=num("chunk", 1),
           limiter=Symbol(get(kw, "limiter", "ppm")), σ₀=num("sigma0", 1e6),
-          μ_max=num("mumax", 10), cutoff=num("cutoff", 10_000), power=int("power", 1),
+          μ_max=num("mumax", 10), ρ_cut=num("rhocut", 1e-6), power=int("power", 1),
           field=Symbol(get(kw, "field", "dipole")), P_cut=num("Pcut", 0.04),
           B_c=num("Bc", 1e-4), ρ_min=num("rhomin", 1e-10))
     return nothing

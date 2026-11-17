@@ -116,7 +116,7 @@ end
     # a field beyond `P_cut` is no longer confined. GRaM-X's `A_φ = ϖ² max[A_b(P − P_cut), 0]²`
     # at `A_b = 1.58`, `P_cut = 0.04 P_c` is `Bᶻ = 4.26e−8` at the centre here, its quoted
     # `B_c ≈ 4.3e−8`.
-    c = magnetized_tov_case(Float64; σ₀=100, μ_max=10, field=:confined, cutoff=1, power=2,
+    c = magnetized_tov_case(Float64; σ₀=100, μ_max=10, field=:confined, ρ_cut=1e-10, power=2,
                             B_c=1.0, L=12, roots=3)
     f = c.fields.w.field
     m = c.fields.w.star.metric
@@ -162,6 +162,44 @@ end
     @test conductivity(sq, prim(1e-10)) == 0 && MT.conductivity_slope(sq, prim(5e-11)) == 0
     @test lin.power == 1 && DensityProfile(1e6, 1e-10) == DensityProfile(1e6, 1e-10, 2, 1)
     @test_throws ArgumentError DensityProfile(1e6, 1e-10, 1, 0)
+end
+
+@testset "σ's threshold is a density: the same σ at ρ_min = 1e−10 and 1e−12" begin
+    # Guards `magnetized_tov_case`'s `ρ_cut` (step 12, after review): the threshold belongs to
+    # the gas outside the star, not to the atmosphere's floor, so changing `ρ_min` must leave
+    # σ unchanged wherever the star is, and zero below `ρ_cut` in both atmospheres. A case
+    # that scaled the threshold with `ρ_min` again would cut σ at `10⁻⁸` here. And the
+    # default must be bit for bit the `cutoff = 10⁴` at `ρ_min = 10⁻¹⁰` that the studies ran
+    # (`CODE.md`, "Validation ladder" 6), so that their record stands without a rerun.
+    c10 = magnetized_tov_case(Float64; σ₀=1e6, μ_max=10, L=12, roots=3, ρ_min=1e-10)
+    c12 = magnetized_tov_case(Float64; σ₀=1e6, μ_max=10, L=12, roots=3, ρ_min=1e-12)
+    studied = MagnetizationCutoff(DensityProfile(1e6, 1e-10, 10_000), 10.0)
+    prim(ρ) = ntuple(i -> i == MT.P_RHO ? ρ : 0.0, MT.NP)
+    function σ_ρ(c, model, x)
+        ρ, _, _, _, _, B = MT.wave_fields(c.fields.w, x, 0.0)
+        μ = MT.magnetization(point_metric(c.provider, 0.0, x), B, ρ)  # at rest, D = ρ
+        return conductivity(model, prim(ρ), μ), ρ
+    end
+    pts = [SVector(x, y, z) for x in -12.0:1.0:12.0, y in -12.0:1.0:12.0, z in -12.0:1.0:12.0]
+    same = studied_same = conducting = cut = differ = differ_cut = 0
+    for x in pts
+        (σ10, ρ10), (σ12, ρ12) = σ_ρ(c10, c10.model, x), σ_ρ(c12, c12.model, x)
+        same += σ10 === σ12
+        studied_same += σ10 === σ_ρ(c10, studied, x)[1]
+        conducting += σ10 > 0
+        cut += ρ10 ≤ 1e-6 && ρ12 ≤ 1e-6 && σ10 == 0 && σ12 == 0
+        differ += ρ10 != ρ12                    # the two atmospheres
+        differ_cut += ρ10 != ρ12 && σ10 == σ12 == 0
+    end
+    @info "σ's threshold: of $(length(pts)) points, σ the same at both ρ_min at $same, as " *
+          "the studies' at $studied_same; $conducting conducting, $cut cut below ρ_cut, " *
+          "of which $differ in the atmosphere"
+    @test same == studied_same == length(pts)
+    @test differ > 0 && differ_cut == differ
+    @test conducting > 0 && cut > 0 && conducting + cut == length(pts)
+    @test DensityProfile(1e6; ρ_cut=1e-6) == DensityProfile(1e6, 1e-6, 1, 1)
+    @test DensityProfile(1e6; ρ_cut=1e-10, power=2) == DensityProfile(1e6, 1e-10, 1, 2)
+    @test_throws ArgumentError magnetized_tov_case(; σ₀=1e6, μ_max=10, ρ_cut=0)
 end
 
 # The suite's run: `h = 1`, MC, to `t = 2M`, with the initial profile on the same mesh.
@@ -215,7 +253,7 @@ end
     # lagged-velocity fallback (flagged, `OHM_FALLBACK`, its state repaired by the policy)
     # appears only outside it, in the cells the star's surface spreads into, cold matter
     # whose energy is a small part of the field's. Measured at `h = 1`, `t ≤ 2M`, with the
-    # case's `cutoff = 10⁴`: inside, 127232 stages, all fixed point; outside, 2032 fallbacks
+    # case's `ρ_cut = 10⁻⁶`: inside, 127232 stages, all fixed point; outside, 2032 fallbacks
     # of 646912 stages (0.31%), 95.6% at `σ = 0`. With `DensityProfile`'s own `cutoff = 2`
     # the fallbacks outside were 18920 (2.9%) (`CODE.md`, "Validation ladder" 6).
     run = mt_run(8)
