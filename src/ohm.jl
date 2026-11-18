@@ -40,21 +40,37 @@ struct Constant{T} <: Conductivity
 end
 
 """
-    DensityProfile(σ₀, ρ_atm, cutoff=2)
+    DensityProfile(σ₀, ρ_atm, cutoff=2, power=1)
+    DensityProfile(σ₀; ρ_cut, power=1)
 
-`σ = σ₀ max(0, 1 − cutoff·ρ_atm/ρ)`: `σ₀` deep inside matter, falling
+`σ = σ₀ max(0, 1 − cutoff·ρ_atm/ρ)^power`: `σ₀` deep inside matter, falling
 continuously to zero at `ρ = cutoff·ρ_atm` and zero below it, so that the
 atmosphere carries no current and the exterior of a star is electrovacuum
-("Floors, the atmosphere and the magnetosphere" in `CODE.md`). The shape
-follows the density-dependent conductivities of Palenzuela (2013) and
-Dionysopoulou et al. (2013) (proposed in step 2; rung 6 settles it).
+("Floors, the atmosphere and the magnetosphere" in `CODE.md`). `power = 2` with
+`cutoff = 1` is the squared profile of Dionysopoulou et al. (2013, Eq. 50) and
+GRaM-X's resistive module (Azizi et al. 2025, Eq. 61), there in `D` rather than
+`ρ` (added in step 12); `power = 1` is the form proposed in step 2, and its
+results are bit for bit those of the form without the exponent.
+
+The keyword form states the threshold as a density, `σ = 0` at and below
+`ρ_cut` whatever the atmosphere's floor: `ρ_atm = ρ_cut`, `cutoff = 1`
+(proposed in step 12, after review). A star's threshold belongs to the gas that
+piles up outside its surface, not to `ρ_min` ("Ohm's law and the conductivity"
+in `CODE.md`).
 """
 struct DensityProfile{T} <: Conductivity
     σ₀::T
     ρ_atm::T
     cutoff::T
+    power::Int
 end
-DensityProfile(σ₀, ρ_atm, cutoff=2) = DensityProfile(promote(float(σ₀), ρ_atm, cutoff)...)
+function DensityProfile(σ₀, ρ_atm, cutoff=2, power::Integer=1)
+    power ≥ 1 || throw(ArgumentError(
+        "the profile's power must be a positive integer, got $power."))
+    σ, ρ, c = promote(float(σ₀), ρ_atm, cutoff)
+    return DensityProfile(σ, ρ, c, Int(power))
+end
+DensityProfile(σ₀; ρ_cut, power::Integer=1) = DensityProfile(σ₀, ρ_cut, one(ρ_cut), power)
 
 """
     IdealConductor()
@@ -78,8 +94,10 @@ element type.
 @inline function conductivity(c::DensityProfile, prim::NTuple{N,T}) where {N,T}
     ρ = prim_ρ(prim)
     f = one(T) - convert(T, c.cutoff) * convert(T, c.ρ_atm) / ρ
-    # `max` keeps a NaN density NaN, for the policy to flag upstream.
-    return convert(T, c.σ₀) * max(zero(T), f)
+    # `max` keeps a NaN density NaN, for the policy to flag upstream; the branch keeps
+    # `power = 1` the form without the exponent, bit for bit.
+    g = max(zero(T), f)
+    return convert(T, c.σ₀) * (c.power == 1 ? g : g^c.power)
 end
 @inline conductivity(::IdealConductor, prim::NTuple{N,T}) where {N,T} = T(Inf)
 
@@ -96,7 +114,10 @@ the stage solve a column for each (proposed in step 3).
 @inline function conductivity_slope(c::DensityProfile, prim::NTuple{N,T}) where {N,T}
     ρ = prim_ρ(prim)
     kρ = convert(T, c.cutoff) * convert(T, c.ρ_atm)
-    return ρ > kρ ? convert(T, c.σ₀) * kρ / (ρ * ρ) : zero(T)
+    ρ > kρ || return zero(T)
+    c.power == 1 && return convert(T, c.σ₀) * kρ / (ρ * ρ)
+    f = one(T) - kρ / ρ
+    return c.power * convert(T, c.σ₀) * f^(c.power - 1) * kρ / (ρ * ρ)
 end
 
 """

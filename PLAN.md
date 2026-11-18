@@ -769,6 +769,52 @@ Accept:
 - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
   keep (open)**.
 
+**State (2026-11-17).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
+and the suite ran on Trillium (AMD EPYC 9655), since Symmetry's and Nibi's CPU nodes were down
+(Erik, 2026-11-15: use Trillium).
+
+Done:
+- `magnetized_tov_case` (`src/cases/magnetized_tov.jl`): rung 4's Cowling star threaded by the
+  static vacuum dipole of Schwarzschild outside the surface (Wasserman & Shapiro 1983), its
+  quadratic continuation in `r̄²` inside, `E = 0`, `Φ̃ = 0`, under
+  `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)` with σ's threshold a density,
+  `ρ_cut = 10⁻⁶` (Erik, 2026-11-17: "Yes, build it"), so that `ρ_min` leaves σ unchanged;
+  `DensityProfile`'s shape kept;
+- the diagnostics (`src/field_diagnostics.jl`): field energy inside and outside, `E·B`, `|q|`,
+  the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
+  `bin/magnetized_tov_study.jl`;
+- ∇·B at round-off: at most 3.4e−16;
+- rung 6 runs coupled (Erik, 2026-11-16: evolve the geometry), through `coupled/`
+  (`coupled/magnetized_tov_study.jl`, two testsets in `coupled/coupled_tests.jl`); the Cowling
+  case, test and study stay as the cheaper check;
+- the exterior dipole: coupled, the drift outside the star converges at 1.4–2.6 to 50 M
+  (`h = 0.5, 0.375, 0.25`), on the Cowling metric at 1.2–2.3 (`h = 0.75, 0.5, 0.375`) — once σ
+  is zero below `ρ = 10⁻⁶`, a density of the star's and not a multiple of `ρ_min` (measured at
+  `ρ_min = 10⁻¹⁰` and `10⁻¹²`). At the literature's threshold, `ρ_min`, or at `100 ρ_min` it does not (rates
+  0.3–0.7 over the first 10 M): a miss that decided the cutoff;
+- `E·B` inside converges at 1.7–2.5 (coupled 1.7–2.3); the constraints, coupled, at 1.7 or
+  better, the same at every threshold;
+- the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
+  the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
+  stages by resolution (coupled at `h = 0.5 … 0.25`: 0.004%, 0.0006%, 0);
+- after review: the squared profile (`power = 2`, `cutoff = 1`) changes nothing on the
+  dipole star; the confined-field star of Dionysopoulou et al. (2013) and GRaM-X: its numerical
+  loss converges at 2.4–4.3 (`h = 0.75 … 0.25`), σ's excess decay converges and scales near
+  1/σ₀, and at σ₀ = 100 the central field falls two decades by 9.65 ms;
+- the confined-field star coupled (Erik, 2026-11-17: "Confined star coupled"): its central
+  field follows the Cowling star's to 0.4% at `h = 0.5, 0.375, 0.25`, the numerical loss
+  converging at 2.9–4.2 and σ's excess scaling near 1/σ₀; at σ₀ = 100 two decades by 9.65 ms;
+  at σ₀ = 10⁶ no late rise to 9.85 ms; F and H1 from `ρ_c` within 0.6% of linear theory;
+- the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
+  each at 01ff9cf, 26658/26658 at a237712 and 26664/26664 at 4edf568, and the coupled suite,
+  25/25 three ways, then 32/32 with the magnetized star, on Trillium (`HISTORY.md`, "The test
+  suite").
+
+Blocked:
+- the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
+  fails outside the atmosphere in at most 10 cells at a time over 50 M); with it, nothing can be
+  measured, so whether `D s` earns its keep stays open.
+
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
 `CODE.md`: "Thermodynamics". Waits: **EOS-4**.

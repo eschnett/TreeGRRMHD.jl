@@ -392,6 +392,60 @@ gave it, at its acceptance:
 >   **decide the prolongation**.
 > - **Light-cone against split speeds** on the star **decides the Riemann speeds**.
 
+**2026-11-15, step 12 — The magnetized TOV star (rung 6).** Started on
+`claude/step-12-magnetized-tov`, based on step 11's draft PR #9 (63f5aa4) while
+it is reviewed, at Erik's request. Built: `magnetized_tov_case`
+(`src/cases/magnetized_tov.jl`), the field diagnostics
+(`src/field_diagnostics.jl`), `test/magnetized_tov_tests.jl` and
+`bin/magnetized_tov_study.jl`. Measured on the laptop (`CODE.md`, "Validation
+ladder" 6), since every CPU node of Symmetry was down ("Not responding" from
+08:00 that day; only the H200 nodes up), which also kept the suite off
+Symmetry. The entropy fallback is blocked on EOS-3. Step 12 proposed:
+- the Cowling spacetime for rung 6, rather than the coupled one;
+- the exterior field, the static vacuum dipole of Schwarzschild (Wasserman &
+  Shapiro 1983) in isotropic coordinates, `E = 0`, `Φ̃ = 0`;
+- the interior field, the quadratic in `r̄²` matching the exterior to second
+  order at the surface, and `B_c = 10⁻⁴` at the centre by default;
+- the conductivity `MagnetizationCutoff(DensityProfile(σ₀, ρ_min), μ_max)`,
+  with `σ₀ = 10⁶`, `μ_max = 10` in the suite and studies;
+- `DensityProfile`'s shape kept, which step 2 left for rung 6 to settle;
+- the diagnostics' definitions: `Σ|E·B|/ΣB²` inside, the drift
+  `Σ|B − B₀|/Σ|B₀|`, the entropy fallback's trigger `½(E² + B²) > τ_fluid` and
+  the policy's repairs counted with the atmosphere left out, the outcome map by
+  region.
+
+It also opened one question in `CODE.md`, "Open questions": whether the
+conductivity should fall where the field's energy dwarfs the fluid's, since the
+star's stage fallbacks just outside its surface do not move with `μ_max`.
+
+Later the same day Symmetry's and Nibi's CPU nodes were both down (Nibi: 674
+down, 82 drained from 08:10). Erik directed the CPU work to Nibi, then to
+Trillium (SciNet; AMD EPYC 9655), and no CPU jobs onto Symmetry's H200 nodes; the
+queued Symmetry jobs (598948, 598988–598992) and Nibi jobs (27443903–27443908)
+were cancelled unrun. On Trillium the studies on the default box missed the plan's
+claim that the exterior's drift converges, and the measurement that followed
+(under [Validation ladder](#validation-ladder)) led step 12 to propose one more
+decision: the case's `DensityProfile` cutoff `10⁴ ρ_min`, where it had been the
+model's default 2.
+
+**2026-11-16, step 12, after review: rung 6 runs coupled.** Erik reversed the
+first of step 12's proposals, the Cowling spacetime for rung 6: "i also think
+that Cowling isn't necessary, we should evolve the geometry" (passed on by the
+step-11 session). Rung 6 now runs through `coupled/` (`problems(; case)`,
+`coupled/magnetized_tov_study.jl`, two testsets in `coupled/coupled_tests.jl`).
+The Cowling case, its suite test and `bin/magnetized_tov_study.jl` stay as the
+cheaper check (proposed in step 12), since the package's suite runs without
+TreeGH and the two spacetimes give the exterior's drift to three digits through
+20 M. Erik also asked for the cutoff study to be repeated coupled, with a test
+of whether the threshold scales with `ρ_min`; it does not (under
+[Validation ladder](#validation-ladder) and [Ohm's law and the
+conductivity](#ohms-law-and-the-conductivity)). The literature's resolutions
+and diagnostics, from the same review, are now in `CODE.md`'s rung 6: neither
+Dionysopoulou et al. (2013) nor GRaM-X measures the exterior's convergence,
+and neither changes its σ threshold between Cowling and dynamical runs; the
+rung's convergence criterion, stricter than theirs, is kept, at Erik's
+direction.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -1773,6 +1827,68 @@ measured in step 3.
 
 **Step 6.** `μ = +∞` where `D ≤ 0` was proposed in step 6.
 
+**2026-11-17, step 12, after review: the case takes the density.** Erik
+approved the threshold as a density in the magnetized case ("Yes, build it",
+passed on by the step-11 session). `DensityProfile` gained the keyword form
+`DensityProfile(σ₀; ρ_cut, power)`, `ρ_atm = ρ_cut` with `cutoff = 1`; its
+positional `cutoff · ρ_atm` form is unchanged. `magnetized_tov_case`'s
+`cutoff = 10_000` became `ρ_cut = 1e-6` (proposed in step 12), and the study
+scripts' key `cutoff` became `rhocut`. Since `10⁴ · 10⁻¹⁰` is `10⁻⁶` in
+`Float64`, as are the other studied products (`100 · 10⁻¹⁰`, `10⁴ · 10⁻¹²`,
+`10⁶ · 10⁻¹²`), the conductivity at every studied point is bit for bit what
+the studies ran, so their records stand without a rerun; the new testset checks
+it on the initial data at 15625 points, and that σ is the same at
+`ρ_min = 10⁻¹²`.
+
+**2026-11-16, step 12, after review: the threshold is a density.** In the
+evolved spacetime, at `h = 0.5`, `ρ_min = 10⁻¹²` with `cutoff = 10⁴` (σ zero
+below `10⁻⁸`) drifts as `ρ_min = 10⁻¹⁰` with `cutoff = 100` does, and
+`cutoff = 10⁶` (`10⁻⁶`) as `10⁴` at `10⁻¹⁰` does, to three digits at 10 M
+(jobs 2873331–2873334). `CODE.md` had listed among the cutoff's costs that it
+scales with `ρ_min`; the measurement says the threshold should not: it belongs
+to the star, `ρ = 10⁻⁶` here (proposed in step 12), and the case's
+`cutoff · ρ_min` is a parametrization that has to be rescaled with `ρ_min`.
+The case taking the density itself was proposed (built the next day, above).
+
+**2026-11-15, step 12, later.** The shape was kept, but the magnetized star
+needs its own threshold: `cutoff = 10⁴` (proposed in step 12; the case's
+default), measured under [Validation ladder](#validation-ladder) the same day.
+The paragraph below was written before that measurement, at `cutoff = 2`.
+
+**2026-11-15, step 12.** `DensityProfile`'s shape, which step 2 left for
+rung 6 to settle "against Palenzuela (2013)", is kept as proposed (proposed in
+step 12): the profiles in use are of its family (GRaM-X's resistive module,
+`σ₀ max(1 − D_atm/D, 0)²`; Dionysopoulou, Alic & Rezzolla 2015, a smoothed
+step at `100 D_atm`), and on the magnetized star the stage's fallbacks do not
+move with the conductivity: 18920 of 646912 stages outside the star at
+`σ₀ = 10⁶`, `μ_max = 10`; 18888 at `σ₀ = 10³`; 18528 at `μ_max = 1`; 16960 at
+`μ_max = 0.1` (`h = 1`, `t = 2M`, laptop). The sentence "rung 6 settles its
+shape against Palenzuela (2013)" was replaced in `CODE.md` by the decision and
+its reasons.
+
+**2026-11-16, step 12, after review.** Erik asked for step 12's decisions to be
+compared with the literature (the review's notes, passed on by the step-11
+session). `DensityProfile` gained `power` (`power = 2`, `cutoff = 1` is the
+squared profile of Dionysopoulou et al. 2013, Eq. 50, and of GRaM-X, Eq. 61,
+in `ρ`; `power = 1` bit for bit the old form). On the dipole star at
+`h = 0.75` to 20 M (Trillium, jobs 2870559, 2870560) the squared profile drifts
+in the shell by 0.132 at threshold 1 and 0.139 at 100, against 0.139 for the
+linear one at 2 and at 100, with the same share of fallbacks in the band
+(49.2%, 48.1%). So "the shape is kept" stands (proposed), and the threshold,
+not the shape, decides. `CODE.md` now says that the case's `10⁴ ρ_min` is
+above every published threshold (`D_atm`; `100 D_atm` in Dionysopoulou, Alic &
+Rezzolla 2015, for binaries; 50–400 `ρ_atm` for Palenzuela 2013's
+force-free switch), why, and what it costs; and that the magnetization or
+field-energy switch stays the open question, with Palenzuela 2013's as the
+nearest published version. Citations corrected: the Ohm section said
+Dionysopoulou, Alic & Rezzolla 2015 alone, a binaries paper; the magnetized
+star's source is Dionysopoulou et al. 2013 (arXiv:1208.3487). Rung 6 said "a
+vacuum dipole exterior (Palenzuela 2013)": Palenzuela 2013 has a force-free
+exterior around a rotating star; the electrovacuum dipole exterior is
+Dionysopoulou et al. 2013's (LORENE), and step 12's exact form is Wasserman &
+Shapiro 1983. The conductivity table's row named Palenzuela 2013 for the
+same reason.
+
 ### Stress-energy for the spacetime
 
 **Step 2.** `stress_energy` and `T4_lower` in `src/stress_energy.jl` were
@@ -2211,6 +2327,20 @@ open decision of 2026-10-30.
 **Step 9.** The step cache's curved-space keys were exercised in step 9: on
 the Kerr-Schild cases, with the interior, one integration, two and a restart
 agree bit for bit ("Validation ladder" 3).
+
+**2026-11-15, step 12.** The entropy fallback paragraph of `CODE.md` was
+amended: it is blocked on EOS-3 (the fixed-entropy inversion is internal to
+EntropyEOS, and this package adds no second inversion), and what it would act
+on is now counted by `field_diagnostics` (its trigger and the policy's
+repairs, the atmosphere left out). Its definition of the fluid's energy read
+`τ_fluid = τ − D − ½(E² + B²)`; this package's `τ` is `𝓔 − D` already, so it
+now reads `τ − ½(E² + B²)`, which is what the 2026-10-16 investigation's
+harness computed (`field_budget`).
+
+**2026-11-16, step 12, after review.** The entropy fallback's paragraph now
+names its precedent: Palenzuela (2013) falls back to the isentropic `p = Kρ^Γ`
+near a star's surface; Dionysopoulou et al. (2013) treat a failed cell as
+atmosphere; GRaM-X has no fallback.
 
 ### Where the fields live
 
@@ -5032,6 +5162,99 @@ and 2.14 at 1e−10. Over 50 M windows from 300 M, the 1e−10 runs also fall to
 2.03, 2.24 at 1e−12. The outside norm is the spacetime's error in a region holding
 only atmosphere, and a 20 M window does not average its noise below about ±0.2.
 
+**2026-11-15, step 12 (rung 6).** Built and measured on the laptop
+(Apple M-series, Julia 1.13.4, four threads; Symmetry's CPU nodes were down).
+The record is `CODE.md`, "Validation ladder" 6. The first outcome map read the
+surface band's fallbacks as 10% of its stages; that was the last of two chunks
+only (`evolve!` clears the tally per chunk). Over the whole run at `h = 1` the
+band `R̄ ± 1` had 18560 of 90496 (20.5%), and by the cells' initial density all
+fallbacks lie in cells whose centre is outside `R̄`, which is how the test now
+states the map.
+
+**2026-11-15, step 12, on Trillium: the exterior's drift at `cutoff = 2`.** The
+studies on the default box (`[−24, 24]³`, four roots, one box level, PPM, to 50 M;
+AMD EPYC 9655, 64 threads; jobs 2864696–2864698 at `h = 0.75, 0.5, 0.375`, 345 s,
+1200 s, 2686 s), with the case as first built, σ cut at `2ρ_min`. The shell
+`R̄ + 1 ≤ r̄ < 23`'s drift `Σ|B − B₀|/Σ|B₀|` and its rates:
+
+| `t` (M) | shell | rates | inside | rates |
+|---|---|---|---|---|
+| 2 | 2.97e−3, 1.86e−3, 1.39e−3 | 1.15, 1.00 | 9.43e−3, 4.01e−3, 2.18e−3 | 2.11, 2.12 |
+| 5 | 1.08e−2, 8.55e−3, 7.57e−3 | 0.58, 0.42 | 1.45e−2, 5.90e−3, 3.54e−3 | 2.21, 1.77 |
+| 10 | 3.66e−2, 3.29e−2, 2.99e−2 | 0.27, 0.32 | 1.77e−2, 9.99e−3, 8.78e−3 | 1.42, 0.45 |
+| 20 | 1.39e−1, 1.24e−1, 1.03e−1 | 0.27, 0.65 | 3.23e−2, 2.60e−2, 2.17e−2 | 0.54, 0.63 |
+| 30 | 2.51e−1, 1.94e−1, 1.34e−1 | 0.64, 1.28 | 5.26e−2, 4.09e−2, 3.10e−2 | 0.62, 0.97 |
+
+At `h = 0.75` the shell's drift reached 0.418 by 50 M and the field energy
+outside `R̄` grew by 20%. A miss against `PLAN.md`'s "the drift converges",
+not loosened. The outcome maps showed why: the band `R̄ … R̄ + 1.5` was `σ = 0` in
+only 7200 of 6.0 million stages at `h = 0.75` and fell back in 51%, 59%, 55% of
+its stages; beyond it, 6.2%, 1.7%, 0.2%. The gas the atmosphere piles up outside
+a star on a fixed metric exceeded `2ρ_min` and conducted. Variants at `h = 0.75`
+to 20 M (jobs 2864848, 2864889–2864892, 2864906, 2864907, 2864943), the shell's
+drift at 20 M: the default 0.139; the same box uniform, without coarse-fine faces,
+0.1386; `B_c = 10⁻⁶` 0.146; `σ₀ = 10³` 0.138; `ρ_min = 10⁻¹²` 0.142;
+`μ_max = 0.001` 0.032; `cutoff = 100` (Dionysopoulou, Alic & Rezzolla 2015's
+`D_rel`) 0.139; `10³` 0.084; `10⁴` 0.019. So it is the conducting exterior, not
+the faces, the field's strength, σ₀ or the atmosphere's density. At `cutoff = 10⁴`
+the three studies (jobs 2864940–2864942) converge, and `CODE.md`'s rung 6 is
+theirs.
+
+**2026-11-16, step 12, after review: the confined-field star.** Erik asked for
+the literature's resistive star (Duez et al. 2006's field at GRaM-X's
+`A_b = 1.58`, the squared profile at `D_atm`, σ₀ = 10⁶, 10³, 100) at three
+resolutions, its central field's drift and rate against Dionysopoulou et al.'s
+1.7, and the decay time against 1/σ₀. Run on Trillium (jobs 2870561–2870574,
+96 threads; the record is `CODE.md`, "Validation ladder" 6). Before the long
+run, the fitted rate over 50–200 M at σ₀ = 100 (4.3–4.8e−3 per M) read as
+about twice the literature's two decades in 10 ms (≈ 2.3e−3 per M on
+average); the 2000 M run showed why: the decay slows (1.3e−3 per M over
+1500–2000 M) and reaches two decades at 1960 M, 9.65 ms, as the literature
+does. Step 12 proposed that the confined-star runs stay a study, with the
+initial field in the suite, since the cheapest run that separates σ₀ = 100
+from 10⁶ takes 740 s on 96 threads.
+
+**2026-11-16, step 12, after review: the magnetized star coupled.** After Erik's
+decision that rung 6 runs coupled, the cutoff study was repeated in the evolved
+spacetime (`coupled/magnetized_tov_study.jl`; Trillium, AMD EPYC 9655, 96
+threads): the dipole star at `h = 0.5, 0.375, 0.25` to 50 M at three
+thresholds — the literature's squared profile at `ρ_min = 10⁻¹⁰`, the linear one
+at `100 ρ_min` and `10⁴ ρ_min` — jobs 2873324–2873332, and at `h = 0.5` with
+`ρ_min = 10⁻¹²` at `10⁴` and `10⁶ ρ_min`, jobs 2873333–2873334. Wall times
+713–1014 s at `h = 0.5`, 1585–2038 s at `0.375` and 6259–7883 s at `0.25`. Erik
+had asked for `h = 0.25` to be submitted early and cancelled, on his decision,
+if the coarser runs were conclusive first; they finished within 2.2 h, before
+any question was due. The result, `CODE.md`'s rung 6: at `10⁻⁶` the drift
+converges at 1.4–2.6; at `10⁻¹⁰` and `10⁻⁸` it does not over the first 10 M
+(rates 0.33–0.74), as on the Cowling metric; the constraints do not depend on
+the threshold. The Cowling star's own exterior drift, which had been rung 6's
+record, became the cheaper check's. One thing the Cowling studies did not
+show: the rest-mass budget, 7.7e−15 on the Cowling metric, is up to 2.2e−12 at
+`ρ_min = 10⁻¹⁰` coupled and 2.1e−14 at `10⁻¹²`, the atmosphere entering at the
+outer faces as in rung 5 (not measured further).
+
+**2026-11-17, step 12, after review: the confined-field star coupled.** Asked
+"What next for step 12?", Erik chose "Confined star coupled": the Cowling
+confined-field study repeated through `coupled/`, with two runs to 2000 M at
+`h = 0.5`, σ₀ = 100 against the Cowling run and the literature's two decades,
+and σ₀ = 10⁶ to see whether the late artificial rise of the central field that
+GRaM-X and Dionysopoulou et al. report at 7–9 ms appears. Run on Trillium (AMD
+EPYC 9655, 96 threads; jobs 2878575–2878589, and 2880717 for the rest-mass
+budget at `ρ_min = 10⁻¹²`; the record is `CODE.md`, "Validation ladder" 6).
+The coupled runs use rung 5's box, `[−24, 24]³` with one box level, where the
+Cowling runs had `[−12, 12]³` uniform: at `L = 12` TreeGH's outer boundary
+would sit about 4 M beyond the surface. The star's level has the same `h` in
+both. `h = 0.75` was dropped, since a coupled block needs `N ≥ 10`. The 2000 M
+runs were estimated at about 8 h before submission and took 10.1 and 10.4 h.
+On the way, the ssh connection to Trillium lapsed once, its new login needing
+Erik's second factor; the runs were collected after he reopened it. The
+result: the central field follows the Cowling star's to 0.4%, the difference
+falling with `h`; σ₀ = 10⁶ shows no late rise to 9.85 ms; the rest-mass
+budget, 6.8e−10 over 2000 M, was checked at `ρ_min = 10⁻¹²` (98 times
+smaller), so it is the atmosphere at the outer faces, as for the dipole star;
+and the 2000 M series gives F and H1 within 0.6% of Font et al.'s Table II,
+where rung 5's unmagnetized 1000 M run at the same `h` missed H1 by 6.8%.
+
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%
 and H1 −0.20%, where rung 5's table at the same `h` had F +0.78% and H1
@@ -5050,6 +5273,9 @@ become since, had not been put through it. One variable at a time:
   and +0.76%;
 - **`ρ_min`** does not: 10⁻¹⁰, 10⁻¹², 10⁻¹⁴ at `h = 0.5` to 300 M
   (598455–598457) move F and H1 by at most 0.08%;
+- **the magnetized case** does not: the confined star (field, σ, `ρ_min =
+  10⁻¹⁰`) matches the unmagnetized fourth-order run over 2–300 M to four
+  digits in F, H1 and H2, and its `ρ_c` at 2 M to seven;
 - **the excitation**: the mean's start (`ℋ` inside 100–260 times the
   fourth order's at `t = 0`) gives F 9–14 times the amplitude and the
   spacetime's lines (2.8, 5.3, 7.3 kHz) about ten times; H1's window then
@@ -5457,3 +5683,47 @@ The coupled suite, `coupled/runtests.jl`, which is new: 20 tests, then 22
 with the fill key's testset (c7e5eb2). At one thread, at four and with
 bounds checks it took 4m35.2s, 3m31.0s and 4m42.9s at 23f8b36, and 3m37.5s,
 2m47.2s and 3m31.1s at c7e5eb2.
+
+**2026-11-15, step 12.** The suite with `test/magnetized_tov_tests.jl`
+(dc8214b), on the laptop only (Apple M-series, aarch64, Julia 1.13.4), since
+every CPU node of Symmetry was down: **26635 tests, every run passing
+whole** — 13m01.6s at one thread, 11m05.3s at four, 15m36.4s with
+`--check-bounds=yes`. The new file alone, full tier, at four threads:
+39 tests in 1m38s, of which the `@full_tier` convergence run (`h = 1/2` to
+`2M`) takes 39 s and the `h = 1` run 83 s, most of it compilation.
+
+The clean-checkout check (no `Manifest.toml`, a `git archive` of 603c63b,
+Julia 1.13.4, four threads, laptop): **26635/26635** in 13m04.0s.
+
+**2026-11-15, step 12, on Trillium** (SciNet; AMD EPYC 9655, whole nodes;
+Julia 1.13.4; the depot on scratch, the jobs offline). The suite at 01ff9cf, the
+case at `cutoff = 10⁴`: **26635 tests, every run passing whole** — 13m33.6s at one
+thread (tri0008, job 2865283), 10m42.2s at four (tri0021, 2865282), 16m33.3s with
+`--check-bounds=yes` (tri0021, 2865284), and 10m07.3s at four threads in the clean
+checkout (`git archive`, no `Manifest.toml`, resolved on the login node; tri0171,
+2865285). The coupled suite: 25/25 at one thread (3m01.2s), at four (2m24.4s) and
+at four with bounds checks (3m04.4s) (tri0369, 2865286). At 2cc2faa, before the
+cutoff, the same runs had passed too (26635; 13m40.4s, 10m08.3s, 16m39.2s,
+10m57.6s; coupled 25/25 ×3; jobs 2864691–2864695).
+
+**2026-11-16, step 12, after review** (Trillium, AMD EPYC 9655). The suite at
+a237712, with the squared profile and the confined field: **26658 tests, every
+run passing whole** — 18m09.9s at one thread (tri0349, job 2870892), 11m02.5s at
+four (tri0103, 2870891), 16m36.0s with `--check-bounds=yes` (tri0033, 2870893),
+10m09.5s in the clean checkout at four threads (tri0103, 2870894). The coupled
+suite: 25/25 at one thread (3m01.4s), four (2m33.2s) and four with bounds checks
+(3m01.3s) (tri0370, 2870895).
+
+**2026-11-16, step 12, rung 6 coupled** (Trillium, AMD EPYC 9655). The coupled
+suite with the magnetized star's two testsets, on the tree of this change
+before its commit: **32/32** at one thread (3m21.7s), four (2m36.8s) and four
+with bounds checks (3m19.6s) (tri0143, job 2873387). Nothing under `src/` or
+`test/` changed, so the package's suite was not rerun.
+
+**2026-11-17, step 12, σ's threshold as a density** (Trillium, AMD EPYC 9655). The
+suite at 4edf568, with the new testset (6 tests): **26664 tests, every run passing
+whole** — 13m34.9s at one thread (tri0839, job 2878361), 10m07.2s at four (tri0846,
+2878362), 16m24.0s with `--check-bounds=yes` (tri1121, 2878363), 11m00.9s in the
+clean checkout at four threads (`git archive`, no `Manifest.toml`, resolved on the
+login node; tri0466, 2878369). The coupled suite: 32/32 at one thread (3m19.7s),
+four (2m45.1s) and four with bounds checks (3m22.3s) (tri0726, 2878364).

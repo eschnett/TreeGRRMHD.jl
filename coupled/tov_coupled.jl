@@ -124,13 +124,17 @@ end
 # with `γ0M = 1/10`, `γ2 = 0`, `ε_KO = 1/2`. `γ0M = 1`, TreeGH's value at a hole, grows a
 # mode of the star e-folding in about 36 M ("Two scripts", "As built" in `CODE.md`).
 # `order` is the matter's transfer to the vertices, 2 or 4 (4, decided in step 11);
-# `ρ_min` the atmosphere's density (1e−12, decided in step 11).
+# `ρ_min` the atmosphere's density (1e−12, decided in step 11). `case` replaces the star by
+# another case on the same `Analytic(TOVMetric)`, the magnetized star of rung 6
+# (`magnetized_tov_study.jl`), which then holds its own `L`, `roots`, `ρ_min` and velocity.
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
                   refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0, δv=(0, 0, 0),
-                  order=4, ρ_min=1e-12)
+                  order=4, ρ_min=1e-12, case=nothing)
     order in (2, 4) || throw(ArgumentError("the transfer order is 2 or 4, got $order"))
-    star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots, ρ_min, δv,
-                        δv_modes=:coupled)
+    case === nothing || all(iszero, δv) || throw(ArgumentError(
+        "δv perturbs `tov_case`'s star; a `case` holds its own velocity."))
+    star = case !== nothing ? case :
+           MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots, ρ_min, δv, δv_modes=:coupled)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
     tov = star.provider.metric

@@ -144,11 +144,12 @@ end
 The Cowling star's static refinement: `levels` times, every leaf that meets
 the cube `[−half_width, half_width]³` around the star (`R̄` its isotropic
 radius) and is coarser than the level being made is refined, and the forest
-rebalanced, so that the whole star and its surface lie on the finest level.
+rebalanced, so that the whole star and its surface lie on the finest level. The case is
+[`tov_case`](@ref)'s or [`magnetized_tov_case`](@ref)'s.
 For `evolve!`'s `refine`: `refine = f -> tov_boxes!(f, case; levels = 2)`.
 """
 function tov_boxes!(forest::Forest{3,T}, case::MHDCase; levels::Integer=1,
-                    half_width=5 * case.fields.w.metric.R̄ / 4) where {T}
+                    half_width=5 * star_metric(case.fields.w).R̄ / 4) where {T}
     a = T(half_width)
     meets(k) = all(e -> e[1] < a && e[2] > -a, block_extent(T, forest, k))
     for ℓ in 1:levels

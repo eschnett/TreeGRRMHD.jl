@@ -257,3 +257,75 @@ end
              limiter=:mc, refinement, mhd_flags, record=(t, ρ_c, c) -> nothing)
     @test all(isfinite, s.u) && nblocks(s.p.gh.U) > n0
 end
+
+# The magnetized star of rung 6 ("Validation ladder" 6 in `CODE.md`) on `[−12, 12]³`, three
+# roots, no boxes, at `N = 10` (`h = 0.8`), through `problems(; case)`.
+ct_magnetized(B_c) = problems(Float64; N=10, levels=0, limiter=:ppm,
+                              case=MHD.magnetized_tov_case(Float64; σ₀=1e6, μ_max=10, B_c,
+                                                           L=12, roots=3))
+
+@testset "The magnetized star's field crosses to TreeGH as its energy ½B²" begin
+    # Guards rung 6 in the evolved spacetime (step 12, after review): the field's
+    # stress-energy reaches TreeGH through `ADMMatter`, which the package's suite checks
+    # only without a field. The same star with and without its field differs at every
+    # vertex by the eight-cell mean of the field's energy density `½B²` (`E = 0`), largest
+    # at the centre: a transfer that dropped the fields, or took `𝔅` for `B`, would miss
+    # it. The mean (the per-call form) is linear in the cells; the fourth-order form
+    # switches to the mean near the surface where the two stars' fluid differs at
+    # round-off, which moves its difference there by up to `B²`, so it is not the measure.
+    function energies(B_c)
+        (; p, u) = ct_magnetized(B_c)
+        metric = metric_at(p, u, 0.0)
+        MHD.prepare!(p.mhd, view(u, p.s[2]), 0.0; metric)
+        at = MHD.ADMMatter(p.mhd)(p.vm.M)
+        e = [at(n, b).ρ for (n, b) in ct_vertices(p.vm)]
+        prof = MHD.cell_profile(p.mhd, view(u, p.s[2]), 0.0; metric)
+        return e, MHD.field_diagnostics(prof; radius=1.0).B_max
+    end
+    e1, B_max = energies(1e-4)
+    e0, _ = energies(0.0)
+    δ = maximum(e1 - e0)
+    @info "Magnetized star at N = 10: the vertices' largest ρ difference $(ct3(δ)), " *
+          "½B_max² $(ct3(B_max^2 / 2)); smallest $(ct3(minimum(e1 - e0)))"
+    @test isapprox(δ, B_max^2 / 2; rtol=1e-2)
+    @test minimum(e1 - e0) > -1e-15
+end
+
+@testset "The magnetized star runs coupled: ∇·B at round-off, its rest mass the reset's" begin
+    # Guards `problems(; case)` and the magnetized star in the evolved spacetime (step 12,
+    # after review; `magnetized_tov_study.jl`): its field and conductivity kept on the way,
+    # the potential filled with its hook in TreeGH's metric, the stage solve by fixed point
+    # throughout the star. Two chunks to `t = 1` at `h = 0.8`.
+    (; p, u, forest, star) = ct_magnetized(1e-4)
+    R̄ = star.fields.w.star.metric.R̄
+    M0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))[1]
+    prof0 = MHD.cell_profile(p.mhd, view(u, p.s[2]), 0.0; metric=metric_at(p, u, 0.0))
+    cfl_mhd = Float64(MHD.default_cfl(:ppm))
+    t, integ, injected, inside = 0.0, nothing, 0.0, [0, 0]
+    for t1 in (0.5, 1.0)
+        MHD.clear_tally!(p.mhd)
+        nsteps = step_count(p, u, t, t1, forest, 0.5, cfl_mhd)
+        prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
+        integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=(t1 - t) / nsteps,
+                         stage_limiter=stage_limit!, step_limiter=step_limit!,
+                         partition=:even, alias_u0=true, reuse=integ)
+        MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
+        t = t1
+        injected += MHD.ohm_tally(p.mhd).injected_D
+        e = MHD.ohm_map(p.mhd, x -> sum(abs2, x) < R̄^2 ? 1 : 2, 2)[1]
+        inside .+= (sum(e.bits[1:5]), e.bits[3])
+    end
+    um = view(u, p.s[2])
+    ΔM = MHD.conserved_totals(p.mhd, um)[1] - M0
+    divB = MHD.max_div_B(p.mhd, um, t)
+    prof = MHD.cell_profile(p.mhd, um, t; metric=metric_at(p, u, t))
+    dr = MHD.field_drift(prof, prof0; radius=R̄)
+    @info "Magnetized star coupled, h = 0.8, t = 1: ∇·B $(ct3(divB)); rest mass change " *
+          "$(ct3(ΔM)), injected $(ct3(injected)); stages inside $(inside[1]), fixed point " *
+          "$(inside[2]); drift inside $(ct3(dr.inside)), outside $(ct3(dr.outside))"
+    @test all(isfinite, u)
+    @test divB < 1e-14
+    @test abs(ΔM - injected) < 1e-14 * M0
+    @test inside[1] > 0 && inside[2] == inside[1]
+    @test dr.inside < 2e-2 && dr.outside < 1e-2
+end
