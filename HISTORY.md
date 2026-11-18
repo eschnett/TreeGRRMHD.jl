@@ -5032,6 +5032,43 @@ and 2.14 at 1e−10. Over 50 M windows from 300 M, the 1e−10 runs also fall to
 2.03, 2.24 at 1e−12. The outside norm is the spacetime's error in a region holding
 only atmosphere, and a 20 M window does not average its noise below about ±0.2.
 
+**2026-11-18, step 11, from step 12's review: why the unperturbed H1
+missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%
+and H1 −0.20%, where rung 5's table at the same `h` had F +0.78% and H1
++6.82%; they disagreed in F too, by 1.3%. Erik chose "Look into H1 first".
+From the existing series on Symmetry (`/mnt/beegfs/eschnetter/claude/step11/`,
+`v2`, `v4`, `v8`, `v9`), with no new run: `bin/tov_modes.jl` reproduces rung
+5's table to the last digit from jobs 595407–595409, the first 1000 M
+studies, which used the mean transfer at `ρ_min = 10⁻¹⁰`; the fourth-order
+studies at `10⁻¹²` (598575–598577), which the coupled script's defaults had
+become since, had not been put through it. One variable at a time:
+- **the transfer** decides: the 1000 M runs at `h = 0.6, 0.5, 0.375` put F
+  at +0.71%, +0.78%, +0.67% and H1 at −19.81%, +6.82%, +8.38% with the
+  mean, and F at −0.74%, −0.69%, −0.02% and H1 at −1.43%, −0.83%, −0.64%
+  with the fourth order; the `h = 0.25` pair to 300 M at one commit
+  (596587, 596600), which differs only in the transfer, puts H1 at +6.10%
+  and +0.76%;
+- **`ρ_min`** does not: 10⁻¹⁰, 10⁻¹², 10⁻¹⁴ at `h = 0.5` to 300 M
+  (598455–598457) move F and H1 by at most 0.08%;
+- **the excitation**: the mean's start (`ℋ` inside 100–260 times the
+  fourth order's at `t = 0`) gives F 9–14 times the amplitude and the
+  spacetime's lines (2.8, 5.3, 7.3 kHz) about ten times; H1's window then
+  holds a line at 3.17, 4.23 or 4.29 kHz, by `h`, larger than anything near
+  H1;
+- **the window**: on a common grid (every 2 M, 2–1000 M) the three runs keep
+  their values, so the analysis was not the cause.
+
+Why the mean's F sits 0.7% high at every `h` is not separated. So "unperturbed,
+H1 and H2 miss" held only for the mean; with the fourth order H1 holds the 3%
+from `h = 0.6` and H2 still misses. `CODE.md`'s rung 5 had shown the mean's
+table, now replaced, with this commentary: F's peak 100 times the others; the
+5.29 kHz peak in H2's window, the strongest line of `ℋ` inside the star, its
+amplitude in `ρ_c` converging at 1.9; H1's peak moving with the window and the
+detrending (4.06–4.35 kHz at `h = 0.375`), and over `[0, 500]` M alone H1
++3.17% or +2.52% (detrending degree 1 or 3) and H2 +1.31% at `h = 0.375`, H1
++19.9% or +3.2% and H2 +2.0% at `h = 0.5`, both failing at `h = 0.6` — a
+window picked after seeing the spectra, so recorded as a miss.
+
 ## Open questions
 
 **2026-09-25.** The question whether the atmosphere reset needs its

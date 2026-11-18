@@ -20,10 +20,10 @@ steps of the plan"](HISTORY.md#the-steps-of-the-plan)); step 10 is the TOV
 star in the Cowling approximation on the analytic TOV metric, with no
 TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
 the coupled run, is built and measured ("Validation ladder" 5): F within
-1%; H1 and H2, excited along their eigenfunctions, within 1% of Font et
-al. at `h = 0.25`; the constraints converge at 1.8 or better to 1000 M,
-inside and outside the star, but for `ℋ` outside at 1.76 over one 20 M
-window; the rest mass changes by 1.3e−12 of 1.506 over 1000 M at
+1%, and H1 within 1.5% from `h = 0.6`; H1 and H2, excited along their
+eigenfunctions, within 1% of Font et al. at `h = 0.25`; the constraints
+converge at 1.8 or better to 1000 M, inside and outside the star, but
+for `ℋ` outside at 1.76 over one 20 M window; the rest mass changes by 1.3e−12 of 1.506 over 1000 M at
 `h = 0.375` net of the reset, at a rate of about 3, entering with the
 atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
 (TreeGH's regrid verbs), each with a workaround in `coupled/`
@@ -2776,9 +2776,12 @@ the mean is 1.2% of `e_c` off inside the star, and the interpolation is
 converges at 2.0 with the mean and at 3.93–3.98 with the interpolation,
 which is 160–400 times smaller at `h = 0.6` to 0.3. So the coupled runs
 use the fourth order: the script's `order` (2 or 4) defaults to 4. The
-modes do not decide between the two: at `h = 0.25` both put H1 and H2
-within 1% of Font et al., the mean the closer ("Validation ladder" 5,
-"The transfer order"); the constraints do. From 250 M to 1000 M, `ℋ` outside
+perturbed star's modes do not decide between the two: at `h = 0.25` both
+put H1 and H2 within 1% of Font et al., the mean the closer ("Validation
+ladder" 5, "The transfer order"). The unperturbed star's do: the mean's
+start excites the spacetime's lines so strongly that H1 is lost among
+them, where the fourth order finds it within 1.5% ("Validation ladder" 5,
+"Modes"). The constraints decide too. From 250 M to 1000 M, `ℋ` outside
 the star is 10–14 times smaller with the fourth order, and converges at 1.88
 or better where the mean's fell to 1.74. The mean stays for comparison
 and for the per-call adapter.
@@ -5103,26 +5106,33 @@ named as claims.
      `tov_case`'s 1e−10: the rest-mass budget falls a hundredfold, and the
      EOS's lower bound (1e−14) keeps a factor 100 of margin.
    - **Modes** (`bin/tov_modes.jl ref=coupled`, the whole series, 0.20 kHz
-     resolution), against Font et al. (2002), Table II (1.442, 3.955,
-     5.916 kHz):
+     resolution, of the fourth-order studies, jobs 598575–598577), against
+     Font et al. (2002), Table II (1.442, 3.955, 5.916 kHz):
 
      | `h` | F | H1 | H2 |
      |---|---|---|---|
-     | 0.6 | 1.452 (+0.71%) | 3.171 (**−19.81%**) | 5.282 (**−10.71%**) |
-     | 0.5 | 1.453 (+0.78%) | 4.225 (**+6.82%**) | 5.298 (**−10.44%**) |
-     | 0.375 | 1.452 (+0.67%) | 4.287 (**+8.38%**) | 5.292 (**−10.56%**) |
+     | 0.6 | 1.431 (−0.74%) | 3.898 (−1.43%) | 5.292 (**−10.56%**) |
+     | 0.5 | 1.432 (−0.69%) | 3.922 (−0.83%) | 5.256 (**−11.15%**) |
+     | 0.375 | 1.442 (−0.02%) | 3.930 (−0.64%) | 6.497 (**+9.82%**) |
 
-     **F holds the 3%; H1 and H2 fail it.** F's peak is 100 times the
-     others: the coupled run's start excites F, and little else. The
-     peak in H2's window, 5.29 kHz at every resolution, is the spacetime's,
-     not the star's: it is the strongest line of `ℋ` inside the star, as
-     are 2.79 and 7.33 kHz, which also appear in `ρ_c`. Its amplitude in
-     `ρ_c` converges at 1.9. H1's peak moves with the window and the
-     detrending (4.06–4.35 kHz at `h = 0.375`). Over `[0, 500]` M alone,
-     at `h = 0.375`, the tool gives H1 +3.17% or +2.52% (detrending degree
-     1 or 3) and H2 +1.31%; at `h = 0.5`, H1 +19.9% or +3.2% and H2 +2.0%;
-     at `h = 0.6` both fail. A window picked after seeing the spectra is
-     not the measure, so this is a miss.
+     **F and H1 hold the 3%; H2 fails it.** F's peak is 7–27 times
+     H1's, and the peak in H2's window is 4–10 times below H1's and moves
+     with `h`: the start excites F, H1 a little, and H2 not measurably.
+     `ρ_min` (10⁻¹⁰, 10⁻¹², 10⁻¹⁴; jobs 598455–598457) moves F and H1 by
+     at most 0.08%.
+     **The transfer decides H1.** With the mean (jobs 595407–595409,
+     `ρ_min = 10⁻¹⁰`) F is +0.71%, +0.78%, +0.67% and H1 misses
+     (−19.81%, +6.82%, +8.38%), as does H2 (−10.71%, −10.44%, −10.56%).
+     The mean's start, `ℋ` inside 100–260 times the fourth order's at
+     `t = 0`, kicks F 9–14 times harder and the spacetime's lines about
+     ten times harder: 2.8, 5.3 and 7.3 kHz, the strongest lines of `ℋ`
+     inside the star, which appear in `ρ_c`. H1's window then holds a
+     line larger than anything near H1 (3.17, 4.23 and 4.29 kHz by `h`;
+     at `h = 0.375` a smaller peak at 3.82). The pair at `h = 0.25` to
+     300 M that differs only in the transfer (jobs 596587, 596600) puts
+     H1 at +6.10% with the mean and +0.76% with the fourth order. Why the
+     mean's F sits 0.7% high at every `h` is not separated (its
+     amplitude is larger, and its `ρ_c` drifts more).
    - **The perturbed star** (proposed, to excite the overtones above the
      spacetime's lines). `tov_case(T; δv = (a₁, a₂, a₃), δv_modes)` starts
      the star moving in its radial modes F, H1 and H2 at the phase of zero
