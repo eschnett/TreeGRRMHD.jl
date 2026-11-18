@@ -609,6 +609,12 @@ their acceptance:
 >   fails outside the atmosphere in at most 10 cells at a time over 50 M); with it, nothing can be
 >   measured, so whether `D s` earns its keep stays open.
 
+**2026-11-18, AMR-5 found landed.** Erik pointed out that AMR-5
+(`workgroupsize` on `map_blocks!`) is done. It landed in TreeAMR 0.2.1
+(a0a977b), as `CODE.md`'s list of TreeAMR's items and `PLAN.md`'s table
+already said, but step 14 still listed it under "Waits" and `CODE.md`'s
+AMR-5 item did not say how it landed. Step 14 now waits for nothing.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

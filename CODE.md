@@ -256,7 +256,10 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   [Refinement](#refinement) for what upstream's design assumes of this
   package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
-  TreeGH's list).
+  TreeGH's list). *Landed in TreeAMR 0.2.1, commit a0a977b:*
+  `map_blocks!(kernel!, fs, args...; workgroupsize = nothing)` hands it to
+  the KernelAbstractions launch on a device and ignores it on the CPU, where
+  the workgroup is the block, so a caller may pass it on every backend.
 - **AMR-6 (later) A device-capable boundary hook that reads the interior**,
   for outflow conditions. *Landed in another form, TreeAMR 0.2.1, commit
   a983419:* not a hook but a face kind, `Forest(roots; …, outflow =

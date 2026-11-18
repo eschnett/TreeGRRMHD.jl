@@ -708,7 +708,7 @@ Accept:
 
 ## Step 14 — Precision, threads, devices, benchmark
 
-Waits: AMR-5 (wanted).
+Waits: nothing. AMR-5 (wanted) has landed in TreeAMR 0.2.1.
 
 Changes:
 - Device tests behind `TREEGRRMHD_TEST_BACKEND` (`cuda`, `metal`).
