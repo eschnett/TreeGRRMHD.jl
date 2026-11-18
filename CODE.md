@@ -14,33 +14,36 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3 and 5 to 10 of `PLAN.md` are done, as are steps 4a–4c
+*Status: steps 0 to 3 and 5 to 12 of `PLAN.md` are done, as are steps 4a–4c
 in IMEXRungeKutta (what each delivered is recorded in [HISTORY.md, "The
-steps of the plan"](HISTORY.md#the-steps-of-the-plan)); step 10 is the TOV
+steps of the plan"](HISTORY.md#the-steps-of-the-plan)). Step 10 is the TOV
 star in the Cowling approximation on the analytic TOV metric, with no
-TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11,
-the coupled run, is built and measured ("Validation ladder" 5): F within
-1%, and H1 within 1.5% from `h = 0.6`; H1 and H2, excited along their
-eigenfunctions, within 1% of Font et al. at `h = 0.25`; the constraints
-converge at 1.8 or better to 1000 M, inside and outside the star, but
-for `ℋ` outside at 1.76 over one 20 M window; the rest mass changes by 1.3e−12 of 1.506 over 1000 M at
-`h = 0.375` net of the reset, at a rate of about 3, entering with the
-atmosphere (`ρ_min = 1e−12`) at the outer faces. Two of its upstream items are open, GH-2 (registration) and GH-7
-(TreeGH's regrid verbs), each with a workaround in `coupled/`
-([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12, the
-magnetized star, is built and measured in the evolved spacetime and, as a
-cheaper check, on the Cowling metric ("Validation ladder" 6): `∇·B` at
-round-off; coupled, the exterior dipole's drift converging at 1.4–2.6 to
-50 M (`h = 0.5 … 0.25`) once σ is zero below `ρ = 10⁻⁶`, a density of the
-star's and not a multiple of `ρ_min`; `E·B` inside converging at 1.7–2.3;
-the constraints at 1.7 or better; the stage solve by fixed point everywhere
-inside the star; its entropy fallback waits for EOS-3. The literature's
-confined-field star, coupled, loses its central field to the scheme at
-2.9–4.2 in `h` and at σ₀ = 100 falls by two decades in 9.6 ms, as GRaM-X's
-and Dionysopoulou et al.'s do, within 0.4% of the Cowling star's; at σ₀ = 10⁶
-its central field shows no late rise to 9.85 ms, and its central density
-gives F and H1 within 0.6% of linear theory. The numbers below
-about the scheme are measured where they say so and unmeasured otherwise.*
+TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11
+is the same star in TreeGH's evolved spacetime ("Validation ladder" 5): F
+within 1%, and H1 within 1.5% from `h = 0.6`; H1 and H2, excited along
+their eigenfunctions, within 1% of Font et al. at `h = 0.25`; the
+constraints converge at 1.8 or better to 1000 M, inside and outside the
+star, but for `ℋ` outside at 1.76 over one 20 M window; the rest mass
+changes by 1.3e−12 of 1.506 over 1000 M at `h = 0.375` net of the reset,
+at a rate of about 3, entering with the atmosphere (`ρ_min = 1e−12`) at
+the outer faces. Two of its upstream items are open, GH-2 (registration)
+and GH-7 (TreeGH's regrid verbs), each with a workaround in `coupled/`
+([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12 is the
+magnetized star, in the evolved spacetime and, as a cheaper check, on the
+Cowling metric ("Validation ladder" 6): `∇·B` at round-off; coupled, the
+exterior dipole's drift converging at 1.4–2.6 to 50 M (`h = 0.5 … 0.25`)
+once σ is zero below `ρ = 10⁻⁶`, a density of the star's and not a
+multiple of `ρ_min`; `E·B` inside converging at 1.7–2.3; the constraints
+at 1.7 or better; the stage solve by fixed point everywhere inside the
+star. Its entropy fallback waits for EOS-3, so whether `D s` earns its
+keep stays open ("Open questions"). The literature's confined-field star,
+coupled, loses its central field to the scheme at 2.9–4.2 in `h` and at
+σ₀ = 100 falls by two decades in 9.6 ms, as GRaM-X's and Dionysopoulou et
+al.'s do, within 0.4% of the Cowling star's; at σ₀ = 10⁶ its central
+field shows no late rise to 9.85 ms, and its central density gives F and
+H1 within 0.6% of linear theory. Step 13 waits for EOS-4. The numbers
+below about the scheme are measured where they say so and unmeasured
+otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
 confirmed; **(open)** is deferred to a measurement or to a later review and
@@ -199,10 +202,13 @@ item needs it.
 - TreeGeneralizedHarmonic **0.1.1** on its `main`, with `adm_vars` and
   `ADMMetric`, and Adapt as a new direct dependency, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 is
-  landed, `ADMMetric`, TreeGH's PR 25 (61bcb75); GH-3 and GH-4 have not;
-  GH-2 is open (see `PLAN.md`); GH-5 is withdrawn. TreeGH is not a
-  dependency of this package at all, so the suite cannot detect its items;
-  how step 11's coupled tests load it is (open).
+  landed, `ADMMetric`, TreeGH's PR 25 (61bcb75); GH-3 (79ad132) and GH-4
+  (0cd5f00) have landed on its `main`; GH-2 is open (see `PLAN.md`), GH-7
+  is wanted, each with a workaround; GH-5 is withdrawn. TreeGH is not a
+  dependency of this package at all, so the package's suite cannot detect
+  its items: `coupled/`, an environment of its own, loads TreeGH through
+  `[sources]` beside this checkout, and its suite reports them ("The
+  coupling contract").
 
 The unregistered dependencies are named in `Project.toml`'s `[sources]`
 with their GitHub remotes; nothing resolves from a sibling checkout.
@@ -250,7 +256,10 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   [Refinement](#refinement) for what upstream's design assumes of this
   package.
 - **AMR-5 (wanted, step 14) `workgroupsize` on `map_blocks!`** (also on
-  TreeGH's list).
+  TreeGH's list). *Landed in TreeAMR 0.2.1, commit a0a977b:*
+  `map_blocks!(kernel!, fs, args...; workgroupsize = nothing)` hands it to
+  the KernelAbstractions launch on a device and ignores it on the CPU, where
+  the workgroup is the block, so a caller may pass it on every backend.
 - **AMR-6 (later) A device-capable boundary hook that reads the interior**,
   for outflow conditions. *Landed in another form, TreeAMR 0.2.1, commit
   a983419:* not a hook but a face kind, `Forest(roots; …, outflow =
@@ -637,15 +646,15 @@ al. 2025, arXiv:2510.18968, Eq. 61) — `power = 2`, `cutoff = 1`, there in
 arXiv:1502.02021, Eq. 22) take a smoothed step at `100 D_atm`, because
 winds fill the domain, and call that choice arbitrary. Palenzuela (2013,
 arXiv:1212.0130) switches to a force-free exterior between 50 and 400
-`ρ_atm`. *The shape is kept* (proposed): the linear form stays the
+`ρ_atm`. *The shape is kept*: the linear form stays the
 default, since the squared one changes nothing measured ("Validation
-ladder" 6). *The threshold is the star's, a density* (proposed): σ is
+ladder" 6). *The threshold is the star's, a density*: σ is
 zero below `ρ = 10⁻⁶` on the magnetized star (about `8·10⁻⁴ ρ_c`), whatever
 `ρ_min` is. At `ρ_min = 10⁻¹²` a threshold of `10⁴ ρ_min = 10⁻⁸` drifts as
 `100 ρ_min` does at `10⁻¹⁰`, and `10⁶ ρ_min = 10⁻⁶` as `10⁴ ρ_min` does, to
 three digits ("Validation ladder" 6), so the threshold belongs to the gas
 outside the star, not to the atmosphere's floor. So the case takes it as a
-density, `ρ_cut` (proposed; `magnetized_tov_case`'s default `10⁻⁶`, below),
+density, `ρ_cut` (`magnetized_tov_case`'s default `10⁻⁶`, below),
 through `DensityProfile(σ₀; ρ_cut, power)`, which is `ρ_atm = ρ_cut`,
 `cutoff = 1`; the form `cutoff · ρ_atm` stays `DensityProfile`'s positional
 one, for a model that does follow the floor. Changing `ρ_min` leaves the
@@ -3096,7 +3105,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
 
 Dirichlet from the initial or analytic state, through
 `CellBoundary(AllVariables(…))` on every set, for everything up to the
-magnetized TOV star (proposed): shock tubes until a wave arrives, the
+magnetized TOV star: shock tubes until a wave arrives, the
 Kerr-Schild tests from the analytic solution, the stars from the static
 exterior (atmosphere, the initial `A` and `Φ̃ = 0`, `E` of the static
 dipole). TreeAMR 0.2.1 has outflow faces (AMR-6), for whichever later rung
@@ -5216,7 +5225,7 @@ named as claims.
      H1 at +6.10% with the mean and +0.76% with the fourth order. Why the
      mean's F sits 0.7% high at every `h` is not separated (its
      amplitude is larger, and its `ρ_c` drifts more).
-   - **The perturbed star** (proposed, to excite the overtones above the
+   - **The perturbed star** (to excite the overtones above the
      spacetime's lines). `tov_case(T; δv = (a₁, a₂, a₃), δv_modes)` starts
      the star moving in its radial modes F, H1 and H2 at the phase of zero
      displacement, mode `n` with the amplitude `aₙ` in `ρ_c/ρ_c` (`aₙ > 0`
@@ -5342,11 +5351,11 @@ named as claims.
      included, crosses back through `ADMMatter`. The case itself is built
      on `Analytic(TOVMetric)`, and on that Cowling metric it, its suite
      test and `bin/magnetized_tov_study.jl` stay as the cheaper check
-     the package's own suite can run without TreeGH (proposed): the field
+     the package's own suite can run without TreeGH: the field
      is a test field (below), its stress-energy `10⁻⁵` of the star's, and
      the two spacetimes give the shell's drift to three digits through
      20 M and within 7% at 50 M (measured below).
-   - **The exterior** (proposed): the static, current-free dipole of the
+   - **The exterior**: the static, current-free dipole of the
      Schwarzschild spacetime outside the star (Wasserman & Shapiro 1983),
      `A_φ = 3μ sin²θ S(x)/r`, `x = 2M/r`, `S = Σ_{k≥3} x^{k−3}/k`, which
      is `μ sin²θ/r` far away. `A_φ` is the same covariant component in
@@ -5370,10 +5379,10 @@ named as claims.
      0.15 M (0.443, 0.295, 0.222 km in Dionysopoulou et al.), with the
      same σ threshold in both spacetimes. So this rung's criterion, that
      the exterior's drift converges, is stricter than the literature's;
-     it is kept (proposed). "Vacuum `E` outside" is
+     it is kept. "Vacuum `E` outside" is
      therefore `E = 0` for a static star; a rotating one would need the
      exterior's own `E`.
-   - **The interior** (proposed): `a(u)` continued inside `u = R̄²` by the
+   - **The interior**: `a(u)` continued inside `u = R̄²` by the
      quadratic in `u` that matches the exterior's value and first two
      derivatives at the surface, so `B` and the current are continuous and
      the current falls to zero at the surface, where σ does. Poloidal and
@@ -5382,15 +5391,15 @@ named as claims.
      which makes `E·B` inside a measure of the scheme's error alone. The
      central field sets `μ`: `B_c` is the contravariant `Bᶻ` at the centre
      (default `10⁻⁴`; the norm there is `ψ_c² B_c = 1.43 B_c`, and
-     `B²/(2p) = 6·10⁻⁵`, Heaviside–Lorentz geometric units; proposed: the
+     `B²/(2p) = 6·10⁻⁵`, Heaviside–Lorentz geometric units; the
      component is the convention that reproduces GRaM-X's `B_c` from its
      `A_b`): a test field, its Lorentz force far below the Cowling star's
      own truncation error.
-   - **The conductivity** (proposed):
+   - **The conductivity**:
      `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)`, `σ₀`
      and `μ_max` with no default; the suite and the studies take
      `σ₀ = 10⁶` (σΔt ≈ 10⁵ at `h = 1`) and `μ_max = 10`. **σ is zero
-     below `ρ_cut = 10⁻⁶`** (the case's default; proposed), a density of
+     below `ρ_cut = 10⁻⁶`** (the case's default), a density of
      the star's and not of `ρ_min` (measured below). The default belongs
      to this star: `10⁻⁶` is about `8·10⁻⁴ ρ_c` at `ρ_c = 1.28·10⁻³`,
      and only the outer 0.0093 M of `R = 9.586 M` lies below it, so it
@@ -5585,7 +5594,7 @@ named as claims.
    GRaM-X's (Azizi et al. 2025, Eq. 60, Sec. IV.5.1) star. The
    conductivity is theirs too, `power = 2`, `ρ_cut = ρ_min` (in `ρ`); with
    no field outside `P_cut`, the conducting gas outside the surface
-   carries none. The runs are a study, not a test (proposed): the
+   carries none. The runs are a study, not a test: the
    cheapest that tells σ₀ = 100 from 10⁶ (`h = 0.75` to 200 M) takes
    740 s on 96 threads, and its own numerical loss is 79%; the suite
    checks the initial field ("Tests"). The literature runs this star in

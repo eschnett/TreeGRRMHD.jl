@@ -446,6 +446,175 @@ and neither changes its σ threshold between Cowling and dynamical runs; the
 rung's convergence criterion, stricter than theirs, is kept, at Erik's
 direction.
 
+**2026-11-18, steps 11 and 12 accepted.** Erik accepted steps 11 and 12 as
+built and merged (PR #9, f61ac61; PR #10, e750557; PR #11, d05198f): "i
+accept Steps 11 and 12". Step 11's two misses stand as measured — `ℋ`
+outside at 1.76 over one 20 M window, and the rest mass's 1.3e−12 of 1.506
+over 1000 M, entering with the atmosphere at the outer faces — and the run
+at `h = 0.1875` that would tell whether the fourth order's H1 closes was not
+made; it stays in `CODE.md`'s "Open questions". Step 12's decisions marked
+**(proposed)** in `CODE.md` are decided: σ's shape kept and its threshold a
+density of the star's, `ρ_cut = 10⁻⁶` the case's default; the exterior
+dipole, the interior continuation and `B_c`'s convention; the conductivity;
+Dirichlet boundaries up to the magnetized star; the Cowling case as the
+cheaper check beside the coupled rung; the confined-field runs a study, not
+a test; and rung 6's convergence criterion, stricter than the literature's.
+So is step 11's perturbed star, the one item of that step still marked. The entropy fallback still
+waits for EOS-3, so whether `D s` earns its keep stays open; GH-2 and GH-7
+stay open with their workarounds. `CODE.md`'s list of TreeGH's items was
+stale (GH-3 and GH-4 "have not" landed; how the coupled tests load TreeGH
+"(open)") and now says what is so, and `README.md`'s status, which still
+said steps 0 to 3 and 5 to 8, now says 0 to 3 and 5 to 12. The two steps as `PLAN.md` gave them, at
+their acceptance:
+
+> **Step 11 — The TOV star in a dynamical spacetime (rung 5)**
+>
+> `CODE.md`: "The coupling contract", "Spacetime coupling", "Time integration". Waits: GH-2
+> (workaround: `[sources]`) and GH-7 (wanted; workaround). GH-1, GH-3 and GH-4 have landed on
+> TreeGH's `main`.
+>
+> Changes:
+> - **This package's verbs** are step 10's; this step adds `flags`, `regrid_pairs` (today's,
+>   public) and `rebuild`, as the script's regrid needs them.
+> - **This package's matter adapter** (`TreeGRRMHD.ADMMatter`): `(ρ, S_i, S_ij)`
+>   at TreeGH's owned vertices, the mean of the `2^D` cells' `stress_energy` (its `S^ij` lowered),
+>   2nd order, with a 4th-order option. Whether it stores them at the cells during `prepare!` or
+>   computes them per call is measured and decided here.
+> - **The coupled script**, `CODE.md`'s step-11 sketch ("Two scripts"):
+>   - one IMEXRungeKutta integrator over both packages' sets;
+>   - the explicit part: `TreeGH.ADMMetric` (or `TreeGH.prepare!`), `vertex_metric!` into `Mv`,
+>     `TreeGRRMHD.prepare!` with that metric, and both `rhs!`;
+>   - the implicit part: the Ohm stage solve with TreeGH's metric at `u★` (TreeGH's limiter never
+>     inside it);
+>   - the limiters composed; `Δt = min(GH, matter)`;
+>   - regrid of every set, and the rebuild of both problems.
+>
+>   The script and the coupled tests live in `coupled/`, an environment of their own (decided by
+>   Erik 2026-11-10). TreeGH's repeated fill is skipped by a key on its input: five fills per
+>   step instead of eleven (accepted by Erik 2026-11-13; `CODE.md`, "Two scripts"). The regrid branch, unused
+>   by the star's static boxes, gets a test of its own.
+> - **The GH CFL factor under SSP3(4,3,3)'s explicit part**, measured here.
+>
+> Accept:
+> - **The frozen metric:** TreeGH's `ADMMetric` of the TOV background, with its right-hand side
+>   not called, reproduces step 10's Cowling run to truncation error (GH-1's downstream check).
+> - **GH-3's static-matter check** passes with TreeGRRMHD's `(ρ, S_i, S_ij)`.
+> - **Constraints:** the matter-corrected ADM constraints converge at ≥ 1.8 away from the surface
+>   **(predicted)**.
+> - **Modes:** F, H1 and H2 within 3% of Font et al. (2002)'s coupled values **(predicted)**.
+> - **Conservation:** rest mass to round-off.
+> - **Decides:** the largest stable GH `cfl` under SSP3, on the gauge wave and on the TOV star,
+>   which becomes the default; and **the matter's transfer order (open)**.
+>
+> **State (2026-11-14).** Built and measured (`CODE.md`, "Validation ladder" 5).
+>
+> Done:
+> - the frozen metric, to round-off;
+> - GH-3's static-matter check (rate 1.87);
+> - rest mass, to 1e−14 net of the reset's injection to `t = 1`; over 1000 M with the fourth
+>   order and `ρ_min = 1e−12`, 5.4e−12 to 1.3e−12 of 1.506, converging at about 3 (at 1e−10,
+>   5.3e−10 to 1.3e−10): **a miss**.
+>   A scan of `ρ_min` (1e−10, 1e−12, 1e−14; jobs 598455–598457) shows it is atmosphere entering
+>   at the outer faces, proportional to `ρ_min`, as is the reset's part; `ρ_c` and the constraints do not change;
+> - the constraints at ≥ 1.8 to 1000 M on the finer pair, inside and outside, with the fourth
+>   order and `ρ_min = 1e−12` (jobs 598575–598577), but for `ℋ` outside over 490–510 M, 1.76:
+>   **a miss** in one 20 M window, between 1.96 and 2.01 on either side and 2.24 over
+>   250–1000 M. At 1e−10 the least was 1.88 (597892–597894). With the mean the outside rate
+>   fell to 1.74 after 500 M;
+> - the modes: F −0.02% at `h = 0.375` in the unperturbed runs (+0.67% with the mean). H1 and H2 are excited along
+>   their eigenfunctions (`δv`) and measured in the difference from the unperturbed run. With the
+>   mean they are within 3% from `h = 0.375`, and at `h = 0.25` within 0.13% and 0.39%. They decay
+>   by the scheme's dissipation, as `h⁻²`. Unperturbed, with the mean they missed (+8.38%,
+>   −10.56%); with the fourth order H1 holds (−1.43%, −0.83%, −0.64% at `h = 0.6, 0.5, 0.375`)
+>   and H2 misses (+9.82% at `h = 0.375`), the mean's start having hidden H1 among the
+>   spacetime's lines (found in step 12's review; `CODE.md`, "Validation ladder" 5, "Modes");
+> - the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` (accepted by Erik, 2026-11-13);
+> - `ADMMatter`: the mean computed per call, and the fourth order from a stored cell set with
+>   its fallback to the mean at the surface (both accepted by Erik, 2026-11-13);
+> - TreeGH's damping `γ0 = 1/(10M)` (accepted by Erik, 2026-11-13); the first studies, at `γ0 = 1/M`,
+>   collapsed near 400 M (`HISTORY.md`, "Two scripts");
+> - the matter's transfer order: fourth order, the script's default (Erik, 2026-11-13), from the
+>   constraints at `t = 0`; the perturbed modes do not decide it (the unperturbed ones favour it,
+>   above). At `h = 0.25` to 300 M, its H1 and H2 are +0.8% and +0.5%, against the mean's +0.1%
+>   and +0.4%.
+> - the atmosphere: `ρ_min = 1e−12` for the coupled runs, the script's default (Erik,
+>   2026-11-14), with the three 1000 M studies rerun at it (jobs 598575–598577).
+>
+> Open for Erik: whether the constraint miss in one window is accepted; a run at `h = 0.1875` to see
+> whether the 4th order's 0.8% in H1 closes.
+
+> **Step 12 — The magnetized TOV star (rung 6)**
+>
+> `CODE.md`: "Ohm's law and the conductivity", "Floors, the atmosphere and the magnetosphere",
+> "Primitive recovery". Waits: EOS-3 (wanted).
+>
+> Changes:
+> - `DensityProfile` for σ.
+> - An interior poloidal `A_φ` continued by an exterior dipole, sampled on edges.
+> - Vacuum `E` outside.
+> - The entropy fallback, wired to EOS-3.
+> - Diagnostics: field energy inside and outside the star, `E·B`, and `|q|`.
+>
+> Accept:
+> - **∇·B** at round-off.
+> - **The exterior dipole** stays the initial field to truncation error, and the drift converges.
+> - **Inside the star**, `E·B → 0` at truncation error.
+> - **The stage-solve outcome map** in the star is recorded.
+> - **With and without the entropy fallback**, the failure counts **decide whether `D s` earns its
+>   keep (open)**.
+>
+> **State (2026-11-17).** Built and measured (`CODE.md`, "Validation ladder" 6); the studies
+> and the suite ran on Trillium (AMD EPYC 9655), since Symmetry's and Nibi's CPU nodes were down
+> (Erik, 2026-11-15: use Trillium).
+>
+> Done:
+> - `magnetized_tov_case` (`src/cases/magnetized_tov.jl`): rung 4's Cowling star threaded by the
+>   static vacuum dipole of Schwarzschild outside the surface (Wasserman & Shapiro 1983), its
+>   quadratic continuation in `r̄²` inside, `E = 0`, `Φ̃ = 0`, under
+>   `MagnetizationCutoff(DensityProfile(σ₀; ρ_cut, power), μ_max)` with σ's threshold a density,
+>   `ρ_cut = 10⁻⁶` (Erik, 2026-11-17: "Yes, build it"), so that `ρ_min` leaves σ unchanged;
+>   `DensityProfile`'s shape kept;
+> - the diagnostics (`src/field_diagnostics.jl`): field energy inside and outside, `E·B`, `|q|`,
+>   the drift of `B`, the entropy fallback's trigger, the outcome map; the study script
+>   `bin/magnetized_tov_study.jl`;
+> - ∇·B at round-off: at most 3.4e−16;
+> - rung 6 runs coupled (Erik, 2026-11-16: evolve the geometry), through `coupled/`
+>   (`coupled/magnetized_tov_study.jl`, two testsets in `coupled/coupled_tests.jl`); the Cowling
+>   case, test and study stay as the cheaper check;
+> - the exterior dipole: coupled, the drift outside the star converges at 1.4–2.6 to 50 M
+>   (`h = 0.5, 0.375, 0.25`), on the Cowling metric at 1.2–2.3 (`h = 0.75, 0.5, 0.375`) — once σ
+>   is zero below `ρ = 10⁻⁶`, a density of the star's and not a multiple of `ρ_min` (measured at
+>   `ρ_min = 10⁻¹⁰` and `10⁻¹²`). At the literature's threshold, `ρ_min`, or at `100 ρ_min` it does not (rates
+>   0.3–0.7 over the first 10 M): a miss that decided the cutoff;
+> - `E·B` inside converges at 1.7–2.5 (coupled 1.7–2.3); the constraints, coupled, at 1.7 or
+>   better, the same at every threshold;
+> - the outcome map, recorded: fixed point everywhere inside the star; outside, `σ = 0` but for
+>   the band just outside the surface, where the fallback takes 4.1%, 0.004% and 0.0006% of the
+>   stages by resolution (coupled at `h = 0.5 … 0.25`: 0.004%, 0.0006%, 0);
+> - after review: the squared profile (`power = 2`, `cutoff = 1`) changes nothing on the
+>   dipole star; the confined-field star of Dionysopoulou et al. (2013) and GRaM-X: its numerical
+>   loss converges at 2.4–4.3 (`h = 0.75 … 0.25`), σ's excess decay converges and scales near
+>   1/σ₀, and at σ₀ = 100 the central field falls two decades by 9.65 ms;
+> - the confined-field star coupled (Erik, 2026-11-17: "Confined star coupled"): its central
+>   field follows the Cowling star's to 0.4% at `h = 0.5, 0.375, 0.25`, the numerical loss
+>   converging at 2.9–4.2 and σ's excess scaling near 1/σ₀; at σ₀ = 100 two decades by 9.65 ms;
+>   at σ₀ = 10⁶ no late rise to 9.85 ms; F and H1 from `ρ_c` within 0.6% of linear theory;
+> - the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
+>   each at 01ff9cf, 26658/26658 at a237712 and 26664/26664 at 4edf568, and the coupled suite,
+>   25/25 three ways, then 32/32 with the magnetized star, on Trillium (`HISTORY.md`, "The test
+>   suite").
+>
+> Blocked:
+> - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion
+>   fails outside the atmosphere in at most 10 cells at a time over 50 M); with it, nothing can be
+>   measured, so whether `D s` earns its keep stays open.
+
+**2026-11-18, AMR-5 found landed.** Erik pointed out that AMR-5
+(`workgroupsize` on `map_blocks!`) is done. It landed in TreeAMR 0.2.1
+(a0a977b), as `CODE.md`'s list of TreeAMR's items and `PLAN.md`'s table
+already said, but step 14 still listed it under "Waits" and `CODE.md`'s
+AMR-5 item did not say how it landed. Step 14 now waits for nothing.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

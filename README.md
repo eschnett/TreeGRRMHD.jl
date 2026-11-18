@@ -38,8 +38,9 @@ time integrator from
 is neutron stars and core-collapse supernovae; the first science target is a
 magnetized TOV star.
 
-**Status: the pointwise layer and the evolutions on uniform and refined
-meshes (steps 0 to 3 and 5 to 8 of `PLAN.md`).** The staggered scheme runs on TreeAMR's
+**Status: the pointwise layer, the evolutions on uniform and refined
+meshes, curved backgrounds and the TOV star, alone, in an evolved spacetime
+and magnetized (steps 0 to 3 and 5 to 12 of `PLAN.md`).** The staggered scheme runs on TreeAMR's
 mesh in one, two and three dimensions: the matter and the electric field at cells, the vector potential
 on edges, the gauge scalar at vertices, and the magnetic field as the
 discrete curl of the potential, advanced by the IMEX integrator with the
@@ -62,12 +63,16 @@ through its fine faces — as a rate and, with the potentials transferred
 conservatively along their edges, as a state — `∇·B` stays at round-off
 after every regrid, the matter's ghosts are filled from bounded primitives
 so that each is an admissible state, and a uniform closed box is
-mirror-symmetric bit for bit. Curved backgrounds are next.
-
-**Inconsistent:** this status says steps 0 to 3 and 5 to 8 are done and
-that curved backgrounds are next, while `PLAN.md` and `CODE.md` say step 9
-(the analytic curved backgrounds, rung 3) is done and step 10 (the Cowling
-TOV star, rung 4) is built and measured.
+mirror-symmetric bit for bit. Michel's accretion onto a Schwarzschild hole,
+plain and magnetized, and the Wald solution run on the analytic Kerr-Schild
+metric. A TOV star holds still on its
+own fixed metric, and in the spacetime TreeGeneralizedHarmonic evolves,
+coupled through a script in `coupled/`, it rings at its radial modes'
+frequencies to within 1% of the literature's. Threaded by a dipole field, it
+keeps `∇·B` at round-off and its exterior field converges; with a field
+confined inside, the conductivity's decay of the field matches published
+resistive runs. Next is a star on a tabulated equation of state, which waits
+for EntropyEOS.
 
 Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of
