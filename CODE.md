@@ -35,9 +35,11 @@ round-off; coupled, the exterior dipole's drift converging at 1.4–2.6 to
 star's and not a multiple of `ρ_min`; `E·B` inside converging at 1.7–2.3;
 the constraints at 1.7 or better; the stage solve by fixed point everywhere
 inside the star; its entropy fallback waits for EOS-3. The literature's
-confined-field star, on the Cowling metric, loses its central field to the
-scheme at 2.4–4.3 in `h`, and at σ₀ = 100 falls by two decades in 9.65 ms,
-as GRaM-X's and Dionysopoulou et al.'s do. The numbers below
+confined-field star, coupled, loses its central field to the scheme at
+2.9–4.2 in `h` and at σ₀ = 100 falls by two decades in 9.6 ms, as GRaM-X's
+and Dionysopoulou et al.'s do, within 0.4% of the Cowling star's; at σ₀ = 10⁶
+its central field shows no late rise to 9.85 ms, and its central density
+gives F and H1 within 0.6% of linear theory. The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -5584,12 +5586,103 @@ named as claims.
    carries none. The runs are a study, not a test (proposed): the
    cheapest that tells σ₀ = 100 from 10⁶ (`h = 0.75` to 200 M) takes
    740 s on 96 threads, and its own numerical loss is 79%; the suite
-   checks the initial field ("Tests"). The runs below are on the Cowling
-   metric; the literature runs this star in both spacetimes, and
-   `coupled/magnetized_tov_study.jl field=confined` would run it coupled
-   (not run).
+   checks the initial field ("Tests"). The literature runs this star in
+   both spacetimes, and so does this rung: coupled, and on the Cowling
+   metric as the cheaper check, whose central field the coupled one
+   follows to 0.4%.
 
-   **Measured** (`bin/magnetized_tov_study.jl field=confined power=2
+   **Measured, coupled** (`coupled/magnetized_tov_study.jl field=confined
+   power=2 rhocut=1e-10 Bc=4.26e-8`, the default box `[−24, 24]³`, four
+   roots, one box level, so that the star's level has the Cowling runs'
+   `h`; PPM, `μ_max = 10`, `ρ_min = 10⁻¹⁰`; to 200 M at `h = 0.5, 0.375,
+   0.25` with σ₀ = 10⁶, 10³, 100, and to 2000 M at `h = 0.5` with σ₀ = 100
+   and 10⁶; Trillium, AMD EPYC 9655, 96 threads, jobs 2878575–2878589,
+   3430–3667 s at `h = 0.5`, 7164–7499 s at 0.375, 27.7–28.2 ks at 0.25,
+   36.4 and 37.5 ks to 2000 M; and job 2880717, `ρ_min = ρ_cut = 10⁻¹²` at
+   `h = 0.5`, σ₀ = 10⁶, to 200 M). `h = 0.75` is not run: a coupled block
+   needs `N ≥ 10` ("Metric at cells, faces and edges"). The Cowling
+   values, from the runs further below, are beside them.
+   - **∇·B** at most 3.7e−16 in every chunk of every run.
+   - **The central field is the Cowling star's.** `B_c(t)/B_c(0)` differs
+     from it by at most 0.4% at every σ₀, `h` and sample (10, 50, 100,
+     200 M), and the difference falls with `h`: −3.6e−3, −1.8e−3,
+     −7.8e−4 at 200 M, σ₀ = 10⁶ (rates 2.4, 2.1). The field is far too
+     weak to reach the spacetime, and the spacetime's own evolution
+     barely reaches the field: `ρ_c` falls by 11.5% over 2000 M coupled
+     and 4.4% on the Cowling metric, while `B_c` at σ₀ = 100 agrees to
+     three digits throughout.
+   - **The numerical loss** (σ₀ = 10⁶), `1 − B_c(t)/B_c(0)` at
+     `h = 0.5, 0.375, 0.25` and its rates:
+
+     | `t` (M) | coupled | rates | Cowling | rates |
+     |---|---|---|---|---|
+     | 10 | 0.0799, 0.0306, 0.0060 | 3.33, 4.04 | 0.0798, 0.0305, 0.0059 | 3.34, 4.04 |
+     | 50 | 0.201, 0.0786, 0.0142 | 3.27, 4.22 | 0.198, 0.0767, 0.0133 | 3.30, 4.32 |
+     | 100 | 0.236, 0.0983, 0.0206 | 3.05, 3.85 | 0.234, 0.0975, 0.0201 | 3.05, 3.89 |
+     | 200 | 0.292, 0.125, 0.0272 | 2.94, 3.76 | 0.290, 0.124, 0.0265 | 2.95, 3.80 |
+
+   - **σ's decay scales as 1/σ₀.** The decay rate of `B_c` over
+     50–200 M (per M), and its excess over σ₀ = 10⁶'s:
+
+     | `h` | σ₀ = 10⁶ | 10³ (excess) | 100 (excess) | Cowling: 10⁶, 10³ (excess), 100 (excess) |
+     |---|---|---|---|---|
+     | 0.5 | 7.67e−4 | 9.89e−4 (2.2e−4) | 4.77e−3 (4.00e−3) | 7.68e−4, 9.87e−4 (2.2e−4), 4.77e−3 (4.00e−3) |
+     | 0.375 | 3.48e−4 | 6.98e−4 (3.5e−4) | 4.58e−3 (4.23e−3) | 3.47e−4, 6.98e−4 (3.5e−4), 4.59e−3 (4.24e−3) |
+     | 0.25 | 8.8e−5 | 5.67e−4 (4.8e−4) | 4.34e−3 (4.26e−3) | 8.9e−5, —, 4.35e−3 (4.26e−3) |
+
+     At σ₀ = 100 the excess converges (4.00, 4.23, 4.26e−3); σ₀ = 10³'s
+     grows toward a tenth of it as the numerical loss falls below it,
+     and at `h = 0.25` is 8.9 times smaller, against 10 for 1/σ₀.
+   - **Two decades by 10 ms.** At σ₀ = 100, `h = 0.5`, `B_c/B_c(0)` is
+     0.516 at 100 M, 0.161 at 400 M, 0.0395 at 1000 M, 0.0180 at
+     1500 M, 0.0099 at 1960 M (9.65 ms; it first reaches 0.01 at 1956 M)
+     and 0.0095 at 2000 M; the Cowling run's, 0.517, 0.161, 0.0396,
+     0.0180, 0.0099, 0.0095. The decay rate over 50–200, 500–1000,
+     1000–1500 and 1500–2000 M is 4.77e−3, 2.19e−3, 1.57e−3, 1.28e−3
+     (Cowling 4.77e−3, 2.19e−3, 1.57e−3, 1.29e−3).
+   - **No late rise at σ₀ = 10⁶.** At `h = 0.5`, `B_c` falls from each of
+     its 1000 samples (every 2 M) to the next, to 2000 M (9.85 ms): 0.764 at 100 M, 0.464 at
+     1000 M, 0.418 at 1500 M, 0.386 at 2000 M, its rate falling (7.7e−4,
+     3.8e−4, 2.1e−4, 1.6e−4 per M over the four spans above). GRaM-X's
+     dynamical runs grow artificially from about 7, 8 and 9 ms
+     (1420–1830 M) at 0.3, 0.2 and 0.15 M, and Dionysopoulou et al.'s
+     likewise; here no rise appears, at a coarser `h` whose own loss
+     (61% by 2000 M) would hide only a rise slower than 1.6e−4 per M.
+   - **The constraints** are the same at every σ₀ to the six digits
+     printed, and the dipole star's to two: the field does not reach the
+     spacetime. At 200 M, `ℋ` inside (`r < 6`) is 1.8e−5, 9.4e−6, 3.8e−6
+     (rates 2.3, 2.3) and outside (`r ≥ 10`) 2.8e−7, 1.6e−7, 7.5e−8 (1.9,
+     1.9); the momentum constraint 2.2e−5, 1.1e−5, 4.0e−6 inside (2.4,
+     2.5) and 1.5e−7, 8.8e−8, 3.8e−8 outside (2.0, 2.0). Over every
+     sample the rates are 1.6–3.8. At `h = 0.5` over 2000 M they do not
+     grow: `ℋ` inside 1.7e−5 at 1000 M and 1.5e−5 at 2000 M, outside
+     2.9e−7 and 4.0e−7.
+   - **Rest mass**: its change minus what the reset injects is at most
+     6.0e−11, 2.5e−11 and 7.3e−12 of 1.506 over 200 M (rates 3.0, 3.1),
+     the same at every σ₀, and 6.8e−10 over 2000 M: round-off to 20 M,
+     then growing about linearly. At `ρ_min = 10⁻¹²` it is 6.0e−13, 98
+     times smaller, with `B_c` the same to four digits: atmosphere
+     entering at the outer faces, as for the dipole star and in rung 5.
+     On the Cowling metric's smaller box it is 3.5e−14 at `h ≤ 0.5`.
+   - **Modes** (`bin/tov_modes.jl ref=coupled` on the 2000 M run's
+     `ρ_c`, the whole series, 0.10 kHz resolution), against Font et
+     al.'s (2002) Table II, the linear-perturbation frequencies GRaM-X's
+     Fig. 6 marks: F 1.434 kHz (−0.58%), H1 3.947 kHz (−0.20%), the same
+     at σ₀ = 10⁶ to four digits. **F and H1 hold the 3%.** The peak in
+     H2's window, 5.23 kHz (−11.5%), is the spacetime's line (rung 5's
+     5.29 kHz). Over `[0, 1000]` M, F is −0.59% and H1 −1.53%, over
+     `[0, 500]` M H1 is −0.94%; the second 1000 M carries little (F's
+     peak 63 times smaller). GRaM-X resolves only F at 0.3 M, F and H1
+     at 0.2 and 0.15 M. Rung 5's star at `h = 0.5` (no field,
+     `ρ_min = 10⁻¹²`, 1000 M) placed H1 at +6.8%; why this run finds it
+     is not measured.
+   - **The outcome map**: inside `R̄` every stage at every σ₀ and `h` is
+     fixed point, with no fallback, repair or reset. The band
+     `R̄ … R̄ + 1.5` falls back in 32%, 36% and 28% of its stages over
+     the 200 M (by `h`), beyond it 2.1%, 0.55% and 0, where the field is
+     zero.
+
+   **Measured on the Cowling metric** (`bin/magnetized_tov_study.jl field=confined power=2
    rhocut=1e-10 Bc=4.26e-8`, `[−12, 12]³`, four roots, no boxes, PPM,
    `μ_max = 10`, to 200 M at `h = 0.75, 0.5, 0.375, 0.25`; σ₀ = 10⁶,
    10³ (not at 0.25), 100; Trillium, AMD EPYC 9655, 96 threads, jobs

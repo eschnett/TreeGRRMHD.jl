@@ -801,14 +801,14 @@ Done:
   dipole star; the confined-field star of Dionysopoulou et al. (2013) and GRaM-X: its numerical
   loss converges at 2.4–4.3 (`h = 0.75 … 0.25`), σ's excess decay converges and scales near
   1/σ₀, and at σ₀ = 100 the central field falls two decades by 9.65 ms;
+- the confined-field star coupled (Erik, 2026-11-17: "Confined star coupled"): its central
+  field follows the Cowling star's to 0.4% at `h = 0.5, 0.375, 0.25`, the numerical loss
+  converging at 2.9–4.2 and σ's excess scaling near 1/σ₀; at σ₀ = 100 two decades by 9.65 ms;
+  at σ₀ = 10⁶ no late rise to 9.85 ms; F and H1 from `ρ_c` within 0.6% of linear theory;
 - the suite at one thread, at four, with bounds checks and in the clean checkout, 26635/26635
   each at 01ff9cf, 26658/26658 at a237712 and 26664/26664 at 4edf568, and the coupled suite,
   25/25 three ways, then 32/32 with the magnetized star, on Trillium (`HISTORY.md`, "The test
   suite").
-
-Not done:
-- the confined-field star coupled (the literature runs it in both spacetimes; ours are on the
-  Cowling metric);
 
 Blocked:
 - the entropy fallback, on **EOS-3**: without it, the counts are measured (the energy inversion

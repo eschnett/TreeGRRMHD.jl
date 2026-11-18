@@ -5233,6 +5233,28 @@ show: the rest-mass budget, 7.7e−15 on the Cowling metric, is up to 2.2e−12 
 `ρ_min = 10⁻¹⁰` coupled and 2.1e−14 at `10⁻¹²`, the atmosphere entering at the
 outer faces as in rung 5 (not measured further).
 
+**2026-11-17, step 12, after review: the confined-field star coupled.** Asked
+"What next for step 12?", Erik chose "Confined star coupled": the Cowling
+confined-field study repeated through `coupled/`, with two runs to 2000 M at
+`h = 0.5`, σ₀ = 100 against the Cowling run and the literature's two decades,
+and σ₀ = 10⁶ to see whether the late artificial rise of the central field that
+GRaM-X and Dionysopoulou et al. report at 7–9 ms appears. Run on Trillium (AMD
+EPYC 9655, 96 threads; jobs 2878575–2878589, and 2880717 for the rest-mass
+budget at `ρ_min = 10⁻¹²`; the record is `CODE.md`, "Validation ladder" 6).
+The coupled runs use rung 5's box, `[−24, 24]³` with one box level, where the
+Cowling runs had `[−12, 12]³` uniform: at `L = 12` TreeGH's outer boundary
+would sit about 4 M beyond the surface. The star's level has the same `h` in
+both. `h = 0.75` was dropped, since a coupled block needs `N ≥ 10`. The 2000 M
+runs were estimated at about 8 h before submission and took 10.1 and 10.4 h.
+On the way, the ssh connection to Trillium lapsed once, its new login needing
+Erik's second factor; the runs were collected after he reopened it. The
+result: the central field follows the Cowling star's to 0.4%, the difference
+falling with `h`; σ₀ = 10⁶ shows no late rise to 9.85 ms; the rest-mass
+budget, 6.8e−10 over 2000 M, was checked at `ρ_min = 10⁻¹²` (98 times
+smaller), so it is the atmosphere at the outer faces, as for the dipole star;
+and the 2000 M series gives F and H1 within 0.6% of Font et al.'s Table II,
+where rung 5's unmagnetized 1000 M run at the same `h` missed H1 by 6.8%.
+
 **2026-11-18, step 11, from step 12's review: why the unperturbed H1
 missed.** Step 12's confined-field star at `h = 0.5` to 2000 M gave F −0.58%
 and H1 −0.20%, where rung 5's table at the same `h` had F +0.78% and H1
