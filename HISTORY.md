@@ -5273,6 +5273,9 @@ become since, had not been put through it. One variable at a time:
   and +0.76%;
 - **`ρ_min`** does not: 10⁻¹⁰, 10⁻¹², 10⁻¹⁴ at `h = 0.5` to 300 M
   (598455–598457) move F and H1 by at most 0.08%;
+- **the magnetized case** does not: the confined star (field, σ, `ρ_min =
+  10⁻¹⁰`) matches the unmagnetized fourth-order run over 2–300 M to four
+  digits in F, H1 and H2, and its `ρ_c` at 2 M to seven;
 - **the excitation**: the mean's start (`ℋ` inside 100–260 times the
   fourth order's at `t = 0`) gives F 9–14 times the amplitude and the
   spacetime's lines (2.8, 5.3, 7.3 kHz) about ten times; H1's window then

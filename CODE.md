@@ -5199,6 +5199,8 @@ named as claims.
      **F and H1 hold the 3%; H2 fails it.** F's peak is 7–27 times
      H1's, and the peak in H2's window is 4–10 times below H1's and moves
      with `h`: the start excites F, H1 a little, and H2 not measurably.
+     The magnetized star of rung 6 (its confined field, σ, and `ρ_min =
+     10⁻¹⁰`) gives the same to four digits over 2–300 M at `h = 0.5`, and
      `ρ_min` (10⁻¹⁰, 10⁻¹², 10⁻¹⁴; jobs 598455–598457) moves F and H1 by
      at most 0.08%.
      **The transfer decides H1.** With the mean (jobs 595407–595409,
@@ -5669,13 +5671,13 @@ named as claims.
      al.'s (2002) Table II, the linear-perturbation frequencies GRaM-X's
      Fig. 6 marks: F 1.434 kHz (−0.58%), H1 3.947 kHz (−0.20%), the same
      at σ₀ = 10⁶ to four digits. **F and H1 hold the 3%.** The peak in
-     H2's window, 5.23 kHz (−11.5%), is the spacetime's line (rung 5's
-     5.29 kHz). Over `[0, 1000]` M, F is −0.59% and H1 −1.53%, over
+     H2's window, 5.23 kHz (−11.5%), is not the star's (rung 5's
+     unmagnetized run has 5.26 kHz there at this `h`). Over `[0, 1000]` M, F is −0.59% and H1 −1.53%, over
      `[0, 500]` M H1 is −0.94%; the second 1000 M carries little (F's
      peak 63 times smaller). GRaM-X resolves only F at 0.3 M, F and H1
-     at 0.2 and 0.15 M. Rung 5's star at `h = 0.5` (no field,
-     `ρ_min = 10⁻¹²`, 1000 M) placed H1 at +6.8%; why this run finds it
-     is not measured.
+     at 0.2 and 0.15 M. The unmagnetized star with the same transfer
+     gives the same (rung 5, "Modes"; the mean transfer's start is what
+     hid H1 there).
    - **The outcome map**: inside `R̄` every stage at every σ₀ and `h` is
      fixed point, with no fallback, repair or reset. The band
      `R̄ … R̄ + 1.5` falls back in 32%, 36% and 28% of its stages over
