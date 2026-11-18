@@ -727,18 +727,22 @@ Done:
   **a miss** in one 20 M window, between 1.96 and 2.01 on either side and 2.24 over
   250–1000 M. At 1e−10 the least was 1.88 (597892–597894). With the mean the outside rate
   fell to 1.74 after 500 M;
-- the modes: F +0.67% at `h = 0.375` in the unperturbed runs. H1 and H2 are excited along
+- the modes: F −0.02% at `h = 0.375` in the unperturbed runs (+0.67% with the mean). H1 and H2 are excited along
   their eigenfunctions (`δv`) and measured in the difference from the unperturbed run. With the
   mean they are within 3% from `h = 0.375`, and at `h = 0.25` within 0.13% and 0.39%. They decay
-  by the scheme's dissipation, as `h⁻²`. Unperturbed, they missed (+8.38%, −10.56%);
+  by the scheme's dissipation, as `h⁻²`. Unperturbed, with the mean they missed (+8.38%,
+  −10.56%); with the fourth order H1 holds (−1.43%, −0.83%, −0.64% at `h = 0.6, 0.5, 0.375`)
+  and H2 misses (+9.82% at `h = 0.375`), the mean's start having hidden H1 among the
+  spacetime's lines (found in step 12's review; `CODE.md`, "Validation ladder" 5, "Modes");
 - the GH `cfl`: 1.10 on the star, so `cfl_gh = 1/2` (accepted by Erik, 2026-11-13);
 - `ADMMatter`: the mean computed per call, and the fourth order from a stored cell set with
   its fallback to the mean at the surface (both accepted by Erik, 2026-11-13);
 - TreeGH's damping `γ0 = 1/(10M)` (accepted by Erik, 2026-11-13); the first studies, at `γ0 = 1/M`,
   collapsed near 400 M (`HISTORY.md`, "Two scripts");
 - the matter's transfer order: fourth order, the script's default (Erik, 2026-11-13), from the
-  constraints at `t = 0`; the modes do not decide it. At `h = 0.25` to 300 M, its H1 and H2
-  are +0.8% and +0.5%, against the mean's +0.1% and +0.4%.
+  constraints at `t = 0`; the perturbed modes do not decide it (the unperturbed ones favour it,
+  above). At `h = 0.25` to 300 M, its H1 and H2 are +0.8% and +0.5%, against the mean's +0.1%
+  and +0.4%.
 - the atmosphere: `ρ_min = 1e−12` for the coupled runs, the script's default (Erik,
   2026-11-14), with the three 1000 M studies rerun at it (jobs 598575–598577).
 
