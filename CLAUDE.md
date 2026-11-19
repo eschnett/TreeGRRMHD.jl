@@ -132,23 +132,31 @@ The full suite as a commit status: `ci/full-suite.sh` runs the
 clean-checkout check on a commit at four threads and, with `--post`, sets
 the commit's status `full-suite/<host>` to pending and then to the result.
 Posting is public: ask Erik each time, as for a push; the commit must be
-on GitHub. `ci/full-suite-symmetry.sh submit` does the same in an
-`amddebugq` job (one fixed tree under
-`/home/eschnetter/claude/full-suite/TreeGRRMHD`, log and result under
-`/mnt/beegfs/eschnetter/claude/full-suite/TreeGRRMHD/<sha>/`), and
-`collect` posts its result afterwards, since the cluster has no `gh`:
+on GitHub. On a cluster the suite runs through
+[SimLaunch](https://github.com/eschnett/SimLaunch.jl) (`simlaunch`,
+installed with `Pkg.Apps.develop(path = "~/src/jl/SimLaunch")`; its
+`CONVERTING.md` and `SPEC.md`): `jobs/full-suite.toml` runs the three ways
+side by side on one node at the floor, and `ci/full-suite-cluster.sh submit`
+snapshots the commit (`--rev`, a study `full-suite-<sha12>` per commit),
+prepares it and submits the spec; `collect` fetches the runs into
+`simlaunch-data/` and posts the result, since SimLaunch never posts. Site
+`symmetry` by default, `--site trillium` for Trillium:
 
 ```bash
 ci/full-suite.sh --post
 ```
 
 ```bash
-ci/full-suite-symmetry.sh submit --post
+ci/full-suite-cluster.sh submit --post
 ```
 
 ```bash
-ci/full-suite-symmetry.sh collect --post
+ci/full-suite-cluster.sh collect --post
 ```
+
+Every cluster job is a SimLaunch spec in `jobs/`, committed; a Julia
+script it names is run as it is, from its own job directory, so it finds
+its files from `@__DIR__` and writes into the working directory.
 
 A `Manifest.toml` resolved by one Julia version breaks loading under
 another (1.13 refused a 1.11 manifest's `MbedTLS_jll`), so delete it, or

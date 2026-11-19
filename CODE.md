@@ -4227,8 +4227,12 @@ contract"):
   spacetime, `bin/magnetized_tov_study.jl`'s measurements and TreeGH's
   constraints per chunk (`problems(; case)`; "Validation ladder" 6).
 
-`ci/full-suite.sh` and `ci/full-suite-symmetry.sh` run the full suite as a
-commit status (`CLAUDE.md`, "Commands").
+`ci/full-suite.sh` (the workstation) and `ci/full-suite-cluster.sh` (a
+cluster, through SimLaunch) run the full suite as a commit status, and
+`ci/suite-summary.sh` reads Test's summary from a log for both
+(`CLAUDE.md`, "Commands"). `jobs/` holds the SimLaunch job specs, one per
+kind of cluster job: `full-suite.toml`, the suite at the floor at one
+thread, at four and with bounds checks, side by side on one node.
 
 ## Validation ladder
 

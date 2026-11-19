@@ -5896,3 +5896,33 @@ whole** — 13m34.9s at one thread (tri0839, job 2878361), 10m07.2s at four (tri
 clean checkout at four threads (`git archive`, no `Manifest.toml`, resolved on the
 login node; tri0466, 2878369). The coupled suite: 32/32 at one thread (3m19.7s),
 four (2m45.1s) and four with bounds checks (3m22.3s) (tri0726, 2878364).
+
+**2026-11-18, the suite through SimLaunch.** Erik asked for the launch
+scripts to go through [SimLaunch](https://github.com/eschnett/SimLaunch.jl)
+before step 14. The one committed launch script, `ci/full-suite-symmetry.sh`,
+packed a `git archive` into one fixed tree on Symmetry, wrote its own batch
+script for one four-thread run in `amddebugq` and wrote `result.txt` for its
+`collect`. It is replaced by `jobs/full-suite.toml` and
+`ci/full-suite-cluster.sh`. The spec runs the suite three ways side by side on
+one node: one thread, four threads, bounds checks, each at the floor
+(`julia = "1.13"`). Each commit is a study of its own, snapshotted from the
+commit (`--rev`) and compiled once per site, in place of the fixed tree.
+`ci/full-suite.sh` keeps the workstation's run and lost the options only the
+Symmetry job used, and `ci/suite-summary.sh` is the one parser of Test's
+summary for all three. The step-11 and step-12 study jobs were scratch
+scripts, never committed; they move to specs when a run of them is next due.
+The old fixed tree, `/home/eschnetter/claude/full-suite/TreeGRRMHD`, is left
+on Symmetry.
+
+SimLaunch lacked four things this needed, reported to Erik and added to
+SimLaunch the same day: a snapshot of a commit rather than the working tree
+(`snapshot --rev`), a Julia version per run (`julia`), `test/Project.toml`'s
+`[compat]` in the test environment, and a single look with an exit code
+(`wait --once`).
+
+Measured (2026-11-18, Symmetry job 605543 on cn101, EPYC 7543, `amddebugq`;
+the working tree at 891cdfa with the new files, uncommitted, study
+`grrmhd-suite-check1`): **26664 tests, every run passing whole** — 20m10.3s
+at one thread, 14m50.9s at four, 25m37.4s with `--check-bounds=yes`, the
+job 25m40s; the three side by side are slower than each alone (step 12's
+were 13m35s, 10m07s and 16m24s on Trillium), and still fit in the hour.
