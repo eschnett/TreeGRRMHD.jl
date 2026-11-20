@@ -3,17 +3,13 @@
 # `CODE.md`): `bin/tov_study.jl` on `[−24, 24]³`, four roots, one box level, MC, to 200 M,
 # the central density every M, at `h = 0.75, 0.5, 0.375` (`N = 8, 12, 16`). Each star is
 # its table's 1.4 M☉ one (`ρ_c` 9.4e−4 for DD2, 1.37e−3 for SFHo), its atmosphere at 1e−10.
-# Submit each run as a job of its own (`simlaunch submit … --run <label>`); a run that
-# outlives its job continues from its checkpoint (`simlaunch resubmit`).
-name = "tabulated-tov-cowling"
-checkpoints = true
-mutable_restarts = true
+# Submit each run as a job of its own (`simlaunch submit … --run <label>`). No checkpoints:
+# SimLaunch keeps one job at a time for a spec with them, and every run fits in a day (the
+# polytrope's `h = 0.375` took about 3 h, the table costs about 2.7 times as much).
+name = "tabulated-cowling"
 threads = 64
 pin = false
 vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
-
-[restart]
-to = "checkpoint"
 
 [site.symmetry]
 time = "24:00:00"

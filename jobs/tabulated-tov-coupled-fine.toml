@@ -1,0 +1,20 @@
+# Step 13 (rung 7): `tabulated-tov-coupled.toml`'s study at `h = 0.375` (`N = 16`), the
+# one run that may outlive a day's job (the polytrope's took 12.2 h; the table's matter
+# costs about 2.7 times as much): checkpointed every 20 M, continued with
+# `simlaunch resubmit`.
+name = "tabulated-coupled-fine"
+project = "coupled"
+checkpoints = true
+mutable_restarts = true
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[restart]
+to = "checkpoint"
+
+[site.symmetry]
+time = "24:00:00"
+
+[[run]]
+label = "dd2-h0.375"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=16 t_end=1000 chunk=1 out=series.txt"
