@@ -21,7 +21,7 @@
 # AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0), SM-1
 # (SpacetimeMetrics 1.7.0), AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8), and
 # EOS-8, EOS-9 and EOS-11 (EntropyEOS 1.1.0, 2.0.0 and 2.1.0, which had no
-# probe);
+# probe), and EOS-4 (EntropyEOS 2.3.0, in step 13);
 # the behaviour this package relies on from them is tested where it is used
 # (`test/refinement_tests.jl` for the bounded prolongations, the relative
 # hook's fixed point and the conservative transfer of the potentials,
@@ -101,7 +101,9 @@ end
     # guaranteed by `[compat]`, so no probe). *(Amended 2026-10-26, EntropyEOS
     # 2.2:)* `inside_window`, the reconstruction's validity test (EOS-11,
     # landed in 2.1.0; `[compat]` "2.2", so no probe), and the sound-speed
-    # bits the tests keep apart from the policy's.
+    # bits the tests keep apart from the policy's. Since step 13 the table
+    # reader and the cold β-equilibrium slice the tabulated star's initial
+    # data reads (EOS-4, in 2.3.0; `[compat]` "2.3", so its probe is retired).
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
                  :IdealGasEOS, :HybridEOS, :polytropic_entropy,
                  :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
@@ -113,7 +115,9 @@ end
                  :FLAG_POL_ρ_FLOORED, :FLAG_POL_ρ_CEILED, :FLAG_POL_YE_FLOORED,
                  :FLAG_POL_YE_CEILED, :FLAG_POL_S_FLOORED, :FLAG_POL_S_CEILED,
                  :FLAG_POL_W_CEILED, :FLAG_POL_ANY, :FLAG_CS2_OUT_OF_RANGE,
-                 :make_synthetic_table, :build_eos)
+                 :make_synthetic_table, :build_eos,
+                 :RawTable, :read_stellarcollapse, :cold_beta_slice, :ColdBetaSlice,
+                 :beta_equilibrium, :BetaEquilibrium)
         @test name in names(EOS)
     end
     @test isdefined(EOS, :κ) && :κ ∉ names(EOS)
@@ -324,20 +328,6 @@ end
     prereq_report("EOS-3", landed,
                   landed ? "`con2prim_entropy`, `entropy_from_energy`" :
                   "no public fixed-entropy inversion; wanted by step 12")
-end
-
-@testset "EOS-4: the cold β-equilibrium slice exists (when landed)" begin
-    # Guards the tabulated-EOS star's initial data (step 13): the slice built
-    # from a table and its EOS, and a lookup on it (keyword-only, by `p`, `ρ★`
-    # or `g`). The methods are checked, not only the names: an earlier draft of
-    # the item had a `beta_equilibrium(table, eos, ρ★)` with other semantics.
-    landed = isdefined(EOS, :cold_beta_slice) && isdefined(EOS, :ColdBetaSlice) &&
-             hasmethod(EOS.cold_beta_slice, Tuple{EOS.RawTable,EOS.EOSTable}) &&
-             isdefined(EOS, :beta_equilibrium) &&
-             hasmethod(EOS.beta_equilibrium, Tuple{EOS.ColdBetaSlice})
-    prereq_report("EOS-4", landed,
-                  landed ? "`cold_beta_slice`, `beta_equilibrium(slice; p)`" :
-                  "no cold β-equilibrium slice; blocks step 13")
 end
 
 @testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)

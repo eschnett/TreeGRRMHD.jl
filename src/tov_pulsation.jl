@@ -68,7 +68,7 @@ struct TOVModes
 end
 
 # `d(ξ, ζ)/dη` and the surface bracket `G` at a background state `y = (q, μ, λ)`.
-function pulsation_rhs(sol::TOVSolution{Float64}, cowling::Bool, ω²::Float64, η::Float64,
+function pulsation_rhs(sol::TOVSolution{Float64,Polytrope{Float64}}, cowling::Bool, ω²::Float64, η::Float64,
                        y::SVector{3,Float64}, ξ::Float64, ζ::Float64)
     q, μ, _ = y
     eq = sol.eq
@@ -106,7 +106,7 @@ end
 
 # Shoot from the centre to the node before the surface; return the residual `G` there and,
 # if `record`, the nodes' `(ξ, ζ)`.
-function pulsation_shoot(sol::TOVSolution{Float64}, cowling::Bool, ω²::Float64; record=false)
+function pulsation_shoot(sol::TOVSolution{Float64,Polytrope{Float64}}, cowling::Bool, ω²::Float64; record=false)
     η, Y = sol.η, sol.y
     n = length(η) - 1                                # the last node, η = Δ
     z = SVector(1.0, -3.0)
@@ -127,7 +127,7 @@ function pulsation_shoot(sol::TOVSolution{Float64}, cowling::Bool, ω²::Float64
 end
 
 """
-    tov_radial_modes(sol::TOVSolution{Float64}; cowling::Bool, nmodes = 3,
+    tov_radial_modes(sol::TOVSolution{Float64,Polytrope{Float64}}; cowling::Bool, nmodes = 3,
                      ω²_max = 0.1, nscan = 400) -> TOVModes
 
 The star's lowest `nmodes` radial modes (F, H1, H2, …) from linear perturbation theory,
@@ -136,7 +136,7 @@ with the metric perturbed (`cowling = false`, the coupled star) or held fixed
 `nscan` intervals and bisected (`src/tov_pulsation.jl`). Throws if fewer than `nmodes`
 are found.
 """
-function tov_radial_modes(sol::TOVSolution{Float64}; cowling::Bool, nmodes::Integer=3,
+function tov_radial_modes(sol::TOVSolution{Float64,Polytrope{Float64}}; cowling::Bool, nmodes::Integer=3,
                           ω²_max=0.1, nscan::Integer=400)
     res(ω²) = pulsation_shoot(sol, cowling, ω²)[1]
     grid = range(0, ω²_max; length=nscan + 1)[2:end]
@@ -200,13 +200,13 @@ end
 end
 
 """
-    tov_mode_velocity(sol::TOVSolution{Float64}, δv; cowling::Bool) -> SVector{TOV_NCHEB}
+    tov_mode_velocity(sol::TOVSolution{Float64,Polytrope{Float64}}, δv; cowling::Bool) -> SVector{TOV_NCHEB}
 
 The Chebyshev coefficients, in `2r̄²/R̄² − 1`, of `vⁱ/xⁱ` for the star moving in its radial
 modes at the phase of zero displacement, mode `n` with amplitude `δv[n]` in `ρ_c/ρ_c`
 (`src/tov_pulsation.jl`).
 """
-function tov_mode_velocity(sol::TOVSolution{Float64}, δv; cowling::Bool)
+function tov_mode_velocity(sol::TOVSolution{Float64,Polytrope{Float64}}, δv; cowling::Bool)
     m = tov_radial_modes(sol; cowling, nmodes=length(δv))
     u = (m.r̄ ./ sol.R̄) .^ 2
     keep = u .≤ 0.99

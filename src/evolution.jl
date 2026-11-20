@@ -921,6 +921,12 @@ end
             Xw[xi..., X_STEP_RESETS, b] += one(h)
             Xw[xi..., X_INJECTED_D, b] += c[U_D] - cons[U_D]
             Xw[xi..., X_INJECTED_TAU, b] += c[U_TAU] - cons[U_TAU]
+            Xw[xi..., X_INJECTED_DYE, b] += c[U_DYE] - cons[U_DYE]
+            if flags & EntropyEOS.FLAG_POL_S_FLOORED != 0 &&
+               flags & EntropyEOS.FLAG_POL_ATMOSPHERE == 0
+                Xw[xi..., X_S_FLOORS, b] += one(h)
+                Xw[xi..., X_S_FLOOR_TAU, b] += c[U_TAU] - cons[U_TAU]
+            end
         else
             Xw[xi..., X_RESETS, b] += one(h)
         end
@@ -1399,6 +1405,11 @@ flagged, counted, and reduced per chunk):
 - `injected_D`, `injected_τ`: the volume integrals `Σ hᴰ Δ(√γ D)` and
   `Σ hᴰ Δ(√γ τ)` of those step-limiter writes — the rest mass and the
   energy the reset put into the state (negative where it took some out);
+- `injected_DYₑ` *(added in step 13)*: likewise `Σ hᴰ Δ(√γ D Yₑ)`, the
+  lepton number;
+- `s_floors`, `s_floor_τ` *(added in step 13)*: the step limiter's writes
+  that floored the entropy on a state not sent to the atmosphere, and their
+  `Σ hᴰ Δ(√γ τ)`: what a star on the window's minimum costs;
 - `seeds` *(added 2026-10-24)*: per site — `rhs`, `stage` (the stage
   solve's first recovery), `stage_limiter`, `step_limiter` — the recoveries
   made inside a step as `(; cold, warm, reused)`: seeded from the state,
@@ -1427,7 +1438,8 @@ function ohm_tally(p::MHDProblem{T,D}) where {T,D}
                                                    vars=X_MAX_RECOVERIES)),
             resets=count(X_RESETS), step_resets=count(X_STEP_RESETS),
             injected_D=volume(X_INJECTED_D), injected_τ=volume(X_INJECTED_TAU),
-            seeds=seed_tally(count))
+            injected_DYₑ=volume(X_INJECTED_DYE), s_floors=count(X_S_FLOORS),
+            s_floor_τ=volume(X_S_FLOOR_TAU), seeds=seed_tally(count))
 end
 
 function seed_tally(count)
