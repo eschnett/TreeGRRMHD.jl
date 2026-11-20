@@ -1874,6 +1874,44 @@ unregistered: `[sources]` pins the tag `v2.2.1`, `[compat]` `"2.2.1"`, since 202
 `claude/entropyeos-2.2`; `[compat]` requires 2.2.1, so there is no probe. So the bounds-checked
 run's four allocation failures are gone.
 
+**2026-11-20.** EOS-4 rewritten. The step-0 request was
+`beta_equilibrium(eos::EOSTableView, ρ★; T_MeV) -> (yₑ, s, converged)` and
+`cold_slice(eos, ρ★s; T_MeV) -> (yₑ, s, p, U)`: a bracketed secant for `μ̃(ρ★, s(T), yₑ) = 0` on
+`yₑ_bounds`, with `s(T)` from `sigma_extended`. It gave no reason for being upstream. Asked by
+Erik why it was needed, Claude found that it could be written here from public API (`EOSPoint.μ̃`,
+`sigma_extended`, `yₑ_bounds`), and that the reason to keep it upstream was trust in `μ̃`, which
+no one had compared with a table's chemical potentials (`read_stellarcollapse` kept no `mu_e` or
+`muhat`). Erik took it to EntropyEOS, which answered with PR 15 (version 2.3.0), in two versions:
+
+- **First (a6cf6d1).** `beta_equilibrium(table, eos, ρ★)`: the zero of the table's `munu` on its
+  coldest row, the state on the fitted EOS's cold edge, and where `munu` has several zeros in
+  `Yₑ` (DD2 and SFHo at 10^7.8–10^11.7 g/cm³) the least `∫ munu dYₑ` at fixed density. It
+  measured `μ̃` off from `munu` on the cold edge by several MeV (percentiles 1/50/99 % on SFHo
+  −17.6/0.3/8.8 MeV), up to about 2400 MeV near 10¹⁴ g/cm³ on LS220, so `μ̃` is not the
+  criterion. Checked here on DD2, DD2 repaired and SFHo (4000 densities each, laptop): every
+  state inside `inside_window` and through `con2prim_safe` unflagged, 0.7 µs a call; but `p`
+  fell with `ρ` wherever the choice switched between zeros (`Yₑ` 0.506 ↔ 0.45): DD2 by 13.6 % at
+  log ρ = 8.32, SFHo at 8.04, 8.27, 9.00 (by 18.3 %) and 11.10 (by 1.3·10⁻⁴), which no star in
+  hydrostatic equilibrium can follow. Taking instead, over every zero, the least `h` at fixed
+  pressure (the Gibbs free energy per baryon as `T → 0`) never took the `Yₑ ≈ 0.506` branch on
+  SFHo and left `ρ` monotone in `p`. Erik passed that on.
+- **Second (1e324e4).** `cold_beta_slice(table, eos)` builds the slice once; `beta_equilibrium(
+  slice; p | ρ★ | g)` looks a state up. At each pressure, the least Gibbs free energy
+  `g = 1 + U − T̂s + p/ρ★ + c_E·Yₑ` on the fitted EOS, the energy corrected by the rest masses the
+  tables' ε leaves out; `μ_ν = mu_e − muhat + c₀`, with `c₀` per table family. Phase transitions
+  are density jumps at constant `p` and `g`, listed in `jumps`. It found none on DD2, SFHo or
+  LS220, and four on SRO LS220. Checked here on the same tables, 3000 lookups by pressure each:
+  `ρ★`, `p` and `g` monotone along the slice and along the lookups; the asked pressure returned
+  to 3·10⁻¹²; the table's `munu` at the results below 10⁻¹² MeV; nothing clamped; every state
+  inside `inside_window` and through `con2prim_safe` unflagged (`s` to 1.2·10⁻⁵); 28 µs a lookup;
+  `Yₑ` on SFHo at log ρ = 8, 10, 12, 13, 14, 14.5, 15 is 0.453, 0.401, 0.167, 0.034, 0.021,
+  0.055, 0.067. What the star's solve takes from these measurements is in `CODE.md`,
+  "Validation ladder" 7.
+
+PLAN.md's EOS-4 was rewritten to the second version, and `test/prerequisite_tests.jl`'s probe
+checks for `cold_beta_slice` and `beta_equilibrium` on a `ColdBetaSlice` (false on 2.2.1 and on
+the first version, true on the second). The pin waits for the tag.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of

@@ -460,8 +460,14 @@ TreeGRRMHD"; the request and its record:
   fixed `s`, solve for `w`" step that `con2prim` already contains — for the
   entropy fallback, and a public entropy-from-energy solve for initial
   data.
-- **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
-  `s_cold(ρ)` for tabulated-EOS stars.
+- **EOS-4 (later, step 13)** The cold, neutrinoless β-equilibrium slice of
+  a table, keyed by pressure, for tabulated-EOS stars: at each pressure the
+  composition of least Gibbs free energy, with any phase transition a
+  density jump at constant pressure, so that `ρ★` never decreases with `p`.
+  Upstream because which zero of `μ_ν` a star takes, and how `μ_ν` follows
+  from a table's chemical potentials, is the EOS's knowledge; the fitted
+  `μ̃` is off by MeV on the cold edge. Under review as EntropyEOS PR 15
+  (PLAN.md has the API).
 - **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
   1.1.0), and the endpoint branches made edge-consistent, the hottest state
   projected onto the entropy ceiling (2.0.0, as the two-level projection).
@@ -5957,7 +5963,16 @@ named as claims.
      as the dipole star did at `ρ_cut = ρ_min`, and harmless here, where
      the field there is zero.
 7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
-   data).
+   data). *(Proposed:)* the star's composition is EOS-4's cold
+   β-equilibrium slice, looked up by pressure. The solve keeps Lindblom's
+   form with `η = ∫ dp/(e + p)` integrated along the slice on the fitted
+   EOS's own `p` and `h`, not `η = log h`: along the slice `Yₑ` and `s`
+   change, and between 10⁸ and 10¹⁵ g/cm³ the two differ by 1.8·10⁻⁴ on
+   DD2 (0.47367 against 0.47385) and 1.9·10⁻⁴ on SFHo, while the evolved
+   fluid is static only with the first. The surface lies above
+   10^3.9 g/cm³, below which `h` falls with density on the slice of both
+   tables (cause not examined); the central density lies below 10^15.40 g/cm³, above which SFHo's slice has
+   `cs² ≥ 1`.
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.

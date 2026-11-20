@@ -224,7 +224,7 @@ landing in EntropyEOS 2.2.1 (2026-10-30) and GH-1's as `ADMMetric` (2026-11-08).
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
-| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
+| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice keyed by pressure | waiting (EntropyEOS PR 15, checked 2026-11-20) |
 | EOS-5 | EntropyEOS | — | — | was: no policy repair creates rest mass; notes kept for Erik | withdrawn |
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity | superseded by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band | not pursued |
@@ -380,13 +380,43 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 
 ### EOS-4 — Cold β-equilibrium slice (later, step 13)
 
+**Why.** Step 13's star on a real table (DD2 or SFHo) needs the cold, neutrinoless
+β-equilibrium composition along the star: `Yₑ` and `s` at each pressure, and the EOS there.
+Which zero of `μ_ν` a star takes where there are several, and how `μ_ν` follows from a table's
+`mu_e`, `muhat` and energy, is knowledge of the tables, so the solve is EntropyEOS's. The
+fitted `EOSPoint.μ̃` is not good enough for it: on the cold edge it is off from the table's
+`munu` by MeV ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20).
+
+**API** (EntropyEOS PR 15, head 1e324e4, version 2.3.0; open, not merged):
 ```julia
-beta_equilibrium(eos::EOSTableView, ρ★; T_MeV) -> (yₑ, s, converged::Bool)
-cold_slice(eos, ρ★s::AbstractVector; T_MeV) -> (yₑ, s, p, U)
+cold_beta_slice(table::RawTable, eos::EOSTable; refine=8, munu_offset=nothing,
+                energy_offset=nothing) -> ColdBetaSlice
+beta_equilibrium(slice::ColdBetaSlice; ρ★ | p | g) -> BetaEquilibrium   # exactly one key
 ```
-- `beta_equilibrium` solves `μ̃(ρ★, s(T), yₑ) = 0` on `yₑ_bounds` by bracketed secant with a
-  bisection fallback (`μ̃`'s `yₑ` derivative is unavailable).
-- `s(T)` comes from `sigma_extended`.
+`BetaEquilibrium` carries `ρ★`, `yₑ`, `s`, `point::EOSPoint`, `g` (the Gibbs free energy per
+unit rest mass) and `flags`; the slice lists its phase transitions in `jumps`.
+
+**Semantics this package relies on.**
+- At each pressure the slice takes the composition of least Gibbs free energy. Along it `ρ★`,
+  `p` and `g` never decrease; where the composition changes, the density jumps at constant `p`
+  and `g`, and a `ρ★` inside the gap throws `ArgumentError`.
+- A state lies on the fitted EOS's cold edge, `s = srange(eos, ρ★, yₑ).s_min`, at the table's
+  lowest temperature.
+- A lookup by `p` returns that pressure to rounding, with `μ_ν = 0` there.
+- Host-side and `Float64`; the table must be the one the EOS was built from.
+
+**Upstream acceptance.** As PR 15 tests it: on the real tables, monotone in `ρ★`, `p` and `g`;
+lookups by pressure round-trip to 10⁻⁸; `μ_ν = 0` at the results; a constructed phase
+transition located to 10⁻⁸ in pressure.
+
+**Downstream check.** `test/prerequisite_tests.jl` detects `cold_beta_slice` and
+`beta_equilibrium` on a `ColdBetaSlice`. Checked by hand on PR 15's head on DD2, DD2 repaired
+and SFHo ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20): the slice's
+monotonicity, lookups by pressure, `munu` at the results, and a static state at every result
+through `inside_window` and `con2prim_safe`, unflagged. Once tagged, `[sources]` pins `v2.3.0`
+and `[compat]` requires `"2.3"`, and the probe is retired.
+
+**Workaround:** none; step 13 waits.
 
 ### EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range
 

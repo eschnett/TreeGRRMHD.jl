@@ -327,11 +327,17 @@ end
 end
 
 @testset "EOS-4: the cold β-equilibrium slice exists (when landed)" begin
-    # Guards the tabulated-EOS star's initial data (step 13).
-    landed = isdefined(EOS, :beta_equilibrium) && isdefined(EOS, :cold_slice)
+    # Guards the tabulated-EOS star's initial data (step 13): the slice built
+    # from a table and its EOS, and a lookup on it (keyword-only, by `p`, `ρ★`
+    # or `g`). The methods are checked, not only the names: an earlier draft of
+    # the item had a `beta_equilibrium(table, eos, ρ★)` with other semantics.
+    landed = isdefined(EOS, :cold_beta_slice) && isdefined(EOS, :ColdBetaSlice) &&
+             hasmethod(EOS.cold_beta_slice, Tuple{EOS.RawTable,EOS.EOSTable}) &&
+             isdefined(EOS, :beta_equilibrium) &&
+             hasmethod(EOS.beta_equilibrium, Tuple{EOS.ColdBetaSlice})
     prereq_report("EOS-4", landed,
-                  landed ? "`beta_equilibrium`, `cold_slice`" :
-                  "no β-equilibrium slice; blocks step 13")
+                  landed ? "`cold_beta_slice`, `beta_equilibrium(slice; p)`" :
+                  "no cold β-equilibrium slice; blocks step 13")
 end
 
 @testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)
