@@ -1,0 +1,43 @@
+# Step 13 (rung 7): the tabulated TOV star in the Cowling approximation, DD2 and SFHo in
+# cold β-equilibrium, as step 10's study of the polytrope ("Validation ladder" 4 and 7 in
+# `CODE.md`): `bin/tov_study.jl` on `[−24, 24]³`, four roots, one box level, MC, to 200 M,
+# the central density every M, at `h = 0.75, 0.5, 0.375` (`N = 8, 12, 16`). Each star is
+# its table's 1.4 M☉ one (`ρ_c` 9.4e−4 for DD2, 1.37e−3 for SFHo), its atmosphere at 1e−10.
+# Submit each run as a job of its own (`simlaunch submit … --run <label>`); a run that
+# outlives its job continues from its checkpoint (`simlaunch resubmit`).
+name = "tabulated-tov-cowling"
+checkpoints = true
+mutable_restarts = true
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[restart]
+to = "checkpoint"
+
+[site.symmetry]
+time = "24:00:00"
+
+[[run]]
+label = "dd2-h0.75"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=8 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"
+
+[[run]]
+label = "dd2-h0.5"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=12 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"
+
+[[run]]
+label = "dd2-h0.375"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=16 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"
+
+[[run]]
+label = "sfho-h0.75"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=8 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"
+
+[[run]]
+label = "sfho-h0.5"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=12 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"
+
+[[run]]
+label = "sfho-h0.375"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=16 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt"

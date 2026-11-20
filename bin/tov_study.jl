@@ -12,7 +12,8 @@
 # (the primitives' ghost fill at refinement boundaries: `w3b`, the default, Conservative
 # width 3 bounded; `w3` unbounded; `w1`), `reset` (`both`, the default, or `step`: the
 # reset as the step limiter alone), `out` (the time series, `t ρ_c resets injected_D` per
-# chunk; default none), `checkpoint` (a file the run saves its state to every `every` chunks,
+# chunk; default none), `checkpoint` (a file, or a directory holding it as `state.jls`, as
+# SimLaunch's restarts give one, that the run saves its state to every `every` chunks,
 # default 20, and resumes from if it exists: for pre-emptible queues; default none),
 # `metric` (`analytic`, the default, `Analytic(TOVMetric)` at every point; or `vertex`, the
 # same metric sampled at the owned vertices into the vertex metric set and interpolated,
@@ -91,6 +92,8 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
     injY, floors, floorτ = zero(T), 0, zero(T)
     series = Tuple{T,T}[(zero(T), ρ0)]
     rows = Tuple{T,T,Int,T,T,Int,T}[]
+    # A directory (SimLaunch's `ck/`, `mutable_restarts`) holds the checkpoint as a file.
+    checkpoint !== nothing && isdir(checkpoint) && (checkpoint = joinpath(checkpoint, "state.jls"))
     c0 = 0
     if checkpoint !== nothing && isfile(checkpoint)
         s = deserialize(checkpoint)
