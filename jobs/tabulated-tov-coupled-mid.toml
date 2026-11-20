@@ -1,0 +1,20 @@
+# Step 13 (rung 7): `tabulated-tov-coupled.toml`'s study at `h = 0.5` (`N = 12`), which
+# outlives a day's job (about 30 h to 1000 M, measured over its first 3 M): checkpointed every
+# 20 M and continued with `simlaunch resubmit`. A spec of its own because SimLaunch keeps one
+# job at a time for a spec with checkpoints (`tabulated-tov-coupled-fine.toml` is `h = 0.375`).
+name = "tabulated-coupled-mid"
+project = "coupled"
+checkpoints = true
+mutable_restarts = true
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[restart]
+to = "checkpoint"
+
+[site.symmetry]
+time = "24:00:00"
+
+[[run]]
+label = "dd2-h0.5"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=12 t_end=1000 chunk=1 out=series.txt"
