@@ -19,14 +19,20 @@
 # step 10's round 2, `N ≥ 10`), `state` (a file the final state is serialized to, for
 # `bin/tov_compare.jl`; default none), `δv` (the star's initial velocity along its
 # Cowling radial modes, the amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, `δv=a₁,a₂,a₃`;
-# `tov_case`; none). The summary goes to the terminal; a resumed run's
-# wall time is its own part only.
+# `tov_case`; none), and *(added in step 13)* `table` (`dd2`, `sfho`: the star on that
+# table in cold β-equilibrium, `tabulated_tov_case`, read from `ENTROPYEOS_TABLE_DIR`;
+# default the polytrope) with `ρ_c` (its central density, geometric; no default) and
+# `ρ_min` (its atmosphere, 1e−10). The time series then also holds, per chunk, what the
+# reset injected into `D Yₑ` and its entropy floors outside the atmosphere with their `τ`:
+# `t ρ_c resets injected_D injected_DYₑ s_floors s_floor_τ`. The summary goes to the
+# terminal; a resumed run's wall time is its own part only.
 
 using TreeAMR
 using TreeGRRMHD
 using Printf
 using Serialization
 const MHD = TreeGRRMHD
+include(joinpath(@__DIR__, "tables.jl"))
 const IRK = MHD.IRK
 
 function f_exp!(du, u, p, t)
@@ -45,8 +51,15 @@ const OPS_W = Dict(
 
 function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
                limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing,
-               checkpoint=nothing, every=20, metric="analytic", δv=(0, 0, 0))
-    star = MHD.tov_case(T; L, roots, δv, δv_modes=:cowling)
+               checkpoint=nothing, every=20, metric="analytic", δv=(0, 0, 0), table=nothing,
+               ρ_c=nothing, ρ_min=1e-10)
+    star = if table === nothing
+        MHD.tov_case(T; L, roots, δv, δv_modes=:cowling)
+    else
+        all(iszero, δv) || error("tov_study.jl: δv perturbs the polytrope only")
+        d = load_table(table)
+        MHD.tabulated_tov_case(T; d.table, d.eos, ρ_c, ρ_min, L, roots)
+    end
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels, half_width=half * star.fields.w.metric.R̄)
     mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter, riemann,
@@ -67,21 +80,24 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
     else
         error("tov_study.jl: metric is `analytic` or `vertex`, got `$metric`")
     end
-    M0 = conserved_totals(mhd, u)[1]
+    tot0 = conserved_totals(mhd, u)
+    M0, Y0 = tot0[MHD.U_D], tot0[MHD.U_DYE]
     ρ0 = MHD.central_density(mhd, u, zero(T); p.metric)
     cfl = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
     t, integ, steps = zero(T), nothing, 0
     injected, resets, stage_resets = zero(T), 0, 0
+    injY, floors, floorτ = zero(T), 0, zero(T)
     series = Tuple{T,T}[(zero(T), ρ0)]
-    rows = Tuple{T,T,Int,T}[]
+    rows = Tuple{T,T,Int,T,T,Int,T}[]
     c0 = 0
     if checkpoint !== nothing && isfile(checkpoint)
         s = deserialize(checkpoint)
         copyto!(u, s.u)
         c0, t, steps = s.c, s.t, s.steps
         injected, resets, stage_resets = s.injected, s.resets, s.stage_resets
+        injY, floors, floorτ = s.injY, s.floors, s.floorτ
         series, rows = s.series, s.rows
         record === nothing || foreach(r -> record(r...), rows)
         @info "resumed from $checkpoint at chunk $c0, t = $t"
@@ -103,19 +119,25 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
         injected += tally.injected_D
         resets += tally.step_resets
         stage_resets += tally.resets
+        injY += tally.injected_DYₑ
+        floors += tally.s_floors
+        floorτ += tally.s_floor_τ
         ρ = MHD.central_density(mhd, u, t; p.metric)
         push!(series, (t, ρ))
-        push!(rows, (t, ρ, tally.step_resets, tally.injected_D))
+        push!(rows, (t, ρ, tally.step_resets, tally.injected_D, tally.injected_DYₑ,
+                     tally.s_floors, tally.s_floor_τ))
         record === nothing || record(last(rows)...)
         if checkpoint !== nothing && (c % every == 0 || c == nchunks)
             serialize(checkpoint * ".tmp",
-                      (; c, t, steps, injected, resets, stage_resets, series, rows, u=Array(u)))
+                      (; c, t, steps, injected, resets, stage_resets, injY, floors, floorτ,
+                       series, rows, u=Array(u)))
             mv(checkpoint * ".tmp", checkpoint; force=true)
         end
     end
-    M1 = conserved_totals(mhd, u)[1]
+    tot1 = conserved_totals(mhd, u)
     l1 = l1_errors(mhd, u, u0)
-    return (; series, ρ0, ρ1=last(series)[2], M0, ΔM=M1 - M0, injected, resets,
+    return (; series, ρ0, ρ1=last(series)[2], M0, ΔM=tot1[MHD.U_D] - M0, Y0,
+            ΔY=tot1[MHD.U_DYE] - Y0, injY, floors, floorτ, injected, resets,
             stage_resets, steps, steps_run=steps - steps0, nblocks=nblocks(mhd.f.U),
             h=minimum_spacing(forest), l1D=l1.U[1], l1τ=l1.U[5], fallbacks, u=Array(u))
 end
@@ -128,11 +150,11 @@ function main(args)
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every")
             kw[Symbol(k)] = parse(Int, v)
-        elseif k in ("L", "t_end", "chunk", "half")
+        elseif k in ("L", "t_end", "chunk", "half", "ρ_c", "ρ_min")
             kw[Symbol(k)] = parse(Float64, v)
         elseif k in ("limiter", "riemann")
             kw[Symbol(k)] = Symbol(v)
-        elseif k in ("opsW", "reset", "checkpoint", "metric")
+        elseif k in ("opsW", "reset", "checkpoint", "metric", "table")
             kw[Symbol(k)] = String(v)
         elseif k == "δv"
             kw[:δv] = Tuple(parse.(Float64, split(v, ',')))
@@ -146,7 +168,8 @@ function main(args)
     end
     io = out === nothing ? nothing : open(out, "w")
     rec = io === nothing ? nothing :
-          (t, ρ, n, inj) -> (@printf(io, "%.6f %.16e %d %.6e\n", t, ρ, n, inj); flush(io))
+          (t, ρ, n, inj, injY, nf, fτ) -> (@printf(io, "%.6f %.16e %d %.6e %.6e %d %.6e\n", t,
+                                                   ρ, n, inj, injY, nf, fτ); flush(io))
     wall = @elapsed r = study(; kw..., record=rec)
     io === nothing || close(io)
     state === nothing || serialize(state, (; r.series, r.u, r.h, args))
@@ -160,6 +183,9 @@ function main(args)
     @printf("  L1 change of D %.4e, of τ %.4e\n", r.l1D, r.l1τ)
     @printf("  rest mass %.12e, change %.4e, injected by the reset %.4e, difference %.3e\n",
             r.M0, r.ΔM, r.injected, r.ΔM - r.injected)
+    @printf("  D Yₑ %.12e, change %.4e, injected by the reset %.4e, difference %.3e\n",
+            r.Y0, r.ΔY, r.injY, r.ΔY - r.injY)
+    @printf("  entropy floors outside the atmosphere %d, their τ %.4e\n", r.floors, r.floorτ)
     @printf("  step-limiter writes %d, stage-limiter writes %d\n", r.resets, r.stage_resets)
     r.fallbacks === nothing || println("  vertex metric fallbacks ", r.fallbacks)
     return r

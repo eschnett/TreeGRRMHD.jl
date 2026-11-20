@@ -20,8 +20,15 @@ include(joinpath(@__DIR__, "tov_coupled.jl"))
 @testset "TreeGRRMHD coupled to TreeGeneralizedHarmonic" begin
     include("prerequisite_tests.jl")
     include("coupled_tests.jl")
+    # Step 13: the tabulated star (DD2) in the evolved spacetime, where
+    # `ENTROPYEOS_TABLE_DIR` holds the table (`test/tables.jl`).
+    include(joinpath(@__DIR__, "..", "test", "tables.jl"))
+    include("tabulated_tests.jl")
 end
 
+isempty(TABLE_SKIPPED) ||
+    @info "without DD2 under ENTROPYEOS_TABLE_DIR, $(length(TABLE_SKIPPED)) testsets were " *
+          "left out:\n  " * join(first.(TABLE_SKIPPED), "\n  ")
 isempty(TIER_SKIPPED) ||
     @info "the $TEST_TIER tier left out $(length(TIER_SKIPPED)) testsets " *
           "(TREEGRRMHD_TEST_TIER=full runs them):\n  " *
