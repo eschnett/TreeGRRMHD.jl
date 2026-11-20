@@ -43,7 +43,7 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
   - [EOS-1 — An abstract EOS interface (req, step 5)](#eos-1--an-abstract-eos-interface-req-step-5)
   - [EOS-2 — Analytic Γ-law and hybrid EOSes (req, step 5)](#eos-2--analytic-γ-law-and-hybrid-eoses-req-step-5)
   - [EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, step 12)](#eos-3--public-fixed-entropy-inversion-and-entropy-from-energy-wanted-step-12)
-  - [EOS-4 — Cold β-equilibrium slice (later, step 13)](#eos-4--cold-β-equilibrium-slice-later-step-13)
+  - [EOS-4 — Cold β-equilibrium slice (landed in EntropyEOS 2.3.0)](#eos-4--cold-β-equilibrium-slice-landed-in-entropyeos-230)
   - [EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range](#eos-5--withdrawn-2026-10-17-notes-on-two-repairs-at-the-edge-of-the-valid-range)
   - [EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (superseded)](#eos-6--a-density-raised-to-the-atmospheres-gets-the-atmospheres-velocity-superseded)
   - [EOS-7 — The atmosphere's entropy in the atmosphere band (not pursued)](#eos-7--the-atmospheres-entropy-in-the-atmosphere-band-not-pursued)
@@ -224,7 +224,7 @@ landing in EntropyEOS 2.2.1 (2026-10-30) and GH-1's as `ADMMetric` (2026-11-08).
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
-| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice keyed by pressure | waiting (EntropyEOS PR 15, checked 2026-11-20) |
+| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice keyed by pressure | landed in EntropyEOS 2.3.0 |
 | EOS-5 | EntropyEOS | — | — | was: no policy repair creates rest mass; notes kept for Erik | withdrawn |
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity | superseded by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band | not pursued |
@@ -378,45 +378,12 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 - A round trip at fixed s on random states.
 - Pinning and non-convergence are reported, never silent.
 
-### EOS-4 — Cold β-equilibrium slice (later, step 13)
+### EOS-4 — Cold β-equilibrium slice (landed in EntropyEOS 2.3.0)
 
-**Why.** Step 13's star on a real table (DD2 or SFHo) needs the cold, neutrinoless
-β-equilibrium composition along the star: `Yₑ` and `s` at each pressure, and the EOS there.
-Which zero of `μ_ν` a star takes where there are several, and how `μ_ν` follows from a table's
-`mu_e`, `muhat` and energy, is knowledge of the tables, so the solve is EntropyEOS's. The
-fitted `EOSPoint.μ̃` is not good enough for it: on the cold edge it is off from the table's
-`munu` by MeV ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20).
-
-**API** (EntropyEOS PR 15, head 1e324e4, version 2.3.0; open, not merged):
-```julia
-cold_beta_slice(table::RawTable, eos::EOSTable; refine=8, munu_offset=nothing,
-                energy_offset=nothing) -> ColdBetaSlice
-beta_equilibrium(slice::ColdBetaSlice; ρ★ | p | g) -> BetaEquilibrium   # exactly one key
-```
-`BetaEquilibrium` carries `ρ★`, `yₑ`, `s`, `point::EOSPoint`, `g` (the Gibbs free energy per
-unit rest mass) and `flags`; the slice lists its phase transitions in `jumps`.
-
-**Semantics this package relies on.**
-- At each pressure the slice takes the composition of least Gibbs free energy. Along it `ρ★`,
-  `p` and `g` never decrease; where the composition changes, the density jumps at constant `p`
-  and `g`, and a `ρ★` inside the gap throws `ArgumentError`.
-- A state lies on the fitted EOS's cold edge, `s = srange(eos, ρ★, yₑ).s_min`, at the table's
-  lowest temperature.
-- A lookup by `p` returns that pressure to rounding, with `μ_ν = 0` there.
-- Host-side and `Float64`; the table must be the one the EOS was built from.
-
-**Upstream acceptance.** As PR 15 tests it: on the real tables, monotone in `ρ★`, `p` and `g`;
-lookups by pressure round-trip to 10⁻⁸; `μ_ν = 0` at the results; a constructed phase
-transition located to 10⁻⁸ in pressure.
-
-**Downstream check.** `test/prerequisite_tests.jl` detects `cold_beta_slice` and
-`beta_equilibrium` on a `ColdBetaSlice`. Checked by hand on PR 15's head on DD2, DD2 repaired
-and SFHo ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20): the slice's
-monotonicity, lookups by pressure, `munu` at the results, and a static state at every result
-through `inside_window` and `con2prim_safe`, unflagged. Once tagged, `[sources]` pins `v2.3.0`
-and `[compat]` requires `"2.3"`, and the probe is retired.
-
-**Workaround:** none; step 13 waits.
+Landed in EntropyEOS 2.3.0 (542c32c, its PR 15; 2026-11-20) as `cold_beta_slice` and
+`beta_equilibrium`, keyed by pressure; `[sources]` pins `v2.3.0`, `[compat]` `"2.3"`, and the
+probe is retired. The request and its record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos);
+its use: [`CODE.md`, "Thermodynamics"](CODE.md#thermodynamics), "The cold barotrope".
 
 ### EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range
 
@@ -724,7 +691,9 @@ ladder"](HISTORY.md#validation-ladder).
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
-`CODE.md`: "Thermodynamics". Waits: **EOS-4**.
+`CODE.md`: "Thermodynamics", "Validation ladder" 7. Waits: nothing (EOS-4 landed in
+EntropyEOS 2.3.0). In progress on `claude/step-13-tabulated-eos` (2026-11-20): the suite's
+tests pass; the studies run on Symmetry.
 
 Changes:
 - A TOV star on a real table (SFHo or DD2), with tests gated by `ENTROPYEOS_TABLE_DIR`.

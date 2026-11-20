@@ -41,7 +41,9 @@ coupled, loses its central field to the scheme at 2.9–4.2 in `h` and at
 σ₀ = 100 falls by two decades in 9.6 ms, as GRaM-X's and Dionysopoulou et
 al.'s do, within 0.4% of the Cowling star's; at σ₀ = 10⁶ its central
 field shows no late rise to 9.85 ms, and its central density gives F and
-H1 within 0.6% of linear theory. Step 13 waits for EOS-4. The numbers
+H1 within 0.6% of linear theory. Step 13 is the star on a real table (DD2,
+SFHo) in cold β-equilibrium, its `Yₑ` advected ("Validation ladder" 7),
+on EntropyEOS 2.3.0's slice (EOS-4). The numbers
 below about the scheme are measured where they say so and unmeasured
 otherwise.*
 
@@ -187,15 +189,9 @@ item needs it.
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
 - EntropyEOS, not registered (EOS-0 waiting), through `[sources]`, which
-  pins the tag `v2.2.1` (EOS-10), with `[compat]` `"2.2"`: **EOS-1 and
-  EOS-2 have landed in EntropyEOS 1.0.0**, and EOS-8 to EOS-11 have landed
-  since (below); EOS-3 and EOS-4 have not.
-
-  **Inconsistent:** `[compat]` `"2.2"` here (the last value this document
-  states, with the tag `v2.2.0`; [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos))
-  against `CLAUDE.md`'s former "Current state" (now [HISTORY.md,
-  "EntropyEOS"](HISTORY.md#entropyeos), 2026-10-30), which said `[sources]`
-  pins the tag `v2.2.1` with `[compat]` `"2.2.1"` since 2026-10-30.
+  pins the tag `v2.3.0`, with `[compat]` `"2.3"`: **EOS-1 and EOS-2 have
+  landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since, and **EOS-4 in
+  2.3.0** (below); EOS-3 has not.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -460,14 +456,15 @@ TreeGRRMHD"; the request and its record:
   fixed `s`, solve for `w`" step that `con2prim` already contains — for the
   entropy fallback, and a public entropy-from-energy solve for initial
   data.
-- **EOS-4 (later, step 13)** The cold, neutrinoless β-equilibrium slice of
-  a table, keyed by pressure, for tabulated-EOS stars: at each pressure the
-  composition of least Gibbs free energy, with any phase transition a
-  density jump at constant pressure, so that `ρ★` never decreases with `p`.
-  Upstream because which zero of `μ_ν` a star takes, and how `μ_ν` follows
-  from a table's chemical potentials, is the EOS's knowledge; the fitted
-  `μ̃` is off by MeV on the cold edge. Under review as EntropyEOS PR 15
-  (PLAN.md has the API).
+- **EOS-4 (landed, EntropyEOS 2.3.0)** The cold, neutrinoless
+  β-equilibrium slice of a table, keyed by pressure, for tabulated-EOS
+  stars (`cold_beta_slice`, `beta_equilibrium`;
+  [Thermodynamics](#thermodynamics), "The cold barotrope"): at each
+  pressure the composition of least Gibbs free energy, with any phase
+  transition a density jump at constant pressure, so that `ρ★` never
+  decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
+  and how `μ_ν` follows from a table's chemical potentials, is the EOS's
+  knowledge; the fitted `μ̃` is off by MeV on the cold edge.
 - **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
   1.1.0), and the endpoint branches made edge-consistent, the hottest state
   projected onto the entropy ceiling (2.0.0, as the two-level projection).
@@ -833,8 +830,10 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   from `P` within one evaluation, still take their cell's EOS warm start.
   The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
   cell on the Alfvén wave (measured below). A table's `log₁₀ T`
-  is the warm start this loses; if step 13 finds it matters, the state can
-  carry it the way it carries `D s`. The right-hand side is pure in
+  is the warm start this loses; whether it matters is **(open)**: on the
+  tabulated star a cell-step costs about 2.7 times the polytrope's (laptop,
+  four threads, `h = 1`; not split into the recovery's part). If it does,
+  the state can carry it the way it carries `D s`. The right-hand side is pure in
   `(u, t)` **outside a step**;
   **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
   every recovery is seeded from the cell's latest recovery in that step,
@@ -850,6 +849,41 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A polytrope is a Γ-law at fixed entropy**, not a barotropic EOS:
   EntropyEOS's `(s, w)` Newton needs `U_s ≠ 0`. The TOV star's
   `p = Kρ^Γ` is the Γ-law evaluated at the `s` with `K(s) = K`.
+- **The cold barotrope** *(proposed in step 13)*. A table's star is in
+  cold, neutrinoless β-equilibrium: EntropyEOS's slice (EOS-4,
+  `cold_beta_slice`) gives at each pressure the composition of least Gibbs
+  free energy on the table's coldest row, `s` on the window's minimum.
+  `cold_barotrope` (`src/tov_table.jl`) samples it at 8001 pressures uniform
+  in `log p`, converts with `GeometricEOS`'s density unit (`e = ρ★h − p`),
+  and integrates `η = ∫ dp/(e + p)` by Simpson's rule from the surface; the
+  TOV solve of `src/tov.jl` runs in this `η`, of which the polytrope's
+  `log h` is the special case. Along the slice `Yₑ` and `s` change, so
+  `log h` is not the integral (they differ by 1.8·10⁻⁴ between 10⁸ and
+  10¹⁵ g/cm³ on DD2, 1.9·10⁻⁴ on SFHo), and only the integral makes the
+  evolved fluid static (`dp = −(e + p) d log α`). Between the knots the
+  state is cubic Hermite in `η` with `d log p/dη = (e + p)/p` exact
+  (measured against central differences: 1.7·10⁻⁶). The slice's `Yₑ` has
+  kinks at the table's density nodes, so the solve converges at fourth
+  order only to about 10⁻⁹, ample at its default 4000 steps (4.5·10⁻⁹ in
+  `M` against 16000). A slice with a phase transition is refused (none on
+  DD2 or SFHo; [Known risks](#known-risks)). The units hold: DD2's 1.4 M☉
+  star has `R = 13.225` km, SFHo's 11.896 km, with the crust to
+  6.2·10³ g/cm³ (the literature's 13.2–13.3 and 11.9 km).
+- **The tabulated star's surface and atmosphere** *(proposed in step
+  13)*. The barotrope's surface, `η = 0`, is at the atmosphere's density
+  `ρ_min`, and the atmosphere is the slice's own state there: cold
+  (`PolicyOptions`' `s_atm = NaN`, the window's minimum) with the replaced
+  state's `Yₑ`. The matter below `ρ_min`, which the reset would replace,
+  is left out; with the surface lower (10⁻¹⁴, 6.2·10³ g/cm³) the
+  composition table below cannot follow `ρ★`'s fall by four decades within
+  its last knot (errors of 600 times at 6·10⁷ g/cm³), and with it at
+  `ρ_min` the error is 3% pointwise at worst. The star's matter reaches a
+  kernel as a `TOVComposition`, `log ρ★`, `s` and `Yₑ` at 129 knots
+  uniform in `r̄²`, kept apart from the metric so that the metric's kernel
+  arguments do not grow ([Sharp edges](#sharp-edges)): 2.3·10⁻⁵ in L1 in
+  `ρ★` (1.8·10⁻⁴ in `Yₑ`, 7.8·10⁻⁴ in `s`), falling at second order in the
+  knots; the pointwise 3% is where the slice's `Yₑ` changes steeply in the
+  crust, which no smooth table follows.
 
 ## Primitive recovery
 
@@ -4206,6 +4240,16 @@ it names has the reasons.
 - **A script picks the integrator's partition from the state**:
   `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
   `:even` on a device array is refused ("Precision and devices").
+- **A tabulated star's matter is not in its metric.** `TOVMetric` keeps
+  the polytrope (`eq`), from which `tov_density` recovers the density, or
+  `nothing` for a table; a tabulated star's `ρ★`, `s` and `Yₑ` are its
+  `TOVComposition`, in `TabulatedTOVStar`, beside the metric
+  ([Thermodynamics](#thermodynamics), "The tabulated star's surface and
+  atmosphere"). `tov_density` has no method for a table's metric.
+- **A table's barotrope ends at `ρ_min`.** `tabulated_tov_case` puts the
+  surface `η = 0` at the atmosphere's density, so `R̄` and `M` depend on
+  `ρ_min`, slightly (DD2's 1.4 M☉ star: 13.194 km at 10⁻¹⁰ against 13.225
+  km at 10⁻¹⁴); the literature's radius is the lower surface's.
 
 ## Tests
 
@@ -4248,6 +4292,17 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   the studies' `10⁴ ρ_min` bit for bit; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
+- `test/ye_advection_tests.jl` (step 13): a smooth `Yₑ` profile carried
+  by a uniform flow at the scheme's order, and a step within its two
+  values, `D Yₑ` to rounding; 1D, so `@serial_tier`.
+- `test/tabulated_tov_tests.jl` (step 13): the cold barotrope against
+  DD2's slice, the solve's convergence and the 1.4 M☉ radius, the
+  composition table, the initial data's validity, and the star at `h = 1`
+  to 4 M (the drift, rest mass and `D Yₑ` net of the reset, the entropy
+  floors). Every testset reads DD2 and is gated by `test/tables.jl`
+  (`@dd2_gated`): where `ENTROPYEOS_TABLE_DIR` does not hold the table, as
+  on GitHub, it is one skipped test, named at the end of the run. Symmetry's
+  suite sets the variable (`jobs/full-suite.toml`).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -4270,6 +4325,10 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   key, bit for bit; the regrid branch; the magnetized star through
   `problems(; case)`: its field's energy `½B²` in the matter TreeGH reads,
   and a run to `t = 1` (∇·B, the rest mass, the stage solve inside).
+- `coupled/tabulated_tests.jl` (step 13; gated on DD2 as above): the
+  tabulated star on TreeGH's frozen metric against its Cowling run, its
+  `ℋ − 16πρ` with either transfer, and `main` to `t = 1` (rest mass and
+  `D Yₑ` net of the reset).
 
 **Inconsistent:** the helper dependencies listed above
 (`recovery_tests.jl`'s state generators, `wave_tests.jl`'s and
@@ -4340,13 +4399,19 @@ bit-identically to the host; "Precision and devices"):
 - `src/interior.jl`: `HoleInterior(r_in; stage, step)`, an `MHDCase`'s
   `interior`, and the diagnostics `outside_l1`, `field_l1`,
   `charge_norms` ("The interior");
-- `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form,
-  `TOVMetric` ("Gauge for the TOV milestones").
+- `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form, generic
+  over the barotrope (`barotrope_state`), `TOVMetric` ("Gauge for the TOV
+  milestones").
+- `src/tov_table.jl` (step 13): `cold_barotrope`, a table's cold
+  β-equilibrium slice as the solve's barotrope, `tov_solve(T, b; ρ_c)`,
+  and `TOVComposition`, the star's matter at knots in `r̄²`
+  ("Thermodynamics", "The cold barotrope").
 - `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
   theory, coupled and Cowling, `tov_radial_modes`, and the velocity that
   starts them, `tov_mode_velocity` ("Validation ladder" 5).
 - `reset_step!`, the reset as the step limiter, counted with the step
-  limiter's injection (`ohm_tally`); `max_div_B` and `evolve!`'s
+  limiter's injection into `D`, `τ` and `D Yₑ`, and its entropy floors
+  outside the atmosphere (`ohm_tally`; the last two added in step 13); `max_div_B` and `evolve!`'s
   `after_step` monitor.
 - The public verbs, which a script that owns the loop calls ("The coupling
   contract", "Two scripts"): `prepare!`, `rhs!`, `stage_solve!`,
@@ -4374,7 +4439,11 @@ bit-identically to the host; "Precision and devices"):
   dipole of Schwarzschild in isotropic coordinates), `StellarDipole` and
   `stellar_dipole` (its quadratic continuation inside the star),
   `ConfinedField` and `confined_field` (Duez et al.'s interior-only field),
-  `magnetized_tov_case` ("Validation ladder" 6).
+  `magnetized_tov_case` ("Validation ladder" 6);
+- `src/cases/tabulated_tov.jl` (step 13): `tabulated_tov_case`, the star
+  on a table's cold barotrope, `TabulatedTOVStar` ("Validation ladder" 7);
+- `src/cases/ye_advection.jl` (step 13): `ye_advection_case`, a `Yₑ`
+  profile on a uniform flow.
 
 **The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
 step): `cell_profile`, `field_diagnostics`, `field_drift`, `ohm_map`
@@ -4402,7 +4471,9 @@ document's tables:
   (a test runs its `main` against `evolve!`, bit for bit; "Two scripts");
   `bin/tov_study.jl` (checkpointed, for `amdpreq`; `metric=analytic|vertex`),
   `bin/tov_compare.jl`, `bin/tov_drift.jl` and `bin/tov_modes.jl`: the
-  rung-4 record ("Validation ladder" 4);
+  rung-4 record ("Validation ladder" 4); `bin/tov_study.jl table=dd2|sfho`
+  the rung-7 record, its tables read by `bin/tables.jl` from
+  `ENTROPYEOS_TABLE_DIR` ("Validation ladder" 7);
 - `bin/magnetized_tov_study.jl`: the magnetized star's time series and
   outcome map per chunk ("Validation ladder" 6);
 - `bin/recovery_cost.jl`: `steptime` times the fused and the two-phase
@@ -4426,7 +4497,9 @@ contract"):
   adapter's cost ("Two scripts", "Matter to the vertices");
 - `coupled/magnetized_tov_study.jl`: the magnetized star in the evolved
   spacetime, `bin/magnetized_tov_study.jl`'s measurements and TreeGH's
-  constraints per chunk (`problems(; case)`; "Validation ladder" 6).
+  constraints per chunk (`problems(; case)`; "Validation ladder" 6);
+  `coupled/tov_coupled_study.jl table=dd2` and `coupled/tov_coupled.jl
+  table=dd2`, the tabulated star ("Validation ladder" 7).
 
 `ci/full-suite.sh` (the workstation) and `ci/full-suite-cluster.sh` (a
 cluster, through SimLaunch) run the full suite as a commit status, and
@@ -4438,7 +4511,10 @@ thread, at four and with bounds checks, side by side on one node;
 `tov-cowling-device.toml`, the Cowling star on an H200 at both types and on the node's
 CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
 over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
-arithmetic's three partitions there ("Precision and devices").
+arithmetic's three partitions there ("Precision and devices");
+`tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml` and
+`tabulated-tov-coupled-fine.toml`, the tabulated star's studies, each run a job of its
+own ("Validation ladder" 7).
 
 ## Validation ladder
 
@@ -5962,17 +6038,37 @@ named as claims.
      37% of its stages at `h = 0.375` (the last chunk), beyond it 1.4% —
      as the dipole star did at `ρ_cut = ρ_min`, and harmless here, where
      the field there is zero.
-7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
-   data). *(Proposed:)* the star's composition is EOS-4's cold
-   β-equilibrium slice, looked up by pressure. The solve keeps Lindblom's
-   form with `η = ∫ dp/(e + p)` integrated along the slice on the fitted
-   EOS's own `p` and `h`, not `η = log h`: along the slice `Yₑ` and `s`
-   change, and between 10⁸ and 10¹⁵ g/cm³ the two differ by 1.8·10⁻⁴ on
-   DD2 (0.47367 against 0.47385) and 1.9·10⁻⁴ on SFHo, while the evolved
-   fluid is static only with the first. The surface lies above
-   10^3.9 g/cm³, below which `h` falls with density on the slice of both
-   tables (cause not examined); the central density lies below 10^15.40 g/cm³, above which SFHo's slice has
-   `cs² ≥ 1`.
+7. **TOV with a tabulated EOS and `Yₑ`**: a star on a real table in cold
+   β-equilibrium (EOS-4), static in the Cowling approximation and in
+   TreeGH's spacetime as rungs 4 and 5 are, with `Yₑ` varying through it and
+   `D Yₑ` conserved.
+
+   *As built in step 13* ("Thermodynamics": "The cold barotrope", "The
+   tabulated star's surface and atmosphere"). The stars are their tables'
+   1.4 M☉ ones: DD2 at `ρ_c = 9.4·10⁻⁴` (5.8·10¹⁴ g/cm³; `M = 1.404`,
+   `R̄ = 7.47`) and SFHo at `ρ_c = 1.37·10⁻³`; the atmosphere at `10⁻¹⁰`
+   on the Cowling metric and `10⁻¹²` in the evolved spacetime, as for the
+   polytrope.
+   - **`Yₑ` advection** (`test/ye_advection_tests.jl`, the ideal gas, one
+     period on 32, 64, 128 cells): a smooth profile at 1.69, 1.86 under MC
+     (clipped at its extrema) and 2.05, 2.23 under PPM; a step stays
+     within its two values to 4·10⁻¹³; `D Yₑ` to 6·10⁻¹⁷ of 0.35.
+   - **The suite's star** (`test/tabulated_tov_tests.jl`, DD2 on
+     `[−16, 16]³`, `h = 1`, MC, to 4 M): every cell of the initial data in
+     the star recovers with no policy flag; `ρ_c` drifts −0.82% (the
+     polytrope −3.3% on the same mesh); the rest mass and `D Yₑ` change
+     by exactly what the reset injects, to 6.6·10⁻¹⁶ and 2.0·10⁻¹⁷; the
+     entropy floor fires on no cell outside the atmosphere.
+   - **In TreeGH's spacetime** (`coupled/tabulated_tests.jl`, `N = 10, 20`
+     on the same box): the frozen metric reproduces the Cowling run to
+     1.2·10⁻¹³; `ℋ − 16πρ` at `t = 0` inside `r < 6` converges at 1.83
+     with the mean and 3.78 with the fourth-order transfer (3.44·10⁻²
+     without the matter); to `t = 1` the rest mass and `D Yₑ` change by
+     the reset's injection to 1.2·10⁻¹⁵ and 2.9·10⁻¹⁵.
+   - **The studies** (`jobs/tabulated-tov-*.toml`, Symmetry): the Cowling
+     stars of DD2 and SFHo at `h = 0.75, 0.5, 0.375`, MC, to 200 M, and
+     DD2 in the evolved spacetime at `h = 0.6, 0.5, 0.375`, PPM, to
+     1000 M, as rungs 4 and 5 were measured. *(Running.)*
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
@@ -6012,6 +6108,10 @@ decides".
   nearest published version is
   Palenzuela (2013)'s switch to a force-free exterior at 50–400 `ρ_atm`.
   Nothing built or measured beyond that.
+- **(open)** Whether a table's recovery should be warm-started from the
+  cell's previous `log₁₀ T`, carried in the state as `D s` is
+  ("Thermodynamics", "Warm starts"): on the tabulated star a cell-step costs
+  about 2.7 times the polytrope's, not yet split into the recovery's part.
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 
@@ -6093,6 +6193,17 @@ decides".
   cutoff at `ρ = 10⁻⁶` removes all but 6·10⁻⁶ of them at `h = 0.375`, and
   every one at `h = 0.25` in the evolved spacetime.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
+- A table whose cold β-equilibrium slice has a phase transition (a density
+  jump at constant pressure; SRO LS220 has four, EntropyEOS's PR 15) is
+  refused by `cold_barotrope`: the composition table is smooth in `r̄²`,
+  and a star with a density jump needs it split at the jump. DD2 and SFHo
+  have none. The radial modes (`src/tov_pulsation.jl`) are the
+  polytrope's only: a table's star needs `Γ₁` from `cs²`.
+- The tabulated star lies on the entropy window's minimum, the table's
+  coldest row, so a cell that truncation pushes colder is floored by the
+  recovery, raising `τ`. The reset counts these floors outside the
+  atmosphere (`ohm_tally`'s `s_floors`, `s_floor_τ`); at `h = 1` to 4 M
+  there are none ("Validation ladder" 7 has the studies).
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

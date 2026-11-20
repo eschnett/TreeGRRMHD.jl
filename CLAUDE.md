@@ -116,6 +116,16 @@ TREEGRRMHD_TEST_TIER=quick julia --project=. -e 'using Pkg; Pkg.test(; julia_arg
 TREEGRRMHD_TEST_TIER=threaded julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4", "--check-bounds=yes"])'
 ```
 
+The testsets that read a real table (step 13; `test/tables.jl`) run only
+where `ENTROPYEOS_TABLE_DIR` names a directory holding DD2: on the laptop
+`~/src/EntropyEOS/tables`, on Symmetry `/mnt/beegfs/eschnetter/EOS`, which
+`jobs/full-suite.toml` sets. Without it they are skipped and named at the
+end, as on GitHub; the same holds for the coupled suite:
+
+```bash
+ENTROPYEOS_TABLE_DIR=~/src/EntropyEOS/tables julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
 The coupled suite (step 11; `CODE.md`, "The coupling contract") runs in
 `coupled/`, an environment of its own that loads TreeGeneralizedHarmonic
 beside this checkout, never in the package's suite. The same three ways, the

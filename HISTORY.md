@@ -1912,6 +1912,52 @@ PLAN.md's EOS-4 was rewritten to the second version, and `test/prerequisite_test
 checks for `cold_beta_slice` and `beta_equilibrium` on a `ColdBetaSlice` (false on 2.2.1 and on
 the first version, true on the second). The pin waits for the tag.
 
+*EOS-4 — Cold β-equilibrium slice (later, step 13; landed in EntropyEOS 2.3.0).* The request
+as `PLAN.md` held it when it landed:
+
+**Why.** Step 13's star on a real table (DD2 or SFHo) needs the cold, neutrinoless
+β-equilibrium composition along the star: `Yₑ` and `s` at each pressure, and the EOS there.
+Which zero of `μ_ν` a star takes where there are several, and how `μ_ν` follows from a table's
+`mu_e`, `muhat` and energy, is knowledge of the tables, so the solve is EntropyEOS's. The
+fitted `EOSPoint.μ̃` is not good enough for it: on the cold edge it is off from the table's
+`munu` by MeV ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20).
+
+**API** (EntropyEOS PR 15, head 1e324e4, version 2.3.0; open, not merged):
+```julia
+cold_beta_slice(table::RawTable, eos::EOSTable; refine=8, munu_offset=nothing,
+                energy_offset=nothing) -> ColdBetaSlice
+beta_equilibrium(slice::ColdBetaSlice; ρ★ | p | g) -> BetaEquilibrium   # exactly one key
+```
+`BetaEquilibrium` carries `ρ★`, `yₑ`, `s`, `point::EOSPoint`, `g` (the Gibbs free energy per
+unit rest mass) and `flags`; the slice lists its phase transitions in `jumps`.
+
+**Semantics this package relies on.**
+- At each pressure the slice takes the composition of least Gibbs free energy. Along it `ρ★`,
+  `p` and `g` never decrease; where the composition changes, the density jumps at constant `p`
+  and `g`, and a `ρ★` inside the gap throws `ArgumentError`.
+- A state lies on the fitted EOS's cold edge, `s = srange(eos, ρ★, yₑ).s_min`, at the table's
+  lowest temperature.
+- A lookup by `p` returns that pressure to rounding, with `μ_ν = 0` there.
+- Host-side and `Float64`; the table must be the one the EOS was built from.
+
+**Upstream acceptance.** As PR 15 tests it: on the real tables, monotone in `ρ★`, `p` and `g`;
+lookups by pressure round-trip to 10⁻⁸; `μ_ν = 0` at the results; a constructed phase
+transition located to 10⁻⁸ in pressure.
+
+**Downstream check.** `test/prerequisite_tests.jl` detects `cold_beta_slice` and
+`beta_equilibrium` on a `ColdBetaSlice`. Checked by hand on PR 15's head on DD2, DD2 repaired
+and SFHo ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20): the slice's
+monotonicity, lookups by pressure, `munu` at the results, and a static state at every result
+through `inside_window` and `con2prim_safe`, unflagged. Once tagged, `[sources]` pins `v2.3.0`
+and `[compat]` requires `"2.3"`, and the probe is retired.
+
+**Workaround:** none; step 13 waits.
+
+**2026-11-20, later.** EntropyEOS 2.3.0 was released: the tag `v2.3.0` is 542c32c, the merge
+of PR 15, whose tree is the head 1e324e4 checked above. Step 13 pinned it the same day:
+`[sources]` the tag `v2.3.0` and `[compat]` `"2.3"`, in the package and in `coupled/`; the
+EOS-4 probe was retired and its names joined `test/prerequisite_tests.jl`'s list.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of
