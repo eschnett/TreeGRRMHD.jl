@@ -1,0 +1,46 @@
+# The full suite on one commit, the three ways of CLAUDE.md's "Commands"
+# side by side on one node: one thread, four threads, and with bounds checks.
+# `ci/full-suite-cluster.sh` takes the commit's snapshot, submits this spec and
+# later collects the result; see its header.
+#
+# The runs are `test/runtests.jl` in the test environment rather than
+# `Pkg.test`, which SimLaunch accepts for every suite: the environment holds
+# the package and `test/Project.toml` with its `[compat]`. Each run takes
+# 12–21 minutes on Symmetry's AMD nodes, so side by side they fit in
+# `amddebugq`'s hour.
+#
+# Julia: the floor of `[compat]`, written out. The site's own Julia is the
+# release, which is also 1.13 until 1.14 is released; then the release runs are
+# these three again without `julia`.
+name = "full-suite"
+env = "test"
+mode = "parallel"
+julia = "1.13"
+vars = { TREEGRRMHD_TEST_TIER = "full" }
+
+[site.symmetry]                     # amddebugq, by the profile's rule
+time = "1:00:00"
+
+[site.trillium]                     # debug while no other job of ours is there
+time = "1:00:00"
+
+[site.local]                        # the workstation, as `ci/full-suite.sh` runs it
+
+[[run]]
+label = "t1"
+cmd = "test/runtests.jl"
+threads = 1
+
+[[run]]
+label = "t4"
+cmd = "test/runtests.jl"
+threads = 4
+
+[[run]]
+label = "bounds"
+cmd = "test/runtests.jl"
+threads = 1
+julia_args = ["--check-bounds=yes"]
+
+[after]
+cmd = "bash \"$PROJECT\"/ci/suite-summary.sh $SIMLAUNCH_JOBDIRS"   # this job's runs

@@ -1,0 +1,21 @@
+# The thread scan of the per-phase table (step 14; `bin/benchmark.jl`): the magnetized TOV
+# star on two levels at `Float64` (3³ roots of 16³, 216 blocks, 8.8·10⁵ cells), one run per
+# thread count, one after another on one pinned node, so that the counts compare: a named
+# Zen 3 node of Symmetry (EPYC 7543, 64 cores in 8 NUMA domains), and the two-phase
+# recovery at the full node beside the fused one.
+name = "benchmark-cpu"
+pin = true
+
+[site.symmetry]                     # amdq: eight runs one after another need more than an hour
+node = "cn101"
+time = "3:00:00"
+
+[[run]]
+label = "scan"
+cmd = "bin/benchmark.jl backend=cpu type=f64"
+threads = [1, 2, 4, 8, 16, 32, 64]
+
+[[run]]
+label = "split"
+cmd = "bin/benchmark.jl backend=cpu type=f64 two_phase=true"
+threads = 64

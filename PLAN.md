@@ -708,18 +708,12 @@ Accept:
 
 ## Step 14 — Precision, threads, devices, benchmark
 
-Waits: nothing. AMR-5 (wanted) has landed in TreeAMR 0.2.1.
-
-Changes:
-- Device tests behind `TREEGRRMHD_TEST_BACKEND` (`cuda`, `metal`).
-- A Float32 smoke run.
-- Bit-identical states across thread counts.
-- Benchmark scripts giving ns per cell per RHS phase, after TreeGH's step 9.
-
-Accept:
-- **CUDA Float64:** the Cowling TOV matches the CPU run to recorded differences.
-- **Metal Float32:** the smoke run is recorded, pass or fail.
-- **The per-phase timing table** is recorded.
+*Done*, waiting for Erik's acceptance (2026-11-19). Results in `CODE.md`, "Precision and
+devices" ("Threads", "Devices", "The per-phase table"), "Tests", "Code layout" and "Sharp
+edges". The step's changes, acceptance list and measured outcomes are in [HISTORY.md, "The
+steps of the plan"](HISTORY.md#the-steps-of-the-plan) and [HISTORY.md, "Precision and
+devices"](HISTORY.md#precision-and-devices), the suite in [HISTORY.md, "The test
+suite"](HISTORY.md#the-test-suite).
 
 ## Step 15 — Review pass
 

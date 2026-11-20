@@ -88,6 +88,11 @@ include("tiers.jl")
     # Step 12: the magnetized TOV star on the Cowling metric — the exterior dipole and its
     # continuation, ∇·B, `E·B`, the drift and the stage solve's outcome map.
     include("magnetized_tov_tests.jl")
+    # Step 14: the run bit for bit at another thread count (a subprocess), and on a device,
+    # or on the CPU standing in for one (`TREEGRRMHD_TEST_BACKEND`; the file also runs by
+    # itself, which is how a device job runs it).
+    include("threading_tests.jl")
+    include("device_tests.jl")
 end
 
 isempty(TIER_SKIPPED) ||

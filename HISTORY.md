@@ -615,6 +615,55 @@ their acceptance:
 already said, but step 14 still listed it under "Waits" and `CODE.md`'s
 AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 
+> **Step 14 — Precision, threads, devices, benchmark**
+>
+> Waits: nothing. AMR-5 (wanted) has landed in TreeAMR 0.2.1.
+>
+> Changes:
+> - Device tests behind `TREEGRRMHD_TEST_BACKEND` (`cuda`, `metal`).
+> - A Float32 smoke run.
+> - Bit-identical states across thread counts.
+> - Benchmark scripts giving ns per cell per RHS phase, after TreeGH's step 9.
+>
+> Accept:
+> - **CUDA Float64:** the Cowling TOV matches the CPU run to recorded differences.
+> - **Metal Float32:** the smoke run is recorded, pass or fail.
+> - **The per-phase timing table** is recorded.
+>
+> **State (2026-11-19).** Built and measured (`CODE.md`, "Precision and devices": "Threads",
+> "Devices", "The per-phase table"); the cluster runs went through SimLaunch specs in `jobs/`
+> on Symmetry (the suite and the thread scan on AMD nodes, everything on a device on one H200).
+>
+> Done:
+> - **CUDA Float64:** the Cowling star to 200 M on an H200 matches the same run on its node's
+>   CPU in `ρ_c` at every 10 M to 26 ulp, in a tenth of the time.
+> - **Metal Float32:** passes — the device tests 152 of 152, and the Cowling star at the
+>   script's default size to 200 M, 2.6·10⁻⁵ of `ρ_c` from the `Float64` run; on the H200 at
+>   `Float32` within 3.0·10⁻⁵ (job 606641).
+> - **The per-phase table**, recorded on the CPU at 1–64 threads (cn101) and on the H200 at
+>   both types, both recoveries and two sizes; no workgroup shape gains more than 2% a step,
+>   so the backend's choice stays.
+> - Bit-identical at one and four threads (`test/threading_tests.jl`, three runs); the device
+>   tests at both types with both recoveries, 304 of 304 on the H200.
+> - `workgroupsize` through `MHDProblem` and `evolve!`; the phases as named functions;
+>   `bin/benchmark.jl`, `bin/backend.jl` and `backend=`/`type=` on `bin/tov_cowling.jl`.
+> - The split recovery is a device's default, fused the CPU's (decided by Erik 2026-11-20):
+>   the split is 14–15% faster a step on the H200 and 5% slower on the CPU.
+> - The block-owner partition measured at Erik's request (2026-11-20, job 606773): within
+>   1% of `:even` at 8–64 threads and on a mesh eight times the size, so AMR-12 was not
+>   written.
+> - The device claim's counts are looser than first written: a block's share of the
+>   recoveries, not `sqrt(eps)`, and the flag word without its not-converged bit at
+>   `Float32`. Kept so by Erik (2026-11-20), against a tenth of a share, which would still
+>   have left twelve times the largest difference measured (0.008 of a share).
+>
+> Reported to SimLaunch by Erik (2026-11-20):
+> - A study re-snapshotted under the same name keeps environments marked compiled
+>   that are not (job 606333 failed "not precompiled"); `--run` did not take a thread list's
+>   label (`scan`), only each `scan-tN` (it does now); `prepare` refuses a whole spec when one run asks for
+>   more cores than a site's node has; and there is no way to refresh one script of a prepared
+>   study, so `bin/benchmark.jl` was copied into `grrmhd-step14-2` by hand for job 606643.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -2492,6 +2541,11 @@ the CPU keeps the split or fuses is Erik's decision.*"
 false` in `MHDProblem` and `evolve!`); the split stays in the code, tested
 bit for bit against fused, for a GPU step to turn on. This resolved the
 open decision of 2026-10-30.
+
+**2026-11-20, step 14.** Decided by Erik: **the default is the backend's**
+(`two_phase = nothing`): fused on the CPU, split on a device, where on an
+H200 the split is 14–15% faster a step (`CODE.md`, "Devices"). The
+benchmark's specs name their recovery since, so that its table reproduces.
 
 **Step 9.** The step cache's curved-space keys were exercised in step 9: on
 the Kerr-Schild cases, with the interior, one integration, two and a restart
@@ -4538,6 +4592,81 @@ changed to multiply with plain `*` and `+` (`mul3`; amended in step 2).
 arrays, physics as `isbits` arguments, generic in `T`, the Alfvén wave in
 `Float32`) are step 5's.
 
+**2026-11-19, step 14.** Until step 14 the section was *(Proposed.)*: nothing
+had run on a device, and the claim on one was left to this step. What step 14
+found and changed:
+
+- **The first device run crashed the compiler.** On Metal (Apple M3 Pro,
+  Metal.jl 1.11.1, Julia 1.13.4) the Alfvén wave compiled every kernel up to
+  the gauge right-hand side, where LLVM's inliner died with a bus error. Each
+  term of the kernel's divergence compiled alone, and two terms written out
+  compiled; `sum(ntuple(j -> … Val(j) …, Val(D)))` did not, nor did it with a
+  larger stack. The sum is written out (`gauge_divergence`), adding in the
+  order `sum` over a tuple adds, so the host's bits did not change (checked on
+  10⁵ random triples). After it, everything ran.
+- **`bin/tov_cowling.jl` asked for `partition = :even`** whatever the state
+  was, and IMEXRungeKutta refuses it on a device array; it now picks it as
+  `mhd_integrator` does, which gained a `partition` keyword so that the
+  benchmark can time the broadcast on the CPU.
+- **The thread claim** had been stated since step 0 and asserted nowhere;
+  `test/threading_tests.jl` (TreeHydro's, with this package's three runs)
+  found it true at one and four threads.
+- **The device test's yardsticks**, TreeHydro's, needed two changes, both
+  measured on Metal at `Float32`. The drift bound held for the seven conserved
+  totals and not for `𝔈ˣ`, whose total is not conserved (the current is its
+  source): host and device both drifted by 6.5·10⁻⁶ against a bound of
+  2.2·10⁻¹⁰ from its own scale; the comparison takes the seven, as the host
+  suite's `md_conserved` does. And the Alfvén wave's error norms on 100 cells
+  differed by up to 6·10⁻⁴ of themselves (`S_z`, `A_y`) and 5·10⁻³ (`𝔈ˣ`,
+  rounding alone), above `sqrt(eps) = 3.5·10⁻⁴`: the errors there are 10⁻⁴ of
+  the state. On 40 cells the wave's six components differ by at most 8·10⁻⁵;
+  the test runs 40 and compares those six. The step cache's warm and reused
+  seeds differed by up to a few hundred thousand on the star (a reuse needs
+  the input bit for bit), their sum and the cold seeds not at all; the star's
+  policy and reset counts by 24–112 of 1.9–2.5·10⁶. Every other count of the
+  four runs was equal, with both recoveries: 152 of 152.
+- **The counts' first bound was wrong.** The test held the policy's and the
+  reset's counts to `sqrt(eps(T))` of themselves, which asks for equality at
+  `Float64`. On an H200 (job 606353) the atmosphere tube's counts at `Float64`
+  differed by 2 of 17848 and 1 of 13380, and at `Float32` the policy's flag
+  word gained `FLAG_POL_NOT_CONVERGED` from one cell of the star: 6 of 304
+  failed, every other assertion held at both types with both recoveries. The
+  bound is now what the test guards against, a block's share of the chunk's
+  recoveries, and the not-converged bit is left out of the flag word at
+  `Float32` (`CODE.md`, "Devices").
+- **The rerun on the H200** (job 606423, the bounds revised): 304 of 304, at
+  both types with both recoveries. The fused recovery, which calls
+  EntropyEOS's two levels in one kernel, ran on CUDA.jl 6.4.2, the version
+  whose fault EntropyEOS's `HISTORY.md` records; so the split, built for the
+  device, is not needed there to run, only measured faster (`CODE.md`,
+  "Devices"); Erik made it a device's default on 2026-11-20 ("Primitive
+  recovery").
+- **A workgroup size given as a number is a row.** The first H200 table
+  timed `workgroupsize = 64, 128, 256` (job 606355): a step two to six times
+  slower than the backend's choice (`CODE.md`, "Devices"). KernelAbstractions pads an integer
+  with ones, so the workgroup is 64–256 points along the block's first axis,
+  which has 16 (CUDA.jl's own choice fills that axis first); most threads
+  idle. On Metal the same, 64 against the default, was 3.1 times slower.
+  `bin/benchmark.jl` now takes a shape (`16x4`), and the table's sizes are
+  shapes (job 606643): within −2% to +5% of the backend's choice, and
+  16×16×2, 512 threads, did not launch (255 registers a thread). The default
+  stays (`CODE.md`, "Devices").
+- **The block-owner partition was claimed, then measured** (2026-11-20). `CODE.md` said
+  the owner partition "was measured not to pay" and that it could gain only part of the
+  16% that `:even` gains over the broadcast; neither was so, since only `:even` and the
+  broadcast had been timed. At Erik's request `bin/benchmark.jl` gained a `step_owner`
+  row, built from TreeAMR's unexported `threadchunks` as TreeHydro and
+  TreeGeneralizedHarmonic build theirs, and `jobs/benchmark-partition.toml` timed it on
+  cn095 (job 606773, 21 min, study `grrmhd-step14-4` snapshotted from the uncommitted
+  tree on 4ba35d3): within 1% of `:even` everywhere (`CODE.md`, "The per-phase table").
+  So AMR-12, the export of `threadchunks`, was not written. TreeHydro's 2–2.7× was the
+  owner partition against the serial broadcast, not against a threaded one.
+- **The Cowling star's spec ran out of time.** `jobs/tov-cowling-device.toml`
+  ran its three runs in turn in four hours: the H200 at `Float64` took
+  22 min, its CPU twin on the node's 8 cores 3.6 h, and the `Float32` run was
+  killed at the limit seconds after it started (job 606354). The CPU twin now
+  runs last, in six hours, and the `Float32` run ran alone (job 606641).
+
 ## Validation ladder
 
 **2026-10-14, step 5 — The staggered scheme in 1D: smooth problems (rung 1a).**
@@ -5896,3 +6025,51 @@ whole** — 13m34.9s at one thread (tri0839, job 2878361), 10m07.2s at four (tri
 clean checkout at four threads (`git archive`, no `Manifest.toml`, resolved on the
 login node; tri0466, 2878369). The coupled suite: 32/32 at one thread (3m19.7s),
 four (2m45.1s) and four with bounds checks (3m22.3s) (tri0726, 2878364).
+
+**2026-11-18, the suite through SimLaunch.** Erik asked for the launch
+scripts to go through [SimLaunch](https://github.com/eschnett/SimLaunch.jl)
+before step 14. The one committed launch script, `ci/full-suite-symmetry.sh`,
+packed a `git archive` into one fixed tree on Symmetry, wrote its own batch
+script for one four-thread run in `amddebugq` and wrote `result.txt` for its
+`collect`. It is replaced by `jobs/full-suite.toml` and
+`ci/full-suite-cluster.sh`. The spec runs the suite three ways side by side on
+one node: one thread, four threads, bounds checks, each at the floor
+(`julia = "1.13"`). Each commit is a study of its own, snapshotted from the
+commit (`--rev`) and compiled once per site, in place of the fixed tree.
+`ci/full-suite.sh` keeps the workstation's run and lost the options only the
+Symmetry job used, and `ci/suite-summary.sh` is the one parser of Test's
+summary for all three. The step-11 and step-12 study jobs were scratch
+scripts, never committed; they move to specs when a run of them is next due.
+The old fixed tree, `/home/eschnetter/claude/full-suite/TreeGRRMHD`, is left
+on Symmetry.
+
+SimLaunch lacked four things this needed, reported to Erik and added to
+SimLaunch the same day: a snapshot of a commit rather than the working tree
+(`snapshot --rev`), a Julia version per run (`julia`), `test/Project.toml`'s
+`[compat]` in the test environment, and a single look with an exit code
+(`wait --once`).
+
+Measured (2026-11-18, Symmetry job 605543 on cn101, EPYC 7543, `amddebugq`;
+the working tree at 891cdfa with the new files, uncommitted, study
+`grrmhd-suite-check1`): **26664 tests, every run passing whole** — 20m10.3s
+at one thread, 14m50.9s at four, 25m37.4s with `--check-bounds=yes`, the
+job 25m40s; the three side by side are slower than each alone (step 12's
+were 13m35s, 10m07s and 16m24s on Trillium), and still fit in the hour.
+
+**2026-11-19, step 14.** The suite gained the thread digests
+(`test/threading_tests.jl`) and the device tests with the CPU standing in
+(`test/device_tests.jl`): **26745 tests, every run passing whole** (Symmetry
+job 606356 on cn090, EPYC 7532, `amddebugq`; study `grrmhd-step14-2`, the
+working tree at 4ba35d3 with step 14's changes, uncommitted) — 33m43s at one
+thread, 25m08s at four, 40m20s with `--check-bounds=yes`, side by side. On
+Zen 2 the bounds-checked run takes two thirds of the hour that `amddebugq`
+allows. Alone, the device tests ran 304 of 304 on an H200 in 15m21s (job
+606423) and 152 of 152 on an M3 Pro.
+
+**2026-11-20, step 14 committed.** At 720a24d, with the two-phase default
+and its testset: **26746 tests, every run passing whole** (Symmetry job
+606811 on cn095, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`, study
+`full-suite-720a24d6793e`) — 25m13s at one thread, 18m34s at four, 31m29s
+with `--check-bounds=yes`, side by side, the job 31m34s. Zen 3 takes a
+quarter less than step 14's first run on Zen 2. Alone, the device tests ran
+154 of 154 on the M3 Pro.

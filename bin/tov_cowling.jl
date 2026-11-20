@@ -9,8 +9,12 @@
 #
 # Keys (`bin/tov_cowling_cli.jl`): `N` (cells per block, 16), `levels` (box levels around
 # the star, 1), `L` (the box `[−L, L]³`, 24), `roots` (4), `t_end` (200), `chunk` (10),
-# `limiter` (`ppm`), `out` (a file for the record, `t ρ_c` per chunk; default the terminal).
+# `limiter` (`ppm`), `out` (a file for the record, `t ρ_c` per chunk; default the terminal,
+# relative to the working directory, which in a SimLaunch job is its job directory),
+# `backend` (`cpu`, `cuda`, `metal`; `bin/backend.jl`) and `type` (`f64`, `f32`; added in
+# step 14). A device run needs its package in the environment (a spec's `env = "cuda"`).
 
+using KernelAbstractions: CPU
 using TreeAMR
 using TreeGRRMHD
 const MHD = TreeGRRMHD
@@ -28,11 +32,11 @@ stage_limit!(u, _, p, t) = MHD.stage_limit!(u, p.mhd, t; p.metric)
 step_limit!(u, _, p, t) = MHD.step_limit!(u, p.mhd, t; p.metric)
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
-              record=(t, ρ_c) -> println(t, "  ", ρ_c))
+              backend=CPU(), record=(t, ρ_c) -> println(t, "  ", ρ_c))
     star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
     forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
-    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter)
+    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest; backend), star; limiter)
     u = statevector(MHD.evolved_sets(mhd))           # matter, A_d, Φ̃ (AMR-1)
     MHD.initial_state!(u, mhd, star, zero(T))
     p = (; mhd, metric=star.provider)                # Analytic(TOVMetric)
@@ -47,7 +51,7 @@ function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, lim
         prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
         integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=(t1 - t) / nsteps,
                          stage_limiter=stage_limit!, step_limiter=step_limit!,
-                         partition=:even, alias_u0=true, reuse=integ)
+                         partition=u isa Array ? :even : nothing, alias_u0=true, reuse=integ)
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         t = t1
         record(t, MHD.central_density(p.mhd, u, t))

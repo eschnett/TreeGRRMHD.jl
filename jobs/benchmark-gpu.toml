@@ -1,0 +1,66 @@
+# The per-phase table on one H200 (step 14; `bin/benchmark.jl`): the magnetized TOV star on
+# two levels at `Float64` and `Float32`, both recoveries, and the workgroup sizes of AMR-5 —
+# an `Int`, which KernelAbstractions pads to a 1D workgroup along the block's first axis of
+# 16 points, and shapes that cover that axis (not 16x16x2: 512 threads exceed the register
+# file for a kernel of 255 registers a thread) —
+# on the suite's size (3³ roots of 16³, 216 blocks, 8.8·10⁵ cells) and a larger one (6³
+# roots, 7.1·10⁶ cells) that fills the device. Every run names its recovery, since a
+# device's default is the split: these are the runs of the table in `CODE.md`.
+name = "benchmark-gpu"
+env = "cuda"
+
+[site.symmetry]
+resources = { gpus = 1 }
+time = "2:00:00"
+
+[[run]]
+label = "f64"
+cmd = "bin/benchmark.jl backend=cuda type=f64 two_phase=false"
+
+[[run]]
+label = "f32"
+cmd = "bin/benchmark.jl backend=cuda type=f32 two_phase=false"
+
+[[run]]
+label = "f64-split"
+cmd = "bin/benchmark.jl backend=cuda type=f64 two_phase=true"
+
+[[run]]
+label = "f64-wg64"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=64 two_phase=false"
+
+[[run]]
+label = "f64-wg128"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=128 two_phase=false"
+
+[[run]]
+label = "f64-wg256"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=256 two_phase=false"
+
+[[run]]
+label = "f64-wg8x8"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=8x8 two_phase=false"
+
+[[run]]
+label = "f64-wg16x4"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=16x4 two_phase=false"
+
+[[run]]
+label = "f64-wg16x8"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=16x8 two_phase=false"
+
+[[run]]
+label = "f64-wg16x16"
+cmd = "bin/benchmark.jl backend=cuda type=f64 workgroupsize=16x16 two_phase=false"
+
+[[run]]
+label = "f64-large"
+cmd = "bin/benchmark.jl backend=cuda type=f64 roots=6 two_phase=false"
+
+[[run]]
+label = "f64-large-split"
+cmd = "bin/benchmark.jl backend=cuda type=f64 roots=6 two_phase=true"
+
+[[run]]
+label = "f32-large"
+cmd = "bin/benchmark.jl backend=cuda type=f32 roots=6 two_phase=false"

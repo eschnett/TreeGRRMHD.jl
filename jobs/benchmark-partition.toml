@@ -1,0 +1,23 @@
+# The stage arithmetic's partition on the CPU (`bin/benchmark.jl`'s `step`, `step_broadcast`
+# and `step_owner` rows): IMEXRungeKutta's `:even` against the broadcast and the block-owner
+# partition, which would need TreeAMR's `threadchunks` exported (AMR-12). The magnetized TOV
+# star on two levels at `Float64` on the suite's size (3³ roots of 16³, 8.8·10⁵ cells) at
+# 8–64 threads, where `:even` and the broadcast part, and on 6³ roots (7.1·10⁶ cells, about
+# 800 MB a state vector, well out of the caches) at 64. One pinned Zen 3 node (EPYC 7543,
+# 64 cores in 8 NUMA domains), the runs one after another, so that they compare.
+name = "benchmark-partition"
+pin = true
+
+[site.symmetry]
+node = "cn095"
+time = "1:00:00"
+
+[[run]]
+label = "scan"
+cmd = "bin/benchmark.jl backend=cpu type=f64"
+threads = [8, 16, 32, 64]
+
+[[run]]
+label = "large"
+cmd = "bin/benchmark.jl backend=cpu type=f64 roots=6"
+threads = 64
