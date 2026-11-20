@@ -86,9 +86,10 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 
 At 1.13 `Pkg.test()` runs with bounds checks at `auto`, so the third run
 is not the first (`CODE.md`, "Julia version"). Each full run takes roughly
-12–21 minutes on Symmetry's AMD nodes (at four threads the shortest, with
-bounds checks the longest; `HISTORY.md`, "The test suite", has the
-measurements). The log names every upstream ID still probed as waiting;
+15–40 minutes on Symmetry's AMD nodes, side by side as
+`jobs/full-suite.toml` runs them (at four threads the shortest, with bounds
+checks the longest, Zen 2 nodes the slowest; `HISTORY.md`, "The test
+suite", has the measurements). The log names every upstream ID still probed as waiting;
 grep it for `waiting:` (a landed item guaranteed by `[compat]` has no
 probe, so `landed:` should not appear).
 
@@ -158,6 +159,22 @@ Every cluster job is a SimLaunch spec in `jobs/`, committed; a Julia
 script it names is run as it is, from its own job directory, so it finds
 its files from `@__DIR__` and writes into the working directory.
 
+The device tests (`test/device_tests.jl`; in the suite the CPU stands in)
+run by themselves in an environment with the device package, on an H200
+through `jobs/device-tests.toml`, or on the laptop's GPU:
+
+```bash
+simlaunch submit <study> jobs/device-tests.toml --site local
+```
+
+The per-phase table is `bin/benchmark.jl` (`key=value` arguments, its
+header), on the package environment; `jobs/benchmark-cpu.toml` and
+`jobs/benchmark-gpu.toml` run it on Symmetry:
+
+```bash
+julia --project=. -t 4 bin/benchmark.jl N=8
+```
+
 A `Manifest.toml` resolved by one Julia version breaks loading under
 another (1.13 refused a 1.11 manifest's `MbedTLS_jll`), so delete it, or
 use a clean tree, when switching versions.
@@ -226,6 +243,8 @@ The sharp edges, each explained in `CODE.md`, "Sharp edges":
   tendency.
 - Masks branch, never multiply.
 - An adapter is a snapshot of its producer's prepared state.
+- A kernel's sum over directions is written out, not `sum(ntuple(… Val(j) …))`.
+- A script picks the integrator's partition from the state's array type.
 
 Style, matching TreeAMR's, TreeHydro's and TreeGeneralizedHarmonic's,
 since the packages are read together:

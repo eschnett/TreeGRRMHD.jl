@@ -1,0 +1,23 @@
+# The device tests (step 14): `test/device_tests.jl` by itself, on a device, against the
+# host runs it makes beside it — on CUDA at `Float32` and `Float64`, on Metal at `Float32`,
+# each with both recoveries. Its testset is named `TreeGRRMHD.jl`, so `ci/suite-summary.sh`
+# reads its log as it reads the suite's. The suite itself runs the same file with the CPU
+# standing in.
+name = "device-tests"
+env = "test+cuda"
+vars = { TREEGRRMHD_TEST_BACKEND = "cuda" }
+
+[site.symmetry]                     # one H200 and its 8 cores; h200q, by the profile's rule
+resources = { gpus = 1 }
+time = "2:00:00"
+
+[site.local]                        # the laptop's GPU
+env = "test+metal"
+vars = { TREEGRRMHD_TEST_BACKEND = "metal" }
+
+[[run]]
+label = "device"
+cmd = "test/device_tests.jl"
+
+[after]
+cmd = "bash \"$PROJECT\"/ci/suite-summary.sh $SIMLAUNCH_JOBDIRS"

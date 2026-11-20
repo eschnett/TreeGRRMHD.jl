@@ -5,8 +5,8 @@
 # the first stage was not done, and level 2 with the site's own work. What it
 # must not change: anything. EntropyEOS defines `con2prim_safe` as its two
 # phases, so the split is the fused recovery bit for bit. Fused is the
-# default (decided by Erik 2026-11-02), so every split run here asks for
-# `two_phase = true`. See "The two-phase recovery" in `CODE.md`.
+# CPU's default (decided by Erik 2026-11-02), so every split run here asks
+# for `two_phase = true`. See "The two-phase recovery" in `CODE.md`.
 
 const TP = TreeGRRMHD
 

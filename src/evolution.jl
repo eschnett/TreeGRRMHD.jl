@@ -128,7 +128,7 @@ const MHD_SOLVERS = (:llf, :hlle, :hlle_split)
                ξ = 0, stage = OhmStageOptions{T}(), limiter, riemann = :hlle,
                ops_U = default_ops_U(), ops_A = default_ops_A(), ops_Φ = default_ops_Φ(),
                ops_W = default_ops_W(), boundary = nothing, boundary_W = nothing,
-               fixup = true, two_phase = false, interior = nothing)
+               fixup = true, two_phase = nothing, interior = nothing, workgroupsize = nothing)
 
 Everything a right-hand side, an implicit stage and a reset need, built once
 per mesh: the field sets `f` ([`mhd_fields`](@ref)), a ghost schedule per
@@ -192,20 +192,26 @@ run as three passes over the owned cells, `con2prim_safe_start`,
 `con2prim_safe_finish` where the first was not done, and level 2 with the
 site's own work, through a per-owned-cell hand-off ([`Handoff`](@ref)) the
 problem owns, built and sized with it like the step cache. `two_phase =
-false`, the default, runs each of them fused, in one kernel, with no
-hand-off: the same results bit for bit (a test). *(Decided by Erik
-2026-11-02:)* fused is the default, since on the CPU the split costs 1–10%
-a step and only 0–2.4% of the recoveries reach the second phase; the split
-stays, tested against fused, for a GPU step to turn on.
+false` runs each of them fused, in one kernel, with no hand-off: the same
+results bit for bit (a test). `two_phase = nothing`, the default, is the
+backend's choice: fused on the CPU, where the split costs 1–10% a step and
+only 0–2.4% of the recoveries reach the second phase *(decided by Erik
+2026-11-02)*, and split on a device, where it is 14–15% faster a step on an
+H200 *(decided by Erik 2026-11-20)*.
 
 `interior` *(added in step 9; "The interior" in `CODE.md`)*: `nothing`, or an
 [`InteriorTarget`](@ref) — a black hole's interior and the case's solution —
 which the reset pastes into the state inside the hole, first, in the roles
 the interior names (stage limiter, step limiter or both). Without one the
 reset is exactly what it was.
+
+`workgroupsize` *(added in step 14; AMR-5)*: the workgroup every kernel of the step is
+launched with on a device (TreeAMR's `map_blocks!`), an `Int` or a tuple; `nothing`, the
+default, leaves the choice to the backend. The CPU ignores it, since there the workgroup is
+the block ("Precision and devices" in `CODE.md`).
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
-                  LIM,RS,FC,HO,IN}
+                  LIM,RS,FC,HO,IN,WG}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -238,6 +244,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     cache_on::Base.RefValue{Bool}  # whether it is active: only inside `with_step_cache`
     handoff::HO                  # the two-phase hand-off, or `nothing`: fused (2026-10-30)
     interior::IN                 # a black hole's interior, or `nothing` (step 9)
+    workgroupsize::WG            # the kernels' workgroup on a device, or `nothing` (step 14)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -247,7 +254,8 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                     ops_U::Operators=default_ops_U(), ops_A::Operators=default_ops_A(),
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                     boundary=nothing, boundary_W=nothing, fixup::Bool=true,
-                    two_phase::Bool=false, interior=nothing) where {D}
+                    two_phase::Union{Bool,Nothing}=nothing, interior=nothing,
+                    workgroupsize=nothing) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -299,6 +307,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     ischeds_EMF = ntuple(j -> any(==(1), staggers(f.EMF[j])) ? InterfaceSchedule(f.EMF[j]) :
                               nothing, 3)
     backend = get_backend(f.U.work)
+    two_phase = something(two_phase, !(backend isa CPU))
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
@@ -319,11 +328,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
                       typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff),
-                      typeof(interior)}(
+                      typeof(interior),typeof(workgroupsize)}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann), cache, Ref(false), handoff, interior)
+        Val(riemann), cache, Ref(false), handoff, interior, workgroupsize)
 end
 
 """
@@ -344,7 +353,8 @@ rebuild(p::MHDProblem; kwargs...) =
                𝔅̄=p.𝔅̄, ξ=p.ξ, stage=p.stage, limiter=unval(p.limiter),
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
                ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup,
-               two_phase=p.handoff !== nothing, interior=p.interior, kwargs...)
+               two_phase=p.handoff !== nothing, interior=p.interior,
+               workgroupsize=p.workgroupsize, kwargs...)
 
 unval(::Val{X}) where {X} = X
 
@@ -769,6 +779,25 @@ end
     return gauge_flux(m, Ae, Φ̃e, Val(j))
 end
 
+# The difference of the gauge fluxes across the vertex `v` along `j`.
+@inline gauge_flux_difference(A, Φw, v, b, GA, gΦ, o, h, provider, t, ::Val{j}) where {j} =
+    gauge_edge_flux(A, Φw, v, b, GA, gΦ, o, h, provider, t, Val(j)) -
+    gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, gΦ, o, h, provider, t, Val(j))
+
+# Their sum over the present directions, in order, as `sum` over a tuple adds. Unrolled by
+# hand rather than `sum(ntuple(j -> … Val(j) …, Val(D)))`, which crashes Metal's compiler
+# (a bus error in LLVM's inliner, Metal.jl 1.11.1 on Julia 1.13.4; step 14) while
+# every term alone compiles.
+@inline function gauge_divergence(A, Φw, v::NTuple{D,Int}, b, GA, gΦ, o, h, provider,
+                                  t) where {D}
+    s = gauge_flux_difference(A, Φw, v, b, GA, gΦ, o, h, provider, t, Val(1))
+    D ≥ 2 && (s += gauge_flux_difference(A, Φw, v, b, GA, gΦ, o, h, provider, t,
+                                         Val(min(D, 2))))
+    D ≥ 3 && (s += gauge_flux_difference(A, Φw, v, b, GA, gΦ, o, h, provider, t,
+                                         Val(min(D, 3))))
+    return s
+end
+
 # Step 7, the gauge: `∂ₜΦ̃ = −∂_j(α√γ Aʲ − βʲΦ̃) − ξαΦ̃` at the owned
 # vertices, the flux on the `j`-edges `v − e_j` and `v` on either side; zero
 # on an owned low wall, as for `A_j`.
@@ -786,11 +815,7 @@ end
         o = @inbounds origins[b]
         tt = oftype(h, t)
         A = (A1, A2, A3)
-        div = sum(ntuple(Val(D)) do j
-            gauge_edge_flux(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt, Val(j)) -
-            gauge_edge_flux(A, Φw, shift(v, j, -1), b, GA, Val(GΦ), o, h, provider, tt,
-                            Val(j))
-        end)
+        div = gauge_divergence(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt)
         x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
         m = point_metric(provider, tt, x, Val(vertex_staggers(Val(D))), v, b)
         Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
@@ -980,7 +1005,7 @@ function update_fields!(p::MHDProblem, u, t)
         scatter!(p.sets[i], stateview(u, p.sets, i))
         fill_set!(p, i, t)
     end
-    curl_A!(p.f, p.𝔅̄, p.spacings)
+    curl_A!(p.f, p.𝔅̄, p.spacings; p.workgroupsize)
     return p
 end
 
@@ -996,10 +1021,21 @@ set `P`, filled in every stored cell.
 """
 function update_primitives!(p::MHDProblem{T,D}, u, t; metric=p.provider) where {T,D}
     scatter!(p.sets, u)
+    fill_potentials!(p, t)
+    return primitives_from_sets!(p, t; metric)
+end
+
+# The phases of a right-hand side, each a function so that `bin/benchmark.jl` times what the
+# step runs (step 14; "Precision and devices" in `CODE.md`): `fill_potentials!`, `curl_A!`,
+# `recover_cells!`, `fill_primitives!` (in `update_primitives!`), then `face_fluxes!`,
+# `edge_emfs!` and `tendencies!` (in `rhs!`).
+
+# The ghost fill of the potentials `A_j` and `Φ̃`, each with its own hook.
+function fill_potentials!(p::MHDProblem, t)
     for i in SEG_A:SEG_Φ
         fill_set!(p, i, t)
     end
-    return primitives_from_sets!(p, t; metric)
+    return p
 end
 
 # Steps 2 to 4 of the right-hand side on sets whose potentials are filled and
@@ -1015,22 +1051,39 @@ end
 # decided by Erik: the parent-centred primitive fill is the only one, and the
 # conserved ghosts are no longer written.)*
 function primitives_from_sets!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
+    curl_A!(p.f, p.𝔅̄, p.spacings; p.workgroupsize)
+    recover_cells!(p, t; metric)
+    fill_primitives!(p, t; metric)
+    return p.f.P
+end
+
+# The recovery at the owned cells, into `P` and `W`: the two-phase recovery's first passes
+# where the problem has a hand-off, then the site's own kernel.
+function recover_cells!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
-    curl_A!(f, p.𝔅̄, p.spacings)
-    GB = Val(GB_of(f))
     recovery_start!(p, f.U.work, Val(f.U.G), nothing, t; metric)
     map_blocks!(primitive_kernel!, f.P, f.P.work, f.W.work, f.U.work, f.B[1].work,
                 f.B[2].work, f.B[3].work, p.cache.work, f.X.work, p.handoff, p.origins,
                 p.spacings,
                 metric, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D), Val(f.P.G),
-                Val(f.U.G), GB, Val(p.cache.G), Val(f.X.G))
+                Val(f.U.G), Val(GB_of(f)), Val(p.cache.G), Val(f.X.G);
+                workgroupsize=p.workgroupsize)
+    return p
+end
+
+# `W`'s ghost fill with its own hook, `P` at every ghost cell from it, and `q` at the
+# owned cells.
+function fill_primitives!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
+    f = p.f
     fill_ghosts!(f.W, p.schedule_W;
                  boundary=p.boundary_W === nothing ? nothing : boundary_at(p.boundary_W, t))
     map_blocks!(ghost_kernel!, f.P, f.P.work, f.W.work, f.B[1].work, f.B[2].work,
                 f.B[3].work, p.origins, p.spacings, metric, t, p.eos, f.P.forest.N,
-                Val(D), Val(f.P.G), Val(f.W.G), GB; stored=true)
-    map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G))
-    return f.P
+                Val(D), Val(f.P.G), Val(f.W.G), Val(GB_of(f)); stored=true,
+                workgroupsize=p.workgroupsize)
+    map_blocks!(charge_kernel!, f.P, f.P.work, p.spacings, Val(D), Val(f.P.G);
+                workgroupsize=p.workgroupsize)
+    return p
 end
 
 """
@@ -1083,30 +1136,52 @@ The explicit right-hand side of the state [`prepare!`](@ref) left in `p`
 (with the same `metric`), into `du`: the kernel half of
 [`mhd_rhs!`](@ref) (added in step 10). Public, not exported.
 """
-function rhs!(du, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
+function rhs!(du, p::MHDProblem, t; metric=p.provider)
+    face_fluxes!(p, t; metric)
+    edge_emfs!(p, t; metric)
+    tendencies!(du, p, t; metric)
+    return nothing
+end
+
+# The numerical fluxes at the faces, restricted at the coarse-fine faces.
+function face_fluxes!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
     GB = GB_of(f)
     ntuple(Val(D)) do d
         Fd = f.F[d]
         map_blocks!(flux_kernel!, Fd, Fd.work, f.P.work, f.B[d].work, p.origins, p.spacings,
                     metric, t, p.eos, Val(D), Val(d), Val(Fd.G), Val(f.P.G), Val(GB[d]),
-                    p.limiter, p.solver; closed=true)
+                    p.limiter, p.solver; closed=true, workgroupsize=p.workgroupsize)
         p.fixup && restrict_interfaces!(Fd, p.ischeds_F[d])
         nothing
     end
+    return p
+end
+
+# The EMFs at the edges, restricted at the coarse-fine faces.
+function edge_emfs!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
+    f = p.f
+    GB = GB_of(f)
     ntuple(Val(3)) do j
         a, b = mod1(j + 1, 3), mod1(j + 2, 3)
         Ej = f.EMF[j]
         map_blocks!(emf_kernel!, Ej, Ej.work, f.P.work, f.B[a].work, f.B[b].work, p.origins,
                     p.spacings, metric, t, Val(D), Val(j), Val(Ej.G), Val(f.P.G),
-                    Val(GB[a]), Val(GB[b]), p.limiter; closed=true)
+                    Val(GB[a]), Val(GB[b]), p.limiter; closed=true,
+                    workgroupsize=p.workgroupsize)
         (p.fixup && p.ischeds_EMF[j] !== nothing) &&
             restrict_interfaces!(Ej, p.ischeds_EMF[j])
         nothing
     end
+    return p
+end
+
+# The tendencies into `du`: the matter's flux divergence and sources, `A_j`'s and `Φ̃`'s.
+function tendencies!(du, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
+    f = p.f
     map_blocks!(matter_rhs_kernel!, f.U, statearray(du, p.sets, SEG_U), f.P.work,
                 map(F -> F.work, f.F), p.origins, p.spacings, metric, t, Val(D),
-                Val(f.P.G), Val(first(f.F).G))
+                Val(f.P.G), Val(first(f.F).G); workgroupsize=p.workgroupsize)
     GA = GA_of(f)
     ntuple(Val(3)) do j
         i = SEG_A + j - 1
@@ -1114,12 +1189,12 @@ function rhs!(du, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
                     f.EMF[j].work, f.A[1].work, f.A[2].work, f.A[3].work, f.Φ.work,
                     p.origins, p.spacings, p.lowwall, metric, t, Val(D), Val(j),
                     Val(f.EMF[j].G),
-                    Val(GA), Val(f.Φ.G))
+                    Val(GA), Val(f.Φ.G); workgroupsize=p.workgroupsize)
         nothing
     end
     map_blocks!(gauge_rhs_kernel!, f.Φ, statearray(du, p.sets, SEG_Φ), f.A[1].work,
                 f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.lowwall,
-                metric, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G))
+                metric, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G); workgroupsize=p.workgroupsize)
     return nothing
 end
 
@@ -1150,7 +1225,8 @@ function stage_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t; metric=p.provider)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
                 metric, t, γΔt, p.eos, p.opts, p.proj, p.pol, p.model, p.stage,
-                p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G), Val(p.cache.G))
+                p.cache_on[], Val(D), Val(GB_of(f)), Val(f.X.G), Val(p.cache.G);
+                workgroupsize=p.workgroupsize)
     return nothing
 end
 
@@ -1222,7 +1298,8 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val; metric=p.provider) where {T
     map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,
                 metric, t, p.eos, p.opts, p.proj, p.pol, p.cache_on[], Val(D),
-                Val(GB_of(f)), Val(f.X.G), Val(p.cache.G), step)
+                Val(GB_of(f)), Val(f.X.G), Val(p.cache.G), step;
+                workgroupsize=p.workgroupsize)
     return nothing
 end
 
@@ -1238,8 +1315,10 @@ function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t;
     f = p.f
     map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
                 p.cache.work, p.origins, p.spacings, metric, t, p.eos, p.opts, p.proj, model,
-                p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G))
-    map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D))
+                p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G);
+                workgroupsize=p.workgroupsize)
+    map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D);
+                workgroupsize=p.workgroupsize)
     return nothing
 end
 
@@ -1380,7 +1459,7 @@ not read today; it is in the signature for a rate that reads the state
 function max_rate(p::MHDProblem{T,D}, u, t; metric=p.provider) where {T,D}
     X = p.f.X
     map_blocks!(light_kernel!, X, X.work, p.origins, p.spacings, metric, T(t), Val(D),
-                Val(X.G))
+                Val(X.G); workgroupsize=p.workgroupsize)
     forest = X.forest
     return mesh_mapreduce(identity, max, zero(T), X; vars=X_LIGHT,
                           weight=key -> inv(spacing(T, forest, key)))
@@ -1414,7 +1493,7 @@ function max_div_B(p::MHDProblem{T,D}, u, t) where {T,D}
     f = p.f
     update_fields!(p, u, t)
     map_blocks!(divB_kernel!, f.X, f.X.work, f.B[1].work, f.B[2].work, f.B[3].work, Val(D),
-                Val(GB_of(f)), Val(f.X.G))
+                Val(GB_of(f)), Val(f.X.G); workgroupsize=p.workgroupsize)
     div = mesh_mapreduce(abs, max, zero(T), f.X; vars=X_DIVB)
     scale = maximum(d -> mesh_mapreduce(abs, max, zero(T), f.B[d]; vars=1), 1:3)
     return scale > 0 ? div / scale : div

@@ -61,19 +61,21 @@ end
 end
 
 """
-    curl_A!(f::MHDFields, 𝔅̄, spacings)
+    curl_A!(f::MHDFields, 𝔅̄, spacings; workgroupsize = nothing)
 
 `𝔅ᵈ = [dij] ∂ᵢ A_j + 𝔅̄ᵈ` on every **stored** face of `f.B[d]`, `d = 1:3`,
 from the ghost-filled `f.A` (the shared planes and the ghosts included), with
 the constant densitized background `𝔅̄::SVector{3}` (see the top of
-`src/curl.jl`). `spacings` is the per-block spacing on the sets' backend.
+`src/curl.jl`). `spacings` is the per-block spacing on the sets' backend; `workgroupsize`
+is the problem's ([`MHDProblem`](@ref)).
 """
-function curl_A!(f::MHDFields{D}, 𝔅̄::SVector{3}, spacings) where {D}
+function curl_A!(f::MHDFields{D}, 𝔅̄::SVector{3}, spacings; workgroupsize=nothing) where {D}
     ntuple(Val(3)) do d
         a, b = mod1(d + 1, 3), mod1(d + 2, 3)
         Bd = f.B[d]
         map_blocks!(curl_kernel!, Bd, Bd.work, f.A[a].work, f.A[b].work, spacings, 𝔅̄[d],
-                    Val(D), Val(d), Val(Bd.G), Val(f.A[a].G), Val(f.A[b].G); stored=true)
+                    Val(D), Val(d), Val(Bd.G), Val(f.A[a].G), Val(f.A[b].G); stored=true,
+                    workgroupsize)
         nothing
     end
     return f

@@ -1,0 +1,25 @@
+# Step 14's acceptance: the Cowling TOV star of step 10 (`bin/tov_cowling.jl`, its defaults:
+# `[−24, 24]³`, four roots of 16³, one box level, PPM, to 200 M) on one H200 at `Float64`,
+# against the same run on the CPU in the same job — the H200 node's own 8 cores, a Xeon:
+# the comparison is device against host, and the host numbers say which CPU they came from
+# (`simlaunch-job.toml`) — and on the H200 at `Float32`. Each run writes `ρ_c(t)`, per
+# chunk of 10 M, to `rho_c.txt` in its job directory. The runs go in turn: the two H200
+# runs take about 20 min each, the CPU twin about 3.6 h, so it goes last.
+name = "tov-cowling-device"
+env = "cuda"
+
+[site.symmetry]
+resources = { gpus = 1 }
+time = "6:00:00"
+
+[[run]]
+label = "cuda-f64"
+cmd = "bin/tov_cowling.jl backend=cuda type=f64 out=rho_c.txt"
+
+[[run]]
+label = "cuda-f32"
+cmd = "bin/tov_cowling.jl backend=cuda type=f32 out=rho_c.txt"
+
+[[run]]
+label = "cpu-f64"
+cmd = "bin/tov_cowling.jl backend=cpu type=f64 out=rho_c.txt"

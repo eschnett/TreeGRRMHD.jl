@@ -37,7 +37,7 @@
 # interpolant never straddles it. The table is `SVector`s, so the metric is
 # `isbits`: a kernel argument by value, `4 NK` floats (4.1 kB at `NK = 129`
 # in `Float64`, the default), which a device's parameter space must hold
-# (step 14). The density is not tabulated: `ρ = ρ(h)` with `h = α_s/α`, the
+# (it does on CUDA and Metal). The density is not tabulated: `ρ = ρ(h)` with `h = α_s/α`, the
 # polytrope's own relation, so the initial data and the metric are one
 # solution.
 

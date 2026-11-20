@@ -526,26 +526,27 @@ end
 
 """
     mhd_integrator(p::MHDProblem, u, t0, t1, nsteps; tableau = IMEXSSP3433(),
-                   alias_u0 = false, reuse = nothing)
+                   alias_u0 = false, reuse = nothing,
+                   partition = u isa Array ? :even : nothing)
 
 An IMEXRungeKutta integrator for `nsteps` fixed steps from `t0` to `t1`:
 [`mhd_rhs!`](@ref) as the explicit part, [`ohm_solve!`](@ref) as the stage
 solve, and the reset as both the stage limiter ([`reset_atmosphere!`](@ref)) and
 the step limiter ([`reset_step!`](@ref), which also accounts what it injects)
 ("The IMEX package" in `CODE.md`). The stage arithmetic is threaded evenly
-over a CPU state (`partition = :even`; the block-owner partition is step
-14's), and broadcast on a device. The step count is asserted, as in
-TreeHydro.
+over a CPU state (`partition = :even`) and broadcast on a device
+(`partition = nothing`), which a CPU state may also ask for, to measure it
+(step 14). The step count is asserted, as in TreeHydro.
 """
 function mhd_integrator(p::MHDProblem{T}, u, t0, t1, nsteps::Integer;
                         tableau=IRK.IMEXSSP3433(), alias_u0::Bool=false,
-                        reuse=nothing) where {T}
+                        reuse=nothing, partition=u isa Array ? :even : nothing) where {T}
     nsteps ≥ 1 || throw(ArgumentError("nsteps must be at least 1, got $nsteps."))
     t0, t1 = T(t0), T(t1)
     prob = IRK.IMEXProblem(mhd_rhs!, ohm_solve!, u, (t0, t1), p)
     integ = IRK.init(prob, tableau; dt=(t1 - t0) / nsteps,
                      stage_limiter=reset_atmosphere!, step_limiter=reset_step!,
-                     partition=u isa Array ? :even : nothing, alias_u0=alias_u0,
+                     partition=partition, alias_u0=alias_u0,
                      reuse=reuse)
     integ.nsteps == nsteps || throw(ErrorException(
         "IMEXRungeKutta derived $(integ.nsteps) steps from dt = (t1 − t0)/$nsteps; the " *
@@ -586,8 +587,8 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             backend = CPU(), after_step = nothing, roots = case.roots, ops_U, ops_A, ops_Φ, ops_W,
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
-            after_regrid = nothing, step_cache = true, two_phase = false,
-            interior = case.interior) -> NamedTuple
+            after_regrid = nothing, step_cache = true, two_phase = nothing,
+            interior = case.interior, workgroupsize = nothing) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -619,12 +620,14 @@ step and whenever stepping starts or stops, so a step is a pure function of
 as before (the negative control; "The step cache" in `CODE.md`).
 `two_phase = true` recovers in the three passes of the two-phase recovery
 rather than fused ([`MHDProblem`](@ref); added 2026-10-30): the same run bit
-for bit. Fused is the default on the CPU (decided by Erik 2026-11-02).
+for bit. The default, `nothing`, is fused on the CPU (decided by Erik
+2026-11-02) and split on a device (decided by Erik 2026-11-20).
 `after_regrid(p, u, t)` likewise after every regrid that moved the mesh and
 once after the initial adaptation (added in step 8). `interior` is the
 case's black-hole interior ([`HoleInterior`](@ref)) unless given — another
 radius or role, or `nothing` to evolve the inside too, for a measurement
-(added in step 9).
+(added in step 9). `workgroupsize` is the kernels' workgroup on a device
+([`MHDProblem`](@ref); added in step 14).
 
 `limiter` has no default (see [`MHDProblem`](@ref)); `cfl = 2/5` is
 TreeHydro's, under the explicit part of SSP3(4,3,3) — the SSPRK(3,3)
@@ -658,8 +661,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  maxlevel::Integer=0, refine_tol=nothing,
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
-                 step_cache::Bool=true, two_phase::Bool=false,
-                 interior=case.interior) where {T,D}
+                 step_cache::Bool=true, two_phase::Union{Bool,Nothing}=nothing,
+                 interior=case.interior, workgroupsize=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -682,7 +685,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     f = mhd_fields(T, forest; G=G, backend=backend)
     build() = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
                          ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
-                         two_phase=two_phase, interior=interior)
+                         two_phase=two_phase, interior=interior,
+                         workgroupsize=workgroupsize)
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0

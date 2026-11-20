@@ -93,6 +93,9 @@ rather than diverging silently.
 - [Refinement](#refinement)
 - [Julia version](#julia-version)
 - [Precision and devices](#precision-and-devices)
+  - [Threads](#threads)
+  - [Devices](#devices)
+  - [The per-phase table](#the-per-phase-table)
 - [Sharp edges](#sharp-edges)
 - [Tests](#tests)
 - [Code layout](#code-layout)
@@ -260,6 +263,7 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   `map_blocks!(kernel!, fs, args...; workgroupsize = nothing)` hands it to
   the KernelAbstractions launch on a device and ignores it on the CPU, where
   the workgroup is the block, so a caller may pass it on every backend.
+  `MHDProblem` and `evolve!` take it ("Devices").
 - **AMR-6 (later) A device-capable boundary hook that reads the interior**,
   for outflow conditions. *Landed in another form, TreeAMR 0.2.1, commit
   a983419:* not a hook but a face kind, `Forest(roots; …, outflow =
@@ -930,15 +934,10 @@ conserved state from the primitive one with this package's `prim2con`.
 
 **The two levels**. EntropyEOS 2.0 splits its policy in two, and both
 recoveries call both, the second right after the first, in
-`fluid_recovery` and `ideal_recovery` (outside the stage solve's iterations
-level 1 runs as EntropyEOS's two phases and level 2 in a kernel of its own,
-"The two-phase recovery" below):
-
-**Inconsistent:** the parenthesis above says that outside the stage solve's
-iterations level 1 runs as EntropyEOS's two phases and level 2 in a kernel
-of its own; "The two-phase recovery" below says that fused
-(`two_phase = false`: each recovery in one kernel, `con2prim_safe` and
-`apply_policy` together) is the default, and the split an option.
+`fluid_recovery` and `ideal_recovery` (on a device, outside the stage
+solve's iterations, level 1 runs as EntropyEOS's two phases and level 2 in a
+kernel of its own; on the CPU both run in one kernel; "The two-phase
+recovery" below):
 
 - **Level 1, `con2prim_safe(eos, in, opts, proj, s, w, u)`**, projects onto
   the valid range `proj = ProjectionOptions(ρ_min, ρ_max, w_cap)`:
@@ -1273,24 +1272,23 @@ second phase is the divergent one, and a later step can compact it.
   needs, and EntropyEOS's `HISTORY.md` records a CUDA.jl 6.4.2 fault in a
   kernel that called level 1 and then level 2; the workaround is separate
   kernels. Level 2 is in the third pass; the first two call only level 1.
-- **The fused path stays.** `MHDProblem(…; two_phase = false)` and
+- **Both paths stay.** `MHDProblem(…; two_phase = false)` and
   `evolve!(…; two_phase = false)` build no hand-off and run each recovery in
-  one kernel, `con2prim_safe` and `apply_policy` together, exactly as before
-  (the same kernels with `nothing` for the hand-off). It is kept for the
-  comparison: `test/two_phase_tests.jl` holds the two bit for bit — every
+  one kernel, `con2prim_safe` and `apply_policy` together (the same kernels
+  with `nothing` for the hand-off); `two_phase = true` runs the three passes.
+  `test/two_phase_tests.jl` holds the two bit for bit — every
   state and every tally of seven runs (the EM wave, Alfvén, the resistive
   tube, the magnetized atmosphere tube with the step cache on and off, the
   rotor, the adaptive rotor), and every callback outside a step on a state
   with a cell below `ρ_min`, one below the coldest state, one beyond the
   rapidity cap and a non-finite one, under the tube's conductivity and under
   `IdealConductor`. No CPU/GPU switch beyond this one.
-  **Fused is the default**
-  (`two_phase = false` in `MHDProblem` and `evolve!`): on the CPU the split
-  costs 1–10% a step and buys nothing, since only 0–2.4% of the recoveries
-  reach the second phase and none of the stage solve's iterations would
-  (measured below).
-  The split stays in the code, tested bit for bit against fused, for a GPU
-  step to turn on.
+  **The default is the backend's** (`two_phase = nothing` in `MHDProblem`
+  and `evolve!`), picked from the array type as the integrator's partition
+  is. Fused on the CPU: there the split costs 1–10% a step and buys nothing,
+  since only 0–2.4% of the recoveries reach the second phase and none of the
+  stage solve's iterations would (measured below). Split on a device: on an
+  H200 it is 14–15% faster a step ("Devices").
 
 **Measured 2026-10-30** (`bin/recovery_cost.jl steptime`; Symmetry cn084,
 AMD EPYC 7532, one job, one pinned thread, Julia 1.13; this tree at 0334aed
@@ -1982,10 +1980,11 @@ scratch (`reuse`) and steps the state in place (`alias_u0`). Each chunk's
 spacing), rounded down to a whole number of steps with TreeHydro's
 `chunk_count` tolerance; `cfl = 2/5` (proposed: TreeHydro's, under
 SSP3(4,3,3)'s explicit part, which is SSPRK(3,3)). The stage arithmetic is
-split evenly over the threads (`partition = :even`) for a CPU state; the
-block-owner partition, which needs TreeAMR's unexported `threadchunks`, is
-step 14's. A run in one chunk and the same run in four chunks of whole
-steps of the same `Δt` are bit-identical (a test).
+split evenly over the threads (`partition = :even`) for a CPU state and
+broadcast on a device; the block-owner partition, which needs TreeAMR's
+unexported `threadchunks`, is not used ("The per-phase table"). A run in one
+chunk and the same run in four chunks of whole steps of the same `Δt` are
+bit-identical (a test).
 
 `cfl` defaults to `default_cfl(limiter)`: 2/5, and 1/5 for MP5 (see
 "Reconstruction"). `after_step(p, u, t)` is called after every step when
@@ -2914,8 +2913,8 @@ steps. **The metric**, `TOVMetric{T,NK}`, tabulates `ψ` and `α` in `u = r̄²`
 there, where a symmetric mesh has a vertex and ForwardDiff's derivative of
 `√u` is not finite — with their `u`-derivatives at `NK` uniform knots over
 `[0, R̄²]`, cubic Hermite inside, the closed-form exterior outside: `isbits`
-`SVector`s, 4176 bytes at the default `NK = 129` (kernel parameter space,
-step 14's), dual-generic. Measured: the table's error 2.8e−8, 1.8e−9,
+`SVector`s, 4176 bytes at the default `NK = 129` (which pass as kernel
+parameters on CUDA and Metal, "Devices"), dual-generic. Measured: the table's error 2.8e−8, 1.8e−9,
 1.2e−10 at `NK = 33, 65, 129` (fourth order); the field equations
 `∇²ψ = −2πψ⁵e` and `∇²(αψ) = 2παψ⁵(e + 6p)` hold to 2.1e−5 of `2πρ_c` at
 `NK = 129` (second order in the knots: the interpolant's second derivative;
@@ -3140,8 +3139,8 @@ reset's — knows its time):
   3.3e−13 under either tableau (a test). The hook is TreeAMR's relative
   hook (AMR-7), `CellBoundary(Relative(f))` with `f` the case's potential at
   the fill's time (`boundary_at`): a kernel, so **every case, periodic or
-  not, runs on every backend** (not exercised on a device here: the machine
-  has none this package targets; step 14's).
+  not, runs on every backend**: on Metal and on an H200 the rotor's Dirichlet
+  hooks, matter and potentials, run as they do on the host ("Devices").
 
 **Both walls are prescribed.** At every outer face of a case with Dirichlet
 hooks, the owned low wall of each potential (`A_j`, `Φ̃`; a vertex-like
@@ -3879,52 +3878,228 @@ The history of the floor (1.10, 1.11, 1.12), of the CI cells and of what
 
 ## Precision and devices
 
-*(Proposed.)* Every driver is generic in the element type `T`,
-a leading positional argument defaulting to `Float64`, and in the
-KernelAbstractions backend, a keyword defaulting to `CPU()`. Physics is
-validated in `Float64`; `Float32` is the device smoke test and the leak
-detector (a stray `Float64` constant widens a result), since EntropyEOS is
-validated in `Float64` only. `src/precision.jl` carries TreeHydro's bridges
-over `Base`'s gaps at a software float (`wrap`, `ceilint`, `floorint`,
-`roundint`, `tofloat64`) for host-side control flow; they are tested at
-`Float32x2` too, which is a claim about them and not about the physics.
-`src/device.jl` carries TreeHydro's and TreeGH's `to_backend` (per-block
-metadata a kernel reads, uploaded once) and `hostcopy`/`hostcopy!` (a field
-set brought to the host for a viewer; on the CPU `hostcopy` returns the set
-itself). Diagnostics never copy the state to the host: they reduce where
-the data are.
+Every driver is generic in the element type `T`, a leading positional argument defaulting
+to `Float64`, and in the KernelAbstractions backend, a keyword defaulting to `CPU()`.
+Physics is validated in `Float64`; `Float32` is the device smoke test and the leak
+detector (a stray `Float64` constant widens a result), since EntropyEOS is validated in
+`Float64` only. `src/precision.jl` carries TreeHydro's bridges over `Base`'s gaps at a
+software float (`wrap`, `ceilint`, `floorint`, `roundint`, `tofloat64`) for host-side
+control flow; they are tested at `Float32x2` too, which is a claim about them and not about
+the physics. `src/device.jl` carries TreeHydro's and TreeGH's `to_backend` (per-block
+metadata a kernel reads, uploaded once) and `hostcopy`/`hostcopy!` (a field set brought to
+the host for a viewer; on the CPU `hostcopy` returns the set itself).
 
-A SpacetimeMetrics metric is an `isbits` kernel argument: inside a
-`map_blocks!` kernel it gives the ADM split, `K_ij` and a ForwardDiff
-derivative bit-identical to the host at `Float64` and `Float32` (measured,
-Kerr-Schild at `a = M/2`). That is the premise of the `Analytic` provider.
+A SpacetimeMetrics metric is an `isbits` kernel argument: inside a `map_blocks!` kernel it
+gives the ADM split, `K_ij` and a ForwardDiff derivative bit-identical to the host at
+`Float64` and `Float32` (measured, Kerr-Schild at `a = M/2`). That is the premise of the
+`Analytic` provider.
 
-The pointwise layer — `Metric3`, `prim2con`, `con2prim_hydro`,
-`con2prim_ideal` — runs inside a KernelAbstractions kernel bit-identically
-to the host at `Float64` and `Float32`, allocation-free and inferred, and
-so does `GeometricEOS` around a table at `Float64`. So does the pointwise
-physics — `Analytic(KerrSchild)` with its ForwardDiff derivatives, the
-stress-energy, both Riemann solvers in every direction, Ohm's law, both
-source forms, the UCT EMF and the gauge terms — at `Float64` and `Float32`,
-and the stage solve on every branch. `lower`, `raise`, `dot_up` and
-`dot_down` multiply with plain `*` and `+` (`mul3` in `src/metric3.jl`),
-which is never fused: StaticArrays' matrix product accumulates with
-`muladd`, which LLVM fused differently in the kernel and on the host, so
-three of the 79 numbers differed in the last bit. On a device, which
-contracts by its own rules, bit-identity is not the claim; step 14 states
-what is. `GeometricEOS` around a table is not `isbits` (the table holds
-arrays) and is passed to a CPU kernel as it is; it carries an `Adapt` rule
-for a device.
+The pointwise layer — `Metric3`, `prim2con`, `con2prim_hydro`, `con2prim_ideal` — runs
+inside a KernelAbstractions kernel bit-identically to the host at `Float64` and `Float32`,
+allocation-free and inferred, and so does `GeometricEOS` around a table at `Float64`. So
+does the pointwise physics — `Analytic(KerrSchild)` with its ForwardDiff derivatives, the
+stress-energy, both Riemann solvers in every direction, Ohm's law, both source forms, the
+UCT EMF and the gauge terms — at `Float64` and `Float32`, and the stage solve on every
+branch. `lower`, `raise`, `dot_up` and `dot_down` multiply with plain `*` and `+` (`mul3` in
+`src/metric3.jl`), which is never fused: StaticArrays' matrix product accumulates with
+`muladd`, which LLVM fused differently in the kernel and on the host, so three of the 79
+numbers differed in the last bit. `GeometricEOS` around a table is not `isbits` (the table
+holds arrays) and is passed to a CPU kernel as it is; it carries an `Adapt` rule for a
+device.
 
-Every kernel of the scheme and of the driver's initial data takes its
-geometry as `to_backend` arrays of the block origins and spacings and its
-physics as `isbits` arguments (the EOS, the options, the model, the
-provider, a case's callable `WaveFields`/`WavePotential`), and is generic in
-`T`: the Alfvén wave runs in `Float32` throughout — the matter and field
-kernels, the stage solve and the reset — and lands within 4e−5 of the
-`Float64` run's error (rung 1a). The diagnostics (`l1_errors`,
-`conserved_totals`, `ohm_tally`, `max_light_rate`) are `mesh_mapreduce`s,
-where the data are.
+Every kernel of the scheme and of the driver's initial data takes its geometry as
+`to_backend` arrays of the block origins and spacings and its physics as `isbits` arguments
+(the EOS, the options, the model, the provider, a case's callable
+`WaveFields`/`WavePotential`), and is generic in `T`: the Alfvén wave runs in `Float32`
+throughout — the matter and field kernels, the stage solve and the reset — and lands within
+4e−5 of the `Float64` run's error (rung 1a).
+
+**The diagnostics.** What a step and a chunk read is reduced where the data are, as a
+`mesh_mapreduce`: `ohm_tally`, `max_light_rate`, `conserved_totals`, `max_div_B`,
+`central_density`, `l1_errors`. The measurements of rungs 3 and 6 — `profile_1d`,
+`cell_profile` and the field diagnostics, `outside_l1`, `field_l1`, `charge_norms` — read
+single points in host loops, and copy what they read to the host (`Array`, or `hostcopy`)
+once per call: they run outside a step, once per chunk at most, and a run that calls them
+on a device pays one copy of the sets they read each time.
+
+### Threads
+
+**A run is bit-identical at every thread count.** Every kernel runs through TreeAMR's
+`map_blocks!` and writes its own points; every reduction is a `mesh_mapreduce`, combined on
+the host in block order; the integrator's stage arithmetic is elementwise however
+IMEXRungeKutta's `:even` partition cuts the state; and nothing in this package threads a
+loop of its own. `test/threading_tests.jl` holds it: the digests of three runs
+(`test/thread_workload.jl`) — the magnetized atmosphere tube (the reset at every stage, the
+cutoff's stiff stage solve, the step cache), the adaptive rotor (the adaptation, a regrid,
+the Dirichlet hooks) and the magnetized star on two levels (`Analytic(TOVMetric)`, the
+resistive interior, the atmosphere) — per chunk the steps, `Δt`, the tally and the blocks,
+and at the end the state, the totals and `∇·𝔅`, against a subprocess at another thread
+count, line for line (equal at one and four threads).
+
+The stage arithmetic is threaded by IMEXRungeKutta's `:even` partition, not by block
+owner, which would need TreeAMR's `threadchunks` exported and gains nothing over it ("The
+per-phase table").
+
+### Devices
+
+**The storage decides where the work runs** (TreeAMR's M6): `evolve!` and `MHDProblem`'s
+field sets take the backend from `mhd_fields(T, forest; backend)`, every kernel takes it
+from the array it is handed, and the integrator follows the state — `mhd_integrator` and a
+script pick `partition = :even` for an `Array` and `nothing`, the broadcast, otherwise.
+`bin/tov_cowling.jl` and `bin/benchmark.jl` take `backend=` and `type=` through
+`bin/backend.jl` (TreeHydro's), which loads the device package only when asked for; neither
+CUDA nor Metal is a dependency.
+
+**The claim on a device is not bit-identity**: a device contracts `a*b + c` into an `fma`
+where the host may not, and its `exp` and `sqrt` are its own. It is that a run there answers
+as the host run at the same type (`test/device_tests.jl`, four runs: the Alfvén wave, the
+magnetized atmosphere tube, the adaptive rotor and the magnetized star, each with both
+recoveries):
+
+- **exactly**: the steps and `Δt` of every chunk, the blocks, the regrids and the
+  adaptation's passes; the stage solve's branch counts, its flags, the policy's flags, the
+  recoveries and the most a cell took; the step cache's cold seeds and the sum of its warm
+  and reused ones, per site (which of the two a seed was is not structural: a reuse needs
+  the input bit for bit);
+- **to `sqrt(eps(T))`**: the largest density, `∇·𝔅` (also to `eps(T)` absolute, where the
+  host has exact zeros) and the Alfvén wave's error norms in the components it carries —
+  on 40 cells, where its error is large enough: on 100 they are 10⁻⁴ of the state, and
+  `Float32`'s rounding moved them by 6·10⁻⁴ of themselves;
+- **to `8 eps(T) · scale · nsteps`**, the host suite's bound on a drift: the drifts of the
+  seven conserved totals, and the reset's injection;
+- **to less than one block's share of the chunk's recoveries**: the policy's and the
+  reset's counts, each a count of comparisons of a recovered density with the atmosphere's
+  trigger. A cell within a few ulp of it can go either way and then evolves differently, so
+  how many differ is the case's and not `eps`'s; what the test guards against — a block a
+  kernel or a reduction did not see, or saw twice — moves a count by about a block's share.
+  Measured: on an H200 at `Float64` the atmosphere tube's counts differed by 1 and 2 of
+  1.3–1.8·10⁴ (a share is 2200); at `Float32` the magnetized star's 1.9·10⁶ resets a chunk
+  by 82 and 114 on the H200 and by 24 and 56 on Metal (a share is 1.4·10⁴). The bound
+  stays at the share, though these are at most 0.008 of it: a bound fitted to them would
+  measure the cases' sensitivity, not the fault;
+- **the policy's flag word exactly**, but at `Float32` without its not-converged bit:
+  EntropyEOS is validated at `Float64` only, and on the H200 one cell of the star at
+  `Float32` failed to converge where the host's converged.
+
+Measured on Apple's M3 Pro (Metal.jl 1.11.1, `Float32`): every assertion holds with both
+recoveries, 152 of 152; the Cowling star of `bin/tov_cowling.jl` at `N = 8`, two roots, to
+`20 M`, agrees with the CPU's `Float32` run to 3 ulp in `ρ_c`, and at the script's default
+size (`[−24, 24]³`, four roots of 16³, one box level) runs to `200 M` and ends 2.6·10⁻⁵ of
+`ρ_c` from the `Float64` run. On an H200 (Symmetry; CUDA.jl 6.4.2, KernelAbstractions
+0.9.48, Julia 1.13.4): every assertion holds at `Float32` and `Float64` with both
+recoveries, 304 of 304, in 15 minutes; the Cowling star at the default size to `200 M` at
+`Float64` agrees with the same run on the node's own CPU in `ρ_c` at every `10 M` to 26 ulp
+(5.7·10⁻¹⁵ of it), in 1305 s against 13048 s on that node's 8 Xeon Gold 6442Y cores
+(`jobs/tov-cowling-device.toml`). At `Float32` the same run takes 771 s on the H200 and
+stays within 3.0·10⁻⁵ of `ρ_c` of the `Float64` run at every `10 M`, as Metal's does.
+`TOVMetric`'s 4176 bytes of kernel parameters pass on both.
+
+**The recovery on a device.** Both recoveries run on both devices: the fused kernels, which
+call EntropyEOS's two levels in one kernel, pass on CUDA.jl 6.4.2, the version of the fault
+EntropyEOS records ("The two-phase recovery"). On an H200 the split is the faster: a step of
+the star 15% at 8.8·10⁵ cells and 14% at 7.1·10⁶, its stage solve 39–40% ("The per-phase
+table"), where on the CPU it costs 5%. So the split is a device's default and fused the
+CPU's ("The two-phase recovery").
+
+**One construct crashes Metal's compiler**: a kernel's sum over the present directions
+written `sum(ntuple(j -> f(…, Val(j)), Val(D)))`, with the `Val` built from the closure's
+argument — the gauge kernel's divergence — gave a bus error in LLVM's inliner (Metal.jl
+1.11.1, Julia 1.13.4) while each term compiled alone. It is written out
+(`gauge_divergence`, the same additions in the same order, so the host's bits are
+unchanged).
+
+**`workgroupsize`** (AMR-5): `MHDProblem(…; workgroupsize)` and `evolve!(…;
+workgroupsize)` hand it to every launch of the step's kernels and the curl; `nothing`, the
+default, leaves the choice to the backend, and the CPU ignores it. Nothing passes one: on
+the H200 (the star at `Float64` on 8.8·10⁵ cells, `jobs/benchmark-gpu.toml`) workgroups that
+cover the block's first axis — 8×8, 16×4, 16×8, 16×16 — give a step within −2% to +5% of
+the backend's choice (583–622 ns a cell against 594), the fluxes up to 23% faster in smaller
+groups and the recovery up to 14% slower, and 16×16×2 does not launch (a kernel of the step
+uses 255 registers a thread). An integer is a row along the first axis, which
+KernelAbstractions pads with ones, so most of its threads idle on a block 16 points wide:
+64, 128 and 256 make a step 2.2, 2.6 and 6.2 times slower.
+
+### The per-phase table
+
+A right-hand side is seven phases, each a function the step calls, so that
+`bin/benchmark.jl` times what runs: `fill_potentials!` (the ghost fill of `A_j` and `Φ̃`),
+`curl_A!`, `recover_cells!` (the recovery at the owned cells), `fill_primitives!` (`W`'s
+fill, `P` in the ghosts, `q`), `face_fluxes!`, `edge_emfs!` and `tendencies!`, after the
+`scatter!` of the state. Beside them the table has the whole right-hand side, the stage
+solve, the reset, the light-cone rate and the step.
+
+**On the CPU** (`jobs/benchmark-cpu.toml`, Symmetry job 606359, cn101, AMD EPYC 7543,
+pinned, one thread count a run; the magnetized star at `Float64`, 3³ roots of 16³ and one
+box level, 216 blocks, 8.8·10⁵ cells; Julia 1.13.4; ns per cell, the best of five):
+
+| threads | recover | fill_potentials | face_fluxes | rhs | stage_solve | reset | step | step, broadcast |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6040 | 108.8 | 1412 | 9723 | 6192 | 1523 | 34392 | 34427 |
+| 2 | 3024 | 55.9 | 710 | 4873 | 3139 | 788 | 16998 | 17180 |
+| 4 | 1606 | 34.4 | 356 | 2558 | 1672 | 404 | 9580 | 9699 |
+| 8 | 824 | 26.3 | 176 | 1326 | 876 | 218 | 5415 | 5490 |
+| 16 | 435 | 23.7 | 92 | 702 | 462 | 122 | 2962 | 3099 |
+| 32 | 236 | 26.7 | 46 | 380 | 258 | 69 | 1691 | 1848 |
+| 64 | 150 | 28.5 | 29 | 259 | 186 | 63 | 1256 | 1496 |
+
+- **The recovery is the right-hand side**: 62% of it at one thread, 58% at 64 (outside a
+  step, where it is cold; inside one the step cache seeds and reuses it, which is why a step
+  is less than its four stages' right-hand sides, solves and resets). The fluxes are 15%,
+  the tendencies 13%; the rest is a few percent each.
+- **A step scales 27× on 64 cores** (a right-hand side 38×); what stops scaling is
+  TreeAMR's: the potentials' ghost fill reaches its floor, 24–29 ns a cell, at 8–16
+  threads.
+- **The two-phase recovery costs 5% a step** on 64 threads (1322 against 1256), as it did
+  per site (1–10%, "The two-phase recovery"): fused is the CPU's default.
+- **The partition**: IMEXRungeKutta's `:even` against the broadcast is worth 16% of a step
+  at 64 threads and nothing at 8 and below. The block-owner partition gains nothing over
+  `:even` (below), so TreeAMR is not asked to export `threadchunks`.
+
+**The partition by block owner** (`jobs/benchmark-partition.toml`, Symmetry job 606773,
+cn095, AMD EPYC 7543 as cn101; `bin/benchmark.jl`'s `step`, `step_broadcast` and
+`step_owner` rows; the star on 3³ roots and on 6³, 7.1·10⁶ cells, about 800 MB a state
+vector; ns per cell and step). `:even` cuts the state vector of five sets into equal
+ranges, so a thread mostly combines entries of blocks that other threads' kernels wrote
+and first touched; by owner (`owner_partition`, from TreeAMR's unexported `threadchunks`)
+it combines only its own blocks' entries:
+
+| threads | cells | `:even` | broadcast | by owner | owner / `:even` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 8.8·10⁵ | 5451 | 5539 | 5446 | 0.999 |
+| 16 | 8.8·10⁵ | 2959 | 3105 | 2985 | 1.009 |
+| 32 | 8.8·10⁵ | 1699 | 1857 | 1696 | 0.998 |
+| 64 | 8.8·10⁵ | 1255 | 1446 | 1250 | 0.996 |
+| 64 | 7.1·10⁶ | 765 | 976 | 760 | 0.993 |
+
+Within 1% either way, on a mesh near the caches' size and on one well beyond them: the
+placement of the stage arithmetic is not what a step pays for once it is threaded. The
+same bits on every path (IMEXRungeKutta's contract; checked for this state at four
+threads). cn095's `:even` step at 64 threads is cn101's (1255 against 1256).
+
+**On an H200** (`jobs/benchmark-gpu.toml`, Symmetry job 606355, cn111; CUDA.jl 6.4.2,
+Julia 1.13.4; the same star on the same mesh, and on 6³ roots, 1728 blocks, 7.1·10⁶ cells;
+ns per cell, the best of five, the workgroup size the backend's):
+
+| type | cells | recovery | recover | fill_potentials | face_fluxes | rhs | stage_solve | reset | step |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Float64` | 8.8·10⁵ | fused | 46.1 | 2.87 | 8.70 | 87.2 | 73.2 | 10.2 | 589 |
+| `Float64` | 8.8·10⁵ | split | 42.1 | 2.78 | 8.70 | 83.0 | 44.9 | 11.2 | 501 |
+| `Float32` | 8.8·10⁵ | fused | 16.3 | 2.57 | 2.73 | 35.9 | 19.4 | 24.2 | 316 |
+| `Float64` | 7.1·10⁶ | fused | 40.9 | 0.42 | 8.48 | 76.6 | 64.1 | 7.08 | 429 |
+| `Float64` | 7.1·10⁶ | split | 37.5 | 0.41 | 8.49 | 73.1 | 38.2 | 8.12 | 369 |
+| `Float32` | 7.1·10⁶ | fused | 14.5 | 0.34 | 2.53 | 29.8 | 15.8 | 20.2 | 270 |
+
+- **One H200 is 2.1–3.4 EPYC nodes**: a step at `Float64` is 589 ns a cell on the suite's
+  mesh and 429 on the larger one, which fills the device better, against 1256 on 64 cores;
+  with the split recovery 501 and 369. The Cowling star to `200 M` took a tenth of the time
+  on the H200 that it took on its node's 8 CPU cores ("Devices").
+- **The recovery is again the largest phase**, about half the right-hand side, and the
+  stage solve the second; the split recovery takes 39–40% off the stage solve, where most
+  of its recoveries are, and 8–9% off the right-hand side's.
+- **The ghost fills cost a launch, not a cell**: the potentials' fill takes 2.3–3.0 ms on
+  either mesh, 0.4 ns a cell on the larger.
+- **`Float32` is 1.6–1.9× faster a step**, the right-hand side 2.4–2.6×, but the reset is
+  2.4–2.9× slower than at `Float64`, with the same counts of resets (not examined **(open)**).
 
 ## Sharp edges
 
@@ -4017,6 +4192,14 @@ it names has the reasons.
   at the same `(u, t)` — at `u★` for the stage solve; so does `Mv`,
   refilled by `vertex_metric!` from each new `ADMMetric` ("The coupling
   contract").
+- **A kernel's sum over directions is written out**, not
+  `sum(ntuple(j -> f(…, Val(j)), Val(D)))` with the `Val` built from the
+  closure's argument: that crashed Metal's compiler in the gauge kernel
+  while every term compiled alone (`gauge_divergence`; "Precision and
+  devices").
+- **A script picks the integrator's partition from the state**:
+  `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
+  `:even` on a device array is refused ("Precision and devices").
 
 ## Tests
 
@@ -4059,6 +4242,13 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   the studies' `10⁴ ρ_min` bit for bit; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
+- `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
+  magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
+  subprocess at another thread count, line for line ("Precision and devices").
+- `test/device_tests.jl`: the same four kinds of run on a device and on the host, compared
+  ("Precision and devices"); in the suite the CPU stands in for the device. It also runs by
+  itself, `TREEGRRMHD_TEST_BACKEND=cuda` or `metal` in an environment with the device
+  package (`jobs/device-tests.toml`).
 
 **The coupled suite** is `coupled/runtests.jl`, in `coupled/`'s own
 environment, which loads TreeGeneralizedHarmonic beside this checkout
@@ -4127,10 +4317,12 @@ bit-identically to the host; "Precision and devices"):
   `:mp5` (which need `G = 3`; MP5 runs at `cfl = 1/5`, `default_cfl`) PPM,
   WENO-Z and MP5; the positivity fallback; the face state
   ("Reconstruction");
-- `src/evolution.jl`: `MHDProblem` (which carries the step cache and the
-  hand-off), the kernels, `mhd_rhs!`, `ohm_solve!`, `reset_atmosphere!`,
-  `ohm_tally`, `max_light_rate`, the conserved totals ("The right-hand
-  side");
+- `src/evolution.jl`: `MHDProblem` (which carries the step cache, the
+  hand-off and the kernels' `workgroupsize`), the kernels, `mhd_rhs!` and its
+  phases (`fill_potentials!`, `curl_A!`, `recover_cells!`, `fill_primitives!`,
+  `face_fluxes!`, `edge_emfs!`, `tendencies!`), `ohm_solve!`,
+  `reset_atmosphere!`, `ohm_tally`, `max_light_rate`, the conserved totals ("The
+  right-hand side", "Precision and devices");
 - `src/driver.jl`: `MHDCase`, exact initial data and references,
   `l1_errors`, `mhd_integrator`, `evolve!`, and `DirichletBoundary`, the
   Dirichlet hooks a non-periodic case gets from its own data ("The
@@ -4209,7 +4401,10 @@ document's tables:
   outcome map per chunk ("Validation ladder" 6);
 - `bin/recovery_cost.jl`: `steptime` times the fused and the two-phase
   recovery, `finish` counts the share that reaches finish ("Primitive
-  recovery").
+  recovery");
+- `bin/benchmark.jl`: the per-phase table, ns per cell of each phase of a step on the
+  magnetized star, on any backend and type; `bin/backend.jl`, TreeHydro's, resolves its
+  and `bin/tov_cowling.jl`'s `backend=` and `type=` ("Precision and devices").
 
 **The coupled runs** (`coupled/`, its own environment; "The coupling
 contract"):
@@ -4232,7 +4427,12 @@ cluster, through SimLaunch) run the full suite as a commit status, and
 `ci/suite-summary.sh` reads Test's summary from a log for both
 (`CLAUDE.md`, "Commands"). `jobs/` holds the SimLaunch job specs, one per
 kind of cluster job: `full-suite.toml`, the suite at the floor at one
-thread, at four and with bounds checks, side by side on one node.
+thread, at four and with bounds checks, side by side on one node;
+`device-tests.toml`, `test/device_tests.jl` on one H200 (or the laptop's GPU);
+`tov-cowling-device.toml`, the Cowling star on an H200 at both types and on the node's
+CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
+over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
+arithmetic's three partitions there ("Precision and devices").
 
 ## Validation ladder
 
@@ -4958,7 +5158,7 @@ named as claims.
      of `max |𝔅|` (job 588706, both spins, `M/4` to `50M`, `M/8` to `20M`).
 
    **Curved-space bit identity** (`test/curved_tests.jl`): with the step
-   cache (fused, the default) and the interior, 16 steps of `Δt = 1/64` in
+   cache (fused, the CPU's default) and the interior, 16 steps of `Δt = 1/64` in
    one integration, in two, and as a restart from the saved state with a
    rebuilt problem are the same bit for bit, for both cases; the suite prints
    their checksums, which the one- and four-thread runs print alike. The
