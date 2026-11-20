@@ -6065,3 +6065,11 @@ thread, 25m08s at four, 40m20s with `--check-bounds=yes`, side by side. On
 Zen 2 the bounds-checked run takes two thirds of the hour that `amddebugq`
 allows. Alone, the device tests ran 304 of 304 on an H200 in 15m21s (job
 606423) and 152 of 152 on an M3 Pro.
+
+**2026-11-20, step 14 committed.** At 720a24d, with the two-phase default
+and its testset: **26746 tests, every run passing whole** (Symmetry job
+606811 on cn095, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`, study
+`full-suite-720a24d6793e`) — 25m13s at one thread, 18m34s at four, 31m29s
+with `--check-bounds=yes`, side by side, the job 31m34s. Zen 3 takes a
+quarter less than step 14's first run on Zen 2. Alone, the device tests ran
+154 of 154 on the M3 Pro.
