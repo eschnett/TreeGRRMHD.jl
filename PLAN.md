@@ -691,19 +691,13 @@ ladder"](HISTORY.md#validation-ladder).
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
-`CODE.md`: "Thermodynamics", "Validation ladder" 7. Waits: nothing (EOS-4 landed in
-EntropyEOS 2.3.0). In progress on `claude/step-13-tabulated-eos` (2026-11-20): the suite's
-tests pass; the studies run on Symmetry.
-
-Changes:
-- A TOV star on a real table (SFHo or DD2), with tests gated by `ENTROPYEOS_TABLE_DIR`.
-- β-equilibrium initial data.
-- `Yₑ` advection.
-
-Accept:
-- Stationarity as in steps 10 and 11.
-- The `D Yₑ` integral conserved to round-off.
-- Gated tests skip cleanly when the variable is unset.
+*Done*, waiting for Erik's acceptance (2026-11-21), with two items open: the coupled star's
+growing oscillation, which takes the constraints below 1.8 after 260 M, and `D Yₑ` over 1000 M.
+Results in `CODE.md`, "Thermodynamics" ("The cold barotrope", "The tabulated star's surface and
+atmosphere"), "Validation ladder" 7 and "Open questions". The step's changes, acceptance list
+and measured outcomes are in [HISTORY.md, "The steps of the
+plan"](HISTORY.md#the-steps-of-the-plan), the suite in [HISTORY.md, "The test
+suite"](HISTORY.md#the-test-suite).
 
 ## Step 14 — Precision, threads, devices, benchmark
 

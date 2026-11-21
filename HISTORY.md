@@ -664,6 +664,65 @@ AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 >   more cores than a site's node has; and there is no way to refresh one script of a prepared
 >   study, so `bin/benchmark.jl` was copied into `grrmhd-step14-2` by hand for job 606643.
 
+
+> **Step 13 — Tabulated EOS and Yₑ (rung 7)**
+>
+> Waits: nothing (EOS-4 landed in EntropyEOS 2.3.0).
+>
+> Changes:
+> - A TOV star on a real table (SFHo or DD2), with tests gated by `ENTROPYEOS_TABLE_DIR`.
+> - β-equilibrium initial data.
+> - `Yₑ` advection.
+>
+> Accept:
+> - Stationarity as in steps 10 and 11.
+> - The `D Yₑ` integral conserved to round-off.
+> - Gated tests skip cleanly when the variable is unset.
+>
+> **State (2026-11-21).** Built and measured (`CODE.md`, "Thermodynamics", "Validation ladder"
+> 7), on EntropyEOS 2.3.0 (v2.3.0, 542c32c).
+> Erik's choices (2026-11-20): the star at the slice's cold edge, measured before any fix; the
+> Cowling and the coupled star both as full studies; DD2 for the suite's tests, SFHo as a
+> second Cowling study. The studies ran on Symmetry's AMD nodes through SimLaunch specs in
+> `jobs/`: the Cowling stars as jobs 607056–607061, the coupled star as 607062, 607068 and
+> 607064, the matter outside the star as 607220 and 607248–607251, the Cowling star to 1000 M
+> as 607606, the suite as 607067.
+>
+> Done:
+> - `cold_barotrope` (`src/tov_table.jl`) on EOS-4's slice, the TOV solve generic over the
+>   barotrope (the polytrope bit for bit), the star's matter as a `TOVComposition` apart from
+>   the metric, `tabulated_tov_case` with a cold atmosphere at `ρ_min`, the reset's `D Yₑ`
+>   and entropy-floor tallies; `table=` on `bin/tov_study.jl` and
+>   `coupled/tov_coupled.jl`, and `diag=` on `bin/tov_study.jl`.
+> - **Gated tests skip cleanly**: without `ENTROPYEOS_TABLE_DIR` the five gated testsets are
+>   one broken test each and named at the end of the run; with it, 26785 of 26785 three ways
+>   ("The test suite"); the coupled suite's three gated testsets (`coupled/tabulated_tests.jl`)
+>   pass with the tables.
+> - **Stationarity, Cowling**: the drift averaged over 160–200 M converges at 1.53, 1.90 (DD2)
+>   and 2.45, 2.60 (SFHo) at `h = 0.75, 0.5, 0.375`; the drift at 200 M misses on one pair
+>   each (1.40, 1.07), where the oscillation's half-range is larger than the drift.
+> - **Stationarity, coupled** (DD2, `h = 0.6, 0.5, 0.375`, to 1000 M): the constraints converge
+>   at 1.8 or better on the finer pair to 260 M, inside and outside, then fall to 1.41–1.66
+>   as the star's oscillation grows, e-folding in about 330 M at every `h`; on the Cowling
+>   metric the same star's oscillation is damped. **A miss, open.**
+> - **`D Yₑ` to round-off**: over 200 M on the Cowling metric, to 2·10⁻¹⁶ net of the reset at
+>   `h ≤ 0.5`; at `h = 0.75` the shed matter leaves through the outer faces, and finer meshes
+>   do not shed it. Over 1000 M on the Cowling metric `D Yₑ` moves by 1.6·10⁻¹³ where the rest
+>   mass holds to 4.7·10⁻¹⁶. **Holds over 200 M; over 1000 M open.** Coupled, the rest mass and
+>   `D Yₑ` move by 2–8·10⁻¹² with the atmosphere at the outer faces, as rung 5's.
+> - The cold edge measured: the entropy floor fires on 0.3–0.5% of the star's cell-steps, nearly
+>   all in the first 50 M, and not at all in the coupled runs but six cells; no fix proposed.
+>
+> Proposed (in `CODE.md`, "Thermodynamics"): the barotrope's surface at `ρ_min`, and the
+> atmosphere cold, keeping the replaced state's `Yₑ`.
+>
+> Found while measuring:
+> - SimLaunch refuses `submit --run B` while run A of the same checkpointed spec runs, so the
+>   coupled studies became one spec per run (`tabulated-tov-coupled-mid.toml`,
+>   `-fine.toml`); for Erik to pass on.
+> - Study `grrmhd-step13-1516278e305c` on Symmetry is left over from the first specs; for Erik
+>   to delete.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -6157,3 +6216,16 @@ and its testset: **26746 tests, every run passing whole** (Symmetry job
 with `--check-bounds=yes`, side by side, the job 31m34s. Zen 3 takes a
 quarter less than step 14's first run on Zen 2. Alone, the device tests ran
 154 of 154 on the M3 Pro.
+
+**2026-11-20, step 13.** The tabulated star (`test/tabulated_tov_tests.jl`,
+five testsets on DD2, gated on `ENTROPYEOS_TABLE_DIR` by `test/tables.jl`)
+and the `Yₑ` advection (`test/ye_advection_tests.jl`, two `@serial_tier`
+testsets): **26785 tests, every run passing whole** with the tables
+(Symmetry job 607067 on cn091, EPYC 7532, `amddebugq`;
+`ci/full-suite-cluster.sh`, study `full-suite-13a91ed69f4b`) — 39m46s at
+one thread, 26m35s at four, 48m22s with `--check-bounds=yes`, side by side:
+the bounds-checked run on Zen 2 now takes four fifths of `amddebugq`'s
+hour. Without the variable (the clean checkout on the M3 Pro, 1.13, four
+threads) the five gated testsets are each one broken test and named at the
+end: 26772 passing, 5 broken, in 18m04s. A step on the table costs about
+2.7 times the polytrope's per cell (the M3 Pro, four threads).
