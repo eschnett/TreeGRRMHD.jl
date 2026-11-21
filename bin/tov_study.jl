@@ -25,8 +25,12 @@
 # default the polytrope) with `ρ_c` (its central density, geometric; no default) and
 # `ρ_min` (its atmosphere, 1e−10). The time series then also holds, per chunk, what the
 # reset injected into `D Yₑ` and its entropy floors outside the atmosphere with their `τ`:
-# `t ρ_c resets injected_D injected_DYₑ s_floors s_floor_τ`. The summary goes to the
-# terminal; a resumed run's wall time is its own part only.
+# `t ρ_c resets injected_D injected_DYₑ s_floors s_floor_τ`. `diag` (a file; default none;
+# added in step 13) records per chunk where the matter outside the star is: `t`, the rest
+# mass's change net of the reset so far, the rest mass at `r > 5R̄/4` above twice the
+# atmosphere's density, the largest radius of such matter, and the largest density in the
+# outermost layer of cells. The summary goes to the terminal; a resumed run's wall time is
+# its own part only.
 
 using TreeAMR
 using TreeGRRMHD
@@ -50,10 +54,36 @@ const OPS_W = Dict(
     "w3" => Operators(; prolongation=3, restriction=2, family=Conservative, bounded=false),
     "w1" => Operators(; prolongation=1, restriction=2, family=Conservative))
 
-function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
+# Where the matter outside the star is (the `diag` key): the rest mass `√γ D` of the cells
+# at `r > 5R̄/4` above twice the atmosphere's density, the largest radius of such a cell,
+# and the largest density in the outermost layer of cells, against the box's faces.
+function outer_matter(mhd, u, t, metric, R̄, L, ρ_min)
+    T = typeof(L)
+    P = MHD.hostcopy(MHD.update_primitives!(mhd, u, t; metric))
+    U = mhd.sets[MHD.SEG_U]
+    uU = Array(statearray(u, mhd.sets, MHD.SEG_U))
+    N, G, GU = U.forest.N, P.G[1], U.G[1]
+    M, r_front, ρ_edge = zero(T), zero(T), zero(T)
+    for b in 1:nblocks(U)
+        h = spacing(T, U.forest, blockkey(U, b))
+        for k in 1:N, j in 1:N, i in 1:N
+            x = coordinates(T, U, b, (i + GU, j + GU, k + GU))
+            ρ = P.work[i + G, j + G, k + G, MHD.P_RHO, b]
+            r = sqrt(x[1]^2 + x[2]^2 + x[3]^2)
+            if ρ > 2ρ_min && r > 5R̄ / 4
+                M += h^3 * uU[i, j, k, MHD.U_D, b]
+                r_front = max(r_front, r)
+            end
+            maximum(abs, x) > L - h && (ρ_edge = max(ρ_edge, ρ))
+        end
+    end
+    return M, r_front, ρ_edge
+end
+
+function study(T=Float64;N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, chunk=1,
                limiter=:mc, riemann=:hlle, opsW="w3b", reset="both", record=nothing,
                checkpoint=nothing, every=20, metric="analytic", δv=(0, 0, 0), table=nothing,
-               ρ_c=nothing, ρ_min=1e-10)
+               ρ_c=nothing, ρ_min=1e-10, diag=nothing)
     star = if table === nothing
         MHD.tov_case(T; L, roots, δv, δv_modes=:cowling)
     else
@@ -126,6 +156,10 @@ function study(T=Float64; N=16, levels=1, half=1.25, L=24, roots=4, t_end=200, c
         floors += tally.s_floors
         floorτ += tally.s_floor_τ
         ρ = MHD.central_density(mhd, u, t; p.metric)
+        if diag !== nothing
+            o = outer_matter(mhd, u, t, p.metric, star.fields.w.metric.R̄, T(L), T(ρ_min))
+            diag(t, conserved_totals(mhd, u)[MHD.U_D] - M0 - injected, o...)
+        end
         push!(series, (t, ρ))
         push!(rows, (t, ρ, tally.step_resets, tally.injected_D, tally.injected_DYₑ,
                      tally.s_floors, tally.s_floor_τ))
@@ -149,6 +183,7 @@ function main(args)
     kw = Dict{Symbol,Any}()
     out = nothing
     state = nothing
+    diagfile = nothing
     for a in args
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every")
@@ -165,6 +200,8 @@ function main(args)
             out = v
         elseif k == "state"
             state = v
+        elseif k == "diag"
+            diagfile = v
         else
             error("tov_study.jl: unknown key `$k`")
         end
@@ -173,8 +210,13 @@ function main(args)
     rec = io === nothing ? nothing :
           (t, ρ, n, inj, injY, nf, fτ) -> (@printf(io, "%.6f %.16e %d %.6e %.6e %d %.6e\n", t,
                                                    ρ, n, inj, injY, nf, fτ); flush(io))
-    wall = @elapsed r = study(; kw..., record=rec)
+    dio = diagfile === nothing ? nothing : open(diagfile, "w")
+    dg = dio === nothing ? nothing :
+         (t, net, M, rf, ρe) -> (@printf(dio, "%.6f %.6e %.6e %.4f %.6e\n", t, net, M, rf, ρe);
+                                 flush(dio))
+    wall = @elapsed r = study(; kw..., record=rec, diag=dg)
     io === nothing || close(io)
+    dio === nothing || close(dio)
     state === nothing || serialize(state, (; r.series, r.u, r.h, args))
     ρs = last.(r.series)
     @printf("TOV study %s\n", join(args, " "))
