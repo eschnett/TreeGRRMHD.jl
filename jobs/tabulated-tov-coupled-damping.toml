@@ -1,0 +1,31 @@
+# Step 13 (rung 7): whether TreeGH's constraint damping grows the tabulated star's
+# oscillation. In `jobs/tabulated-tov-coupled*.toml`'s runs (DD2, `γ0 = 1/(10M)`, `γ2 = 0`)
+# the star's coupled F mode (2.9–3.0 kHz) grows from about 250 M, e-folding in about 330 M at
+# `h = 0.6, 0.5, 0.375`, and is damped on the Cowling metric. `PLAN.md`'s GH-8 found a mode of
+# the polytrope that `γ0` grows at a rate independent of `h`, above `γ0 M ≈ 1/4`, and that
+# `γ2 = −1/2` suppresses. These runs repeat `h = 0.6` to 600 M at `γ0 M = 0, 1/20, 1/5` and
+# at `1/10` with `γ2 = −1/2`: if the growth rate follows `γ0`, the damping drives it. Each
+# run a job of its own (`--run`), about 2.5 h, so `amdq`.
+name = "tabulated-coupled-damping"
+project = "coupled"
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "6:00:00"
+
+[[run]]
+label = "g0"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 t_end=600 chunk=1 γ0M=0 out=series.txt"
+
+[[run]]
+label = "g0.05"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 t_end=600 chunk=1 γ0M=0.05 out=series.txt"
+
+[[run]]
+label = "g0.2"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 t_end=600 chunk=1 γ0M=0.2 out=series.txt"
+
+[[run]]
+label = "g0.1-g2m0.5"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 t_end=600 chunk=1 γ0M=0.1 γ2=-0.5 out=series.txt"
