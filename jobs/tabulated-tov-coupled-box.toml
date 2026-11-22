@@ -1,0 +1,24 @@
+# Step 13 (rung 7): whether the tabulated star's growing oscillation is a line of the box. In
+# `jobs/tabulated-tov-coupled*.toml`'s runs (DD2, `L = 24`) the star's coupled F mode
+# (2.8–3.0 kHz, a period of about 70 M, close to a light round trip across the box) grows from
+# about 300 M, e-folding in about 330 M at `h = 0.6, 0.5, 0.375`, and
+# `jobs/tabulated-tov-coupled-damping.toml` showed that TreeGH's damping (`γ0 M = 0` to 1/5,
+# `γ2 = −1/2`) does not remove it. These runs keep the star's mesh (`h = 0.6` on `[−12, 12]³`)
+# and widen the box to `L = 48` and 96 with one and two more levels: a line of the box moves
+# with `L`, a mode of the star does not. Each run a job of its own (`--run`), about 4–5 h, so
+# `amdq`.
+name = "tabulated-coupled-box"
+project = "coupled"
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "10:00:00"
+
+[[run]]
+label = "L48"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 L=48 roots=4 levels=2 t_end=600 chunk=1 out=series.txt"
+
+[[run]]
+label = "L96"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 L=96 roots=4 levels=3 t_end=600 chunk=1 out=series.txt"
