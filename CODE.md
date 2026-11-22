@@ -48,8 +48,10 @@ linear theory. Step 13 is the star on a real table (DD2, SFHo) in cold
 round-off over 200 M once the mesh keeps the matter the coarsest star sheds
 off the outer faces; in the evolved spacetime the constraints converge at
 1.8 or better to 260 M, and then the star's oscillation grows, e-folding in
-about 330 M at every `h`, and they fall to 1.4–1.7 (open). Over 1000 M
-`D Yₑ` moves by 10⁻¹³ where the rest mass does not (open). The numbers below
+about 330 M at every `h`, and they fall to 1.4–1.7. TreeGH's Dirichlet
+outer boundary at `L = 24` grows it: on a box four times as wide it is
+damped, and the coupled study on that box is (open). Over 1000 M `D Yₑ`
+moves by 10⁻¹³ where the rest mass does not (open). The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
@@ -4520,7 +4522,8 @@ over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the s
 arithmetic's three partitions there ("Precision and devices");
 `tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml` and
 `tabulated-tov-coupled-fine.toml`, the tabulated star's studies, each run a job of its
-own ("Validation ladder" 7).
+own, with `tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the
+same coupled star at other constraint damping and on wider boxes ("Validation ladder" 7).
 
 ## Validation ladder
 
@@ -6162,8 +6165,8 @@ named as claims.
      inside is 1.2–1.3·10⁻⁵ over 240–510 M and 6.6·10⁻⁵ over 900–1000 M,
      `ℳ` outside 1.1·10⁻⁶ over 240–260 M and 8.2·10⁻⁶ over 900–1000 M, and
      likewise at the other two `h`.
-   - **The star's oscillation grows in the evolved spacetime, and only
-     there** **(open)**. The half-range of `ρ_c/ρ_c(0)` per 100 M:
+   - **The star's oscillation grows in the evolved spacetime on this box,
+     fed by the outer boundary.** The half-range of `ρ_c/ρ_c(0)` per 100 M:
 
      | `t` (M) | `h = 0.6` | `0.5` | `0.375` | Cowling, `h = 0.5` |
      |---|---|---|---|---|
@@ -6179,16 +6182,52 @@ named as claims.
      halves of the run. The last column is the same star with the same
      reconstruction and atmosphere on the Cowling metric
      (`jobs/tabulated-tov-cowling-long.toml`, job 607606): damped, 25 times
-     smaller by 1000 M, so the growth needs the evolved spacetime. Rung 5's
-     polytrope, on the same mesh, gauge and transfer, has constraint norms
-     that do not grow.
-     Not separated. 2.8 kHz is also where rung 5 found the strongest line
-     of `ℋ` inside the polytrope (with the mean transfer), a line of the
-     spacetime on this box; whether this is that line driven by the
-     table's matter, or a mode of the tabulated star that the coupling
-     destabilizes, needs the tabulated star's radial modes
-     (`src/tov_pulsation.jl` is the polytrope's only) or a run on a larger
-     box.
+     smaller by 1000 M, so the growth needs the evolved spacetime.
+
+     TreeGH's constraint damping does not drive it
+     (`jobs/tabulated-tov-coupled-damping.toml`, jobs 607869–607873:
+     `h = 0.6` to 600 M; the first row is job 607062's first 600 M). The
+     half-range per 100 M, and the e-folding of the half-range over
+     300–600 M:
+
+     | `γ0 M`, `γ2` | 0–100 | 200–300 | 500–600 | e-folding |
+     |---|---|---|---|---|
+     | 1/10, 0 | 6.3e−3 | 3.4e−3 | 7.0e−3 | 340 M |
+     | 0, 0 | 9.2e−3 | 1.1e−2 | 1.9e−2 | 560 M |
+     | 1/20, 0 | 7.0e−3 | 4.4e−3 | 5.1e−3 | 1700 M |
+     | 1/5, 0 | 6.1e−3 | 1.5e−3 | 4.5e−3 | 345 M |
+     | 1/10, −1/2 | 7.0e−3 | 7.7e−3 | 1.8e−2 | 313 M |
+
+     It grows at every `γ0`, without damping too, at 2.8–3.0 kHz in every
+     run; stronger damping deepens the decay before 300 M and not the
+     growth after it, and `γ2 = −1/2`, which suppresses GH-8's mode
+     ([`PLAN.md`, GH-8](PLAN.md#gh-8--constraint-damping-on-a-star-note)),
+     starts it at 100 M. `ℋ` inside stays at 2.3–5.4·10⁻⁵ in the runs
+     with `γ0 > 0` and `γ2 = 0` while it grows, and the reset and the
+     entropy floor inject nothing that grows with it.
+
+     The box does (`jobs/tabulated-tov-coupled-box.toml`, jobs 607905 and
+     607906, 4.3 and 5.0 h): the same star's mesh, `h = 0.6` on
+     `[−12, 12]³`, inside one and two more levels out to `L = 48` and 96,
+     to 600 M. The line is the strongest of `ρ_c` over 350–600 M:
+
+     | `L` | 0–100 | 200–300 | 500–600 | e-folding | line |
+     |---|---|---|---|---|---|
+     | 24 | 6.3e−3 | 3.4e−3 | 7.0e−3 | 340 M | 2.82 kHz |
+     | 48 | 6.4e−3 | 2.2e−3 | 2.1e−3 | 1800 M | 2.88 kHz |
+     | 96 | 6.4e−3 | 2.4e−3 | 8.9e−4 | decays, 257 M | 3.04 kHz |
+
+     The outer boundary is TreeGH's Dirichlet data from the star's static
+     exterior (TreeGH's `CODE.md`, "Outer boundary: Dirichlet from the
+     background, at the current time"), which reflects what the oscillating
+     star sends out. At `L = 24` the reflection grows the star's coupled F
+     mode and pulls its line down; at `L = 96` the mode is damped. `ℋ`
+     outside (`r ≥ 10`, to each box's edge) triples from 40 to 600 M at
+     `L = 24`, grows by 1.4 at `L = 48` and falls at `L = 96`. Rung 5's
+     polytrope, on the `L = 24` box with the same gauge and transfer, does
+     not grow; why the tabulated star does is not measured. The F mode's frequency on an
+     unbounded domain is not measured either: 3.04 kHz at `L = 96` still
+     moves with `L`.
    - **The central density's drift**, relative to `t = 0` and averaged over
      a window: −0.37, −0.20, −0.14% over 50–70 M (rates 3.19, 1.44),
      −1.17, −0.83, −0.42% over 490–510 M (1.88, 2.36), −1.09, −0.89,
@@ -6255,12 +6294,10 @@ decides".
   cell's previous `log₁₀ T`, carried in the state as `D s` is
   ("Thermodynamics", "Warm starts"): on the tabulated star a cell-step costs
   about 2.7 times the polytrope's, not yet split into the recovery's part.
-- **(open)** Why the tabulated star's oscillation grows in the evolved
-  spacetime and not on the Cowling metric, e-folding in about 330 M at
-  every `h`, at 2.84–2.89 kHz, while the polytrope's does not
-  ("Validation ladder" 7): the coupled constraints converge at 1.8 only
-  until it grows. The tabulated star's radial modes, or the same run on a
-  larger box, would tell a mode of the star from a line of the spacetime.
+- **(open)** The tabulated coupled study on a box wide enough that the
+  outer boundary does not grow the star's oscillation ("Validation ladder"
+  7): whether at `L = 96` the constraints converge at 1.8 or better to
+  1000 M, and where the coupled F mode's line settles as `L` grows.
 - **(open)** What moves `D Yₑ` by 1.6·10⁻¹³ over 1000 M on the Cowling
   metric while the rest mass holds to 4.7·10⁻¹⁶ ("Validation ladder" 7);
   the candidate is the outer faces, where the Dirichlet atmosphere's `Yₑ`

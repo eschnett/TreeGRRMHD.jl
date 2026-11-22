@@ -691,8 +691,9 @@ ladder"](HISTORY.md#validation-ladder).
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
-*Done*, waiting for Erik's acceptance (2026-11-21), with two items open: the coupled star's
-growing oscillation, which takes the constraints below 1.8 after 260 M, and `D Yₑ` over 1000 M.
+*Done*, waiting for Erik's acceptance (2026-11-21), with two items open: the coupled study on a
+box wide enough that TreeGH's outer boundary does not grow the star's oscillation (at `L = 24`
+it takes the constraints below 1.8 after 260 M), and `D Yₑ` over 1000 M.
 Results in `CODE.md`, "Thermodynamics" ("The cold barotrope", "The tabulated star's surface and
 atmosphere"), "Validation ladder" 7 and "Open questions". The step's changes, acceptance list
 and measured outcomes are in [HISTORY.md, "The steps of the

@@ -723,6 +723,25 @@ AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 > - Study `grrmhd-step13-1516278e305c` on Symmetry is left over from the first specs; for Erik
 >   to delete.
 
+**2026-11-22, step 13: why the coupled star's oscillation grows.** The coupled star's growing
+line (2.8–3.0 kHz) is its own coupled F mode: on the Cowling metric the same star's F is at
+4.2–4.4 kHz and damped, and the late `ℋ` inside is dominated by the line's second harmonic
+(5.7 kHz).
+The script advances TreeGH and the matter in one integrator, so no exchange lag drives it.
+Two hypotheses, tested at `h = 0.6` to 600 M on Symmetry's `amdq`:
+- **TreeGH's constraint damping, as in GH-8** (`jobs/tabulated-tov-coupled-damping.toml`, commit
+  8b77484, study `grrmhd-step13-8b77484fcb70`, jobs 607869–607873, about 2.5 h each): rejected.
+  The mode grows at `γ0 M = 0, 1/20, 1/10, 1/5` alike, and `γ2 = −1/2`, which suppressed GH-8's
+  mode, makes it grow from 100 M.
+- **The box** (`jobs/tabulated-tov-coupled-box.toml`, commit defaef5, study
+  `grrmhd-step13-defaef57027b`, jobs 607905 and 607906, 4.3 and 5.0 h): confirmed. With the
+  star's mesh unchanged and the box widened to `L = 48` and 96, the e-folding goes from 340 M
+  to about 1800 M and to a decay, and the line moves from 2.82 to 2.88 and 3.04 kHz. TreeGH's
+  Dirichlet outer boundary reflects what the star sends out.
+
+The tables are in `CODE.md`, "Validation ladder" 7. The coupled study's miss at `L = 24` is
+therefore the box, and the study on a wider box is open, for Erik to decide.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
