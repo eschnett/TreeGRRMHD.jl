@@ -1,0 +1,20 @@
+# Step 13 (rung 7): `tabulated-tov-coupled.toml`'s study on a box wide enough that TreeGH's
+# Dirichlet outer boundary does not grow the star's oscillation. On `[−24, 24]³` the star's
+# coupled F mode grows from about 300 M and takes the constraints' rates below 1.8;
+# `tabulated-tov-coupled-box.toml` found it damped on `[−96, 96]³` with the star's mesh
+# unchanged ("Validation ladder" 7 in `CODE.md`). The same study on that box: four roots, three
+# levels (`h = 4.8, 2.4, 1.2` outside `[−12, 12]³`, the star's `h` inside), to 1000 M, at
+# `h = 0.6` here (about 8.5 h); `h = 0.5` and 0.375 are `tabulated-tov-coupled-wide-mid.toml`
+# and `-wide-fine.toml`, checkpointed, since SimLaunch keeps one job at a time for a spec with
+# checkpoints.
+name = "tabulated-coupled-wide"
+project = "coupled"
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "24:00:00"
+
+[[run]]
+label = "dd2-h0.6"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 L=96 roots=4 levels=3 t_end=1000 chunk=1 out=series.txt"
