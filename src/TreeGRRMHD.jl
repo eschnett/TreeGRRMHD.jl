@@ -128,12 +128,15 @@ export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning
 # The TOV star (step 10)
 export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
        tov_boxes!, TOVModes, tov_radial_modes, tov_mode_velocity
+export ColdBarotrope, cold_barotrope, barotrope_state, TOVComposition, composition_state,
+       TabulatedTOVStar, tabulated_tov_case
 # The magnetized TOV star (step 12)
 export StellarDipole, stellar_dipole, exterior_dipole, dipole_potential, dipole_curl,
        ConfinedField, confined_field, MagnetizedTOVStar, magnetized_tov_case, cell_profile,
        field_diagnostics, field_drift,
        ohm_map
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
+export YeWave, ye_advection_case
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
        plateau_state,
        plateau_error, resistive_tube_case,
@@ -159,6 +162,7 @@ include("prim2con.jl")
 include("con2prim.jl")
 include("metric.jl")
 include("tov.jl")
+include("tov_table.jl")
 include("tov_pulsation.jl")
 include("stress_energy.jl")
 include("ohm.jl")
@@ -177,6 +181,7 @@ include("vertex_metric.jl")
 include("adm_matter.jl")
 include("interior.jl")
 include("cases/em_wave.jl")
+include("cases/ye_advection.jl")
 include("cases/alfven_wave.jl")
 include("cases/shocktubes.jl")
 include("cases/geometry.jl")
@@ -185,6 +190,7 @@ include("cases/gauge.jl")
 include("cases/kerr_schild.jl")
 include("cases/tov.jl")
 include("cases/magnetized_tov.jl")
+include("cases/tabulated_tov.jl")
 include("field_diagnostics.jl")
 
 end # module TreeGRRMHD

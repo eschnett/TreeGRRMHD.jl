@@ -9,6 +9,11 @@
 # 12–21 minutes on Symmetry's AMD nodes, so side by side they fit in
 # `amddebugq`'s hour.
 #
+# The real tables (step 13): on Symmetry `ENTROPYEOS_TABLE_DIR` names
+# Erik's copies, so the testsets that read DD2 run (`test/tables.jl`); a
+# site's `vars` replace the top level's, so its table repeats the tier. Other
+# sites have no tables, and those testsets are skipped there, as on GitHub.
+#
 # Julia: the floor of `[compat]`, written out. The site's own Julia is the
 # release, which is also 1.13 until 1.14 is released; then the release runs are
 # these three again without `julia`.
@@ -20,6 +25,7 @@ vars = { TREEGRRMHD_TEST_TIER = "full" }
 
 [site.symmetry]                     # amddebugq, by the profile's rule
 time = "1:00:00"
+vars = { TREEGRRMHD_TEST_TIER = "full", ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
 
 [site.trillium]                     # debug while no other job of ours is there
 time = "1:00:00"

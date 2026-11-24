@@ -1,0 +1,18 @@
+# Step 13 (rung 7): whether the tabulated star's oscillation grows without the spacetime. In
+# `jobs/tabulated-tov-coupled*.toml`'s runs (DD2, PPM, `ρ_min = 1e−12`, to 1000 M) the
+# amplitude of `ρ_c` grows about sixfold from 300 M on, at a rate nearly the same at
+# `h = 0.6, 0.5, 0.375`; the polytrope's (rungs 4 and 5) is damped. This run is the same
+# star at `h = 0.5` with the same reconstruction and atmosphere on the Cowling metric, to
+# 1000 M: if it grows here too, the cause is the matter (the table, the surface, the
+# atmosphere), not the coupling. About 5.5 h, so `amdq`.
+name = "tabulated-cowling-long"
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "10:00:00"
+
+[[run]]
+label = "dd2-h0.5-ppm"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 ρ_min=1e-12 N=12 levels=1 t_end=1000 chunk=1 limiter=ppm out=series.txt diag=diag.txt"

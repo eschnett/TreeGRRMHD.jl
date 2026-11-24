@@ -664,6 +664,108 @@ AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 >   more cores than a site's node has; and there is no way to refresh one script of a prepared
 >   study, so `bin/benchmark.jl` was copied into `grrmhd-step14-2` by hand for job 606643.
 
+
+> **Step 13 — Tabulated EOS and Yₑ (rung 7)**
+>
+> Waits: nothing (EOS-4 landed in EntropyEOS 2.3.0).
+>
+> Changes:
+> - A TOV star on a real table (SFHo or DD2), with tests gated by `ENTROPYEOS_TABLE_DIR`.
+> - β-equilibrium initial data.
+> - `Yₑ` advection.
+>
+> Accept:
+> - Stationarity as in steps 10 and 11.
+> - The `D Yₑ` integral conserved to round-off.
+> - Gated tests skip cleanly when the variable is unset.
+>
+> **State (2026-11-21).** Built and measured (`CODE.md`, "Thermodynamics", "Validation ladder"
+> 7), on EntropyEOS 2.3.0 (v2.3.0, 542c32c).
+> Erik's choices (2026-11-20): the star at the slice's cold edge, measured before any fix; the
+> Cowling and the coupled star both as full studies; DD2 for the suite's tests, SFHo as a
+> second Cowling study. The studies ran on Symmetry's AMD nodes through SimLaunch specs in
+> `jobs/`: the Cowling stars as jobs 607056–607061, the coupled star as 607062, 607068 and
+> 607064, the matter outside the star as 607220 and 607248–607251, the Cowling star to 1000 M
+> as 607606, the suite as 607067.
+>
+> Done:
+> - `cold_barotrope` (`src/tov_table.jl`) on EOS-4's slice, the TOV solve generic over the
+>   barotrope (the polytrope bit for bit), the star's matter as a `TOVComposition` apart from
+>   the metric, `tabulated_tov_case` with a cold atmosphere at `ρ_min`, the reset's `D Yₑ`
+>   and entropy-floor tallies; `table=` on `bin/tov_study.jl` and
+>   `coupled/tov_coupled.jl`, and `diag=` on `bin/tov_study.jl`.
+> - **Gated tests skip cleanly**: without `ENTROPYEOS_TABLE_DIR` the five gated testsets are
+>   one broken test each and named at the end of the run; with it, 26785 of 26785 three ways
+>   ("The test suite"); the coupled suite's three gated testsets (`coupled/tabulated_tests.jl`)
+>   pass with the tables.
+> - **Stationarity, Cowling**: the drift averaged over 160–200 M converges at 1.53, 1.90 (DD2)
+>   and 2.45, 2.60 (SFHo) at `h = 0.75, 0.5, 0.375`; the drift at 200 M misses on one pair
+>   each (1.40, 1.07), where the oscillation's half-range is larger than the drift.
+> - **Stationarity, coupled** (DD2, `h = 0.6, 0.5, 0.375`, to 1000 M): the constraints converge
+>   at 1.8 or better on the finer pair to 260 M, inside and outside, then fall to 1.41–1.66
+>   as the star's oscillation grows, e-folding in about 330 M at every `h`; on the Cowling
+>   metric the same star's oscillation is damped. **A miss, open.**
+> - **`D Yₑ` to round-off**: over 200 M on the Cowling metric, to 2·10⁻¹⁶ net of the reset at
+>   `h ≤ 0.5`; at `h = 0.75` the shed matter leaves through the outer faces, and finer meshes
+>   do not shed it. Over 1000 M on the Cowling metric `D Yₑ` moves by 1.6·10⁻¹³ where the rest
+>   mass holds to 4.7·10⁻¹⁶. **Holds over 200 M; over 1000 M open.** Coupled, the rest mass and
+>   `D Yₑ` move by 2–8·10⁻¹² with the atmosphere at the outer faces, as rung 5's.
+> - The cold edge measured: the entropy floor fires on 0.3–0.5% of the star's cell-steps, nearly
+>   all in the first 50 M, and not at all in the coupled runs but six cells; no fix proposed.
+>
+> Proposed (in `CODE.md`, "Thermodynamics"): the barotrope's surface at `ρ_min`, and the
+> atmosphere cold, keeping the replaced state's `Yₑ`.
+>
+> Found while measuring:
+> - SimLaunch refuses `submit --run B` while run A of the same checkpointed spec runs, so the
+>   coupled studies became one spec per run (`tabulated-tov-coupled-mid.toml`,
+>   `-fine.toml`); for Erik to pass on.
+> - Study `grrmhd-step13-1516278e305c` on Symmetry is left over from the first specs; for Erik
+>   to delete.
+
+**2026-11-22, step 13: why the coupled star's oscillation grows.** The coupled star's growing
+line (2.8–3.0 kHz) is its own coupled F mode: on the Cowling metric the same star's F is at
+4.2–4.4 kHz and damped, and the late `ℋ` inside is dominated by the line's second harmonic
+(5.7 kHz).
+The script advances TreeGH and the matter in one integrator, so no exchange lag drives it.
+Two hypotheses, tested at `h = 0.6` to 600 M on Symmetry's `amdq`:
+- **TreeGH's constraint damping, as in GH-8** (`jobs/tabulated-tov-coupled-damping.toml`, commit
+  8b77484, study `grrmhd-step13-8b77484fcb70`, jobs 607869–607873, about 2.5 h each): rejected.
+  The mode grows at `γ0 M = 0, 1/20, 1/10, 1/5` alike, and `γ2 = −1/2`, which suppressed GH-8's
+  mode, makes it grow from 100 M.
+- **The box** (`jobs/tabulated-tov-coupled-box.toml`, commit defaef5, study
+  `grrmhd-step13-defaef57027b`, jobs 607905 and 607906, 4.3 and 5.0 h): confirmed. With the
+  star's mesh unchanged and the box widened to `L = 48` and 96, the e-folding goes from 340 M
+  to about 1800 M and to a decay, and the line moves from 2.82 to 2.88 and 3.04 kHz. TreeGH's
+  Dirichlet outer boundary reflects what the star sends out.
+
+The tables are in `CODE.md`, "Validation ladder" 7. The coupled study's miss at `L = 24` is
+therefore the box, and the study on a wider box is open, for Erik to decide.
+
+**2026-11-24, step 13: the coupled study at `L = 96`.** Erik chose to rerun the coupled study
+on the widest box of the test (`jobs/tabulated-tov-coupled-wide.toml`, `-wide-mid.toml`,
+`-wide-fine.toml`, commit 892a43f, study `grrmhd-step13-892a43f86d5a`, Symmetry `amdq`, jobs
+608225, 608226, 608227 and 609114; 8.3, 16.2 and 46.1 h). The `h = 0.375` run outlived its
+24 h job and was continued from its checkpoint at 520 M with `simlaunch resubmit`. All three
+reached 1000 M. The oscillation is damped and levels off, the F line sits at 3.08–3.15 kHz at
+every `h`, and the finer pair converges at 1.8 or better except outside around 100 M (1.0–1.4)
+and at 750 M (1.78). The rest mass net of the reset gains up to 1.3·10⁻¹⁰, ten times
+`L = 24`'s loss and of the other sign, not separated. Measured with throwaway scripts in the
+session's scratchpad (fits of a damped sinusoid on a grid; numpy only, since scipy was not
+installed). The tables are in `CODE.md`, "Validation ladder" 7; whether this meets step 13's
+coupled acceptance is Erik's call.
+
+**2026-11-24, step 13 accepted.** Erik accepted step 13 as built and measured: "i accept step
+13". The coupled study stands as measured at `L = 96`, with its misses outside around 100 M
+(1.0–1.4) and at 750 M (1.78) on the finer pair, and the `L = 24` study as the record of the
+outer boundary's effect. `D Yₑ` over 1000 M on the Cowling metric, the F line beyond `L = 96`
+and the rest mass the wide box gains stay in `CODE.md`'s "Open questions". The step's two
+proposals in `CODE.md`, "Thermodynamics", are decided: the cold barotrope on EOS-4's slice, and
+the barotrope's surface at `ρ_min` with a cold atmosphere keeping the replaced state's `Yₑ`.
+At Erik's request the leftover studies `grrmhd-step13-1516278e305c`,
+`grrmhd-step13-8b77484fcb70` and `grrmhd-step13-defaef57027b` were deleted from Symmetry; the
+last two had been fetched into `simlaunch-data/` first.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -1873,6 +1975,90 @@ EntropyEOS's allocation gates now run under `--check-bounds=yes` too. EntropyEOS
 unregistered: `[sources]` pins the tag `v2.2.1`, `[compat]` `"2.2.1"`, since 2026-10-30, on
 `claude/entropyeos-2.2`; `[compat]` requires 2.2.1, so there is no probe. So the bounds-checked
 run's four allocation failures are gone.
+
+**2026-11-20.** EOS-4 rewritten. The step-0 request was
+`beta_equilibrium(eos::EOSTableView, ρ★; T_MeV) -> (yₑ, s, converged)` and
+`cold_slice(eos, ρ★s; T_MeV) -> (yₑ, s, p, U)`: a bracketed secant for `μ̃(ρ★, s(T), yₑ) = 0` on
+`yₑ_bounds`, with `s(T)` from `sigma_extended`. It gave no reason for being upstream. Asked by
+Erik why it was needed, Claude found that it could be written here from public API (`EOSPoint.μ̃`,
+`sigma_extended`, `yₑ_bounds`), and that the reason to keep it upstream was trust in `μ̃`, which
+no one had compared with a table's chemical potentials (`read_stellarcollapse` kept no `mu_e` or
+`muhat`). Erik took it to EntropyEOS, which answered with PR 15 (version 2.3.0), in two versions:
+
+- **First (a6cf6d1).** `beta_equilibrium(table, eos, ρ★)`: the zero of the table's `munu` on its
+  coldest row, the state on the fitted EOS's cold edge, and where `munu` has several zeros in
+  `Yₑ` (DD2 and SFHo at 10^7.8–10^11.7 g/cm³) the least `∫ munu dYₑ` at fixed density. It
+  measured `μ̃` off from `munu` on the cold edge by several MeV (percentiles 1/50/99 % on SFHo
+  −17.6/0.3/8.8 MeV), up to about 2400 MeV near 10¹⁴ g/cm³ on LS220, so `μ̃` is not the
+  criterion. Checked here on DD2, DD2 repaired and SFHo (4000 densities each, laptop): every
+  state inside `inside_window` and through `con2prim_safe` unflagged, 0.7 µs a call; but `p`
+  fell with `ρ` wherever the choice switched between zeros (`Yₑ` 0.506 ↔ 0.45): DD2 by 13.6 % at
+  log ρ = 8.32, SFHo at 8.04, 8.27, 9.00 (by 18.3 %) and 11.10 (by 1.3·10⁻⁴), which no star in
+  hydrostatic equilibrium can follow. Taking instead, over every zero, the least `h` at fixed
+  pressure (the Gibbs free energy per baryon as `T → 0`) never took the `Yₑ ≈ 0.506` branch on
+  SFHo and left `ρ` monotone in `p`. Erik passed that on.
+- **Second (1e324e4).** `cold_beta_slice(table, eos)` builds the slice once; `beta_equilibrium(
+  slice; p | ρ★ | g)` looks a state up. At each pressure, the least Gibbs free energy
+  `g = 1 + U − T̂s + p/ρ★ + c_E·Yₑ` on the fitted EOS, the energy corrected by the rest masses the
+  tables' ε leaves out; `μ_ν = mu_e − muhat + c₀`, with `c₀` per table family. Phase transitions
+  are density jumps at constant `p` and `g`, listed in `jumps`. It found none on DD2, SFHo or
+  LS220, and four on SRO LS220. Checked here on the same tables, 3000 lookups by pressure each:
+  `ρ★`, `p` and `g` monotone along the slice and along the lookups; the asked pressure returned
+  to 3·10⁻¹²; the table's `munu` at the results below 10⁻¹² MeV; nothing clamped; every state
+  inside `inside_window` and through `con2prim_safe` unflagged (`s` to 1.2·10⁻⁵); 28 µs a lookup;
+  `Yₑ` on SFHo at log ρ = 8, 10, 12, 13, 14, 14.5, 15 is 0.453, 0.401, 0.167, 0.034, 0.021,
+  0.055, 0.067. What the star's solve takes from these measurements is in `CODE.md`,
+  "Validation ladder" 7.
+
+PLAN.md's EOS-4 was rewritten to the second version, and `test/prerequisite_tests.jl`'s probe
+checks for `cold_beta_slice` and `beta_equilibrium` on a `ColdBetaSlice` (false on 2.2.1 and on
+the first version, true on the second). The pin waits for the tag.
+
+*EOS-4 — Cold β-equilibrium slice (later, step 13; landed in EntropyEOS 2.3.0).* The request
+as `PLAN.md` held it when it landed:
+
+**Why.** Step 13's star on a real table (DD2 or SFHo) needs the cold, neutrinoless
+β-equilibrium composition along the star: `Yₑ` and `s` at each pressure, and the EOS there.
+Which zero of `μ_ν` a star takes where there are several, and how `μ_ν` follows from a table's
+`mu_e`, `muhat` and energy, is knowledge of the tables, so the solve is EntropyEOS's. The
+fitted `EOSPoint.μ̃` is not good enough for it: on the cold edge it is off from the table's
+`munu` by MeV ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20).
+
+**API** (EntropyEOS PR 15, head 1e324e4, version 2.3.0; open, not merged):
+```julia
+cold_beta_slice(table::RawTable, eos::EOSTable; refine=8, munu_offset=nothing,
+                energy_offset=nothing) -> ColdBetaSlice
+beta_equilibrium(slice::ColdBetaSlice; ρ★ | p | g) -> BetaEquilibrium   # exactly one key
+```
+`BetaEquilibrium` carries `ρ★`, `yₑ`, `s`, `point::EOSPoint`, `g` (the Gibbs free energy per
+unit rest mass) and `flags`; the slice lists its phase transitions in `jumps`.
+
+**Semantics this package relies on.**
+- At each pressure the slice takes the composition of least Gibbs free energy. Along it `ρ★`,
+  `p` and `g` never decrease; where the composition changes, the density jumps at constant `p`
+  and `g`, and a `ρ★` inside the gap throws `ArgumentError`.
+- A state lies on the fitted EOS's cold edge, `s = srange(eos, ρ★, yₑ).s_min`, at the table's
+  lowest temperature.
+- A lookup by `p` returns that pressure to rounding, with `μ_ν = 0` there.
+- Host-side and `Float64`; the table must be the one the EOS was built from.
+
+**Upstream acceptance.** As PR 15 tests it: on the real tables, monotone in `ρ★`, `p` and `g`;
+lookups by pressure round-trip to 10⁻⁸; `μ_ν = 0` at the results; a constructed phase
+transition located to 10⁻⁸ in pressure.
+
+**Downstream check.** `test/prerequisite_tests.jl` detects `cold_beta_slice` and
+`beta_equilibrium` on a `ColdBetaSlice`. Checked by hand on PR 15's head on DD2, DD2 repaired
+and SFHo ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-20): the slice's
+monotonicity, lookups by pressure, `munu` at the results, and a static state at every result
+through `inside_window` and `con2prim_safe`, unflagged. Once tagged, `[sources]` pins `v2.3.0`
+and `[compat]` requires `"2.3"`, and the probe is retired.
+
+**Workaround:** none; step 13 waits.
+
+**2026-11-20, later.** EntropyEOS 2.3.0 was released: the tag `v2.3.0` is 542c32c, the merge
+of PR 15, whose tree is the head 1e324e4 checked above. Step 13 pinned it the same day:
+`[sources]` the tag `v2.3.0` and `[compat]` `"2.3"`, in the package and in `coupled/`; the
+EOS-4 probe was retired and its names joined `test/prerequisite_tests.jl`'s list.
 
 ### SpacetimeMetrics
 
@@ -6073,3 +6259,16 @@ and its testset: **26746 tests, every run passing whole** (Symmetry job
 with `--check-bounds=yes`, side by side, the job 31m34s. Zen 3 takes a
 quarter less than step 14's first run on Zen 2. Alone, the device tests ran
 154 of 154 on the M3 Pro.
+
+**2026-11-20, step 13.** The tabulated star (`test/tabulated_tov_tests.jl`,
+five testsets on DD2, gated on `ENTROPYEOS_TABLE_DIR` by `test/tables.jl`)
+and the `Yₑ` advection (`test/ye_advection_tests.jl`, two `@serial_tier`
+testsets): **26785 tests, every run passing whole** with the tables
+(Symmetry job 607067 on cn091, EPYC 7532, `amddebugq`;
+`ci/full-suite-cluster.sh`, study `full-suite-13a91ed69f4b`) — 39m46s at
+one thread, 26m35s at four, 48m22s with `--check-bounds=yes`, side by side:
+the bounds-checked run on Zen 2 now takes four fifths of `amddebugq`'s
+hour. Without the variable (the clean checkout on the M3 Pro, 1.13, four
+threads) the five gated testsets are each one broken test and named at the
+end: 26772 passing, 5 broken, in 18m04s. A step on the table costs about
+2.7 times the polytrope's per cell (the M3 Pro, four threads).

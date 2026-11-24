@@ -88,6 +88,12 @@ include("tiers.jl")
     # Step 12: the magnetized TOV star on the Cowling metric — the exterior dipole and its
     # continuation, ∇·B, `E·B`, the drift and the stage solve's outcome map.
     include("magnetized_tov_tests.jl")
+    # Step 13: the advection of `Yₑ`, and the TOV star on a tabulated EOS (DD2) in cold
+    # β-equilibrium; the latter reads a real table, so its testsets run only where
+    # `ENTROPYEOS_TABLE_DIR` holds one (`tables.jl`).
+    include("ye_advection_tests.jl")
+    include("tables.jl")
+    include("tabulated_tov_tests.jl")
     # Step 14: the run bit for bit at another thread count (a subprocess), and on a device,
     # or on the CPU standing in for one (`TREEGRRMHD_TEST_BACKEND`; the file also runs by
     # itself, which is how a device job runs it).
@@ -95,6 +101,9 @@ include("tiers.jl")
     include("device_tests.jl")
 end
 
+isempty(TABLE_SKIPPED) ||
+    @info "without DD2 under ENTROPYEOS_TABLE_DIR, $(length(TABLE_SKIPPED)) testsets were " *
+          "left out:\n  " * join(first.(TABLE_SKIPPED), "\n  ")
 isempty(TIER_SKIPPED) ||
     @info "the $TEST_TIER tier left out $(length(TIER_SKIPPED)) testsets " *
           "(TREEGRRMHD_TEST_TIER=full runs them):\n  " *

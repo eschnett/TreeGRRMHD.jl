@@ -43,7 +43,7 @@ The steps follow `CODE.md`'s validation ladder (rungs 1–7):
   - [EOS-1 — An abstract EOS interface (req, step 5)](#eos-1--an-abstract-eos-interface-req-step-5)
   - [EOS-2 — Analytic Γ-law and hybrid EOSes (req, step 5)](#eos-2--analytic-γ-law-and-hybrid-eoses-req-step-5)
   - [EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted, step 12)](#eos-3--public-fixed-entropy-inversion-and-entropy-from-energy-wanted-step-12)
-  - [EOS-4 — Cold β-equilibrium slice (later, step 13)](#eos-4--cold-β-equilibrium-slice-later-step-13)
+  - [EOS-4 — Cold β-equilibrium slice (landed in EntropyEOS 2.3.0)](#eos-4--cold-β-equilibrium-slice-landed-in-entropyeos-230)
   - [EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range](#eos-5--withdrawn-2026-10-17-notes-on-two-repairs-at-the-edge-of-the-valid-range)
   - [EOS-6 — A density raised to the atmosphere's gets the atmosphere's velocity (superseded)](#eos-6--a-density-raised-to-the-atmospheres-gets-the-atmospheres-velocity-superseded)
   - [EOS-7 — The atmosphere's entropy in the atmosphere band (not pursued)](#eos-7--the-atmospheres-entropy-in-the-atmosphere-band-not-pursued)
@@ -224,7 +224,7 @@ landing in EntropyEOS 2.2.1 (2026-10-30) and GH-1's as `ADMMetric` (2026-11-08).
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
-| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice | waiting |
+| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice keyed by pressure | landed in EntropyEOS 2.3.0 |
 | EOS-5 | EntropyEOS | — | — | was: no policy repair creates rest mass; notes kept for Erik | withdrawn |
 | EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity | superseded by EOS-8 and the wrapper |
 | EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band | not pursued |
@@ -378,15 +378,12 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 - A round trip at fixed s on random states.
 - Pinning and non-convergence are reported, never silent.
 
-### EOS-4 — Cold β-equilibrium slice (later, step 13)
+### EOS-4 — Cold β-equilibrium slice (landed in EntropyEOS 2.3.0)
 
-```julia
-beta_equilibrium(eos::EOSTableView, ρ★; T_MeV) -> (yₑ, s, converged::Bool)
-cold_slice(eos, ρ★s::AbstractVector; T_MeV) -> (yₑ, s, p, U)
-```
-- `beta_equilibrium` solves `μ̃(ρ★, s(T), yₑ) = 0` on `yₑ_bounds` by bracketed secant with a
-  bisection fallback (`μ̃`'s `yₑ` derivative is unavailable).
-- `s(T)` comes from `sigma_extended`.
+Landed in EntropyEOS 2.3.0 (542c32c, its PR 15; 2026-11-20) as `cold_beta_slice` and
+`beta_equilibrium`, keyed by pressure; `[sources]` pins `v2.3.0`, `[compat]` `"2.3"`, and the
+probe is retired. The request and its record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos);
+its use: [`CODE.md`, "Thermodynamics"](CODE.md#thermodynamics), "The cold barotrope".
 
 ### EOS-5 — Withdrawn (2026-10-17): notes on two repairs at the edge of the valid range
 
@@ -694,17 +691,16 @@ ladder"](HISTORY.md#validation-ladder).
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
-`CODE.md`: "Thermodynamics". Waits: **EOS-4**.
-
-Changes:
-- A TOV star on a real table (SFHo or DD2), with tests gated by `ENTROPYEOS_TABLE_DIR`.
-- β-equilibrium initial data.
-- `Yₑ` advection.
-
-Accept:
-- Stationarity as in steps 10 and 11.
-- The `D Yₑ` integral conserved to round-off.
-- Gated tests skip cleanly when the variable is unset.
+*Done* (accepted by Erik 2026-11-24). The coupled study is measured at `L = 24`,
+where TreeGH's outer boundary grows the star's oscillation and takes the constraints below 1.8
+after 260 M, and at `L = 96`, where the oscillation is damped and the finer pair converges at
+1.8 or better to 1000 M except outside around 100 M (2026-11-24). `D Yₑ` over 1000 M on the
+Cowling metric is open.
+Results in `CODE.md`, "Thermodynamics" ("The cold barotrope", "The tabulated star's surface and
+atmosphere"), "Validation ladder" 7 and "Open questions". The step's changes, acceptance list
+and measured outcomes are in [HISTORY.md, "The steps of the
+plan"](HISTORY.md#the-steps-of-the-plan), the suite in [HISTORY.md, "The test
+suite"](HISTORY.md#the-test-suite).
 
 ## Step 14 — Precision, threads, devices, benchmark
 

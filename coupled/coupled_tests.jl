@@ -57,8 +57,8 @@ end
 # The Cowling run on `metric`, step 10's callbacks, `nsteps` steps to `t_end`, from the
 # matter segment of a fresh bundle; and the coupled run with TreeGH's right-hand side
 # replaced by zero (the frozen metric), the script's callbacks otherwise.
-function ct_cowling(N, t_end, nsteps)
-    (; p, u, star) = ct_problems(N)
+function ct_cowling(N, t_end, nsteps; mk=ct_problems)
+    (; p, u, star) = mk(N)
     um = copy(view(u, p.s[2]))
     metric = MHD.vertex_metric!(p.vm, MHD.SampledADM(star.provider.metric, p.vm, 0.0), 0.0)
     pc = (; p.mhd, metric)
@@ -74,8 +74,8 @@ function ct_frozen_f_exp!(du, u, p, t)
     fill!(view(du, p.s[1]), zero(eltype(du)))
     return nothing
 end
-function ct_frozen(N, t_end, nsteps)
-    (; p, u) = ct_problems(N)
+function ct_frozen(N, t_end, nsteps; mk=ct_problems)
+    (; p, u) = mk(N)
     integ = IRK.init(IRK.IMEXProblem(ct_frozen_f_exp!, solve_imp!, u, (0.0, t_end), p),
                      IRK.IMEXSSP3433(); dt=t_end / nsteps, stage_limiter=stage_limit!,
                      step_limiter=step_limit!, partition=:even, alias_u0=true)
@@ -136,8 +136,8 @@ end
 
 # The matter-corrected ADM constraints of the initial state, inside the star away from its
 # surface and outside it, with this package's matter at the transfer `order` or none.
-function ct_constraints(N; matter::Bool, order::Integer)
-    (; p, u, star) = ct_problems(N; order)
+function ct_constraints(N; matter::Bool, order::Integer, mk=ct_problems)
+    (; p, u, star) = mk(N; order)
     MHD.prepare!(p.mhd, view(u, p.s[2]), 0.0; metric=star.provider)
     m = matter ? Main.matter(p) : nothing
     c(lo, hi) = gh_constraint_norms(p.gh, view(u, p.s[1]), 0.0; matter=m,

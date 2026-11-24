@@ -76,30 +76,46 @@ end
 @inline polytrope_enthalpy(eq::Polytrope, ρ) =
     1 + eq.Γ / (eq.Γ - 1) * eq.K * ρ^(eq.Γ - 1)
 
-# The right-hand side `d(q, μ, λ)/dη` of the enthalpy form (top of the file).
-@inline function tov_rhs(eq::Polytrope{T}, η::T, q::T, μ::T, λ::T) where {T}
+"""
+    barotrope_state(eq, η) -> (; p, e, de_dη)
+
+The pressure, the total energy density and `de/dη` of a cold barotrope at
+`η = ∫ dp/(e + p)`, zero at the surface: what the solve reads. For the
+polytrope `η = log h` and `de/dη = h² dρ/dh`; for a table it is a
+[`ColdBarotrope`](@ref) (`src/tov_table.jl`).
+"""
+@inline function barotrope_state(eq::Polytrope, η)
     h = exp(η)
     st = polytrope_state(eq, h)
+    return (; st.p, st.e, de_dη=h^2 * st.dρ_dh)
+end
+
+# The right-hand side `d(q, μ, λ)/dη` of the enthalpy form (top of the file);
+# at the centre `dμ/dη = (4π/5) de/dη`.
+@inline function tov_rhs(eq, η::T, q::T, μ::T, λ::T) where {T}
+    st = barotrope_state(eq, η)
+    p, e, de_dη = T(st.p), T(st.e), T(st.de_dη)
     s² = 1 - 2 * μ * q
     s = sqrt(s²)
-    dq = -2 * s² / (μ + 4 * T(π) * st.p)
-    dμ = q == 0 ? 4 * T(π) / 5 * (h^2 * st.dρ_dh) :
-         dq * (4 * T(π) * st.e - 3 * μ) / (2 * q)
+    dq = -2 * s² / (μ + 4 * T(π) * p)
+    dμ = q == 0 ? 4 * T(π) / 5 * de_dη :
+         dq * (4 * T(π) * e - 3 * μ) / (2 * q)
     dλ = dq * μ / (s * (1 + s))
     return SVector(dq, dμ, dλ)
 end
 
 """
-    TOVSolution{T}
+    TOVSolution{T,E}
 
-The star solved on the host ([`tov_solve`](@ref)): the polytrope, the
+The star solved on the host ([`tov_solve`](@ref)): the barotrope `eq` (a
+[`Polytrope`](@ref) or a [`ColdBarotrope`](@ref)), the
 gravitational mass `M`, the areal radius `R`, the isotropic radius `R̄`, the
 surface lapse `α_s = √(1 − 2M/R)`, and the RK4 nodes in `η` (`η[1] = η_c`,
 `η[end] = 0`) with `q = r²`, `μ = m/r³`, `λ = log(r̄/r)` (already matched to
 the exterior) and their `η`-derivatives.
 """
-struct TOVSolution{T}
-    eq::Polytrope{T}
+struct TOVSolution{T,E}
+    eq::E
     ρ_c::T
     M::T
     R::T
@@ -125,6 +141,13 @@ function tov_solve(::Type{T}=Float64; K, Γ, ρ_c, steps::Integer=4000) where {T
     eq = Polytrope{T}(T(K), T(Γ))
     η_c = log(polytrope_enthalpy(eq, T(ρ_c)))
     e_c = polytrope_state(eq, exp(η_c)).e
+    return tov_integrate(eq, T(ρ_c), η_c, e_c, steps)
+end
+
+# Classical RK4 in `η` from the centre, `η_c` with total energy density
+# `e_c`, to the surface `η = 0`, and the exterior's matching (top of the
+# file); shared by every barotrope.
+function tov_integrate(eq, ρ_c::T, η_c::T, e_c::T, steps::Integer) where {T}
     η = Vector{T}(undef, steps + 1)
     y = Vector{SVector{3,T}}(undef, steps + 1)
     dy = Vector{SVector{3,T}}(undef, steps + 1)
@@ -151,7 +174,7 @@ function tov_solve(::Type{T}=Float64; K, Γ, ρ_c, steps::Integer=4000) where {T
     for i in eachindex(y)
         y[i] = SVector(y[i][1], y[i][2], y[i][3] + C)
     end
-    return TOVSolution{T}(eq, T(ρ_c), M, R, R̄, sqrt(1 - 2 * M / R), η, y, dy)
+    return TOVSolution{T,typeof(eq)}(eq, ρ_c, M, R, R̄, sqrt(1 - 2 * M / R), η, y, dy)
 end
 
 # Cubic Hermite interpolation on `[0, 1]` in the local coordinate `t`, of the
@@ -210,7 +233,7 @@ function tov_eta(sol::TOVSolution{T}, u::T) where {T}
 end
 
 """
-    TOVMetric{T,NK} <: SpacetimeMetrics.AbstractMetric
+    TOVMetric{T,NK,E} <: SpacetimeMetrics.AbstractMetric
 
 The static metric of a TOV star in isotropic coordinates, `ds² = −α² dt² +
 ψ⁴ δ_ij dxⁱ dxʲ` centred at the origin: `ψ` and `α` tabulated in `u = r̄²`
@@ -219,10 +242,12 @@ by cubic Hermite inside the surface, the isotropic Schwarzschild exterior
 outside (the top of `src/tov.jl`). `isbits` and generic over dual numbers, so
 an `Analytic` provider and SpacetimeMetrics' `dmetric` take it as they take
 `KerrSchild`. Built by [`TOVMetric(sol)`](@ref TOVMetric(::TOVSolution)); see
-"Gauge for the TOV milestones" in `CODE.md`.
+"Gauge for the TOV milestones" in `CODE.md`. `eq` is the polytrope, from which
+[`tov_density`](@ref) recovers the density, or `nothing` for a tabulated star,
+whose composition is kept apart from the metric ([`TOVComposition`](@ref)).
 """
-struct TOVMetric{T,NK} <: SpacetimeMetrics.AbstractMetric
-    eq::Polytrope{T}
+struct TOVMetric{T,NK,E} <: SpacetimeMetrics.AbstractMetric
+    eq::E
     M::T
     R̄::T
     α_s::T
@@ -258,8 +283,9 @@ function TOVMetric(sol::TOVSolution{T}; NK::Integer=129) where {T}
         α[k] = sol.α_s * exp(-η)
         dα[k] = -α[k] / du
     end
-    return TOVMetric{T,NK}(sol.eq, sol.M, sol.R̄, sol.α_s, Δu, SVector{NK}(ψ), SVector{NK}(dψ),
-                           SVector{NK}(α), SVector{NK}(dα))
+    eq = metric_eq(sol.eq)
+    return TOVMetric{T,NK,typeof(eq)}(eq, sol.M, sol.R̄, sol.α_s, Δu, SVector{NK}(ψ),
+                                      SVector{NK}(dψ), SVector{NK}(α), SVector{NK}(dα))
 end
 
 """
@@ -267,6 +293,9 @@ end
 
 The conformal factor and the lapse at `u = r̄²`, generic over dual numbers.
 """
+# What the metric keeps of the barotrope: the polytrope itself, nothing of a table.
+metric_eq(eq::Polytrope) = eq
+
 @inline function tov_potentials(m::TOVMetric{T,NK}, u) where {T,NK}
     if u < m.R̄^2
         ξ = u / m.Δu
@@ -298,7 +327,7 @@ The star's rest-mass density at `u = r̄²`: the polytrope's `ρ(h)` at the
 enthalpy `h = α_s/α` of hydrostatic equilibrium (`h α` constant), zero
 outside the surface.
 """
-@inline function tov_density(m::TOVMetric, u)
+@inline function tov_density(m::TOVMetric{T,NK,<:Polytrope}, u) where {T,NK}
     u < m.R̄^2 || return zero(u)
     _, α = tov_potentials(m, u)
     return polytrope_state(m.eq, m.α_s / α).ρ

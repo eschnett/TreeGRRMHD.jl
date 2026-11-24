@@ -24,14 +24,14 @@ TreeGeneralizedHarmonic = "ec251ae6-5b3e-4df5-a9c7-7e3f01cdd68c"
 # `[sources]` are not read here. Never a sibling checkout.
 [sources]
 ApparentHorizonFinder = {rev = "main", url = "https://github.com/eschnett/ApparentHorizonFinder.jl"}
-EntropyEOS = {url = "https://github.com/eschnett/EntropyEOS.jl", rev = "v2.2.1"}
+EntropyEOS = {url = "https://github.com/eschnett/EntropyEOS.jl", rev = "v2.3.0"}
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 TreeGRRMHD = {path = ".."}
 TreeGeneralizedHarmonic = {rev = "main", url = "https://github.com/eschnett/TreeGeneralizedHarmonic.jl"}
 
 [compat]
 ApparentHorizonFinder = "2.1"
-EntropyEOS = "2.2.1"
+EntropyEOS = "2.3"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
 SpacetimeMetrics = "1.7"

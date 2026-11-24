@@ -24,26 +24,37 @@ within 1%, and H1 within 1.5% from `h = 0.6`; H1 and H2, excited along
 their eigenfunctions, within 1% of Font et al. at `h = 0.25`; the
 constraints converge at 1.8 or better to 1000 M, inside and outside the
 star, but for `ℋ` outside at 1.76 over one 20 M window; the rest mass
-changes by 1.3e−12 of 1.506 over 1000 M at `h = 0.375` net of the reset,
-at a rate of about 3, entering with the atmosphere (`ρ_min = 1e−12`) at
-the outer faces. Two of its upstream items are open, GH-2 (registration)
-and GH-7 (TreeGH's regrid verbs), each with a workaround in `coupled/`
+changes by 1.3e−12 of 1.506 over 1000 M at `h = 0.375` net of the reset, at
+a rate of about 3, entering with the atmosphere (`ρ_min = 1e−12`) at the
+outer faces. Two of its upstream items are open, GH-2 (registration) and
+GH-7 (TreeGH's regrid verbs), each with a workaround in `coupled/`
 ([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12 is the
 magnetized star, in the evolved spacetime and, as a cheaper check, on the
 Cowling metric ("Validation ladder" 6): `∇·B` at round-off; coupled, the
 exterior dipole's drift converging at 1.4–2.6 to 50 M (`h = 0.5 … 0.25`)
-once σ is zero below `ρ = 10⁻⁶`, a density of the star's and not a
-multiple of `ρ_min`; `E·B` inside converging at 1.7–2.3; the constraints
-at 1.7 or better; the stage solve by fixed point everywhere inside the
-star. Its entropy fallback waits for EOS-3, so whether `D s` earns its
-keep stays open ("Open questions"). The literature's confined-field star,
-coupled, loses its central field to the scheme at 2.9–4.2 in `h` and at
-σ₀ = 100 falls by two decades in 9.6 ms, as GRaM-X's and Dionysopoulou et
-al.'s do, within 0.4% of the Cowling star's; at σ₀ = 10⁶ its central
-field shows no late rise to 9.85 ms, and its central density gives F and
-H1 within 0.6% of linear theory. Step 13 waits for EOS-4. The numbers
-below about the scheme are measured where they say so and unmeasured
-otherwise.*
+once σ is zero below `ρ = 10⁻⁶`, a density of the star's and not a multiple
+of `ρ_min`; `E·B` inside converging at 1.7–2.3; the constraints at 1.7 or
+better; the stage solve by fixed point everywhere inside the star. Its
+entropy fallback waits for EOS-3, so whether `D s` earns its keep stays
+open ("Open questions"). The literature's confined-field star, coupled,
+loses its central field to the scheme at 2.9–4.2 in `h` and at σ₀ = 100
+falls by two decades in 9.6 ms, as GRaM-X's and Dionysopoulou et al.'s do,
+within 0.4% of the Cowling star's; at σ₀ = 10⁶ its central field shows no
+late rise to 9.85 ms, and its central density gives F and H1 within 0.6% of
+linear theory. Step 13 is the star on a real table (DD2, SFHo) in cold
+β-equilibrium, its `Yₑ` advected ("Validation ladder" 7), on EntropyEOS
+2.3.0's slice (EOS-4): on the Cowling metric the drift averaged over
+160–200 M converges at 1.5–2.6 and the rest mass and `D Yₑ` hold to
+round-off over 200 M once the mesh keeps the matter the coarsest star sheds
+off the outer faces. In the evolved spacetime, on rung 5's box
+(`L = 24`), the constraints converge at 1.8 or better to 260 M, and then
+the star's oscillation grows, fed by TreeGH's Dirichlet outer boundary,
+and they fall to 1.4–1.7. On a box four times as wide (`L = 96`) the
+oscillation is damped and the constraints converge on the finer pair at
+1.8–3.0 to 1000 M, except outside the star around 100 M (1.0–1.4).
+Over 1000 M on the Cowling metric `D Yₑ`
+moves by 10⁻¹³ where the rest mass does not (open). The numbers below
+about the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
 confirmed; **(open)** is deferred to a measurement or to a later review and
@@ -187,15 +198,9 @@ item needs it.
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
 - EntropyEOS, not registered (EOS-0 waiting), through `[sources]`, which
-  pins the tag `v2.2.1` (EOS-10), with `[compat]` `"2.2"`: **EOS-1 and
-  EOS-2 have landed in EntropyEOS 1.0.0**, and EOS-8 to EOS-11 have landed
-  since (below); EOS-3 and EOS-4 have not.
-
-  **Inconsistent:** `[compat]` `"2.2"` here (the last value this document
-  states, with the tag `v2.2.0`; [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos))
-  against `CLAUDE.md`'s former "Current state" (now [HISTORY.md,
-  "EntropyEOS"](HISTORY.md#entropyeos), 2026-10-30), which said `[sources]`
-  pins the tag `v2.2.1` with `[compat]` `"2.2.1"` since 2026-10-30.
+  pins the tag `v2.3.0`, with `[compat]` `"2.3"`: **EOS-1 and EOS-2 have
+  landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since, and **EOS-4 in
+  2.3.0** (below); EOS-3 has not.
 - IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
   are done there, and it is a dependency from step 0.
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -460,8 +465,15 @@ TreeGRRMHD"; the request and its record:
   fixed `s`, solve for `w`" step that `con2prim` already contains — for the
   entropy fallback, and a public entropy-from-energy solve for initial
   data.
-- **EOS-4 (later, step 13)** A cold β-equilibrium slice `Yₑ,β(ρ)` and
-  `s_cold(ρ)` for tabulated-EOS stars.
+- **EOS-4 (landed, EntropyEOS 2.3.0)** The cold, neutrinoless
+  β-equilibrium slice of a table, keyed by pressure, for tabulated-EOS
+  stars (`cold_beta_slice`, `beta_equilibrium`;
+  [Thermodynamics](#thermodynamics), "The cold barotrope"): at each
+  pressure the composition of least Gibbs free energy, with any phase
+  transition a density jump at constant pressure, so that `ρ★` never
+  decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
+  and how `μ_ν` follows from a table's chemical potentials, is the EOS's
+  knowledge; the fitted `μ̃` is off by MeV on the cold edge.
 - **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
   1.1.0), and the endpoint branches made edge-consistent, the hottest state
   projected onto the entropy ceiling (2.0.0, as the two-level projection).
@@ -827,8 +839,10 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   from `P` within one evaluation, still take their cell's EOS warm start.
   The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
   cell on the Alfvén wave (measured below). A table's `log₁₀ T`
-  is the warm start this loses; if step 13 finds it matters, the state can
-  carry it the way it carries `D s`. The right-hand side is pure in
+  is the warm start this loses; whether it matters is **(open)**: on the
+  tabulated star a cell-step costs about 2.7 times the polytrope's (laptop,
+  four threads, `h = 1`; not split into the recovery's part). If it does,
+  the state can carry it the way it carries `D s`. The right-hand side is pure in
   `(u, t)` **outside a step**;
   **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
   every recovery is seeded from the cell's latest recovery in that step,
@@ -844,6 +858,40 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A polytrope is a Γ-law at fixed entropy**, not a barotropic EOS:
   EntropyEOS's `(s, w)` Newton needs `U_s ≠ 0`. The TOV star's
   `p = Kρ^Γ` is the Γ-law evaluated at the `s` with `K(s) = K`.
+- **The cold barotrope**. A table's star is in
+  cold, neutrinoless β-equilibrium: EntropyEOS's slice (EOS-4,
+  `cold_beta_slice`) gives at each pressure the composition of least Gibbs
+  free energy on the table's coldest row, `s` on the window's minimum.
+  `cold_barotrope` (`src/tov_table.jl`) samples it at 8001 pressures uniform
+  in `log p`, converts with `GeometricEOS`'s density unit (`e = ρ★h − p`),
+  and integrates `η = ∫ dp/(e + p)` by Simpson's rule from the surface; the
+  TOV solve of `src/tov.jl` runs in this `η`, of which the polytrope's
+  `log h` is the special case. Along the slice `Yₑ` and `s` change, so
+  `log h` is not the integral (they differ by 1.8·10⁻⁴ between 10⁸ and
+  10¹⁵ g/cm³ on DD2, 1.9·10⁻⁴ on SFHo), and only the integral makes the
+  evolved fluid static (`dp = −(e + p) d log α`). Between the knots the
+  state is cubic Hermite in `η` with `d log p/dη = (e + p)/p` exact
+  (measured against central differences: 1.7·10⁻⁶). The slice's `Yₑ` has
+  kinks at the table's density nodes, so the solve converges at fourth
+  order only to about 10⁻⁹, ample at its default 4000 steps (4.5·10⁻⁹ in
+  `M` against 16000). A slice with a phase transition is refused (none on
+  DD2 or SFHo; [Known risks](#known-risks)). The units hold: DD2's 1.4 M☉
+  star has `R = 13.225` km, SFHo's 11.896 km, with the crust to
+  6.2·10³ g/cm³ (the literature's 13.2–13.3 and 11.9 km).
+- **The tabulated star's surface and atmosphere**. The barotrope's surface, `η = 0`, is at the atmosphere's density
+  `ρ_min`, and the atmosphere is the slice's own state there: cold
+  (`PolicyOptions`' `s_atm = NaN`, the window's minimum) with the replaced
+  state's `Yₑ`. The matter below `ρ_min`, which the reset would replace,
+  is left out; with the surface lower (10⁻¹⁴, 6.2·10³ g/cm³) the
+  composition table below cannot follow `ρ★`'s fall by four decades within
+  its last knot (errors of 600 times at 6·10⁷ g/cm³), and with it at
+  `ρ_min` the error is 3% pointwise at worst. The star's matter reaches a
+  kernel as a `TOVComposition`, `log ρ★`, `s` and `Yₑ` at 129 knots
+  uniform in `r̄²`, kept apart from the metric so that the metric's kernel
+  arguments do not grow ([Sharp edges](#sharp-edges)): 2.3·10⁻⁵ in L1 in
+  `ρ★` (1.8·10⁻⁴ in `Yₑ`, 7.8·10⁻⁴ in `s`), falling at second order in the
+  knots; the pointwise 3% is where the slice's `Yₑ` changes steeply in the
+  crust, which no smooth table follows.
 
 ## Primitive recovery
 
@@ -4200,6 +4248,16 @@ it names has the reasons.
 - **A script picks the integrator's partition from the state**:
   `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
   `:even` on a device array is refused ("Precision and devices").
+- **A tabulated star's matter is not in its metric.** `TOVMetric` keeps
+  the polytrope (`eq`), from which `tov_density` recovers the density, or
+  `nothing` for a table; a tabulated star's `ρ★`, `s` and `Yₑ` are its
+  `TOVComposition`, in `TabulatedTOVStar`, beside the metric
+  ([Thermodynamics](#thermodynamics), "The tabulated star's surface and
+  atmosphere"). `tov_density` has no method for a table's metric.
+- **A table's barotrope ends at `ρ_min`.** `tabulated_tov_case` puts the
+  surface `η = 0` at the atmosphere's density, so `R̄` and `M` depend on
+  `ρ_min`, slightly (DD2's 1.4 M☉ star: 13.194 km at 10⁻¹⁰ against 13.225
+  km at 10⁻¹⁴); the literature's radius is the lower surface's.
 
 ## Tests
 
@@ -4242,6 +4300,17 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   the studies' `10⁴ ρ_min` bit for bit; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
+- `test/ye_advection_tests.jl` (step 13): a smooth `Yₑ` profile carried
+  by a uniform flow at the scheme's order, and a step within its two
+  values, `D Yₑ` to rounding; 1D, so `@serial_tier`.
+- `test/tabulated_tov_tests.jl` (step 13): the cold barotrope against
+  DD2's slice, the solve's convergence and the 1.4 M☉ radius, the
+  composition table, the initial data's validity, and the star at `h = 1`
+  to 4 M (the drift, rest mass and `D Yₑ` net of the reset, the entropy
+  floors). Every testset reads DD2 and is gated by `test/tables.jl`
+  (`@dd2_gated`): where `ENTROPYEOS_TABLE_DIR` does not hold the table, as
+  on GitHub, it is one skipped test, named at the end of the run. Symmetry's
+  suite sets the variable (`jobs/full-suite.toml`).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -4264,6 +4333,10 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   key, bit for bit; the regrid branch; the magnetized star through
   `problems(; case)`: its field's energy `½B²` in the matter TreeGH reads,
   and a run to `t = 1` (∇·B, the rest mass, the stage solve inside).
+- `coupled/tabulated_tests.jl` (step 13; gated on DD2 as above): the
+  tabulated star on TreeGH's frozen metric against its Cowling run, its
+  `ℋ − 16πρ` with either transfer, and `main` to `t = 1` (rest mass and
+  `D Yₑ` net of the reset).
 
 **Inconsistent:** the helper dependencies listed above
 (`recovery_tests.jl`'s state generators, `wave_tests.jl`'s and
@@ -4334,13 +4407,19 @@ bit-identically to the host; "Precision and devices"):
 - `src/interior.jl`: `HoleInterior(r_in; stage, step)`, an `MHDCase`'s
   `interior`, and the diagnostics `outside_l1`, `field_l1`,
   `charge_norms` ("The interior");
-- `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form,
-  `TOVMetric` ("Gauge for the TOV milestones").
+- `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form, generic
+  over the barotrope (`barotrope_state`), `TOVMetric` ("Gauge for the TOV
+  milestones").
+- `src/tov_table.jl` (step 13): `cold_barotrope`, a table's cold
+  β-equilibrium slice as the solve's barotrope, `tov_solve(T, b; ρ_c)`,
+  and `TOVComposition`, the star's matter at knots in `r̄²`
+  ("Thermodynamics", "The cold barotrope").
 - `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
   theory, coupled and Cowling, `tov_radial_modes`, and the velocity that
   starts them, `tov_mode_velocity` ("Validation ladder" 5).
 - `reset_step!`, the reset as the step limiter, counted with the step
-  limiter's injection (`ohm_tally`); `max_div_B` and `evolve!`'s
+  limiter's injection into `D`, `τ` and `D Yₑ`, and its entropy floors
+  outside the atmosphere (`ohm_tally`; the last two added in step 13); `max_div_B` and `evolve!`'s
   `after_step` monitor.
 - The public verbs, which a script that owns the loop calls ("The coupling
   contract", "Two scripts"): `prepare!`, `rhs!`, `stage_solve!`,
@@ -4368,7 +4447,11 @@ bit-identically to the host; "Precision and devices"):
   dipole of Schwarzschild in isotropic coordinates), `StellarDipole` and
   `stellar_dipole` (its quadratic continuation inside the star),
   `ConfinedField` and `confined_field` (Duez et al.'s interior-only field),
-  `magnetized_tov_case` ("Validation ladder" 6).
+  `magnetized_tov_case` ("Validation ladder" 6);
+- `src/cases/tabulated_tov.jl` (step 13): `tabulated_tov_case`, the star
+  on a table's cold barotrope, `TabulatedTOVStar` ("Validation ladder" 7);
+- `src/cases/ye_advection.jl` (step 13): `ye_advection_case`, a `Yₑ`
+  profile on a uniform flow.
 
 **The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
 step): `cell_profile`, `field_diagnostics`, `field_drift`, `ohm_map`
@@ -4396,7 +4479,10 @@ document's tables:
   (a test runs its `main` against `evolve!`, bit for bit; "Two scripts");
   `bin/tov_study.jl` (checkpointed, for `amdpreq`; `metric=analytic|vertex`),
   `bin/tov_compare.jl`, `bin/tov_drift.jl` and `bin/tov_modes.jl`: the
-  rung-4 record ("Validation ladder" 4);
+  rung-4 record ("Validation ladder" 4); `bin/tov_study.jl table=dd2|sfho`
+  the rung-7 record, its tables read by `bin/tables.jl` from
+  `ENTROPYEOS_TABLE_DIR`, with `diag=` where the matter outside the star
+  is ("Validation ladder" 7);
 - `bin/magnetized_tov_study.jl`: the magnetized star's time series and
   outcome map per chunk ("Validation ladder" 6);
 - `bin/recovery_cost.jl`: `steptime` times the fused and the two-phase
@@ -4420,7 +4506,9 @@ contract"):
   adapter's cost ("Two scripts", "Matter to the vertices");
 - `coupled/magnetized_tov_study.jl`: the magnetized star in the evolved
   spacetime, `bin/magnetized_tov_study.jl`'s measurements and TreeGH's
-  constraints per chunk (`problems(; case)`; "Validation ladder" 6).
+  constraints per chunk (`problems(; case)`; "Validation ladder" 6);
+  `coupled/tov_coupled_study.jl table=dd2` and `coupled/tov_coupled.jl
+  table=dd2`, the tabulated star ("Validation ladder" 7).
 
 `ci/full-suite.sh` (the workstation) and `ci/full-suite-cluster.sh` (a
 cluster, through SimLaunch) run the full suite as a commit status, and
@@ -4432,7 +4520,13 @@ thread, at four and with bounds checks, side by side on one node;
 `tov-cowling-device.toml`, the Cowling star on an H200 at both types and on the node's
 CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
 over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
-arithmetic's three partitions there ("Precision and devices").
+arithmetic's three partitions there ("Precision and devices");
+`tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml`, `-coupled-mid.toml` and
+`-coupled-fine.toml`, the tabulated star's studies, each run a job of its own, with
+`tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the same coupled
+star at other constraint damping and on wider boxes, and `tabulated-tov-coupled-wide.toml`,
+`-wide-mid.toml` and `-wide-fine.toml`, the coupled study at `L = 96` ("Validation
+ladder" 7).
 
 ## Validation ladder
 
@@ -5956,8 +6050,263 @@ named as claims.
      37% of its stages at `h = 0.375` (the last chunk), beyond it 1.4% —
      as the dipole star did at `ρ_cut = ρ_min`, and harmless here, where
      the field there is zero.
-7. **TOV with a tabulated EOS and `Yₑ`** (needs EOS-4 for the initial
-   data).
+7. **TOV with a tabulated EOS and `Yₑ`**: a star on a real table in cold
+   β-equilibrium (EOS-4), static in the Cowling approximation and in
+   TreeGH's spacetime as rungs 4 and 5 are, with `Yₑ` varying through it and
+   `D Yₑ` conserved.
+
+   *As built in step 13* ("Thermodynamics": "The cold barotrope", "The
+   tabulated star's surface and atmosphere"). The stars are their tables'
+   1.4 M☉ ones: DD2 at `ρ_c = 9.4·10⁻⁴` (5.8·10¹⁴ g/cm³; `M = 1.404`,
+   `R̄ = 7.47`) and SFHo at `ρ_c = 1.37·10⁻³`; the atmosphere at `10⁻¹⁰`
+   on the Cowling metric and `10⁻¹²` in the evolved spacetime, as for the
+   polytrope.
+   - **`Yₑ` advection** (`test/ye_advection_tests.jl`, the ideal gas, one
+     period on 32, 64, 128 cells): a smooth profile at 1.69, 1.86 under MC
+     (clipped at its extrema) and 2.05, 2.23 under PPM; a step stays
+     within its two values to 4·10⁻¹³; `D Yₑ` to 6·10⁻¹⁷ of 0.35.
+   - **The suite's star** (`test/tabulated_tov_tests.jl`, DD2 on
+     `[−16, 16]³`, `h = 1`, MC, to 4 M): every cell of the initial data in
+     the star recovers with no policy flag; `ρ_c` drifts −0.82% (the
+     polytrope −3.3% on the same mesh); the rest mass and `D Yₑ` change
+     by exactly what the reset injects, to 6.6·10⁻¹⁶ and 2.0·10⁻¹⁷; the
+     entropy floor fires on no cell outside the atmosphere.
+   - **In TreeGH's spacetime** (`coupled/tabulated_tests.jl`, `N = 10, 20`
+     on the same box): the frozen metric reproduces the Cowling run to
+     1.2·10⁻¹³; `ℋ − 16πρ` at `t = 0` inside `r < 6` converges at 1.83
+     with the mean and 3.78 with the fourth-order transfer (3.44·10⁻²
+     without the matter); to `t = 1` the rest mass and `D Yₑ` change by
+     the reset's injection to 1.2·10⁻¹⁵ and 2.9·10⁻¹⁵.
+   - **The Cowling studies** (`jobs/tabulated-tov-cowling.toml`,
+     `bin/tov_study.jl table=…`; Symmetry, `amdq`, jobs 607056–607061):
+     DD2 and SFHo on rung 4's mesh (`[−24, 24]³`, four roots, one box
+     level) at `h = 0.75, 0.5, 0.375`, MC, `ρ_min = 10⁻¹⁰`, to 200 M. The
+     drift `ρ_c/ρ_c(0) − 1` against the same mesh's initial cell average
+     (`ρ_c(0)` 9.3029, 9.3566, 9.3756·10⁻⁴ for DD2; 1.34651, 1.35947,
+     1.36406·10⁻³ for SFHo):
+
+     | | `h = 0.75` | `0.5` | `0.375` | orders |
+     |---|---|---|---|---|
+     | DD2 drift at 200 M | −1.547e−2 | −8.771e−3 | −1.352e−3 | 1.40, 6.51 |
+     | DD2 mean over `[160, 200]` M | −1.351e−2 | −7.257e−3 | −4.202e−3 | **1.53, 1.90** |
+     | DD2 L1 change of `D`, `τ` | 2.73e−6, 1.38e−7 | 1.67e−6, 6.23e−8 | 1.04e−6, 3.34e−8 | |
+     | SFHo drift at 200 M | −4.332e−2 | −7.195e−3 | −5.292e−3 | 4.43, 1.07 |
+     | SFHo mean over `[160, 200]` M | −2.871e−2 | −1.062e−2 | −5.031e−3 | **2.45, 2.60** |
+     | SFHo L1 change of `D`, `τ` | 3.62e−6, 1.65e−7 | 1.66e−6, 8.63e−8 | 1.11e−6, 4.85e−8 | |
+
+     **Stationarity** (`PLAN.md`: as in step 10, the drift after 200 M
+     converging at ≥ 1.5): **it holds for the window means, and the
+     endpoints miss on one pair each** (DD2 1.40, SFHo 1.07). The
+     endpoint is one sample of the radial oscillation, whose half-range
+     over `[160, 200]` M (2.3e−3 for DD2 and 2.4e−3 for SFHo at
+     `h = 0.375`) is larger than the drift itself, so rung 4's window mean
+     is the measure here. The drift is a tenth of the polytrope's on the
+     same mesh (MC at `h = 0.375`: −0.14% against −1.45%). The start rings
+     harder than the polytrope's: the half-range over the first 40 M is
+     2.6–3.4% at every `h`, falling to 0.2–0.4% by 160 M.
+   - **Conservation** (`PLAN.md`: `D Yₑ` to round-off): at `h ≤ 0.5` the
+     rest mass and `D Yₑ` change by exactly what the reset injected, to at
+     most 4.6·10⁻¹⁵ of 1.53–1.55 and 2.1·10⁻¹⁶ of 0.089–0.098. **It holds
+     over 200 M** (over 1000 M, below, `D Yₑ` does not). At `h = 0.75` both
+     lose matter through the outer faces, the rest mass 1.7·10⁻⁵ (DD2) and
+     4.7·10⁻⁴ (SFHo) over 200 M:
+   - **The coarse star sheds matter, and resolution removes it.**
+     `bin/tov_study.jl`'s `diag` (`jobs/tabulated-tov-atmosphere.toml`,
+     jobs 607220, 607248–607251) records each M the rest mass at
+     `r > 5R̄/4` above twice the atmosphere's density, its largest radius,
+     and the largest density against the outer faces:
+
+     | | `h = 0.75` | `0.5` | `0.375` |
+     |---|---|---|---|
+     | DD2: largest mass outside, at | 2.98e−3, 147 M | 9.19e−5, 187 M | 1.6e−10, 137 M |
+     | DD2: farthest radius | 40.3 | 23.4 | 9.4 |
+     | SFHo: largest mass outside, at | 6.17e−2, 200 M | 1.54e−4, 119 M | 4.4e−10, 125 M |
+     | SFHo: farthest radius | 40.3 | 9.1 | 8.3 |
+
+     At `h = 0.75` the shed matter reaches the box's corners (`r = 41.6`)
+     after about 150 M (DD2) and 140 M (SFHo); only then does the density
+     against the faces rise above `ρ_min` (to 4.1·10⁻¹⁰ and 6.8·10⁻⁸) and
+     the budget open. Before it, and throughout at `h ≤ 0.5`, the budget
+     holds to 1.2·10⁻¹⁴. At `h = 0.375` the star sheds nothing beyond a
+     single sample of 10⁻¹⁰. Where the shed matter comes from was not
+     separated; the star's surface layers on the coarsest mesh are the
+     candidate.
+   - **The entropy floor** (the "cold edge, measure" decision of "The
+     tabulated star's surface and atmosphere"): it fires on 34176, 171279
+     and 383752 cells outside the atmosphere for DD2 and on 1032, 39153
+     and 86713 for SFHo (by `h`), about 0.3–0.5% of the star's cell-steps
+     for DD2; 81–100% of them in the first 50 M, with 91–100% of the `τ`
+     it injects: 4.5, 2.9, 1.4·10⁻⁵ for DD2 (falling at about 1.2 and 2.5
+     with `h`) and 3.0·10⁻⁶, 1.0·10⁻⁵, 4.6·10⁻⁶ for SFHo. It is the start's
+     ringing at the cold edge, not a steady heating, so the star stays
+     at the edge and no fix is proposed.
+   - **The cost**: 5.1–6.9 µs per cell-step at `h ≤ 0.5`, 9.0–9.5 at
+     `h = 0.75` (64 threads, EPYC 7532 and 7543).
+   - **The coupled study** (`jobs/tabulated-tov-coupled*.toml`,
+     `coupled/tov_coupled.jl table=dd2`; Symmetry, `amdq`, jobs 607062,
+     607068 and 607064, the last two checkpointed): DD2 on rung 5's mesh
+     and gauge, PPM, the fourth-order transfer, `ρ_min = 10⁻¹²`, at
+     `h = 0.6, 0.5, 0.375`, to 1000 M (4.1, 7.8 and 21.2 h on 64 threads).
+     The constraints, `‖·‖₂` inside `r < 6` and outside `r ≥ 10`, averaged
+     over each window; the rates between `h = 0.6, 0.5` and between
+     `h = 0.5, 0.375`:
+
+     | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+     |---|---|---|---|---|
+     | 0 | 4.16, 3.79 | — | 4.33, 4.31 | — |
+     | 20–30 | 1.69, 2.10 | 1.97, 2.09 | 1.27, 1.88 | 1.30, 1.83 |
+     | 95–105 | 1.36, 2.08 | 2.24, 2.84 | 1.91, 1.84 | 2.28, 2.20 |
+     | 240–260 | 1.28, 2.35 | 2.32, 3.02 | 1.24, 2.10 | 1.15, 1.91 |
+     | 490–510 | 1.51, 2.58 | 2.63, 2.70 | 1.27, 2.20 | 0.85, **1.54** |
+     | 740–760 | 1.53, 3.26 | 2.02, 2.36 | 1.62, 2.41 | 0.76, **1.41** |
+     | 900–1000 | 0.94, **1.64** | 1.95, 2.10 | 1.08, **1.66** | 1.20, **1.65** |
+
+     **`PLAN.md`'s ≥ 1.8 (step 11's) holds on the finer pair to 260 M,
+     inside and outside, and fails after it**: `ℳ` outside from 490 M,
+     `ℋ` inside and outside over 900–1000 M. The coarse pair is below 1.8
+     in most windows. Unlike rung 5's, the norms grow: at `h = 0.375`, `ℋ`
+     inside is 1.2–1.3·10⁻⁵ over 240–510 M and 6.6·10⁻⁵ over 900–1000 M,
+     `ℳ` outside 1.1·10⁻⁶ over 240–260 M and 8.2·10⁻⁶ over 900–1000 M, and
+     likewise at the other two `h`.
+   - **The star's oscillation grows in the evolved spacetime on this box,
+     fed by the outer boundary.** The half-range of `ρ_c/ρ_c(0)` per 100 M:
+
+     | `t` (M) | `h = 0.6` | `0.5` | `0.375` | Cowling, `h = 0.5` |
+     |---|---|---|---|---|
+     | 0–100 | 6.3e−3 | 4.8e−3 | 2.7e−3 | 3.0e−3 |
+     | 200–300 | 3.5e−3 | 3.2e−3 | 2.0e−3 | 4.6e−4 |
+     | 500–600 | 7.0e−3 | 5.9e−3 | 4.0e−3 | 1.5e−4 |
+     | 900–1000 | 2.6e−2 | 2.3e−2 | 1.4e−2 | 1.2e−4 |
+
+     From about 250 M it grows exponentially, e-folding in 316, 333 and
+     328 M by `h` — a rate independent of the resolution, so the mesh does
+     not remove it; its amplitude converges at about 1 (0.7 and 1.6 over
+     900–1000 M). Its line is at 2.84–2.89 kHz at every `h` over both
+     halves of the run. The last column is the same star with the same
+     reconstruction and atmosphere on the Cowling metric
+     (`jobs/tabulated-tov-cowling-long.toml`, job 607606): damped, 25 times
+     smaller by 1000 M, so the growth needs the evolved spacetime.
+
+     TreeGH's constraint damping does not drive it
+     (`jobs/tabulated-tov-coupled-damping.toml`, jobs 607869–607873:
+     `h = 0.6` to 600 M; the first row is job 607062's first 600 M). The
+     half-range per 100 M, and the e-folding of the half-range over
+     300–600 M:
+
+     | `γ0 M`, `γ2` | 0–100 | 200–300 | 500–600 | e-folding |
+     |---|---|---|---|---|
+     | 1/10, 0 | 6.3e−3 | 3.4e−3 | 7.0e−3 | 340 M |
+     | 0, 0 | 9.2e−3 | 1.1e−2 | 1.9e−2 | 560 M |
+     | 1/20, 0 | 7.0e−3 | 4.4e−3 | 5.1e−3 | 1700 M |
+     | 1/5, 0 | 6.1e−3 | 1.5e−3 | 4.5e−3 | 345 M |
+     | 1/10, −1/2 | 7.0e−3 | 7.7e−3 | 1.8e−2 | 313 M |
+
+     It grows at every `γ0`, without damping too, at 2.8–3.0 kHz in every
+     run; stronger damping deepens the decay before 300 M and not the
+     growth after it, and `γ2 = −1/2`, which suppresses GH-8's mode
+     ([`PLAN.md`, GH-8](PLAN.md#gh-8--constraint-damping-on-a-star-note)),
+     starts it at 100 M. `ℋ` inside stays at 2.3–5.4·10⁻⁵ in the runs
+     with `γ0 > 0` and `γ2 = 0` while it grows, and the reset and the
+     entropy floor inject nothing that grows with it.
+
+     The box does (`jobs/tabulated-tov-coupled-box.toml`, jobs 607905 and
+     607906, 4.3 and 5.0 h): the same star's mesh, `h = 0.6` on
+     `[−12, 12]³`, inside one and two more levels out to `L = 48` and 96,
+     to 600 M. The line is the strongest of `ρ_c` over 350–600 M:
+
+     | `L` | 0–100 | 200–300 | 500–600 | e-folding | line |
+     |---|---|---|---|---|---|
+     | 24 | 6.3e−3 | 3.4e−3 | 7.0e−3 | 340 M | 2.82 kHz |
+     | 48 | 6.4e−3 | 2.2e−3 | 2.1e−3 | 1800 M | 2.88 kHz |
+     | 96 | 6.4e−3 | 2.4e−3 | 8.9e−4 | decays, 257 M | 3.04 kHz |
+
+     The outer boundary is TreeGH's Dirichlet data from the star's static
+     exterior (TreeGH's `CODE.md`, "Outer boundary: Dirichlet from the
+     background, at the current time"), which reflects what the oscillating
+     star sends out. At `L = 24` the reflection grows the star's coupled F
+     mode and pulls its line down; at `L = 96` the mode is damped. `ℋ`
+     outside (`r ≥ 10`, to each box's edge) triples from 40 to 600 M at
+     `L = 24`, grows by 1.4 at `L = 48` and falls at `L = 96`. Rung 5's
+     polytrope, on the `L = 24` box with the same gauge and transfer, does
+     not grow; why the tabulated star does is not measured. The F mode's
+     frequency on an unbounded domain is not measured either: the line
+     still moves between `L = 48` and 96.
+   - **The coupled study on the wide box**
+     (`jobs/tabulated-tov-coupled-wide.toml`, `-wide-mid.toml`,
+     `-wide-fine.toml`; Symmetry, `amdq`, jobs 608225, 608226 and 608227
+     with its continuation 609114, the last two checkpointed): the study
+     above with the box of the last row, `L = 96`, four roots and three
+     box levels (`h = 4.8, 2.4, 1.2` outside `[−12, 12]³`), at
+     `h = 0.6, 0.5, 0.375` on the star, to 1000 M (8.3, 16.2 and 46.1 h
+     on 64 threads, EPYC 7543; about twice `L = 24`'s). The rates, as
+     above:
+
+     | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+     |---|---|---|---|---|
+     | 0 | 4.16, 3.79 | — | 4.33, 4.31 | — |
+     | 20–30 | 1.69, 2.10 | 1.97, 2.09 | 1.35, 2.00 | 1.34, 1.87 |
+     | 95–105 | 1.43, 2.25 | 2.31, 3.00 | 0.80, **1.38** | 0.68, **1.00** |
+     | 240–260 | 1.65, 2.57 | 2.37, 3.03 | 1.39, 2.18 | 1.49, 2.24 |
+     | 490–510 | 1.78, 2.49 | 2.45, 2.92 | 1.25, 1.87 | 1.18, 1.96 |
+     | 740–760 | 2.04, 2.46 | 2.58, 2.84 | 1.51, **1.78** | 1.54, **1.78** |
+     | 900–1000 | 2.07, 2.49 | 2.51, 2.90 | 1.49, 1.90 | 1.45, 1.88 |
+
+     **On the finer pair `PLAN.md`'s ≥ 1.8 holds inside throughout and
+     outside in every window but two**: around 100 M (1.38, 1.00) and
+     1.78 at 750 M. The coarse pair is below 1.8 outside, as at `L = 24`.
+     The outside region (`r ≥ 10` to the box edge) now spans the three
+     coarse levels; that the dip at 100 M is the start's transient
+     crossing them is a guess, not measured. The norms do not grow: at
+     `h = 0.375`, `ℋ` inside is 8.2·10⁻⁶ over 240–260 M and 6.8·10⁻⁶ over
+     900–1000 M (at `L = 24`: 1.2·10⁻⁵ and 6.6·10⁻⁵).
+
+     The half-range of `ρ_c/ρ_c(0)` per 100 M:
+
+     | `t` (M) | `h = 0.6` | `0.5` | `0.375` |
+     |---|---|---|---|
+     | 0–100 | 6.4e−3 | 4.8e−3 | 2.7e−3 |
+     | 200–300 | 2.4e−3 | 2.2e−3 | 1.4e−3 |
+     | 500–600 | 8.9e−4 | 8.0e−4 | 5.3e−4 |
+     | 900–1000 | 6.8e−4 | 4.6e−4 | 3.0e−4 |
+
+     A damped sinusoid fitted to `ρ_c` over 100–500 M e-folds in 220, 270
+     and 330 M by `h` — damping that weakens with resolution, so the
+     scheme's — and after 500 M the oscillation levels off at an amplitude
+     of 3.8–5.6·10⁻⁴, still several times the Cowling star's. **The F
+     line is at 3.08–3.10 kHz over 100–500 M and 3.13–3.15 kHz over
+     500–1000 M at every `h`**, so the resolution does not move it; the
+     Cowling star's F is at 4.2–4.4 kHz.
+     The drift, as below: −0.37, −0.21, −0.14% over 50–70 M (as at
+     `L = 24`), −0.68, −0.37, −0.18% over 490–510 M (rates 3.34, 2.51) and
+     −1.10, −0.60, −0.33% over 900–1000 M (3.32, 2.08). The rest mass net
+     of the reset gains 1.3, 0.80 and 0.40·10⁻¹⁰ of 1.53 by 1000 M, rising
+     steadily from about 100 M, and `D Yₑ` 5.8, 3.7 and 1.9·10⁻¹¹ of 0.098:
+     6–10 times `L = 24`'s and of the other sign, converging at 2.3–2.7,
+     not separated (the candidate is the outer faces, 16 times the area,
+     on cells 4 times coarser). The entropy floor fires on no cell.
+   - **The central density's drift**, relative to `t = 0` and averaged over
+     a window: −0.37, −0.20, −0.14% over 50–70 M (rates 3.19, 1.44),
+     −1.17, −0.83, −0.42% over 490–510 M (1.88, 2.36), −1.09, −0.89,
+     −0.61% over 900–1000 M (1.09, 1.32), where the growing oscillation
+     dominates it. At 490–510 M it is a quarter of the polytrope's (rung 5:
+     −1.88% at `h = 0.375`).
+   - **Rest mass and `D Yₑ`** over the 1000 M, net of what the reset
+     injected: at `h = 0.5` and 0.375 within ±2·10⁻¹¹ of 1.53 throughout,
+     −7.7·10⁻¹² and −6.5·10⁻¹² at the end (rung 5: 1.3–5.4·10⁻¹²), and
+     `D Yₑ` −1.9·10⁻¹² and −3.0·10⁻¹² of 0.098 — the atmosphere at the
+     outer faces, as in rung 5, not round-off. At `h = 0.6` the rest mass
+     loses 1.9·10⁻⁹ over 200–250 M and 1.8·10⁻⁸ over 970–1000 M, steps
+     like the coarse Cowling stars' (not measured with `diag`). The entropy
+     floor fires on 0, 6 and 0 cells.
+   - **`D Yₑ` over 1000 M on the Cowling metric** **(open)**: the run of
+     the last column holds the rest mass net of the reset to 4.7·10⁻¹⁶
+     (and `diag` to 6.7·10⁻¹⁵ throughout), but `D Yₑ` to only 1.6·10⁻¹³
+     of 0.098, where over 200 M it held to 2·10⁻¹⁶. Something moves
+     lepton number and not rest mass. Not separated; the candidate is the
+     outer faces, where the Dirichlet atmosphere carries the slice's
+     `Yₑ_atm` and the atmosphere inside the box the `Yₑ` of the states the
+     reset replaced, so that the light-cone flux's dissipation carries
+     `D Yₑ` across a face where `D` is the same on both sides.
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
@@ -5997,6 +6346,20 @@ decides".
   nearest published version is
   Palenzuela (2013)'s switch to a force-free exterior at 50–400 `ρ_atm`.
   Nothing built or measured beyond that.
+- **(open)** Whether a table's recovery should be warm-started from the
+  cell's previous `log₁₀ T`, carried in the state as `D s` is
+  ("Thermodynamics", "Warm starts"): on the tabulated star a cell-step costs
+  about 2.7 times the polytrope's, not yet split into the recovery's part.
+- **(open)** The tabulated coupled star on boxes wider than `L = 96`
+  ("Validation ladder" 7): where its F line (3.1 kHz at `L = 96`, 3.04 to
+  600 M at `h = 0.6`, against 2.88 at `L = 48`) settles as `L` grows;
+  whether the outside rates' dip near 100 M (1.0–1.4 on the finer pair)
+  is the start's transient crossing the coarse levels; and what adds
+  10⁻¹⁰ to the rest mass over 1000 M at `L = 96`.
+- **(open)** What moves `D Yₑ` by 1.6·10⁻¹³ over 1000 M on the Cowling
+  metric while the rest mass holds to 4.7·10⁻¹⁶ ("Validation ladder" 7);
+  the candidate is the outer faces, where the Dirichlet atmosphere's `Yₑ`
+  is the slice's and the reset's atmosphere keeps the replaced state's.
 - **(open)** The metric in the outermost ghost cell (see
   [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
 
@@ -6078,6 +6441,17 @@ decides".
   cutoff at `ρ = 10⁻⁶` removes all but 6·10⁻⁶ of them at `h = 0.375`, and
   every one at `h = 0.25` in the evolved spacetime.
 - `q := ∇·E` turns numerical divergence of `E` into charge.
+- A table whose cold β-equilibrium slice has a phase transition (a density
+  jump at constant pressure; SRO LS220 has four, EntropyEOS's PR 15) is
+  refused by `cold_barotrope`: the composition table is smooth in `r̄²`,
+  and a star with a density jump needs it split at the jump. DD2 and SFHo
+  have none. The radial modes (`src/tov_pulsation.jl`) are the
+  polytrope's only: a table's star needs `Γ₁` from `cs²`.
+- The tabulated star lies on the entropy window's minimum, the table's
+  coldest row, so a cell that truncation pushes colder is floored by the
+  recovery, raising `τ`. The reset counts these floors outside the
+  atmosphere (`ohm_tally`'s `s_floors`, `s_floor_τ`); at `h = 1` to 4 M
+  there are none ("Validation ladder" 7 has the studies).
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

@@ -52,7 +52,7 @@ are cell-centered).
 face_centering(::Val{D}, d::Integer) where {D} = ntuple(e -> e == d ? :vertex : :cell, D)
 
 """Number of slots of the diagnostics set `X`: see [`MHDFields`](@ref)."""
-const NX = 31
+const NX = 34
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
@@ -96,6 +96,15 @@ const SITE_STAGE = 2
 const SITE_STAGE_LIMITER = 3
 const SITE_STEP_LIMITER = 4
 const N_SITES = 4
+# *(Added in step 13:)* what the step limiter's writes changed in `√γ D Yₑ`, the
+# lepton number the reset injects, beside `X_INJECTED_D` and `X_INJECTED_TAU`.
+const X_INJECTED_DYE = X_SEEDS + 3 * N_SITES
+# *(Added in step 13:)* the step limiter's writes that floored the entropy
+# (`FLAG_POL_S_FLOORED`) on a state the policy did not send to the atmosphere,
+# and what they changed in `√γ τ`: the cold edge's cost, where a star lies on
+# the window's minimum ("Validation ladder" 7 in `CODE.md`).
+const X_S_FLOORS = X_INJECTED_DYE + 1
+const X_S_FLOOR_TAU = X_INJECTED_DYE + 2
 const N_OHM_BITS = 9
 
 """Number of slots of the primitive set `W` the matter's ghost fill prolongates."""

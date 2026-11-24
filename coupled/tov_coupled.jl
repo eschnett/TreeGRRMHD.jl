@@ -14,8 +14,11 @@
 # damping, `γ0 = γ0M/M`), `δv` (the star's initial velocity along its coupled radial
 # modes, the amplitudes of F, H1 and H2 in `ρ_c/ρ_c`, `δv=a₁,a₂,a₃`; `tov_case`), `order`
 # (the matter's transfer to the vertices, 2 or 4; 4), `ρ_min` (the atmosphere's density;
-# 1e−12, below `tov_case`'s 1e−10: "Validation ladder" 5 in `CODE.md`), `out` (a file for the record, `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂` per chunk; default
-# the terminal).
+# 1e−12, below `tov_case`'s 1e−10: "Validation ladder" 5 in `CODE.md`), `table` (`dd2`,
+# `sfho`: the star on that table in cold β-equilibrium instead of the polytrope,
+# `tabulated_tov_case`, read from `ENTROPYEOS_TABLE_DIR`; added in step 13) with `ρ_c` (its
+# central density, geometric; no default), `out` (a file for the record, `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂`
+# per chunk; default the terminal).
 
 using TreeAMR
 import TreeGRRMHD
@@ -195,10 +198,10 @@ end
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
               cfl_gh=T(1 // 2), refinement=nothing, mhd_flags=nothing, reuse_fill=true,
-              γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12,
+              γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12, case=nothing,
               record=(t, ρ_c, c) -> println(t, "  ", ρ_c, "  ", c.ham_l2, "  ", c.mom_l2))
     (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement,
-                                      reuse_fill, γ0M, γ2, δv, order, ρ_min)
+                                      reuse_fill, γ0M, γ2, δv, order, ρ_min, case)
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)

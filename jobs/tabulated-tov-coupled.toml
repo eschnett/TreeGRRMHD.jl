@@ -1,0 +1,24 @@
+# Step 13 (rung 7): the tabulated TOV star (DD2, cold β-equilibrium, 1.4 M☉) in
+# TreeGeneralizedHarmonic's spacetime, as step 11's studies of the polytrope ("Validation
+# ladder" 5 and 7 in `CODE.md`): `coupled/tov_coupled_study.jl` on `[−24, 24]³`, four roots,
+# one box level, PPM, the fourth-order transfer, `γ0 = 1/(10M)`, the atmosphere at 1e−12,
+# to 1000 M, every M the central density and the constraints inside (`r < 6`) and outside
+# (`r ≥ 10`), at `h = 0.6, 0.5` (`N = 10, 12`); `h = 0.375` is
+# `tabulated-tov-coupled-fine.toml`, which needs restarts. Each run is a job of its own
+# (`--run`). No checkpoints here: SimLaunch keeps one job at a time for a spec with them,
+# and these fit in a day (the polytrope's took 2.8 h and 5.7 h).
+name = "tabulated-coupled"
+project = "coupled"
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "24:00:00"
+
+[[run]]
+label = "dd2-h0.6"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=10 t_end=1000 chunk=1 out=series.txt"
+
+[[run]]
+label = "dd2-h0.5"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 N=12 t_end=1000 chunk=1 out=series.txt"

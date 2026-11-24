@@ -1,0 +1,40 @@
+# Step 13 (rung 7): where the tabulated Cowling star's rest mass goes at `h = 0.75`. In
+# `jobs/tabulated-tov-cowling.toml`'s runs at `h = 0.75` the rest mass net of the reset
+# changes by 1.7e−5 (DD2) and 4.7e−4 (SFHo) over 200 M, where at `h = 0.5` and 0.375 it holds
+# to round-off; the reset's count falls to zero at the same time. These two runs repeat the
+# `h = 0.75` ones with `bin/tov_study.jl`'s `diag`: per M, the change net of the reset, the
+# matter above twice the atmosphere outside `5R̄/4`, its largest radius, and the largest
+# density against the box's faces; then the same at `h = 0.5` and 0.375, whether the matter
+# that leaves the star converges away. Each run a job of its own (`--run`); `h = 0.375` takes
+# about 2.7 h, so `amdq`.
+name = "tabulated-atmosphere"
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "4:00:00"
+
+[[run]]
+label = "dd2-h0.75"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=8 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
+
+[[run]]
+label = "sfho-h0.75"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=8 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
+
+[[run]]
+label = "dd2-h0.5"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=12 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
+
+[[run]]
+label = "dd2-h0.375"
+cmd = "bin/tov_study.jl table=dd2 ρ_c=9.4e-4 N=16 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
+
+[[run]]
+label = "sfho-h0.5"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=12 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
+
+[[run]]
+label = "sfho-h0.375"
+cmd = "bin/tov_study.jl table=sfho ρ_c=1.37e-3 N=16 levels=1 t_end=200 chunk=1 limiter=mc out=series.txt diag=diag.txt"
