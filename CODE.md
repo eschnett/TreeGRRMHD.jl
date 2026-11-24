@@ -858,7 +858,7 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A polytrope is a Γ-law at fixed entropy**, not a barotropic EOS:
   EntropyEOS's `(s, w)` Newton needs `U_s ≠ 0`. The TOV star's
   `p = Kρ^Γ` is the Γ-law evaluated at the `s` with `K(s) = K`.
-- **The cold barotrope** *(proposed in step 13)*. A table's star is in
+- **The cold barotrope**. A table's star is in
   cold, neutrinoless β-equilibrium: EntropyEOS's slice (EOS-4,
   `cold_beta_slice`) gives at each pressure the composition of least Gibbs
   free energy on the table's coldest row, `s` on the window's minimum.
@@ -878,8 +878,7 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   DD2 or SFHo; [Known risks](#known-risks)). The units hold: DD2's 1.4 M☉
   star has `R = 13.225` km, SFHo's 11.896 km, with the crust to
   6.2·10³ g/cm³ (the literature's 13.2–13.3 and 11.9 km).
-- **The tabulated star's surface and atmosphere** *(proposed in step
-  13)*. The barotrope's surface, `η = 0`, is at the atmosphere's density
+- **The tabulated star's surface and atmosphere**. The barotrope's surface, `η = 0`, is at the atmosphere's density
   `ρ_min`, and the atmosphere is the slice's own state there: cold
   (`PolicyOptions`' `s_atm = NaN`, the window's minimum) with the replaced
   state's `Yₑ`. The matter below `ρ_min`, which the reset would replace,

@@ -755,6 +755,17 @@ session's scratchpad (fits of a damped sinusoid on a grid; numpy only, since sci
 installed). The tables are in `CODE.md`, "Validation ladder" 7; whether this meets step 13's
 coupled acceptance is Erik's call.
 
+**2026-11-24, step 13 accepted.** Erik accepted step 13 as built and measured: "i accept step
+13". The coupled study stands as measured at `L = 96`, with its misses outside around 100 M
+(1.0–1.4) and at 750 M (1.78) on the finer pair, and the `L = 24` study as the record of the
+outer boundary's effect. `D Yₑ` over 1000 M on the Cowling metric, the F line beyond `L = 96`
+and the rest mass the wide box gains stay in `CODE.md`'s "Open questions". The step's two
+proposals in `CODE.md`, "Thermodynamics", are decided: the cold barotrope on EOS-4's slice, and
+the barotrope's surface at `ρ_min` with a cold atmosphere keeping the replaced state's `Yₑ`.
+At Erik's request the leftover studies `grrmhd-step13-1516278e305c`,
+`grrmhd-step13-8b77484fcb70` and `grrmhd-step13-defaef57027b` were deleted from Symmetry; the
+last two had been fetched into `simlaunch-data/` first.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

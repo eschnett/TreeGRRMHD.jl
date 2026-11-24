@@ -691,7 +691,7 @@ ladder"](HISTORY.md#validation-ladder).
 
 ## Step 13 — Tabulated EOS and Yₑ (rung 7)
 
-*Done*, waiting for Erik's acceptance (2026-11-21). The coupled study is measured at `L = 24`,
+*Done* (accepted by Erik 2026-11-24). The coupled study is measured at `L = 24`,
 where TreeGH's outer boundary grows the star's oscillation and takes the constraints below 1.8
 after 260 M, and at `L = 96`, where the oscillation is damped and the finer pair converges at
 1.8 or better to 1000 M except outside around 100 M (2026-11-24). `D Yₑ` over 1000 M on the
