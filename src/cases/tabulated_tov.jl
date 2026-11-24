@@ -1,5 +1,5 @@
 # Rung 7: the TOV star on a tabulated EOS ("Validation ladder" 7 in `CODE.md`;
-# step 13 of `PLAN.md`). A table's cold β-equilibrium slice (EOS-4,
+# step 13 of the plan in `HISTORY.md`). A table's cold β-equilibrium slice (EOS-4,
 # EntropyEOS's `cold_beta_slice`) as the barotrope of the solve
 # ([`ColdBarotrope`](@ref), `src/tov_table.jl`), at rest on its own frozen
 # metric, `Analytic(TOVMetric)`, with no field, as rung 4's polytrope is

@@ -1,5 +1,5 @@
 # Rung 6: the magnetized TOV star ("Validation ladder" 6 in `CODE.md`; step 12 of
-# `PLAN.md`). Rung 4's star — the polytrope `K = 100`, `Γ = 2`, `ρ_c = 1.28·10⁻³` at rest on
+# the plan in `HISTORY.md`). Rung 4's star — the polytrope `K = 100`, `Γ = 2`, `ρ_c = 1.28·10⁻³` at rest on
 # its own frozen metric, `Analytic(TOVMetric)` — threaded by a poloidal field whose exterior
 # is the static vacuum dipole of the Schwarzschild spacetime outside the star, under a
 # resistive Ohm's law whose conductivity follows the density.

@@ -272,7 +272,7 @@ end
 end
 
 @full_tier @testset "The exterior dipole stays the initial field, its drift converging at second order" begin
-    # Guards the claim of rung 6 (`PLAN.md`, step 12): the field outside the star is a static
+    # Guards the claim of rung 6 (the plan's step 12): the field outside the star is a static
     # vacuum solution, so it moves only by the scheme's truncation error, which converges.
     # `h = 1` and `1/2` to `t = 2M`; measured on the laptop: the drift outside `R̄` 1.21e−2,
     # 3.54e−3 (rate 1.77), in the shell `R̄ + 1 … 11` 1.43e−2, 4.35e−3 (1.72), inside

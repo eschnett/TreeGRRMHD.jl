@@ -38,9 +38,9 @@ time integrator from
 is neutron stars and core-collapse supernovae; the first science target is a
 magnetized TOV star.
 
-**Status: the pointwise layer, the evolutions on uniform and refined
-meshes, curved backgrounds and the TOV star, alone, in an evolved spacetime
-and magnetized (steps 0 to 3 and 5 to 12 of `PLAN.md`).** The staggered scheme runs on TreeAMR's
+**Status: built and validated, through a magnetized TOV star in an evolved
+spacetime and a star on a tabulated equation of state, on CPUs and
+GPUs.** The staggered scheme runs on TreeAMR's
 mesh in one, two and three dimensions: the matter and the electric field at cells, the vector potential
 on edges, the gauge scalar at vertices, and the magnetic field as the
 discrete curl of the potential, advanced by the IMEX integrator with the
@@ -71,14 +71,17 @@ coupled through a script in `coupled/`, it rings at its radial modes'
 frequencies to within 1% of the literature's. Threaded by a dipole field, it
 keeps `∇·B` at round-off and its exterior field converges; with a field
 confined inside, the conductivity's decay of the field matches published
-resistive runs. Next is a star on a tabulated equation of state, which waits
-for EntropyEOS.
+resistive runs. On a real nuclear equation of state (DD2, SFHo), in cold
+β-equilibrium with its electron fraction advected, the star holds still and
+conserves its rest mass and lepton number. The same runs work on a GPU
+(CUDA, and Metal at single precision) and give the same result at any
+thread count.
 
 Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of
 TreeAMR, EntropyEOS, SpacetimeMetrics and IMEXRungeKutta still provide what
-the scheme is written against, and which of the upstream items the plan
-waits for have landed; and the pointwise physics the scheme stands on — geometric
+the scheme is written against, and which of the upstream items it
+still waits for have landed; and the pointwise physics the scheme stands on — geometric
 units and an adapter that shows a tabulated EOS in them, the 3+1 point
 metric, the layouts of the evolved and primitive variables, and the
 conversion between primitive and conserved variables, electromagnetic
@@ -92,10 +95,10 @@ primitive recovery. Each of these runs inside a KernelAbstractions kernel,
 bit-identically to the host.
 
 `CODE.md` is the design document: what each piece is for and why it is that
-way. `PLAN.md` is the implementation plan, step by step, with the exact
-requirements on the sibling packages. `HISTORY.md` records how the package
-got here: who decided what and when, and what was tried. `CLAUDE.md` has the
-commands.
+way, with the exact requirements still open on the sibling packages.
+`HISTORY.md` records how the package got here: the implementation plan it
+was built by, step by step, who decided what and when, and what was tried.
+`CLAUDE.md` has the commands.
 
 ## Installation
 
@@ -118,12 +121,8 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The log names every upstream item (`AMR-n`, `EOS-n`, `GH-n`) as landed or
-waiting.
-
-**Inconsistent:** `CLAUDE.md`, "Commands", says a landed item guaranteed by
-`[compat]` has no probe, so the log names only the items still waiting
-(`landed:` should not appear).
+The log names every upstream item still probed (`EOS-n`, `GH-n`) as
+waiting; a landed item that `[compat]` guarantees has no probe.
 
 The full suite at every thread count and with bounds checks, and the
 clean-checkout check, are in `CLAUDE.md`, "Commands".

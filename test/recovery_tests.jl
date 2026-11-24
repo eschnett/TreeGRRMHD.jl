@@ -10,7 +10,7 @@
 # Kerr-Schild hole at random points, fields carrying up to 100 times the
 # fluid's energy — and would hold for any draw.
 #
-# The accuracy is stated as EntropyEOS states its own (EOS-2 in `PLAN.md`):
+# The accuracy is stated as EntropyEOS states its own (EOS-2, `HISTORY.md`):
 # in the primitives, the errors divided by the conditioning factors
 # `κ_ρ = hW²` (for ρ, w and v) and `κ_s = (1 + τ/(ρW²U))·max(1, U/(s U_s))`
 # (for s), below upstream's 3e-11 and 1e-10; in the conserved variables, 1e-12

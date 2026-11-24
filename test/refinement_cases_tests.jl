@@ -1,6 +1,6 @@
 # Rung 2b, continued: what the refinement costs and buys, and the three
 # choices step 8 made by measurement ("Refinement" in `CODE.md`; step 8 of
-# `PLAN.md`):
+# the plan in `HISTORY.md`):
 #
 #   * a field loop across a coarse-fine face lies between the uniform coarse
 #     and the uniform fine control, in energy and in shape;
@@ -29,7 +29,7 @@ function rf_magnetic_energy(p, u, t)
 end
 
 @testset "A field loop across a coarse-fine face keeps its energy and shape between the coarse and the fine control" begin
-    # Guards the field across a refinement boundary (PLAN.md, step 8: energy
+    # Guards the field across a refinement boundary (the plan's step 8: energy
     # and shape against a uniform-fine control): Beckwith & Stone's loop on
     # 32 × 16 cells with the half `x ≥ 0` refined, so the face `x = 0` runs
     # through the loop's centre, against the uniform 32 × 16 and 64 × 32

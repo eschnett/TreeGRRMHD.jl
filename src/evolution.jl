@@ -12,7 +12,7 @@
 #      `B` — no ghost is recovered, and the conserved ghosts are not written
 #      (amended in step 8, and 2026-10-23).
 #   4. `q = ∇·E` at the owned cells.
-#   5. (`T_ab` for the spacetime: rung 5.)
+#   5. (`T_ab` for the spacetime is not part of it: `src/adm_matter.jl`.)
 #   6. Reconstruction and the Riemann fluxes into `F_d` over the closed face
 #      ranges; the EMF into `EMF_j` over the closed edge ranges;
 #      `restrict_interfaces!` on both.

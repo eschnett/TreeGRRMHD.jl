@@ -664,6 +664,11 @@ AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 >   more cores than a site's node has; and there is no way to refresh one script of a prepared
 >   study, so `bin/benchmark.jl` was copied into `grrmhd-step14-2` by hand for job 606643.
 
+**2026-11-24, step 14 accepted.** Erik accepted step 14 as built, measured and merged (PR #13,
+4c15565): "i accept step 14". Its three acceptance items stand as recorded above, and its
+decisions were taken on 2026-11-20: the split recovery as a device's default, no AMR-12, and
+the device claim's looser counts.
+
 
 > **Step 13 — Tabulated EOS and Yₑ (rung 7)**
 >
@@ -766,6 +771,196 @@ At Erik's request the leftover studies `grrmhd-step13-1516278e305c`,
 `grrmhd-step13-8b77484fcb70` and `grrmhd-step13-defaef57027b` were deleted from Symmetry; the
 last two had been fetched into `simlaunch-data/` first.
 
+> **Step 15 — Review pass**
+>
+> - Read `CODE.md` against the code once more.
+> - Mark rungs 1–7 *(Done.)*.
+> - Update `README.md`'s status, `CODE.md`'s status paragraph and `CLAUDE.md`'s "Commands".
+> - Move anything still marked **(predicted)** or **(open)** to measured, or to "Possible
+>   extensions".
+> - Delete this file.
+
+**2026-11-24, step 15: the review pass, and `PLAN.md` retired.** Erik's choices
+(2026-11-24): the upstream requests still waiting move into `CODE.md` ("Requests still
+waiting"); the plan's ground rules that still apply fold into `CLAUDE.md`'s "Conventions" and
+"Repository facts"; no new runs, so each open question became a known risk or a possible
+extension as measured; and the **(proposed)** markers stay until Erik decides them one by
+one. Six readers checked `CODE.md` against the code section by section, and each finding was
+checked again before `CODE.md` changed. What was wrong, and is now as the code has it:
+- **The regrid** was described as step 8 first built it — a complete fill of its own first,
+  and no hook for a potential in `regrid!` — where `regrid_pairs` passes every evolved set its
+  own hook and `regrid_state!` fills nothing first; `W` was missing from the sets passed
+  `=> nothing`, and the potentials' low walls are written by the reset.
+- **The boundaries**: `AllVariables` was said of every set (the potentials take the relative
+  hook, or the absolute one when static); the matter's ghost fill was said to be `U`'s
+  conserved hook (the scheme fills `W` through `primitive_boundary`); "the Kerr-Schild cases"
+  declare static potentials (the three stars do too); the potentials' options 2 and 3 were
+  "open for step 10's outer boundary" (the stars take option 1).
+- **Counts and names**: `X` has 34 slots, not 31, with the `D Yₑ` injection and the entropy
+  floor's tallies; `solve_ohm_stage` takes `proj` and `model`; `TOVMetric{T,NK,E}`;
+  `VertexMetric` refuses the coordinate forms of `point_metric`; `problems` takes `order`,
+  `ρ_min` and `case`; `forget_fill!` runs after the other verb; the ball at `r_in = M` is
+  about 0.8% of the octant, not 0.4%; the Löhner indicator always reads all three fields;
+  `default_ξ` takes a case's own `gauge_damping`; the 2D/3D bit identity is tested under four
+  and two reconstructions, not every one; `central_density` is in `src/driver.jl`.
+- **Upstream**: the retired probes include EOS-4 and EOS-8 to EOS-11; AMR-2 and AMR-3 are
+  landed; `[sources]` takes IMEXRungeKutta from `main` (not the 1.4.0 tag) and EntropyEOS at
+  `v2.3.0`; `tov_boxes!` reads `Forest`'s field `leaves`, the one non-export used.
+- **Numbers that had moved**: the default-tolerance round trip (about 10⁻¹² since EntropyEOS
+  2.0, not 9.8·10⁻¹³) and the `Float32` smoke run (2.3·10⁻⁵, not 3.6·10⁻⁵); the 2D explosion
+  is exactly symmetric since both walls are prescribed; rung 3's finest pair holds for every
+  variable but the charge.
+- **The inventory**: the Tests list named the test helpers' old homes;
+  `test/precision_tests.jl`, `test/units_tests.jl`, `src/cases/gauge.jl`, the experiment
+  scripts in `bin/` and two rung-7 specs were not listed; CI's coupled job was left out of
+  "Julia version".
+- Every **Inconsistent:** note is resolved and gone (eleven in `CODE.md`, one each in
+  `README.md` and `CLAUDE.md`, three in `PLAN.md`).
+
+Not changed, for Erik: rung 2b's tables were measured with the ghost fill of the time
+(PointValue width 2) and are not rerun with today's parent-centred fill; the relative-hook
+tables of rung 3 measure a configuration no case uses now and could move here. The plan's
+preamble, its ground rules and the agent brief, as they stood when the file was deleted:
+
+> For the sessions that implement TreeGRRMHD, one step at a time. The **design** lives in
+> `CODE.md`. Read it first, in full: it is authoritative. This file is only the work breakdown:
+> - what each step changes, and what it must not change;
+> - what each step must measure and record;
+> - and, because this package stands on siblings that are still growing, exactly what it needs
+>   from them.
+>
+> `CLAUDE.md` has the mechanics. Delete this file when the last rung is marked *(Done.)* in
+> `CODE.md`.
+>
+> The current status is `CODE.md`'s status paragraph; how the steps went, and when each upstream
+> item landed, is in `HISTORY.md`, "The steps of the plan" and "Upstream prerequisites". The
+> "state" column of the table in [Upstream requirements](CODE.md#requests-still-waiting) has each item.
+>
+> The steps follow `CODE.md`'s validation ladder (rungs 1–7):
+> - It is preceded by the pointwise physics and the IMEX package.
+> - It is followed by a device step and a review pass.
+> - Every step ends in a green suite and a `CODE.md` update.
+>
+> - Read `CLAUDE.md` first. Then read this file's ground rules and the step, `CODE.md`'s "Sharp
+>   edges", then the `CODE.md` sections the step names.
+> - **Work on a branch** named `claude/step-N-<slug>`, off `main`. For steps 4a–4c, the branch is in
+>   the IMEX package's repository.
+>   - Commit in TreeAMR's style: implement, then measure, then record, with the measured numbers in
+>     the commit body.
+>   - **Do not merge into `main` and do not push.** Report the branch and its commits.
+> - **Never edit a sibling checkout** (TreeAMR, TreeGeneralizedHarmonic, EntropyEOS,
+>   SpacetimeMetrics, TreeHydro; IMEXRungeKutta outside steps 4a–4c).
+>   - If a listed upstream item has not landed, do everything that does not depend on it, and
+>     report the step as blocked on that item's ID.
+>   - If the step needs something upstream that is not listed, or a listed item turns out to be
+>     insufficient, write the requirement in the format of
+>     [Upstream requirements](CODE.md#requests-still-waiting) and report it.
+>   - A workaround listed here is allowed, and is marked in the code with the item's ID. Any other
+>     workaround is not.
+> - **Dependencies resolve from releases, never from sibling checkouts.**
+>   - TreeAMR and SpacetimeMetrics come from the General registry.
+>   - Unregistered ones are named by URL in `Project.toml`'s `[sources]`, which Julia 1.11 and
+>     later read; the floor is 1.13 (CODE.md "Julia version"). That covers EntropyEOS until EOS-0
+>     and the IMEX package, and will cover TreeGH and its unregistered dependencies until GH-2. CI,
+>     the clean-checkout check and a developer all resolve them the same way, so CI adds nothing by
+>     hand.
+> - **Julia 1.13 floor**. Be generic in `T` and in the backend from the first line:
+>   - `T` is a leading positional argument (default `Float64`); `backend` is a keyword (default
+>     `CPU()`).
+>   - No float literals where `T` is in play; every callback is `isbits`; per-block metadata goes
+>     through `to_backend`.
+>   - Physics is validated in `Float64`; `Float32` is a smoke test.
+> - **Tests are small.**
+>   - Sizes: 1D up to 400 cells, 2D up to 128², 3D with `N = 8` blocks on a few roots.
+>   - Time: under about 60 s per test file, and the whole suite under about 10 min at one thread.
+> - Before and after each step, run the full suite at the default thread count, at
+>   `julia_args = ["--threads=4"]`, and once with `--check-bounds=yes`, each at the floor (Julia
+>   1.13) and at the current release (the same until 1.14 is released), and the clean-checkout
+>   check under the floor (`CLAUDE.md`, "Commands").
+> - **Spec-first.**
+>   - When the step shows `CODE.md` wrong or incomplete, fix `CODE.md` to describe the current
+>     state, and record in `HISTORY.md` what changed, when and why.
+>   - Replace each **(predicted)** the step measures, and decide each **(open)** the step owns.
+>   - Never loosen an assertion to get green. Report the failure instead.
+> - **Testset names are claims.** Each opens with a comment naming the failure mode it guards.
+>   Rates, drifts and iteration counts are asserted as numbers with tolerances.
+> - One step at a time; the next starts from a green suite on `main`.
+>
+> ## Running a step as an agent
+>
+> This is TreeGH's pattern.
+> - **One implementation agent per step**, in its own worktree, with the brief below. At most one
+>   runs at a time, because each step depends on the previous one.
+> - The agent does not ask questions mid-step. Where it would have asked, it decides, marks the
+>   decision **(proposed)** in `CODE.md`, records in `HISTORY.md` that step N proposed it, and lists
+>   it in the report.
+> - **The reviewer:**
+>   - checks out the branch and runs the suite at one and four threads;
+>   - reads the `CODE.md` diff;
+>   - walks the acceptance list against the report;
+>   - merges only then.
+>
+>   A failed item goes back to the same agent with the finding, not to a new agent, and the
+>   reviewer does not fix it themselves.
+>
+> **The brief** (replace `N`):
+>
+>     You are implementing step N of PLAN.md in the Julia package at <path>. Read CLAUDE.md,
+>     then PLAN.md's "Ground rules", "Upstream requirements" (the items step N waits for) and
+>     step N, then CODE.md's "Sharp edges" and the CODE.md sections step N names. Work on the
+>     branch claude/step-N-<slug> in this worktree; commit in TreeAMR's style with measured
+>     numbers in the commit body; do not merge, push, or touch TODO.md or any sibling checkout.
+>     Do all of step N. If part of it is blocked — an upstream item not landed, a device you do
+>     not have — finish everything else and say exactly what is blocked, by which ID. Never
+>     loosen an assertion to get green. When you would ask a question, decide, mark it
+>     "(proposed)" in CODE.md, record in HISTORY.md that step N proposed it, and list it in the
+>     report. End with the report PLAN.md specifies.
+>
+> **The report**, in this order:
+> 1. the branch and its commits, one line each;
+> 2. the acceptance list, each item marked *done*, *measured* (with the number), or *blocked*
+>    (with the ID or reason);
+> 3. the suite's summary lines at one and at four threads, verbatim;
+> 4. every `CODE.md` change, quoted, with the `HISTORY.md` entry that records it;
+> 5. the decisions it took, each marked (proposed);
+> 6. anything the next step should know, and any new upstream requirement, in the format below.
+>
+
+**2026-11-24, step 15: 59 proposals decided as built.** Erik decided the 59 decisions
+`CODE.md` marked **(proposed)** whose code does what they say: "Decide A as built". Each lost
+its marker. They are, by `CODE.md`'s sections: the device metadata uploaded with
+`KernelAbstractions.allocate`; the covariant momentum source and its being the default; the
+background `𝔅̄ⁱ`, densitized; σ as an `isbits` model in `src/ohm.jl`, `conductivity_slope`,
+`MagnetizationCutoff` and `μ = +∞` where `D ≤ 0`; `GeometricEOS`; the recovery seeded from
+the state; the velocity from the rapidity; the round trip measured against `𝓔 = τ + D`; the
+policy flags as the only validity signal; `P` at 30 slots and the diagnostics set `X`; the
+reconstructed variables, PLM and the higher orders; the light-cone fluxes and
+`physical_flux`; the UCT-HLL EMF, its kernel and the additive corner `E`; the reset writing
+back every repaired cell; `cfl = 2/5`; the stage solve per cell and stage, writing only `E`,
+carrying `u = W v`, its rank-one term, its branch rule and its tolerance; the metric
+providers, the one derivative-order conversion, `D = 3` coupling, `Mv`'s width 6 and the
+derivatives evaluated at the sources; the right-hand side's order, `P_from_W` at owned
+cells, the charge and the gauge averages; rung 2b's flux claim as a rate, the corner EMF
+accepted, the PointValue negative control and the outer-face mismatch recorded; the
+Dirichlet hooks, the low walls in the state and the refined box's asymmetry recorded; the
+indicator, the regrid, the initial and the static mesh, and `W`'s variables; and rung 1b's
+references, `plateau_error`, the current sheet's quasi-static start and the atmosphere tube.
+Still marked: the entropy fallback (waits for EOS-3), two stage-solve ideas never built (a
+predictor in the atmosphere at `OHM_SIGMA_ZERO`, near-null predictors in the sweep), and
+SSP2(2,2,2) "kept for debugging", available in IMEXRungeKutta but run by nothing here.
+
+**2026-11-24, step 15: the last four proposals moved to "Possible extensions".** Erik: "Move
+them to extensions". The entropy fallback stays described in `CODE.md`'s "Primitive
+recovery" as a design not built, waiting for EOS-3; the predictor in the atmosphere at
+`OHM_SIGMA_ZERO`, the near-null predictors in the stage solve's sweep, and SSP2(2,2,2) as a
+debugging tableau (available from IMEXRungeKutta, run by nothing here) are listed as possible
+extensions. `CODE.md` now has no **(proposed)** and no **(open)** marker.
+
+**2026-11-24, step 15 accepted.** Erik accepted step 15, the review pass, as done: "i accept
+step 15". It was the plan's last step. Two things it noted stay as they are: `tov_boxes!`
+reads TreeAMR's unexported `forest.leaves`, and rung 2b's tables stand as measured with the
+old ghost fill, not rerun.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -857,6 +1052,46 @@ step 8) with AMR-7 to AMR-10 (AMR-11, added in step 8, waiting);
 SpacetimeMetrics 1.7.0 with SM-1, whose workaround is gone. TreeGH's `main`
 is 61bcb75, 0.1.1 (GH-0 and GH-1 landed, GH-1 as its PR 25; GH-3, GH-4 and
 GH-6 waiting; GH-5 withdrawn; unregistered; amended 2026-11-08).
+
+
+**2026-11-24, step 15: `PLAN.md`'s table at its retirement.** The items still waiting moved
+to `CODE.md`, "Requests still waiting"; the table as it stood:
+
+| ID | package | priority | needed by step | summary | state |
+|---|---|---|---|---|---|
+| AMR-1 | TreeAMR | req | 5 | state vector over several field sets | landed in TreeAMR 0.2.1 |
+| AMR-2 | TreeAMR | wanted | 6 | per-set boundary hooks in `regrid!` | landed in TreeAMR 0.2.1 |
+| AMR-3 | TreeAMR | wanted | 8 | `adapt_to_initial_data!` over several sets | landed in TreeAMR 0.2.1 |
+| AMR-4 | TreeAMR | strongly wanted | 10 | limited conservative prolongation | landed in TreeAMR 0.2.1, as `bounded = true` |
+| AMR-5 | TreeAMR | wanted | 14 | `workgroupsize` on `map_blocks!` | landed in TreeAMR 0.2.1 |
+| AMR-6 | TreeAMR | later | — | device boundary hook that reads the interior (outflow) | landed in TreeAMR 0.2.1, as outflow faces |
+| AMR-7 | TreeAMR | later, workaround | 14 | device boundary hook relative to the nearest owned point | landed in TreeAMR 0.2.2, as `Relative` (workaround dropped) |
+| AMR-8 | TreeAMR | wanted, workaround | — | symmetric walls: the owned low wall filled like the high one | landed in TreeAMR 0.2.2, as `walls = :symmetric` (workaround dropped) |
+| AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets | landed in TreeAMR 0.2.2, as `vertex_prolongation` |
+| AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation | landed in TreeAMR 0.2.2 |
+| AMR-11 | TreeAMR | wanted | — | the relative hook consistent across levels where an outer face meets a coarse-fine face | waiting |
+| EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
+| EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
+| EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
+| EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
+| EOS-4 | EntropyEOS | later | 13 | cold β-equilibrium slice keyed by pressure | landed in EntropyEOS 2.3.0 |
+| EOS-5 | EntropyEOS | — | — | was: no policy repair creates rest mass; notes kept for Erik | withdrawn |
+| EOS-6 | EntropyEOS | — | — | a density raised to the atmosphere's gets the atmosphere's velocity | superseded by EOS-8 and the wrapper |
+| EOS-7 | EntropyEOS | — | — | the atmosphere's entropy in the atmosphere band | not pursued |
+| EOS-8 | EntropyEOS | req | — | report the density floor: `FLAG_POL_ρ_FLOORED` | landed in EntropyEOS 1.1.0; in 2.0.0 the `ρ_min` face (bit 11) |
+| EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
+| EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
+| EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
+| GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
+| GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
+| GH-2 | TreeGH | req, workaround | 11 | registration; registry-satisfiable compat; Julia floor | open, see below |
+| GH-3 | TreeGH | req | 11 | matter input, a pointwise `matter` adapter returning `(ρ, S_i, S_ij)` | landed on TreeGH's `main` (79ad132; 0.1.1, unregistered) |
+| GH-4 | TreeGH | req | 11 | RHS and limiters callable from a script: `TreeGH.prepare!`, `TreeGH.rhs!`, … | landed on TreeGH's `main` (0cd5f00; 0.1.1, unregistered), the regrid pieces split off as GH-7 |
+| GH-5 | TreeGH | — | — | was: ghost width `≥ q/2 + 1`, wanted, step 10; not needed: the interpolation reads this package's own `G = 4` vertex set | withdrawn |
+| GH-6 | TreeGH | later | — | gauge driver, radiative boundary, excision, Ψ₄ | waiting |
+| GH-7 | TreeGH | wanted, workaround | 11 | the regrid verbs (`flags`, `regrid_pairs`, `rebuild`) and `constraint_norms(p, u, t)` on a segment | waiting |
+| GH-8 | TreeGH | note | — | constraint damping on a star: `γ0 = 1/M` grows a mode with matter; no change requested | written, not sent |
+| SM-1 | SpacetimeMetrics | wanted, workaround | 9 | allocation-free `ExtrinsicCurvature`, also from one `dmetric` | landed in SpacetimeMetrics 1.7.0 (workaround dropped) |
 
 ### TreeAMR
 
@@ -4755,6 +4990,17 @@ repository (2026-11-05, Erik).
 **2026-11-06.** *(Amended 2026-11-06:)* TreeGH is not a dependency of this
 package at all now; see "The coupling contract".
 
+**2026-11-24, step 15: the measurements behind the CI tiers**, moved here from `CODE.md`'s
+"Julia version". The pull-request cells had taken 10–33 min (the threaded one the slowest), 52
+of the last 80 commits on `main` touched only Markdown, and macOS cells queued behind the other
+repositories', since the account runs five at once. On GitHub's runners, with bounds checks,
+the suite had taken 14 minutes at one thread and 32 at four (the step-9 pull request,
+2026-11-05). The four-thread time was not the 3D or curved runs, which ran faster threaded (the
+curved file 197 s → 127 s), but the 1D studies: 4–8 times their one-thread time (the
+reconstructions' Alfvén waves 41 s → 278 s, the Alfvén wave across coarse-fine faces 13 s →
+185 s, the shock tubes about 40 s → 296 s). The skipped counts then were 3 in `quick` and 32 in
+`threaded`, before steps 12 and 13 marked more testsets.
+
 ## Precision and devices
 
 **Step 0.** The design (generic `T` and backend, `Float64` physics, `Float32`
@@ -6272,3 +6518,9 @@ hour. Without the variable (the clean checkout on the M3 Pro, 1.13, four
 threads) the five gated testsets are each one broken test and named at the
 end: 26772 passing, 5 broken, in 18m04s. A step on the table costs about
 2.7 times the polytrope's per cell (the M3 Pro, four threads).
+
+**2026-11-24, step 15.** At dae7097, after the review pass (comments, the module docstring
+and one log string changed in the code): **26785 tests, every run passing whole** with the
+tables (Symmetry job 610236 on cn101, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`,
+study `full-suite-dae70977cb7d`, not posted) — 30m00s at one thread, 21m51s at four, 37m04s
+with `--check-bounds=yes`, side by side, the job 37m11s.

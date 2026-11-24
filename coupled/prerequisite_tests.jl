@@ -1,4 +1,4 @@
-# The TreeGH items of `PLAN.md`'s "Upstream requirements", detected from the release this
+# The TreeGH items of `CODE.md`'s "Upstream prerequisites", detected from the release this
 # environment resolved, by name and method, never by version. The package's own suite only
 # names the open ones; this suite, which loads TreeGH, says which have landed.
 

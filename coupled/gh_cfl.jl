@@ -1,5 +1,5 @@
 # Step 11: TreeGH's CFL factor under the explicit part of SSP3(4,3,3), the coupled run's
-# integrator (`PLAN.md`, step 11, "Decides"; "Time integration" in `CODE.md`). TreeGH's
+# integrator (the plan's step 11, "Decides"; "Time integration" in `CODE.md`). TreeGH's
 # own `cfl = 1/4` was measured with RK4, whose stability region reaches further along the
 # imaginary axis. TreeGH runs alone, its implicit part a copy (as in the coupled run's
 # `solve_imp!`), at `cfl` on a grid, on two cases: TreeGH's gauge wave (periodic,

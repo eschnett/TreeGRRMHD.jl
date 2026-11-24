@@ -1,5 +1,5 @@
 # Rung 1b: the discontinuous problems in one dimension ("Validation ladder" 1
-# in `CODE.md`; step 6 of `PLAN.md`), each a one-dimensional `MHDCase` with
+# in `CODE.md`; step 6 of the plan in `HISTORY.md`), each a one-dimensional `MHDCase` with
 # Dirichlet boundaries from its own data:
 #
 #   * Balsara's (2001) five relativistic MHD Riemann problems, under

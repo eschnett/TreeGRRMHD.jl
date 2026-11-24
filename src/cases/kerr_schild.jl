@@ -1,5 +1,5 @@
 # Rung 3: analytic curved backgrounds ("Validation ladder" 3 in `CODE.md`;
-# step 9 of `PLAN.md`). Two stationary solutions on a Schwarzschild hole in
+# step 9 of the plan in `HISTORY.md`). Two stationary solutions on a Schwarzschild hole in
 # Kerr-Schild coordinates, each an exact solution of the whole system, matter
 # and fields, at every time:
 #

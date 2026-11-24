@@ -38,7 +38,7 @@ function ct_adm_diff(N)
 end
 
 @testset "TreeGH's metric of the star crosses at its vertices as the analytic star's" begin
-    # Guards GH-1 downstream (`PLAN.md`, GH-1): TreeGH's decoded `α`, `β`, `γ` and its `K`,
+    # Guards GH-1 downstream (GH-1, `CODE.md`, "Requests still waiting"): TreeGH's decoded `α`, `β`, `γ` and its `K`,
     # read through `ADMMetric` bound to this package's `Mv`, against the analytic star's at
     # every owned vertex. A wrong index layout, a transposed `γ`, the wrong sign of `K` or a
     # vertex offset by one would show as an O(1) difference. The star is static with zero
@@ -84,7 +84,7 @@ function ct_frozen(N, t_end, nsteps; mk=ct_problems)
 end
 
 @testset "The star on TreeGH's frozen metric is the Cowling star" begin
-    # Guards the coupled plumbing with the spacetime held fixed (`PLAN.md`, step 11, "the
+    # Guards the coupled plumbing with the spacetime held fixed (the plan's step 11, "the
     # frozen metric"): the script's callbacks on a state vector of both packages' sets, the
     # metric refilled from TreeGH at every call, against step 10's Cowling run on the
     # analytic star's vertex metric. A segment offset, a metric read at the wrong state or
@@ -118,7 +118,7 @@ function ct_static_matter(N, t_end; matter::Bool)
 end
 
 @testset "TreeGH holds the static star with this package's matter (GH-3's check)" begin
-    # Guards GH-3 downstream (`PLAN.md`, GH-3): TreeGH evolves the star's spacetime with
+    # Guards GH-3 downstream (GH-3, `CODE.md`, "Requests still waiting"): TreeGH evolves the star's spacetime with
     # the matter fixed at the star's, from `ADMMatter`, and the spacetime must stay static
     # to truncation error, converging; without the matter it must not. A matter term with
     # the wrong units, index position or density (`ρ` for `e`, `S^ij` for `S_ij`) would

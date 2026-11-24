@@ -1,6 +1,6 @@
 # Rung 1b, the atmosphere: a blast into a near vacuum, a density ratio of
 # 10⁸, which the reset has to hold ("Floors, the atmosphere and the
-# magnetosphere" in `CODE.md`; step 6 of `PLAN.md`), and the comparison of
+# magnetosphere" in `CODE.md`; step 6 of the plan in `HISTORY.md`), and the comparison of
 # the two tableaus where they differ most — a strong rarefaction into a
 # vacuum, where only an SSP explicit part keeps the density positive.
 

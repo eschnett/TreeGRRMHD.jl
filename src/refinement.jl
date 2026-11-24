@@ -1,5 +1,5 @@
 # Refinement: the criterion, the regrid of every field set, and the initial
-# adaptation ("Refinement" in `CODE.md`; step 8 of `PLAN.md`).
+# adaptation ("Refinement" in `CODE.md`; step 8 of the plan in `HISTORY.md`).
 #
 # TreeAMR moves the data; what is here is what only the application knows:
 #

@@ -14,47 +14,41 @@ end goal is neutron stars and core-collapse supernovae. The feature set is
 modelled on GRaM-X (Shankar et al. 2022, arXiv:2210.17509), with the ideal
 Ohm's law replaced by a resistive one.
 
-*Status: steps 0 to 3 and 5 to 12 of `PLAN.md` are done, as are steps 4a–4c
-in IMEXRungeKutta (what each delivered is recorded in [HISTORY.md, "The
-steps of the plan"](HISTORY.md#the-steps-of-the-plan)). Step 10 is the TOV
-star in the Cowling approximation on the analytic TOV metric, with no
-TreeGH (rung 4; [The coupling contract](#the-coupling-contract)). Step 11
-is the same star in TreeGH's evolved spacetime ("Validation ladder" 5): F
-within 1%, and H1 within 1.5% from `h = 0.6`; H1 and H2, excited along
-their eigenfunctions, within 1% of Font et al. at `h = 0.25`; the
-constraints converge at 1.8 or better to 1000 M, inside and outside the
-star, but for `ℋ` outside at 1.76 over one 20 M window; the rest mass
-changes by 1.3e−12 of 1.506 over 1000 M at `h = 0.375` net of the reset, at
-a rate of about 3, entering with the atmosphere (`ρ_min = 1e−12`) at the
-outer faces. Two of its upstream items are open, GH-2 (registration) and
-GH-7 (TreeGH's regrid verbs), each with a workaround in `coupled/`
-([TreeGeneralizedHarmonic](#treegeneralizedharmonic)). Step 12 is the
-magnetized star, in the evolved spacetime and, as a cheaper check, on the
-Cowling metric ("Validation ladder" 6): `∇·B` at round-off; coupled, the
-exterior dipole's drift converging at 1.4–2.6 to 50 M (`h = 0.5 … 0.25`)
-once σ is zero below `ρ = 10⁻⁶`, a density of the star's and not a multiple
-of `ρ_min`; `E·B` inside converging at 1.7–2.3; the constraints at 1.7 or
-better; the stage solve by fixed point everywhere inside the star. Its
-entropy fallback waits for EOS-3, so whether `D s` earns its keep stays
-open ("Open questions"). The literature's confined-field star, coupled,
-loses its central field to the scheme at 2.9–4.2 in `h` and at σ₀ = 100
-falls by two decades in 9.6 ms, as GRaM-X's and Dionysopoulou et al.'s do,
-within 0.4% of the Cowling star's; at σ₀ = 10⁶ its central field shows no
-late rise to 9.85 ms, and its central density gives F and H1 within 0.6% of
-linear theory. Step 13 is the star on a real table (DD2, SFHo) in cold
-β-equilibrium, its `Yₑ` advected ("Validation ladder" 7), on EntropyEOS
-2.3.0's slice (EOS-4): on the Cowling metric the drift averaged over
-160–200 M converges at 1.5–2.6 and the rest mass and `D Yₑ` hold to
-round-off over 200 M once the mesh keeps the matter the coarsest star sheds
-off the outer faces. In the evolved spacetime, on rung 5's box
-(`L = 24`), the constraints converge at 1.8 or better to 260 M, and then
-the star's oscillation grows, fed by TreeGH's Dirichlet outer boundary,
-and they fall to 1.4–1.7. On a box four times as wide (`L = 96`) the
-oscillation is damped and the constraints converge on the finer pair at
-1.8–3.0 to 1000 M, except outside the star around 100 M (1.0–1.4).
-Over 1000 M on the Cowling metric `D Yₑ`
-moves by 10⁻¹³ where the rest mass does not (open). The numbers below
-about the scheme are measured where they say so and unmeasured otherwise.*
+*Status: built and validated. The seven rungs of the [validation
+ladder](#validation-ladder) are done, and the scheme runs on a GPU
+([Precision and devices](#precision-and-devices)); how the package was
+built, step by step, and who decided what, is in [HISTORY.md, "The steps of
+the plan"](HISTORY.md#the-steps-of-the-plan).
+- **Flat space and curved backgrounds** (rungs 1–3): smooth waves, shock
+  tubes and the stiff limit in 1D, 2D and 3D, across coarse-fine faces and
+  regrids, and on Kerr-Schild backgrounds, the hole's interior relaxed to
+  the analytic solution.
+- **The TOV star** on the Cowling metric (rung 4) and in TreeGH's evolved
+  spacetime (rung 5): F within 1%, H1 within 1.5% from `h = 0.6`, H1 and H2
+  within 1% of Font et al. at `h = 0.25`; the constraints converge at 1.8 or
+  better to 1000 M but for `ℋ` outside at 1.76 over one 20 M window; the
+  rest mass changes by 1.3e−12 of 1.506 over 1000 M, entering with the
+  atmosphere at the outer faces.
+- **The magnetized star** (rung 6), coupled and on the Cowling metric:
+  `∇·B` at round-off; the exterior dipole's drift converging at 1.4–2.6
+  once σ is zero below `ρ = 10⁻⁶`; the literature's confined-field star
+  losing its central field as GRaM-X's and Dionysopoulou et al.'s do.
+- **The star on a real table** (rung 7; DD2, SFHo, cold β-equilibrium, `Yₑ`
+  advected): on the Cowling metric the drift converges at 1.5–2.6 and the
+  rest mass and `D Yₑ` hold to round-off over 200 M. In the evolved
+  spacetime TreeGH's Dirichlet outer boundary grows the star's oscillation
+  on rung 5's box (`L = 24`); on a box four times as wide it is damped, and
+  the constraints converge at 1.8–3.0 on the finer pair to 1000 M except
+  outside the star around 100 M.
+- **Devices**: a CUDA run matches the CPU to 26 ulp in `ρ_c` over 200 M;
+  `Float32` runs on CUDA and Metal; one and four threads agree bit for bit.
+
+What is not built, or measured short, is under [Known risks](#known-risks)
+and [Possible extensions](#possible-extensions); the upstream items still
+waiting (TreeGH's registration and regrid verbs, each with a workaround,
+and EntropyEOS's registration and fixed-entropy inversion) are under
+[Requests still waiting](#requests-still-waiting). The numbers below about
+the scheme are measured where they say so and unmeasured otherwise.*
 
 Markers: **(proposed)** is a decision this document makes and still wants
 confirmed; **(open)** is deferred to a measurement or to a later review and
@@ -72,6 +66,7 @@ rather than diverging silently.
   - [TreeGeneralizedHarmonic](#treegeneralizedharmonic)
   - [EntropyEOS](#entropyeos)
   - [SpacetimeMetrics](#spacetimemetrics)
+  - [Requests still waiting](#requests-still-waiting)
 - [The equations](#the-equations)
   - [Conventions](#conventions)
   - [Matter: total energy and momentum](#matter-total-energy-and-momentum)
@@ -171,20 +166,20 @@ rather than diverging silently.
 
 What this package needs from its siblings, and why. The exact
 requirements — API, semantics, the tests the sibling should carry, and the
-check this package adds when an item lands — are in [`PLAN.md`, "Upstream
-requirements"](PLAN.md#upstream-requirements), under the IDs used here, for
-the items still waiting; for those landed, withdrawn or superseded they are
-in [HISTORY.md, "Upstream prerequisites"](HISTORY.md#upstream-prerequisites).
-The summary below keeps only the reasons. The priorities "(req)",
-"(wanted)" and "(later)" are defined with `PLAN.md`'s table. How the state
-below came about is in [HISTORY.md, "Upstream
-prerequisites"](HISTORY.md#upstream-prerequisites).
+check this package adds when an item lands — are in [Requests still
+waiting](#requests-still-waiting), under the IDs used here, for the items
+still waiting; for those landed, withdrawn or superseded they are in
+[HISTORY.md, "Upstream prerequisites"](HISTORY.md#upstream-prerequisites),
+with how the state below came about. The bullets below keep the reasons.
+The priorities "(req)", "(wanted)" and "(later)" are defined under
+[Requests still waiting](#requests-still-waiting).
 
 The state, as `[compat]` guarantees it for what has landed, as
 `test/prerequisite_tests.jl` reports it for what is waiting, and, for
 TreeGH, as its `main` reads. A landed item whose release the compat floor
-requires has no probe any more (the rule is in `PLAN.md`, "Upstream
-requirements"): AMR-1 to AMR-10, EOS-1, EOS-2 and SM-1. Their names are in
+requires has no probe any more (the rule is under [Requests still
+waiting](#requests-still-waiting)): AMR-1 to AMR-10, EOS-1, EOS-2, EOS-4
+and EOS-8 to EOS-11, and SM-1. Their names are in
 the prerequisite test's name lists; what this package relies on from them
 and does not yet exercise through its own code goes in
 `test/upstream_behaviour_tests.jl`, which is removed while it is empty (the
@@ -201,8 +196,8 @@ item needs it.
   pins the tag `v2.3.0`, with `[compat]` `"2.3"`: **EOS-1 and EOS-2 have
   landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since, and **EOS-4 in
   2.3.0** (below); EOS-3 has not.
-- IMEXRungeKutta **1.4.0**, tagged, not registered: the plan's steps 4a–4c
-  are done there, and it is a dependency from step 0.
+- IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
+  `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
   requires Julia 1.11, below the floor here, 1.13):
   **SM-1 has landed in SpacetimeMetrics 1.7.0**, and its workaround is
@@ -211,7 +206,7 @@ item needs it.
   `ADMMetric`, and Adapt as a new direct dependency, on TreeAMR 0.2, not
   registered: GH-0 has landed (the step-8 work is on `main`); GH-1 is
   landed, `ADMMetric`, TreeGH's PR 25 (61bcb75); GH-3 (79ad132) and GH-4
-  (0cd5f00) have landed on its `main`; GH-2 is open (see `PLAN.md`), GH-7
+  (0cd5f00) have landed on its `main`; GH-2 is open, GH-7
   is wanted, each with a workaround; GH-5 is withdrawn. TreeGH is not a
   dependency of this package at all, so the package's suite cannot detect
   its items: `coupled/`, an environment of its own, loads TreeGH through
@@ -234,11 +229,12 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   `test/scheme_tests.jl` makes the plan's downstream check — the round trip
   over exactly that tuple in D = 1, 2, 3, on a two-level forest, each
   segment bit for bit the set's own state vector.
-- **AMR-2 (wanted, step 6) Per-set boundary hooks in `regrid!`.** It takes
-  one hook for every set, and an `AllVariables` hook is length-checked
-  against each set's `nvars`, so one hook cannot serve this package's sets.
-- **AMR-3 (wanted, step 8) `adapt_to_initial_data!` over several sets**;
-  today it adapts one.
+- **AMR-2 (wanted, step 6) Per-set boundary hooks in `regrid!`**: one hook
+  for every set, since an `AllVariables` hook is length-checked against
+  each set's `nvars`, so one hook cannot serve this package's sets.
+  *Landed in TreeAMR 0.2.1*; `regrid_pairs` passes each evolved set its own.
+- **AMR-3 (wanted, step 8) `adapt_to_initial_data!` over several sets**.
+  *Landed in TreeAMR 0.2.1*; `adapt_case!` adapts every set at once.
 - **AMR-4 (strongly wanted, step 10) A limited conservative prolongation**
   for cell-centered data. "Limited" in the reconstruction sense: a nonlinear
   prolongation — slope-limited (minmod/MC) and scaled toward the coarse
@@ -315,12 +311,13 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   an upstream item any more.
 
 This is a **physics package** in TreeAMR's sense (its `CODE.md`,
-"Companion interface", 2026-10-08): it uses TreeAMR's exports only, and
+"Companion interface"): it uses TreeAMR's exports, with one exception —
+`tov_boxes!` reads `Forest`'s field `leaves` —, and
 bounds TreeAMR by a minor series, `TreeAMR = "0.2.2"`, the release the
 landed items are in. The prerequisite tests check the names it calls
 against the exports, and `src/device.jl` uploads its own metadata with
 `KernelAbstractions.allocate` rather than reaching for TreeAMR's internal
-`todevice` (proposed).
+`todevice`.
 
 What this package relies on from the landed items, beyond the summaries above (the requests and
 their record: [HISTORY.md, "TreeAMR"](HISTORY.md#treeamr)):
@@ -339,8 +336,8 @@ their record: [HISTORY.md, "TreeAMR"](HISTORY.md#treeamr)):
   at conservative order 1 (already bounded) and refused otherwise. The slope is fixed to MC
   (minmod lost the interface order). One kernel serves the ghost fill and the regrid.
 - **AMR-6.** The schedule fills an outflow face's ghosts as clamped transfers. `OutflowFace` is
-  not exported: this package reaches outflow through `Forest`'s `outflow` keyword only. The step
-  that first uses outflow faces tests them in place.
+  not exported: this package reaches outflow through `Forest`'s `outflow` keyword only. Nothing
+  here uses outflow faces yet; the first case that does tests them in place.
 - **AMR-7.** `CellBoundary(Relative(f))` and `CellBoundary(Relative(AllVariables(f)))` set a ghost
   to `f(x_g) + (u(x_r) − f(x_r))`, `x_r` the nearest evolved point (clamped along the components
   that leave the domain through an outer face, `G+2` on the low side under symmetric walls; the
@@ -363,7 +360,8 @@ contract](#the-coupling-contract)). GH-5 is withdrawn.
 
 - **GH-0 (req, step 11) Step 8 on `main`.** The unmerged step-8 branches
   widen `GHProblem`, `gh_rhs_kernel!` and `evolve!`; what the items below
-  target is in [`PLAN.md`, GH-0](PLAN.md#gh-0--land-step-8-on-main-req-step-11).
+  target is in [HISTORY.md,
+  "TreeGeneralizedHarmonic"](HISTORY.md#treegeneralizedharmonic).
 - **GH-1 (req, step 11) The metric at TreeGH's vertices**: `(α, β^i,
   γ_ij, K_ij)` at its owned vertices, from an adapter built from its
   prepared state and bound to this package's vertex set `Mv` on the same
@@ -413,12 +411,11 @@ contract](#the-coupling-contract)). GH-5 is withdrawn.
   `rebuild` and `constraint_norms(p, u, t; matter)`, so that the coupled
   script regrids TreeGH's set with this package's in one `regrid!` and
   monitors a segment's constraints. Until then the script composes them
-  from TreeGH's exports (`coupled/gh7.jl`, [`PLAN.md`,
-  GH-7](PLAN.md#gh-7--the-regrid-verbs-and-the-constraint-norms-of-a-segment-wanted-step-11-workaround)).
+  from TreeGH's exports (`coupled/gh7.jl`; the request: [GH-7](#gh-7--the-regrid-verbs-and-the-constraint-norms-of-a-segment-wanted-workaround)).
 - **GH-8 (note) Constraint damping on a star.** No change requested: at
   TreeGH's near-hole `γ0 = 1/M` the star grows a mode, and this package
   uses `γ0 = 1/(10M)` ("Two scripts", "As built";
-  [`PLAN.md`, GH-8](PLAN.md#gh-8--constraint-damping-on-a-star-note)).
+  [the note](#gh-8--constraint-damping-on-a-star-note)).
 
 The CFL factor of TreeGH under SSP3(4,3,3)'s explicit tableau is *not* an
 upstream item: this package owns the integrator, and step 11 measured the
@@ -484,10 +481,9 @@ TreeGRRMHD"; the request and its record:
   atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere),
   "EntropyEOS 2.0".
 - **EOS-10 (landed)**: the nested fallback allocation-free under
-  `--check-bounds=yes` (PLAN.md), where it allocated one `MVector{33,T}`
+  `--check-bounds=yes`, where it allocated one `MVector{33,T}`
   (272 B at `Float64`, 144 B at `Float32`). EntropyEOS 2.2.1 keeps the
-  scan's scratch on the stack under bounds checks, bit for bit; `[sources]`
-  pins `v2.2.1`.
+  scan's scratch on the stack under bounds checks, bit for bit.
 
 What this package relies on from the landed items, beyond the summaries above (the requests and
 their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
@@ -515,6 +511,228 @@ their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
 workaround's formula, 3.7e−16 of `max |K|` (upstream's two methods agree bit for bit, so comparing
 them checks nothing independently), and step 2's kernel test asserts that `metric_gradient`, which
 calls the new method, allocates nothing.
+
+### Requests still waiting
+
+The exact requests for the items above that have not landed. The format
+is the one every item was written in:
+- **what**, and the **exact API**;
+- **semantics**;
+- **upstream acceptance**: the tests the sibling should carry;
+- **downstream check**: the testset `test/prerequisite_tests.jl` (or, for
+  TreeGH, `coupled/prerequisite_tests.jl`) gains. Until the item lands, it
+  is skipped with an `@info` naming the ID. It detects the item by
+  `isdefined` / `hasmethod`, never by version number.
+
+**Priorities.** **req** blocks the work named; **wanted** has a
+workaround, listed with the item and marked in the code with the item's
+ID (no other workaround is allowed); **later** is not needed by anything
+built. An item lands in a **registered release** (or a pushed commit where
+registration is pending), never only in a local checkout; additive changes
+stay in the same minor series.
+
+**Retiring a probe.** Once an item has landed *and* `[compat]` requires a
+release that contains it, its testset is deleted from
+`test/prerequisite_tests.jl`. The names the item added join the
+prerequisite test's name lists. A property of the release this package
+relies on and does not yet exercise through its own code moves to
+`test/upstream_behaviour_tests.jl` until a test uses it in place. The
+landed item's request and record move to [HISTORY.md, "Upstream
+prerequisites"](HISTORY.md#upstream-prerequisites), and its bullet above
+says what this package relies on from it.
+
+#### AMR-11 — The relative hook consistent across levels at an outer face (wanted)
+
+**Why.** With the potentials' conservative transfer (AMR-9) the magnetic
+flux through a coarse face on a coarse-fine face is the sum through its
+fine faces to rounding (1.4e−16 of the largest flux in a periodic 3D box)
+— except where the face's perimeter lies on an outer face. There each
+level's relative hook writes its own wall and ghost edges,
+`f(x_g) + (u(x_r) − f(x_r))` with `x_r` that level's nearest evolved
+point, so a coarse wall edge is not the mean of the fine ones beside it
+(1.2e−5 of the largest flux in the closed 3D blast box, 45 of 192 faces;
+2.7e−5 after a regrid). The same holds for any set with symmetric walls
+and a conservative transfer: at the wall the levels are filled
+independently.
+
+**API.** None new; a semantic of `CellBoundary(Relative(f))` (or an
+opt-in): a point that lies both beyond (or on the wall of) an outer face
+and on a coarse-fine face is filled from the level that owns that plane by
+the set's own transfer — restricted from the fine level where the fine
+block owns it, prolongated from the coarse level's hook-filled values
+where the coarse one does — rather than by the hook on each level.
+
+**Upstream acceptance.** On an edge set under `Conservative` with
+`vertex_prolongation`, symmetric walls and a relative hook, on a two-level
+mesh whose coarse-fine face meets an outer face in D = 2, 3: the line
+integral of every coarse edge on the wall equals the sum of its fine
+edges' after a fill and after a regrid; one fill is still the condition's
+fixed point.
+
+**Downstream check.** `test/refinement_tests.jl`'s state-flux testset
+asserts the closed box's mismatch to rounding instead of recording it.
+AMR-11 has no probe in `test/prerequisite_tests.jl`: a semantic change has
+no name to detect, and that testset is its check.
+
+**Workaround:** none needed: the flux through a face at a Dirichlet
+boundary is the boundary condition's, which nothing conserves ("Conservation
+at coarse-fine faces").
+
+#### EOS-0 — Register EntropyEOS (req; workaround)
+
+Register EntropyEOS in General. Until then `Project.toml`'s `[sources]`
+names `url = "https://github.com/eschnett/EntropyEOS.jl"` at a tag (today
+`rev = "v2.3.0"`), which CI, the clean-checkout check and a developer all
+read.
+
+#### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted)
+
+**API.**
+```julia
+con2prim_entropy(eos, in::Con2PrimIn, s, opts::Con2PrimOptions, w_guess=NaN, u_guess=NaN)
+    -> Con2PrimOut      # in.τ ignored
+entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EOSPoint, converged::Bool)
+```
+
+**Semantics.**
+- `con2prim_entropy` wraps EntropyEOS's internal `inner_solve_w`.
+  - `result = converged_fallback` when `|f1| ≤ tol·cosh w`, otherwise
+    `failed_max_iter`.
+  - It sets a distinct flag when `V ≥ tanh(w_max)` pinned the rapidity.
+- `entropy_from_energy` wraps the internal `seed_s_solve`. It reports
+  convergence instead of silently pinning to the window.
+
+**Upstream acceptance.**
+- A round trip at fixed `s` on random states.
+- Pinning and non-convergence are reported, never silent.
+
+**What waits for it**: the entropy fallback ("Primitive recovery").
+
+#### GH-2 — Registration, registry-satisfiable compat (req; workaround)
+
+TreeGH is not a dependency of this package ("The coupling contract"); the
+item is for `coupled/`, the environment that loads both.
+
+- Register TreeGeneralizedHarmonic and KorzynskiSpin in General.
+- Every `[compat]` entry must be satisfiable from registered releases
+  alone. `[sources]` of a dependency is ignored when TreeGRRMHD resolves
+  it, so the TreeAMR features TreeGH uses must be in a released TreeAMR.
+  TreeGH is on the registered TreeAMR 0.2. What is left, as of TreeGH's
+  fbfd416: TreeGH itself, TreeIOHDF5 (for its checkpoints) and
+  IMEXRungeKutta are unregistered, and its `ApparentHorizonFinder = "2.1"`
+  is ahead of the registry, which has 2.0.0. KorzynskiSpin 1.1.0 and
+  AbstractSphericalHarmonics are registered.
+- The Julia floor is 1.13 for every Tree* package ([Julia
+  version](#julia-version)); nothing is asked of TreeGH.
+- **Workaround until registered:** `coupled/Project.toml`'s `[sources]`
+  names TreeGH, ApparentHorizonFinder, IMEXRungeKutta and EntropyEOS by
+  URL; `coupled/prerequisite_tests.jl` reports the item.
+
+#### GH-6 — Later
+
+A damped-harmonic gauge driver, radiative or constraint-preserving outer
+boundaries, excision or a generalized interior for collapse, and Ψ₄. The
+radiative boundary is the one a coupled run now has a measured need for:
+TreeGH's Dirichlet outer boundary grows the tabulated star's oscillation
+at `L = 24` ("Validation ladder" 7).
+
+#### GH-7 — The regrid verbs and the constraint norms of a segment (wanted; workaround)
+
+What a coupled script needs beyond GH-4 to regrid TreeGH's set together
+with this package's in one `regrid!`, and to monitor the constraints of a
+segment. TreeGH's `CODE.md` ("The verbs (GH-4)") lists them as not built.
+
+**API** (module-qualified, `public`, not exported; the names are this
+package's, so that the script reads the same for both packages).
+```julia
+TreeGH.flags(p::GHProblem, u, t; buffer = 0, travel = 0) -> flags
+                     # gh_indicator!(p, u, t; buffer, travel) on a segment `u`
+TreeGH.regrid_pairs(p::GHProblem, t) -> Tuple
+                     # (p.U => (p.schedule, dirichlet(p.case, t)),) and every other set of
+                     # `p` that lives on the forest, `=> nothing`
+TreeGH.rebuild(p::GHProblem, t) -> GHProblem
+                     # after `regrid!`: a new GhostSchedule with `p`'s operators, `Hsrc`
+                     # resampled, `diag` reallocated, every keyword of `p` carried over
+TreeGH.constraint_norms(p::GHProblem, u, t; matter = nothing, mask = …) -> NamedTuple
+                     # adm_constraint!(p, u, t; mask, matter), then constraint_norms(p)
+```
+
+**Semantics.**
+- `flags` and `constraint_norms` scatter `u` (a contiguous segment, as for
+  GH-4) and so invalidate a preceding `prepare!`, like every monitor.
+- `regrid_pairs` returns pairs for TreeAMR's `regrid!` over several sets:
+  the caller concatenates them with this package's and calls `regrid!`
+  once. The hook is the one `evolve!`'s `regrid_mesh` passes today.
+- `rebuild` is `regrid_mesh`'s rebuild without the `regrid!`, the
+  `statevector` and the limiter, which the script does over every set. It
+  does not run `stage_limit!`: the script does, on the gathered segment.
+
+**Upstream acceptance.**
+- `evolve!`'s regrid, rewritten as `flags`, `regrid!` over
+  `regrid_pairs`, `rebuild`, `statevector`, `gather!` and `stage_limit!`,
+  is bit-identical to today's on a refined hole fixture.
+- On a segment of a two-set state vector, each verb equals the standalone
+  call.
+
+**Downstream check** (in `coupled/`). The script's regrid branch, with
+TreeGH's verbs in place of the workaround, is bit-identical to the
+workaround's.
+
+**Workaround** (marked `GH-7` in `coupled/gh7.jl`): the four composed in
+the script from TreeGH's exports (`gh_indicator!`, `dirichlet`,
+`GHProblem(U, schedule, case; q)`, `GhostSchedule`, `adm_constraint!`,
+`constraint_norms(p)`), reading `GHProblem`'s fields `U`, `schedule` and
+`case`.
+
+#### GH-8 — Constraint damping on a star (note)
+
+A measurement for TreeGH. No change is requested; what to do with it is
+TreeGH's call. Written, not sent.
+
+**What was found.** The star is rung 5's (`K = 100`, `Γ = 2`,
+`ρ_c = 1.28e−3`, `M = 1.400`, `R = 9.586`), evolved by TreeGH with a
+frozen sampled `H_a`, `ε_KO = 1/2` and a constant `γ0`. At `γ0 = 1/M`,
+the near-hole value of `GHCase`'s docstring, a mode grows: it doubles
+every 25 M (an e-fold of about 36 M) at `h = 0.6` and at `h = 0.375`. The
+rate does not change with resolution, and the amplitude is 2.5 times
+smaller at the finer `h`: the truncation error seeds it at second order.
+In the coupled run the star collapses near 400 M. TreeGH alone shows the
+same growth, on the initial star's matter held fixed (GH-3's adapter).
+
+The largest change of TreeGH's state, TreeGH alone on the frozen matter,
+at `h = 0.6` to 500 M:
+
+| `γ0 M` | `γ2` | result |
+|---|---|---|
+| 0 | 0 | bounded; `ℋ` noisy, to 3e−4 |
+| 1/20, 1/10 | 0 | flat, 1.6e−2 (6.7e−3 at `h = 0.375`); `ℋ` 3–5e−5 |
+| 1/4 | 0 | grows, then saturates at 2.8e−2 |
+| 1/2 | 0 | grows, 0.43 at 500 M |
+| 1 | 0 | doubles every 25 M |
+| 1 | −1/2 | bounded, 3e−2; `ℋ` 3e−4 |
+| 4 | 0 | `NaN` at 105 M |
+
+Neither `ε_KO = 0` nor a box twice as wide changes the interior. Coupled:
+`γ0 M = 1/4` is stable to 250 M, `γ0 M = 1` with `γ2 = −1/2` to 390 M,
+and `γ2 = 1` crashes at 80 M. This package uses `γ0 = 1/(10M)`,
+`γ2 = 0`, `GaussianDamping`'s far-zone value for a hole, and `ℋ` stays
+flat to 300 M. The runs: [HISTORY.md, "Two scripts"](HISTORY.md#two-scripts).
+
+**Not measured:** which scale sets the threshold (`M`, `R`, or the
+light-crossing time); the mechanism (the mode needs both the matter and
+`γ0 ≳ 1/(4M)`, and `γ2 = −1/2` suppresses it); TreeGH's Plummer star
+(`test/matter_tests.jl`, `star_case`), which uses `γ0 = 1`, that is
+`10/M`, on short runs.
+
+**Possibly relevant to TreeGH:** `GHCase`'s docstring and TreeGH's
+`CODE.md`, "Gauge and constraint damping", give `γ0 ≈ 1/M` as the recipe
+near a hole, which a matter case inherits unless told otherwise; long
+matter runs at `γ0 ≳ 1/(2M)` may grow this mode.
+
+**Reproducer** (the `coupled/` environment, about an hour on 64 cores):
+```bash
+julia --project=coupled -t 64 coupled/tov_coupled_study.jl N=10 t_end=400 γ0M=1
+```
 
 ## The equations
 
@@ -558,14 +776,14 @@ S^ij = ρ h W² vⁱ vʲ + p γ^ij    − Eⁱ Eʲ − Bⁱ Bʲ + ½ γ^ij (E² 
 (the Valencia form, e.g. Baumgarte & Shapiro; the electromagnetic parts as
 in Palenzuela 2013 and Dionysopoulou et al. 2013). The momentum source is
 equivalently `½ √−g T^{ab} ∂ⱼ g_ab`, which is the cheaper form when the
-metric derivatives come from TreeGH (proposed; the two are checked against
+metric derivatives come from TreeGH (the two are checked against
 each other in a test). Both are `geometric_source` in `src/sources.jl`, and
 on boosted Kerr-Schild with fields up to 100 times the fluid's energy they
 agree to 5.4e−16 of the magnitude of their terms; the covariant form also
 agrees with `√−g T^{μν}(∂_μ g_νj − Γ^δ_νμ g_δj)` from SpacetimeMetrics'
 Christoffels to 1.2e−15, and the energy source with Banyuls et al.
 (1997)'s `√−g (T^{μt} ∂_μα − α T^{μν} Γᵗ_μν)` to 5.6e−16. **The covariant
-form is the default** (proposed): every provider produces `∂ⱼ g_ab`
+form is the default**: every provider produces `∂ⱼ g_ab`
 natively, and the Valencia form must first derive `∂ⱼα` and `∂ⱼβⁱ` from it.
 Measured (Julia 1.11, `Float64`, one call, Apple M3 Pro): 36 ns against
 50 ns for the geometric source, 41 ns against 74 ns for a cell's whole
@@ -578,7 +796,8 @@ succeeds, the resynchronisation, was tried and not adopted ([HISTORY.md,
 "Matter: total energy and
 momentum"](HISTORY.md#matter-total-energy-and-momentum); [HISTORY.md, "Open
 questions"](HISTORY.md#open-questions)).
-Whether `D s` earns its keep is (open).
+Whether `D s` earns its keep is not decided: it waits for the entropy
+fallback, and that for EOS-3 ("Possible extensions").
 
 ### Maxwell
 
@@ -606,7 +825,8 @@ reproduce an exact electromagnetic plane wave in the Lorenz gauge —
 `∂ₜE = ∇ × B`, `∂ₜA = −E − ∇Φ`, `∂ₜΦ = −∇·A` — to 6.3e−16, with
 Ampère's source equal to `−j` to 2.2e−16 (`test/pointwise_tests.jl`). The gauge is generalized Lorenz with damping `ξ`
 (Farris et al. 2012), which removes the zero-speed gauge mode that
-otherwise produces spurious `B` at refinement boundaries. `ξ` is (open).
+otherwise produces spurious `B` at refinement boundaries. `ξ` is `16/L` by
+default ("Refinement").
 
 **The charge density is derived, not evolved**: `q := ∇·E`,
 computed from the ghost-filled cell-centered `𝔈` in every right-hand-side
@@ -616,12 +836,12 @@ cost is that any numerical divergence of `E` — at coarse-fine interfaces,
 at the stellar surface — appears as charge and drives `q v` currents; the
 charge is monitored as a diagnostic.
 
-**A uniform background field** `𝔅̄ⁱ` is added to `curl A` (proposed). It
+**A uniform background field** `𝔅̄ⁱ` is added to `curl A`. It
 is what lets a vector potential represent a net flux through a periodic
 box, and a field along a direction the mesh does not resolve: a 1D shock
 tube's constant `Bˣ` is `B̄ˣ`, since no translation-invariant `A` produces
-it. It is zero for stars. **The densitized `𝔅̄ⁱ` is the constant**
-(proposed), not `B̄ⁱ`: with `√γ` varying, `∂ᵢ(√γ B̄ⁱ) = B̄ⁱ∂ᵢ√γ ≠ 0`, a
+it. It is zero for stars. **The densitized `𝔅̄ⁱ` is the constant**,
+not `B̄ⁱ`: with `√γ` varying, `∂ᵢ(√γ B̄ⁱ) = B̄ⁱ∂ᵢ√γ ≠ 0`, a
 divergence the curl cannot cancel, while a constant `𝔅̄ⁱ` is
 divergence-free on any metric. In flat space the two are the same. It is
 `MHDProblem`'s `𝔅̄` and a case's (`src/curl.jl`); the Alfvén wave's guide
@@ -636,7 +856,7 @@ fluid frame (Palenzuela et al. 2009; Palenzuela 2013):
 jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 ```
 
-`σ` is an `isbits` model type (proposed):
+`σ` is an `isbits` model type:
 
 | model | σ | use |
 |---|---|---|
@@ -649,7 +869,7 @@ jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 The `q v` part is explicit. The `σ` part is **stiff** inside a star
 (`σ Δt ≫ 1`), and is the implicit part of the time integrator.
 
-*(Proposed:)* the models are in `src/ohm.jl`, and
+the models are in `src/ohm.jl`, and
 `conductivity(model, prim)` takes the whole primitive state, so that a
 later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2,
 power = 1)` is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)^power`: continuous, `σ₀`
@@ -692,7 +912,7 @@ holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 branches). Measured: at `E = −v × B` the current is 2.3e−16 of
 `σ W |B|`, and in flat space the bracket is the fluid-frame field
 `F^{ab} u_b` with the charge the normal observer sees, to 4.4e−16.
-*(Proposed:)* `conductivity_slope(model, prim)` is `∂σ/∂ρ`, for
+`conductivity_slope(model, prim)` is `∂σ/∂ρ`, for
 the stage solve's Newton Jacobian; a later model that reads `s` or `Yₑ`
 adds their derivatives. Extension slots, not planned: a mean-field dynamo
 term, and force-free currents in the magnetosphere.
@@ -712,11 +932,11 @@ choice by magnetization as well as by density. A globally convergent stage
 solve for that regime was built and is not in the code ([HISTORY.md, "Ohm's
 law and the conductivity"](HISTORY.md#ohms-law-and-the-conductivity)).
 
-*As built* (proposed): `MagnetizationCutoff(model, μ_max)` wraps
+*As built*: `MagnetizationCutoff(model, μ_max)` wraps
 any finite-σ model and multiplies its σ by a taper `g(μ)` of the
 magnetization `μ = magnetization(m, B, D) = γ_ij Bⁱ Bʲ / D` — the normal
 observer's field over the rest-mass density, which bounds the fluid
-frame's `μ/W ≤ b²/ρ ≤ W μ`. *(Proposed:)* `μ = +∞` where
+frame's `μ/W ≤ b²/ρ ≤ W μ`. `μ = +∞` where
 `D ≤ 0`, which a stage predictor next to a near vacuum can carry: no rest
 mass, no conductor. `B²/D` handed the taper's logarithm a negative number
 there, and the magnetized atmosphere tube threw a `DomainError`.
@@ -809,7 +1029,7 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A units adapter** converts between geometric units (`G = c = M☉ = 1`)
   and EntropyEOS's run units (cgs-like: densities in g/cm³, `U = ε/c²`),
   including `κ`. It is the only place a unit conversion is written.
-  *(Proposed:)* it is `GeometricEOS(eos; density)` in
+  it is `GeometricEOS(eos; density)` in
   `src/units.jl`, an `AbstractEOS` around an EOS in its own units whose
   densities are the scheme's: `evaluate` scales `ρ★` by the density unit on
   the way in and `U_ρ`, `U_ρs` (once), `U_ρρ` (twice) and `p` (inversely)
@@ -828,8 +1048,8 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   written directly in geometric units to 9.1e-15 in every `EOSPoint` field,
   and a table recovered through it agrees with the same table recovered in
   g/cm³ to 3.0e-15 in `(ρ, w)` and 8.4e-13 in `s`, conditioned.
-- **Warm starts** (`u_guess`, the previous `log₁₀ T`). *(Proposed:)*
-  every **recovery** is seeded from the state itself — `s` from the advected
+- **Warm starts** (`u_guess`, the previous `log₁₀ T`). Every
+  **recovery** is seeded from the state itself — `s` from the advected
   `(√γ D s)/(√γ D)`, a cold rapidity and EOS warm start (`state_guesses` in
   `src/evolution.jl`) — and not from `P`. A warm start carried in `P` makes
   each recovery depend, at the solver's tolerance, on whatever was evaluated
@@ -839,7 +1059,8 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   from `P` within one evaluation, still take their cell's EOS warm start.
   The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
   cell on the Alfvén wave (measured below). A table's `log₁₀ T`
-  is the warm start this loses; whether it matters is **(open)**: on the
+  is the warm start this loses; whether it matters is not measured
+  ("Possible extensions"): on the
   tabulated star a cell-step costs about 2.7 times the polytrope's (laptop,
   four threads, `h = 1`; not split into the recovery's part). If it does,
   the state can carry it the way it carries `D s`. The right-hand side is pure in
@@ -905,7 +1126,7 @@ EntropyEOS requires `S_⊥ ≥ 0` while `S_∥` is signed, and its own `prim2con
 calls all of the momentum perpendicular when there is no field to project
 against; the repaired states it packages then carry the speed in `v_⊥`. The
 velocity is rebuilt with its direction from `Sⁱ = γ^{ij} S_j` and its
-magnitude from the returned rapidity, `vⁱ = tanh w · Sⁱ/|S|` (proposed).
+magnitude from the returned rapidity, `vⁱ = tanh w · Sⁱ/|S|`.
 That makes the primitive state self-consistent to rounding, and right on a
 repaired state; the literal `vⁱ = Sⁱ/(ρhW²)` carries the momentum residual
 into `atanh |v|` amplified by `W²`, which left 7e-11 in the conserved `D`
@@ -934,12 +1155,13 @@ carrying 1e−4 to 100 times the fluid's `τ` — `con2prim_hydro ∘ prim2con`
 has conditioned worst errors 4.5e−13 in `(ρ, w, v)` and 8.4e−12 in `s`
 (raw `s` up to 5.7e−7 at `Γ = 2`, where the thermal energy is a tiny part
 of `τ` and `κ_s` is large). In the conserved variables, with `S_i` and `τ`
-measured against the energy density `𝓔 = τ + D` they are components of
-(proposed), the round trip at EntropyEOS's default tolerance is 9.8e−13
-relative (`τ` against itself: 9.9e−13). That is the solver's stopping
-criterion — `con2prim` stops when its energy residual is below 1e−12 of
-`τ`, often at the cold seed with no Newton step — and not this layer's
-rounding, and it leaves the 1e−12 of the step-1 acceptance no margin. So
+measured against the energy density `𝓔 = τ + D`, of which they are
+components, the round trip at EntropyEOS's default tolerance is about
+10⁻¹² relative (worst 1.07·10⁻¹² and 1.21·10⁻¹², at EntropyEOS 2.0's five
+seed passes). That is the solver's stopping criterion — `con2prim` stops
+when its energy residual is below 1e−12 of `τ`, often at the cold seed with
+no Newton step — and not this layer's rounding, and it reaches the 1e−12
+of the step-1 acceptance. So
 the test runs the conserved round trip with `Con2PrimOptions(tol = 1e−14)`,
 the tightest power of ten at which every draw still converges by Newton (at
 1e−15 some fall back to the nested solve, and the round trip is no better):
@@ -951,19 +1173,10 @@ hydrodynamic recovery and is checked through `s`. `con2prim_ideal` on
 states built with `E = −v × B` (the same draws, `B²` up to 100 times the
 fluid's `τ`, `B` along and across `v` included) has conditioned worst
 errors 1.8e−12 in `(ρ, w, v)` and 3.7e−12 in `s`. At `Float32` the
-recovery runs in a kernel and lands within 3.6e−5, conditioned, of the
+recovery runs in a kernel and lands within 2.3e−5, conditioned, of the
 state (EntropyEOS's `Float32` tolerance is 6.1e−5) on states dense enough
 that the thermal energy is a percent of `τ`; at `ρ = 1e−9` the gas's `U` is
 1e−7 of its rest mass and `Float32` cannot determine `s` at all.
-
-**Inconsistent:** the default-tolerance round trip above (9.8e−13; `τ`
-against itself 9.9e−13) and the `Float32` 3.6e−5 are the numbers from
-before EntropyEOS 2.0. [HISTORY.md, "Primitive recovery"](HISTORY.md#primitive-recovery)
-(2026-10-24) records that 2.0's `seed_passes` 5 moved the default-tolerance
-conserved round trip to 1.07·10⁻¹², 1.21·10⁻¹², 8.5·10⁻¹³ (against
-9.8·10⁻¹³, 6.8·10⁻¹³, 6.8·10⁻¹³), the `con2prim_hydro ∘ prim2con`
-conditioned errors within 2× either way, and the `Float32` smoke run from
-3.6·10⁻⁵ to 2.3·10⁻⁵.
 
 `con2prim_hydro` is split at the fluid's share — `field_budget`
 subtracts the fields' energy and momentum, `fluid_recovery` recovers from
@@ -972,7 +1185,7 @@ which iterates on that share, calls the same recovery bit for bit.
 
 `con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
 them: `policy_flags`, not the solver's result, is EntropyEOS's validity
-signal, and a failed solve is always repaired and flagged (proposed). The
+signal, and a failed solve is always repaired and flagged. The
 one decision this package adds to the policy — a state whose density the
 policy had to raise to the atmosphere's is the atmosphere at rest — is
 EntropyEOS's own level 2, below, and the flags of an atmosphere keep
@@ -1085,11 +1298,13 @@ confined to the density box, the sound-speed flags), are recorded in
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
 
-**Entropy fallback** (proposed; **waits for EOS-3**): where
+**Entropy fallback** (not built: a [possible extension](#possible-extensions),
+waiting for EOS-3). The design: where
 `τ_fluid = τ − ½(E² + B²)` is a small difference of large numbers
 (electromagnetically dominated cells, the magnetosphere, a magnetized star's
 cold surface) or the energy inversion fails, invert at the advected `s`
-instead. The switch is a threshold on `½(E² + B²) / τ_fluid` (open). *Not
+instead. The switch is a threshold on `½(E² + B²) / τ_fluid`, its value not
+chosen. *Not
 built:* the fixed-entropy inversion is EntropyEOS's internal
 `inner_solve_w`, and this package neither adds a second inversion nor calls
 an internal one, so the fallback waits for EOS-3's public
@@ -1280,7 +1495,7 @@ done, `con2prim_safe_finish(eos, in, opts, proj, stage)`: the fallback, the
 diagnosis and the face solves, and the inputs no solve applies to (non-finite,
 below `ρ_min`, above `ρ_max cosh w_cap`). The split is bit for bit the fused
 call, and the hand-off is an `isbits` struct of about 48 B. On a GPU the
-second phase is the divergent one, and a later step can compact it.
+second phase is the divergent one; compacting it is not done.
 
 - **Where.** Every recovery outside the stage solve's iterations: the
   right-hand side's (`primitive_kernel!`), both limiters' (`reset_kernel!`)
@@ -1380,7 +1595,7 @@ at the step limiter (2.4%), none at the stage limiter; the spherical blast
 two-level rotor 4 there; nothing else. **The
 stage solve's iterations reach finish nowhere**: 0 of their 57846 (the
 atmosphere tube) to 531938 (the two-level resistive tube) recoveries, none
-reused. So a later GPU step sees the second phase in at most about 2% of a
+reused. So a GPU sees the second phase in at most about 2% of a
 site's cells, at the sites above; the warm iterations would gain nothing
 from the split.
 
@@ -1424,7 +1639,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Mv` — the vertex metric `(α, β^i, γ_ij, K_ij)`, owned vertices from the producer's ADM adapter, in its own `VertexMetricSet`, not `MHDFields` | vertex | 16 | 4 (so `N ≥ 10`) | PointValue width 6 in its fill / `=> nothing` (`regrid_pairs(vm)`), refilled from the rebuilt adapter |
-| `X` — per-cell tallies, light speed, the reset's injection, `h∇·𝔅`, the recoveries' seeds per site | cell | 31 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ` | cell | 34 | 0 | `=> nothing` |
 | step cache — the cell's latest recovery in the step: EntropyEOS's input and output; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
 `P`'s 30 slots are laid out in `src/variables.jl`: the eleven the recovery
@@ -1435,7 +1650,7 @@ the highest, since EntropyEOS 2.0 — so exact even in `Float32`, which holds
 every integer below 2²⁴, and tested at `Float32` with bit 17), `Eⁱ`, `Bⁱ`,
 `q`, and the metric `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric
 derivatives and `K_ij` the sources read are not stored, and `P` stays at 30
-slots (proposed). The sources are their only reader, once per cell per
+slots. The sources are their only reader, once per cell per
 right-hand side, so storing them (36 more slots: `∂ⱼg_ab` and `K_ij`) would
 only move the same evaluation into another kernel and add a write and a
 read; the source kernel asks the provider for them (`metric_gradient`), as
@@ -1460,13 +1675,16 @@ it would ask for the metric at a face.
 - **`B_d` holds the densitized `𝔅ᵈ`**, and `P`'s `Bⁱ` is its cell average
   over `√γ`. `P`'s `q` is written at the owned cells only (it is read by the
   sources and nothing else); its ghosts hold zero.
-- **`X`, the diagnostics set** (proposed): per owned cell, the
+- **`X`, the diagnostics set**: per owned cell, the
   implicit stages that set each of the nine `OhmStageResult` bits, the
   stages whose state the policy repaired and the `|` of their flags, the
   recoveries and the most one stage made, the cells the reset wrote, and the
   light speed for the time step; the cells the reset
-  wrote as the step limiter, and the change those writes made to `√γ D`
-  and `√γ τ`, summed — the rest mass and energy the reset injects. The counts accumulate over a chunk and are
+  wrote as the step limiter, and the change those writes made to `√γ D`,
+  `√γ τ` and `√γ D Yₑ`, summed — the rest mass, energy and lepton number
+  the reset injects; `h∇·𝔅`; three seed slots per recovery site; and the
+  cells where the entropy floor fired with the `τ` it injected
+  (`src/fieldsets.jl`). The counts accumulate over a chunk and are
   reduced once at its end (`ohm_tally`), which is "reduced per chunk"
   without a reduction per stage.
 - **The operators**: Conservative width 3 for `U` and width 4 for `A` and
@@ -1493,7 +1711,7 @@ PointValue width must be at least the scheme's order plus one.
 
 ### Reconstruction
 
-Reconstructed at faces (proposed): `ρ`, `s`, `Yₑ`, `uⁱ = W vⁱ` (so that
+Reconstructed at faces: `ρ`, `s`, `Yₑ`, `uⁱ = W vⁱ` (so that
 every reconstructed state is subluminal), `Eⁱ`, and the two **transverse**
 components of `B` from their cell averages. The **normal** component of
 `B` at a face is `B_d` itself, never reconstructed. Methods, in order of
@@ -1503,7 +1721,7 @@ unphysical (negative `ρ`, `s` outside its window) falls back to first
 order, per face and per variable group. EOS evaluation at face states uses
 the cell's warm start.
 
-*As built: PLM and the face state* (`src/reconstruction.jl`, proposed): twelve
+*As built: PLM and the face state* (`src/reconstruction.jl`): twelve
 numbers a cell, `(ρ, s, Yₑ, uⁱ, Eⁱ, Bⁱ)` from `P`, undensitized, each
 extrapolated as `q ± slope/2` with TreeHydro's `slope` (`:none`, `:minmod`,
 `:mc`; `limiter` has no default, as in TreeHydro). All three components of
@@ -1515,18 +1733,11 @@ or `u` not finite — and `(Eⁱ, Bⁱ)`, inadmissible only
 where not finite; an inadmissible group takes its cell's values on that side
 of that face. The face state is then `vⁱ = uⁱ/W`, one EOS evaluation
 (`primitive_state`) and `prim2con` in the face metric, which the provider
-evaluates at the face (`Flat`, `Analytic`; TreeGH's adapter will
-interpolate it, step 11). A face's state costs two EOS evaluations, `primitive_state`'s and
+evaluates at the face (`Flat`, `Analytic`, or `VertexMetric`
+interpolating from this package's vertex set `Mv`). A face's state costs two EOS evaluations, `primitive_state`'s and
 `prim2con`'s.
 
-**Inconsistent:** "TreeGH's adapter will interpolate it, step 11" contradicts
-"The coupling contract" and "Metric at cells, faces and edges" (and
-`CLAUDE.md`): under the redesigned contract TreeGH interpolates nothing, and
-this package interpolates the metric from its own vertex set `Mv`
-(`VertexMetric`) to cells, faces and edges.
-
-*As built: the higher orders* (`src/reconstruction.jl`; proposed unless
-marked otherwise). `limiter` names the reconstruction: `:none`, `:minmod`,
+*As built: the higher orders* (`src/reconstruction.jl`). `limiter` names the reconstruction: `:none`, `:minmod`,
 `:mc` (PLM, `G ≥ 2`) or `:ppm`, `:wenoz`, `:mp5` (`G ≥ 3`, which
 `MHDProblem` checks). The keyword keeps the name `limiter` rather than
 becoming `reconstruction`, so that no caller changes.
@@ -1600,19 +1811,19 @@ in [HISTORY.md, "Floors, the atmosphere and the magnetosphere"](HISTORY.md#floor
 ### Riemann solver
 
 `riemann_flux(::Val{:llf | :hlle}, …)` on the ten matter-plus-`𝔈`
-variables at every face (proposed). Because `S_i` and `τ` are totals, their
+variables at every face. Because `S_i` and `τ` are totals, their
 fluxes contain the Maxwell stress, which propagates at the speed of light;
 the default wave speeds are therefore the local light cone,
 `λ_± = −β^d ± α √(γ^{dd})`, for all ten variables — the choice of the
 resistive codes this design follows, robust and diffusive. Split speeds
 (fluid speeds for `D`, `D Yₑ`, `D s`, light speed for the rest) are measured
-below and are not the default; a resistive HLLC is (open), to be decided by
-measurement on the TOV star.
+below and are not the default; a resistive HLLC is not built ("Possible
+extensions").
 
 *As built*: `src/flux.jl` and `src/riemann.jl`. A face state is the tuple
 `(cons, prim, E, B)` — the densitized conserved state, the primitive state
 it was built from, and the contravariant fields — which is what
-`physical_flux(m, cons, prim, E, B, Val(d))` takes (proposed).
+`physical_flux(m, cons, prim, E, B, Val(d))` takes.
 Both states are at the same face, so the light-cone speeds are the same on
 both sides and the solvers need no EOS. Measured: `F(U, U)` is the
 physical flux exactly for LLF and to 2.2e−16 for HLLE; the direction-`d`
@@ -1639,7 +1850,7 @@ is not built.
 
 ### The electromotive force for `A`
 
-Upwind constrained transport (proposed): at each `d`-edge the EMF
+Upwind constrained transport: at each `d`-edge the EMF
 `αE_d + (β × B)_d` is the average over the four edge states reconstructed
 from the surrounding cells (for `E`) and faces (for `B`), plus upwind terms
 proportional to the jumps of the face-normal `B` reconstructed to the edge
@@ -1649,8 +1860,8 @@ with the LLF/HLL dissipation `𝔈` receives from the Riemann solver; without
 it the Maxwell subsystem is upwinded in `E` alone. The metric at edges
 comes from 1D 4th-order interpolation between the edge's vertices.
 
-*As built*: `uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))` in `src/emf.jl`
-(proposed). With `(d, a, b)` cyclic, its four states are the full `E` of
+*As built*: `uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))` in `src/emf.jl`.
+With `(d, a, b)` cyclic, its four states are the full `E` of
 each state (`LL, LR, RL, RR`, the first letter the side along `a`), and the
 face-normal fields that cross the edge: `Bᵃ` reconstructed along `b`, `Bᵇ`
 along `a`, one value per side. `Bᵈ` does not enter, since
@@ -1664,7 +1875,7 @@ Godunov solver, and the HLLE flux of `𝔈` together with the UCT EMFs equals
 the physical flux of the HLL middle state — to 3.9e−16. A wrong sign in the EMF's shift or jump terms, or in the flux of `𝔈`,
 breaks that.
 
-*As built on the mesh* (`emf_kernel!` in `src/evolution.jl`, proposed), at
+*As built on the mesh* (`emf_kernel!` in `src/evolution.jl`), at
 every edge of the closed range: the four states are the cells on
 either side of the edge along `a` and along `b` (along a missing direction,
 the one cell), each with its `E` extrapolated to the edge by the limited
@@ -1673,7 +1884,8 @@ slope_b/2`; `𝔅ᵃ` is reconstructed along `b` from the `a`-faces and `𝔅ᵇ
 along `a` from the `b`-faces, with the same limiter, both **densitized**,
 and divided by the edge's `√γ`. The flux of `𝔈` reconstructs the
 undensitized cell average instead; the two agree in flat space and differ
-at truncation order otherwise, which rung 3 will see if it matters. In 1D
+at truncation order otherwise; the curved-background rungs have not
+separated it. In 1D
 the EMF along `x` is the cell's own `αE_x + (β × B)_x` (no transverse
 direction to reconstruct along), and those along `y`, `z` are the 1D HLL
 fluxes of `𝔅ᶻ` and `𝔅ʸ`.
@@ -1683,7 +1895,7 @@ additive, `E₀ + δ_a + δ_b` with the method's one-dimensional offsets — for
 PLM exactly the `E + σₐ slopeₐ/2 + σ_b slope_b/2` above — and not a tensor
 product (reconstruct along `a`, then those values along `b`), which would
 read 25 cells instead of 9 for a cross term that is `O(h²)`, the scheme's
-order in more than one dimension anyway (proposed). Measured on
+order in more than one dimension anyway. Measured on
 the Alfvén wave along the diagonal of a 2D box: `A_z`, whose EMF is the
 one with two transverse directions, converges at 2.31 (MC) and 2.01
 (WENO-Z).
@@ -1729,7 +1941,7 @@ codes".
 computes `B` from the state's own `A` (a scatter and ghost fill of the three
 `A` sets and the curl, as the stage solve does), recovers every owned cell,
 and **writes back every cell the policy repaired** — `FLAG_POL_ANY`, not the
-atmosphere alone (proposed): every repaired state is exactly
+atmosphere alone: every repaired state is exactly
 invertible and is what the next right-hand side would recover anyway, so
 writing it makes the state say what the scheme computes with. It writes the
 seven matter slots and never `𝔈`, and counts each cell it writes into `X`.
@@ -1738,8 +1950,9 @@ test).
 
 The two roles are counted apart — `reset_atmosphere!` is the
 stage limiter, `reset_step!` the step limiter — and the step limiter also sums
-what each write changes in `√γ D` and `√γ τ` (`ohm_tally`'s `injected_D`,
-`injected_τ`, volume-weighted). Since only its writes reach the state, the
+what each write changes in `√γ D`, `√γ τ` and `√γ D Yₑ` (`ohm_tally`'s
+`injected_D`, `injected_τ`, `injected_DYₑ`, volume-weighted), and counts
+the entropy floor's firings and their `τ` (`s_floors`, `s_floor_τ`). Since only its writes reach the state, the
 totals of a box whose boundary fluxes vanish change by exactly those sums,
 to rounding: the atmosphere tube asserts it (`test/atmosphere_tests.jl`),
 which also shows the stage limiter's writes never leak into `uⁿ⁺¹`.
@@ -1861,13 +2074,9 @@ or 10 removes the spikes in both versions, and at 10 the two are bit for bit
 the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
 untested elsewhere.
 
-A predictor in the atmosphere could take `OHM_SIGMA_ZERO` (proposed; the
-footnote to the controls of "Investigation (2026-10-16)" in [HISTORY.md, "Floors, the atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere)).
-
-Step 3's pointwise sweep could add (proposed) a class of predictors whose
-fluid share is near-null and at the entropy ceiling in the taper band,
-asserting a finite, flagged fallback — what the front produced (the same
-investigation).
+Two ideas from that investigation are not built ("Possible extensions"):
+a predictor in the atmosphere taking `OHM_SIGMA_ZERO`, and near-null
+predictors in the stage solve's sweep.
 
 ## Time integration
 
@@ -1878,8 +2087,9 @@ One IMEX Runge–Kutta integrator over the multi-set state vector. The
 and `𝔈` fluxes and sources, the EMF update of `A`, the gauge. The
 **implicit** part is the σ current in Ampère's law, which is local to a
 cell. The default tableau is Pareschi–Russo SSP3(4,3,3), whose implicit
-part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD; SSP2(2,2,2) is
-kept for debugging (proposed). Neither is stiffly accurate (their weights
+part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD. IMEXRungeKutta's
+SSP2(2,2,2) can be passed as `tableau =`, but nothing here runs or tests
+it ("Possible extensions"). Neither is stiffly accurate (their weights
 `b` differ from the last row of the implicit `A`), so the order *in* the
 stiff limit may drop; IMEXRungeKutta's validation measures it, and the ARS
 schemes, which are stiffly accurate, are the alternative if it matters.
@@ -2026,7 +2236,7 @@ scratch (`reuse`) and steps the state in place (`alias_u0`). Each chunk's
 `Δt` is `cfl / (D · max λ/h)` from the light cone at the chunk's start
 (`max_light_rate`, a `mesh_mapreduce` of the cells' light speed over their
 spacing), rounded down to a whole number of steps with TreeHydro's
-`chunk_count` tolerance; `cfl = 2/5` (proposed: TreeHydro's, under
+`chunk_count` tolerance; `cfl = 2/5` (TreeHydro's, under
 SSP3(4,3,3)'s explicit part, which is SSPRK(3,3)). The stage arithmetic is
 split evenly over the threads (`partition = :even`) for a CPU state and
 broadcast on a device; the block-owner partition, which needs TreeAMR's
@@ -2046,7 +2256,7 @@ in leaves the data exactly the 1D data (the earlier form, which did not:
 
 ### The implicit stage solve
 
-Per cell, per stage (proposed). Known: `D`, `S_i`, `τ`, `D Yₑ`, `D s`, the
+Per cell, per stage. Known: `D`, `S_i`, `τ`, `D Yₑ`, `D s`, the
 cell-averaged `B` (explicit in the stage), the metric, and `𝔈★`, the
 explicit part of the stage value. Let `c = γΔt · α σ`, with `γΔt` the
 stage's implicit coefficient times `Δt`.
@@ -2073,7 +2283,7 @@ ideal call is a seed — and the exact answer for `IdealConductor` — not a
 second con2prim. The last resort is the lagged `v` of Palenzuela et al.
 (2009). Every outcome is flagged, counted, and reduced per chunk.
 
-**The solve writes only `E` into `U`** (proposed). No limiter has seen
+**The solve writes only `E` into `U`**. No limiter has seen
 `u★`, so its fluid part may be inadmissible. `con2prim_safe` repairs the
 solve's own view of it, and that repair stays local to the solve. Written
 into `U`, it would become part of the implicit increment `U − u★`. The
@@ -2083,8 +2293,9 @@ contracts" and "One step"). PLUTO's resistive solve does the same: it
 repairs its predictor and writes back only `E`.
 
 **As built** (`src/stage_solve.jl`):
-`solve_ohm_stage(eos, opts, pol, σ, m, cons★, E★, B, γΔt, guesses; stage)
--> (E, prim, result, recoveries)`, allocation-free and bit-identical in a
+`solve_ohm_stage(eos, opts, proj, pol, model, m, cons★, E★, B, γΔt,
+guesses; stage) -> (E, prim, result, recoveries)`, with `proj` the
+recovery's `ProjectionOptions` and `model` the conductivity model,, allocation-free and bit-identical in a
 CPU kernel at `Float64` and `Float32`.
 
 - **The iteration runs on the fluid's share** of the energy and momentum,
@@ -2100,7 +2311,7 @@ CPU kernel at `Float64` and `Float32`.
   back on 191 of 1296 points of the sweep below (Γ = 2); Newton on `X`
   hands the recovery only the linearly predicted share, which stays on the
   fluid's scale, and falls back on 40.
-- **The velocity is carried as `u = W v`** (proposed): every `u` is
+- **The velocity is carried as `u = W v`**: every `u` is
   subluminal, and the Jacobian through `v` has a `W² (E★ − E) vᵀ` term
   from `∂W/∂v` that through `u` becomes `(E★ − E) vᵀ/W`.
 - **The Jacobian is analytic.** `∂u/∂X` is the recovery's derivative by the
@@ -2110,11 +2321,11 @@ CPU kernel at `Float64` and `Float32`.
   differentiation of the linear system. Newton's `1 − PQ` (4×4,
   `P = ∂X/∂E · ∂E/∂u`, `Q = ∂u/∂X`) is inverted by Woodbury through the 3×3
   `1 − QP`, and a density-dependent σ adds a rank-one term through `∂ρ/∂X`
-  and `conductivity_slope(model, prim) = ∂σ/∂ρ` (proposed; a model reading
+  and `conductivity_slope(model, prim) = ∂σ/∂ρ` (a model reading
   `s` or `Yₑ` would add a column each). Both derivatives agree with central
   differences to the differences' own error, 1.1e−8 and 8.3e−8. No extra
   recovery, no finite difference.
-- **Which branch** (proposed): σ evaluated at the predictor's recovery, at
+- **Which branch**: σ evaluated at the predictor's recovery, at
   `E★`; if it is zero, `E = E★` and that recovery are the answer, bit for
   bit (`OHM_SIGMA_ZERO`). Otherwise the fixed point where the contraction
   factor `‖K‖`, the Frobenius norm in an orthonormal frame of the fixed
@@ -2138,8 +2349,8 @@ CPU kernel at `Float64` and `Float32`.
   first guessed, was not needed (the question and how grim and KHARMA
   answer it: [HISTORY.md, "The implicit stage
   solve"](HISTORY.md#the-implicit-stage-solve)).
-- **Converged** when `|X − X(E)| ≤ 10⁻¹²(τ + D)` (proposed;
-  `max(1e-12, 1024 eps(T))`): the share closes to EntropyEOS's own
+- **Converged** when `|X − X(E)| ≤ 10⁻¹²(τ + D)`
+  (`max(1e-12, 1024 eps(T))`): the share closes to EntropyEOS's own
   recovery tolerance, measured against the total energy density as the
   recovery's round trip is. The returned `E` was solved at the returned
   state's velocity, so Ohm's law holds between them to rounding, and
@@ -2241,7 +2452,7 @@ package relies on it for:
   2.758 at SSP3(4,3,3)'s last stage;
 - explicit evaluations only where the tableau uses them: three right-hand
   sides (TreeGH plus MHD) per SSP3(4,3,3) step;
-- fixed `Δt`, generic arrays and Julia 1.10;
+- fixed `Δt`, generic arrays and this package's Julia floor;
 - a step that is never retried or rejected, whose step limiter is its last
   call, and an exception that leaves `integ.u = uⁿ`: with these the step
   limiter is where a step ends, and the step cache needs no step-begin hook
@@ -2343,18 +2554,21 @@ contract"](HISTORY.md#the-coupling-contract).)
 - A prepared state is reused when the state it was prepared from repeats.
   The script keys the fill on that state ("Two scripts", "The repeated
   fill").
-- (open) Whether the script overlaps TreeGH's ghost fill
+- Not measured: whether the script overlaps TreeGH's ghost fill
   with this package's recovery on a device; and a thread partition over
   several sets aligned with their owners (TreeGH's `state_partition` is
   copied from TreeAMR's tests; an upstream item when a step needs it).
 
 #### Two scripts
 
-(Sketches, proposed.) A run is then a script. The two below are steps 10
-and 11. Step 11's is step 10's with TreeGH's lines added. That the
-difference is this small is what this design claims, and step 11 tests the
-claim. A name that does not exist today is proposed; its comment names the
-piece of today's code it comes from — `evolve!` and its `build()`,
+A run is then a script. The two below are the Cowling star's and the
+coupled star's, as sketches; the coupled one is the Cowling one with
+TreeGH's lines added, and that the difference is this small is what this
+design claims and the coupled suite shows. Both are built
+(`bin/tov_cowling.jl`, `coupled/tov_coupled.jl`), with the departures
+listed after them; every `MHD.*` name below exists, and the TreeGH names
+that do not are GH-7's. A comment names the piece of the code a line
+comes from — `evolve!` and its `build()`,
 `mhd_rhs!`, `ohm_solve!`, `reset_atmosphere!`, `reset_step!`,
 `max_light_rate`, `exact_state`, TreeGH's `fill_exact!` and `gh_rhs!`'s
 fill. IMEXRungeKutta hands every callback the parameter `p`, which carries
@@ -2522,8 +2736,8 @@ fill. The command line and the record are an included file's
 The step-11 sketch is `coupled/tov_coupled.jl` (step 11), its `main` run by
 the coupled suite. Its departures from the sketch:
 - **`import`, not `using`,** for both packages, and `IRK = TreeGRRMHD.IRK`.
-- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill, γ0M, γ2, δv)`** builds the
-  mesh, the two problems, `Mv` and the initial state, apart from `main`, so
+- **`problems(T; N, levels, L, roots, limiter, q, refinement, reuse_fill, γ0M, γ2, δv, order, ρ_min, case)`** builds the
+  mesh, the two problems, `Mv`, the stored matter set `am` and the initial state, apart from `main`, so
   that the suite and the studies build the same run. TreeGH's problem is
   `GHProblem(U, GhostSchedule(U, ops), case; q)` on a vertex set the script
   makes (TreeGH has no `GHProblem(forest, case; q)`), with
@@ -2590,7 +2804,7 @@ What the sketches leave visible, on purpose:
     (`FillKey`).
   - Any other TreeGH verb the script calls (`max_speed`, the flags, the
     constraint norms) prepares TreeGH itself, so the script drops the key
-    first (`forget_fill!`).
+    after it (`forget_fill!`), before the next `metric_at`.
 
   Why a step fills five times:
   - At each of the three stages that read the explicit tendency, the two
@@ -2622,7 +2836,7 @@ What the sketches leave visible, on purpose:
 
 ### Metric providers
 
-The kernels dispatch on a metric provider (proposed):
+The kernels dispatch on a metric provider:
 
 - `Flat()` — Minkowski, all `D`, no storage.
 - `Analytic(m::SpacetimeMetrics.AbstractMetric)` — evaluated at the point
@@ -2638,15 +2852,18 @@ The kernels dispatch on a metric provider (proposed):
   edges](#metric-at-cells-faces-and-edges)). The 3+1 variables are decoded
   on TreeGH's side.
 
-`Flat` and `Analytic` are in `src/metric.jl`; every provider answers
+`Flat` and `Analytic` are in `src/metric.jl`; they answer
 `point_metric(provider, t, x) -> Metric3` and
-`metric_gradient(provider, t, x) -> MetricGradient`. `MetricGradient` holds
+`metric_gradient(provider, t, x) -> MetricGradient`, and every provider,
+`VertexMetric` included, answers the indexed forms
+`(provider, t, x, Val(C), n, b)`; `VertexMetric` refuses the coordinate
+forms with an `ArgumentError`. `MetricGradient` holds
 `dg[j, a, b] = ∂_j g_ab` — the spatial derivative index **first**, as in
 GHSO2, then the spacetime indices with 1 = `t` — and `K_ij`; the lapse and
 shift derivatives are derived from it (`d_lapse`, `d_shift`, which agree
 with ForwardDiff of the 3+1 split to 2.4e−16 of their terms). The
 conversion from SpacetimeMetrics' derivative-last `dmetric` is written in
-`src/metric.jl` and nowhere else (proposed). `K_ij` is computed there from
+`src/metric.jl` and nowhere else. `K_ij` is computed there from
 the same `dmetric` call: `metric_gradient(::Analytic, …)` calls
 SpacetimeMetrics' allocation-free `ExtrinsicCurvature(g, dg)` (SM-1,
 SpacetimeMetrics 1.7.0) on the same `dmetric` result, and the pointwise
@@ -2719,7 +2936,7 @@ vertices); a block of 8³ with `G = 3` storing 5.4 times the cells it owns.
 
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
-are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
+are one-dimensional runs; coupling to TreeGH is `D = 3` only.
 
 ### Metric at cells, faces and edges
 
@@ -2739,11 +2956,11 @@ variables, vertex-centered, on the matter's forest:
   faces, a PointValue prolongation at refinement boundaries. The
   derivatives taken from it must stay 4th order next to a coarse-fine face;
   TreeGH's interface rule (`p = q + 2` for second derivatives) gives `p ≥
-  q + 1` for first, so **width 6** (PointValue widths are even; proposed).
+  q + 1` for first, so **width 6** (PointValue widths are even).
 - **The outer boundary** (the shared plane `n = N + 1` and the ghosts
   beyond it) is this package's hook: Dirichlet from the case's own analytic
   provider where it has one, as the TOV star's static exterior;
-  what a case without one does is (open).
+  a case without one has no design yet ("Possible extensions").
 - A snapshot: valid until the producer's state changes; a regrid replaces
   `Mv` with the other sets, and the script refills it from the rebuilt
   adapter.
@@ -2765,7 +2982,7 @@ variables, vertex-centered, on the matter's forest:
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
 edges. The derivatives and `K_ij` are not stored but evaluated where the
-sources are (proposed; see "Field sets"). `Mv`'s `G = 4` settles the
+sources are (see "Field sets"). `Mv`'s `G = 4` settles the
 outermost ghost layer; TreeGH's own ghost width does not enter (GH-5 stays
 withdrawn).
 
@@ -2956,7 +3173,8 @@ exterior, and the lapse inside is `α_s/h` (`h α` is constant in a static
 star). Measured: `M = 1.4001597295`, areal `R = 9.5856240172`, isotropic
 `R̄ = 8.1251439016` (the literature's 1.400, 9.586, 8.125), the mass
 converging at 4.2–4.4 under step halving, `3.8·10⁻¹⁴` at the default 4000
-steps. **The metric**, `TOVMetric{T,NK}`, tabulates `ψ` and `α` in `u = r̄²`
+steps. **The metric**, `TOVMetric{T,NK,E}` (`E` the polytrope, or
+`Nothing` for a tabulated star), tabulates `ψ` and `α` in `u = r̄²`
 — in which both are smooth at the centre, and which needs no square root
 there, where a symmetric mesh has a vertex and ForwardDiff's derivative of
 `√u` is not finite — with their `u`-derivatives at `NK` uniform knots over
@@ -2968,9 +3186,10 @@ parameters on CUDA and Metal, "Devices"), dual-generic. Measured: the table's er
 `NK = 129` (second order in the knots: the interpolant's second derivative;
 the scheme reads only first derivatives), and to 2.7e−16 outside;
 SpacetimeMetrics' `EinsteinTensor` agrees with `8πT_ab` to 1.8e−6 of
-`8πρ_c`. The density is not tabulated: `ρ(h)` at `h = α_s/α`, the
-polytrope's own relation, so the initial data and the metric are one
-solution. **The case**, `src/cases/tov.jl`: the gas's entropy window is
+`8πρ_c`. For the polytrope the density is not tabulated: `ρ(h)` at
+`h = α_s/α`, the polytrope's own relation, so the initial data and the
+metric are one solution; a tabulated star's matter is a `TOVComposition`
+("Thermodynamics", "The tabulated star's surface and atmosphere"). **The case**, `src/cases/tov.jl`: the gas's entropy window is
 centred on the star's entropy, so that the atmosphere `recovery_options`
 writes is on the star's isentrope; the exterior is that atmosphere at rest;
 `IdealConductor` with `A = Φ̃ = 0` and `static_potential = true`; the box
@@ -2979,7 +3198,7 @@ writes is on the star's isentrope; the exterior is that atmosphere at rest;
 
 ## The right-hand side
 
-In the order the explicit part of each stage evaluates it (proposed):
+In the order the explicit part of each stage evaluates it:
 
 1. `scatter!` the multi-set state; `fill_ghosts!` the potentials `A_j`, `Φ̃`
    (each fill applying the complete outer boundary condition). The matter's
@@ -3015,20 +3234,22 @@ and a step is pure in `uⁿ`.
 *As built* (`src/evolution.jl`, `mhd_rhs!`; the kernels are written for
 `D = 1, 2, 3`):
 
-- Step 3 is three passes: `primitive_kernel!` over the owned cells (the
+- Step 3 is three passes (four with the two-phase recovery, a device's
+  default, whose `start_kernel!` and `finish_kernel!` run first):
+  `primitive_kernel!` over the owned cells (the
   recovery, from the provider's metric at the cell, `B` from the faces,
   `E = 𝔈/√γ` and `state_guesses` (see "Thermodynamics"); `W`; and all
   thirty slots of `P` through `P_from_W`), the fill of `W`, and
   `ghost_kernel!` over every stored cell that is not owned (`P` through the
   same `P_from_W` with the ghost's `B`). Owned cells take `P` through
-  `P_from_W` too, rather than straight from the recovery (proposed): where a
+  `P_from_W` too, rather than straight from the recovery: where a
   ghost is a copy of its owner — every ghost on a uniform mesh — the two
   blocks then hold the same `P` bit for bit and compute the same flux at
   their common face, as they did when both recovered the same conserved
   state; the two differ by rounding only (`v = u/W` from `u = cosh(w) v`,
   the rapidity `asinh |u|`, one forward EOS call). `q` is a second kernel
   over the owned cells, by centered differences,
-  `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h` (proposed); `q` is taken
+  `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h`; `q` is taken
   from `P`'s `√γ E` (the same numbers in flat space).
 - Step 7 for `A_j` is `−EMF_j − (ψ[n + e_j] − ψ[n])/h` with
   `ψ = αΦ − βᵏA_k` evaluated at the two vertices that bound the edge, `A_k`
@@ -3036,7 +3257,7 @@ and a step is pure in `uⁿ`.
   missing `j`, `−EMF_j` alone. For `Φ̃` it is the difference of the gauge
   flux `α√γ Aʲ − βʲΦ̃` on the two `j`-edges either side of the vertex, with
   `A_k`, `k ≠ j`, averaged to the `j`-edge (two or four points) and `Φ̃`
-  from its two vertices, plus `−ξαΦ̃` (proposed: second-order averages; in
+  from its two vertices, plus `−ξαΦ̃` (second-order averages; in
   flat space `ψ = Φ̃` and the flux is `A_j`, and nothing is averaged that
   enters).
 - The implicit stage (`ohm_solve!`) computes `B` from `u★`'s `A` — a scatter
@@ -3047,7 +3268,8 @@ and a step is pure in `uⁿ`.
   recovery is seeded from the step cache where the cell has an entry, and
   reused where its input is the entry's.
 - In 2D and 3D, a run of either wave that is translation-invariant in `y`
-  (and `z`) is the 1D run bit for bit, under every reconstruction, with the
+  (and `z`) is the 1D run bit for bit (tested under MC, PPM, WENO-Z and
+  MP5 in 2D, MC and WENO-Z in 3D), with the
   initial data's Gauss average in difference form (see the driver in "The
   partition"; "Validation ladder" 2a).
 
@@ -3088,7 +3310,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   initial data, 16 faces) and of 5.5e−3 (3D, the spherical blast in its
   closed box, 192 faces) with the correction — rounding: the fine sum
   telescopes in floating point — and 0.025 of 0.029 and 0.0017 of 0.0055
-  without it (proposed: the claim of PLAN.md's step 8, "the flux through a
+  without it (rung 2b's claim, "the flux through a
   coarse face equals the sum through its fine faces", made as the rate it
   is made by).
 - **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
@@ -3101,7 +3323,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   with the coarse EMF. Nothing breaks: `A` is single-valued, so the state's
   fluxes on either side are the same numbers, and `∇·𝔅 = 0` is structural;
   it is the one place a coarse estimate of the EMF drives a value on a
-  coarse-fine face (proposed: accepted, not corrected).
+  coarse-fine face (accepted, not corrected).
 - **The magnetic flux, as a state** — not to rounding under the PointValue
   operators. In 2D the flux through a face on the coarse-fine face is a
   difference of `A_z` at two vertices the levels share, which the exchange
@@ -3131,11 +3353,11 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   correction it holds to 1.4e−16 too, since after every fill the edges the
   non-owning level holds are derived from the owner's (the restriction's
   mean, or a prolongation whose two children average to the parent). So
-  PLAN.md's negative control "and does not without [the EMF correction]"
+  rung 2b's negative control "and does not without [the EMF correction]"
   applies to the rate, where it is asserted (above), and the state's
-  negative control is the PointValue family (proposed).
+  negative control is the PointValue family.
 
-  **Not at an outer face** *(proposed: accepted, recorded)*. In the same
+  **Not at an outer face**. In the same
   blast's closed box the 147 faces away from the walls agree to rounding,
   but the 45 whose perimeter lies on an outer face miss by 1.2e−5 of the
   largest flux (2.7e−5 after the regrid): there each level's relative hook
@@ -3145,14 +3367,16 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   boundary condition's, not conserved by anything, so nothing in this
   package relies on it; a relative hook that fills a point on both an outer
   face and a coarse-fine face from the level that owns it (a transfer, not
-  the hook) would make it exact — **AMR-11** in `PLAN.md` (wanted, no step
-  blocked).
+  the hook) would make it exact — **AMR-11** ([Requests still waiting](#requests-still-waiting); wanted,
+  nothing blocked).
 
 ## Boundaries
 
-Dirichlet from the initial or analytic state, through
-`CellBoundary(AllVariables(…))` on every set, for everything up to the
-magnetized TOV star: shock tubes until a wave arrives, the
+Dirichlet from the initial or analytic state for everything up to the
+magnetized TOV star — through `CellBoundary(AllVariables(…))` on the
+matter's sets, and on the potentials through TreeAMR's relative hook,
+`CellBoundary(Relative(f))`, or, for static potentials, the absolute one
+(below): shock tubes until a wave arrives, the
 Kerr-Schild tests from the analytic solution, the stars from the static
 exterior (atmosphere, the initial `A` and `Φ̃ = 0`, `E` of the static
 dipole). TreeAMR 0.2.1 has outflow faces (AMR-6), for whichever later rung
@@ -3161,18 +3385,17 @@ needs them. `MHDProblem` takes `boundary = nothing` for a periodic domain
 set, in the order `(U, A₁, A₂, A₃, Φ̃)` — each set's `fill_ghosts!` gets
 its own (AMR-2). The waves are periodic; the shock tubes pass hooks.
 
-**Inconsistent:** this paragraph has `CellBoundary(AllVariables(…))` on
-every set, but the potentials' hook below is TreeAMR's relative hook,
-`CellBoundary(Relative(f))`, for every case but those with static
-potentials.
-
-*As built* (`DirichletBoundary`, `case_boundary` in `src/driver.jl`;
-proposed). A case that is not periodic gets one hook per evolved set from
+*As built* (`DirichletBoundary`, `case_boundary` in `src/driver.jl`).
+A case that is not periodic gets one hook per evolved set from
 its own `fields` and `potential`, evaluated at the time of each fill
 (`boundary_at(hook, t)`: every fill — a right-hand side's, a stage's, a
 reset's — knows its time):
-- **The matter**: Dirichlet, the case's conserved state at each ghost
-  cell's center, `CellBoundary(AllVariables(…))`, a kernel on every backend.
+- **The matter**: Dirichlet, `CellBoundary(AllVariables(…))`, a kernel on
+  every backend. The scheme's ghost fill is the primitives' `W`, whose hook
+  (`primitive_boundary`, `DirichletBoundary{:W}`) holds the case's
+  primitives at each ghost cell's center; `U`'s hook, the case's conserved
+  state there, serves only TreeAMR's own fills of `U`, `regrid!`'s before
+  its transfer and the initial adaptation's.
 - **The potentials**: Dirichlet *in the field*. A ghost of `A_j` or `Φ̃`
   holds the nearest evolved point's value plus the case's difference between
   the two points, so `𝔅` in the ghosts and on the boundary faces is the
@@ -3224,7 +3447,7 @@ wall root refined, to `t = 1/4`): a second fill changes nothing bit for bit,
 and one fill of working arrays prefilled with `NaN` writes the same — every
 stored point, from the state alone; a hookless fill leaves it.
 
-**The low walls in the state** *(proposed)*. The low wall is owned, so it is
+**The low walls in the state**. The low wall is owned, so it is
 in the integrator's state vector, but TreeAMR writes it during the fill —
 into the set's working array after `scatter!`, not into `u`.
 `map_blocks!`'s owned range is unchanged by symmetric walls (the trimmed
@@ -3265,11 +3488,6 @@ the erf profile, the low face's `𝔅` the profile's as the high one's is. What
 these numbers were before both walls were prescribed is in
 [HISTORY.md, "Boundaries"](HISTORY.md#boundaries).
 
-**Inconsistent:** the comment of the explosion's symmetry testset in
-`test/multid_cases_tests.jl` (minmod, 64² on `[−6, 6]²`, to `t = 1`) records
-a measured asymmetry of 1.6e−18 and 2.5e−17 of each variable's scale, not an
-exact symmetry.
-
 On a refined mesh a closed box is **not** mirror-symmetric: the explosion in
 its closed box with the middle 2 × 2 roots refined (a mesh symmetric under
 both reflections, whose coarse-fine faces cut the blast's transition
@@ -3281,9 +3499,9 @@ block's owned plane when the face is the fine block's low face, and the
 coarse block's, interpolated at the fine points between, when it is its high
 face; 4.7e−5 upstream on smooth data, one fill), here at a discontinuity and
 through 20 steps. Recorded, not hidden: `test/refinement_tests.jl` asserts
-it present and bounded (proposed: nothing in this package needs a refined
-box to be symmetric before the stars of steps 10 and 12, whose own symmetry
-tests will say whether upstream must close it).
+it present and bounded (nothing in this package needs a refined
+box to be symmetric; the stars sit at the centre of nested boxes, and no
+star test asks for mirror symmetry).
 
 **The potentials' boundary must pin the gauge or keep a gradient a gradient**
 *(a design rule)*. A Dirichlet hook that copies the evolved potential
@@ -3311,7 +3529,9 @@ pins them to zero, and with them the static mode.
   upstream was needed. Valid only where `A_case` does not depend on `t`:
   under IMEX the stage's `A` is at `tⁿ + c̃Δt` while `solve_imp!` is told
   `tⁿ + cΔt`, which a potential that moves with `t` would get wrong (the
-  potentials' hook, above). The Kerr-Schild cases declare it; the test "A
+  potentials' hook, above). The Kerr-Schild cases and the three stars
+  (`tov_case`, `magnetized_tov_case`, `tabulated_tov_case`) declare it;
+  the test "A
   static potential's boundary is the case's own" checks that a gauge offset
   vanishing on the boundary leaves `𝔅` on every stored face at the exact
   state's (1.1e−15) and every boundary-filled point untouched, where the
@@ -3319,8 +3539,7 @@ pins them to zero, and with them the static mode.
 - **Potentials that grow in time** keep the relative hook (every flat-space
   case, `static_potential = false` by default): their outputs are
   unchanged bit for bit.
-- **Open** (for step 10's outer boundary, and for dynamic cases without an
-  exact `A`): option 2, a relative hook that carries the offset's gradient
+- **Dynamic cases without an exact `A`** have neither yet: option 2, a relative hook that carries the offset's gradient
   along, `δ(x_r) + (x_g − x_r)·∇δ`, which keeps a gradient a gradient to second
   order (TreeAMR's hook form); option 3, a gauge that damps a static `χ` as
   well. Neither is requested yet.
@@ -3371,7 +3590,8 @@ reconstruction's stencil reaches.
   interior launches nothing.
 - **What it costs.** The interior's cells are still recovered and stepped —
   their tendencies are thrown away by the next paste — so a run pays for them
-  like any other cell; the ball is 0.4% of the default octant at `r_in = M`.
+  like any other cell; the ball is about 0.8% of the default octant
+  (`[0, 4]³`) at `r_in = M`.
   The stage solve and the right-hand side's recovery meet the extreme states
   near `r = 0` there: in the magnetized Bondi flow at `h = M/8` a few cells
   next to the singularity (`r ≈ 0.2M`) are repaired by the policy in the stage
@@ -3541,7 +3761,7 @@ gauge), `charge_norms`.
 
 ## Refinement
 
-A Löhner indicator on `ρ`, optionally on `|B|` and `|E|`, following
+A Löhner indicator on `ρ`, `|B|` and `|E|`, following
 TreeHydro's `hydro_flags`, plus geometric radius boxes around a star that
 fix the levels the star is resolved with. `regrid!` is given
 every set over the forest: the evolved ones with their schedules, the rest
@@ -3560,7 +3780,7 @@ regrid below follow that split.
 
 *As built* (`src/refinement.jl`, `evolve!` in `src/driver.jl`):
 
-- **The indicator** (`mhd_flags`) *(proposed)*: Löhner's, with TreeHydro's
+- **The indicator** (`mhd_flags`): Löhner's, with TreeHydro's
   local and global noise floors (`ε = 1/100`, `ε_g = 1/1000`), on `ρ`, `|B|`
   and `|E|` of each cell and its neighbours along every dimension, from a
   current `P` (ghosts included) — the density for the matter's waves and the
@@ -3573,31 +3793,31 @@ regrid below follow that split.
   `Bⁱ` and of `Eⁱ` (a `mesh_mapreduce` reduces one variable at a time; a
   reference off by `√3` moves a noise floor). `refine_tol`, `coarsen_tol`
   and `maxlevel` have no default, and `coarsen_tol < refine_tol` is
-  required. The geometric boxes around a star are step 10's.
+  required. The geometric boxes around a star are not the indicator's:
+  `tov_boxes!` (`src/cases/tov.jl`) refines them statically.
 - **The regrid** (`regrid_state!`, at the start of every chunk after the
-  first) *(proposed)*: `regrid!` over every field set (`regrid_pairs`) —
-  `U`, `A_j`, `Φ̃` with their schedules and each with its own Dirichlet hook
-  at the regrid's time (AMR-2), `P`, `B_d`, `F_d`, `EMF_d` and `X`
+  first): `regrid!` over every field set (`regrid_pairs`) —
+  `U`, `A_j`, `Φ̃` with their schedules and each with its own hook at the
+  regrid's time (AMR-2), so that `regrid!`'s own fill before its transfer
+  applies the complete outer boundary condition (the potentials' relative
+  or absolute hook, "Boundaries"); `P`, `W`, `B_d`, `F_d`, `EMF_d` and `X`
   `=> nothing`, resized and never transferred (`B` is never state: the
   regrid moves `A`, and `B` is its curl). Then the problem is rebuilt over
   the same sets (`rebuild`: schedules, interface schedules, per-block
-  geometry and outer faces), the state gathered, the potentials' low walls
-  prescribed (AMR-8), and the reset run once as the step limiter, so that a
-  prolongated conserved state the recovery would repair is repaired in the
-  state and its injection counted with the step limiter's (TreeHydro's
-  post-regrid reset). The integrator's scratch is dropped when the mesh
-  moved. Before `regrid!`, every evolved set is filled with the complete
-  outer boundary condition, and `regrid!` gets no hook for a potential, so
-  its own pre-transfer fill keeps that condition bit for bit (see
-  "Boundaries").
-- **The initial mesh** (`adapt_case!`) *(proposed)*: TreeAMR's several-set
+  geometry and outer faces), the state gathered, and the reset run once as
+  the step limiter (`reset_step!`, which also writes the potentials'
+  prescribed low walls, AMR-8), so that a prolongated conserved state the
+  recovery would repair is repaired in the state and its injection counted
+  with the step limiter's (TreeHydro's post-regrid reset). The
+  integrator's scratch is dropped when the mesh moved.
+- **The initial mesh** (`adapt_case!`): TreeAMR's several-set
   `adapt_to_initial_data!` (AMR-3) over every field set, the evolved ones
   filled each pass from the case — the conserved state *at* each cell's
   centre, a point value standing in for the Gauss average while the mesh is
   chosen, and the potentials at their points — with their own hooks; the
   criterion recovers `P` from the filled sets and flags. On the converged
   mesh the exact initial data (`exact_state`, Gauss averages) is written.
-- **A static mesh** *(proposed)*: `evolve!`'s `refine(forest)` refines the
+- **A static mesh**: `evolve!`'s `refine(forest)` refines the
   root mesh before anything is built, for the coarse-fine tests.
 - **The operators**: the matter Conservative width 3, **bounded**, in its
   regrid (and its ghost fill's `W`, below); `A_j` the conservative family
@@ -3636,8 +3856,9 @@ regrid below follow that split.
 - **The gauge damping**: `evolve!` uses `ξ = 16/L` on every mesh, uniform or
   refined, `L` the longest side of the box — the longest, so that a case's
   extrusions and turns, whose boxes differ only along the added or exchanged
-  directions, damp alike and stay its run bit for bit (`default_ξ`); a
-  caller's `ξ` overrides it. On a uniform mesh the gauge never reaches `𝔅` —
+  directions, damp alike and stay its run bit for bit (`default_ξ`). A
+  case's own `gauge_damping` replaces it (the spinning Wald case takes 0),
+  and a caller's `ξ` overrides both. On a uniform mesh the gauge never reaches `𝔅` —
   `−∇(αΦ − β·A)` is a discrete gradient, whose discrete curl vanishes to
   rounding — so there `ξ` moves the gauge part of `A` and `Φ̃` and, through
   rounding, nothing else; what it moved in the suite is listed under
@@ -3700,7 +3921,7 @@ In detail (`primitives_from_sets!`, `P_from_W`, `ghost_kernel!` in
 - **The set** `W`, cell-centred, 9 variables: `ρ★`, `s`, `Yₑ`, the
   contravariant `uⁱ = Wvⁱ` and the contravariant, undensitized `Eⁱ` — Erik's
   list, with `uⁱ` rather than `vⁱ` so that any interpolated value is a
-  subluminal velocity, and `E` undensitized, as a primitive (proposed).
+  subluminal velocity, and `E` undensitized, as a primitive.
   Scratch: resized, never transferred by a regrid.
 - **The recovery runs on the owned cells only**, before the exchange, and
   writes `W` and `P`; `W`'s fill has its own hook, the case's primitives at
@@ -3746,13 +3967,9 @@ magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere)):
    runs [not re-measured].
 
 No difference in blow-ups is significant at 48 runs (below). What the code
-lost is the second and third: they run on their branches, and
+lost is the first and the third: they run on their branches, and
 `bin/ghost_entropy.jl`, `bin/ghost_robustness.jl` and
 `bin/interface_order.jl` say so when asked for them.
-
-**Inconsistent:** the list above calls the second fill, the parent-centred
-primitives, "the code", while this sentence says the code lost the second
-and the third.
 
 *The parent-centred fill (branch `claude/step-8-ghost-athena`):*
 `W` filled with TreeAMR's bounded conservative operator, `Operators(;
@@ -3869,40 +4086,37 @@ numbers the suite prints are identical across the change at each version,
 and 1.12 differs from 1.13, at the same flags, only in the last digits of
 six recorded worst cases.
 
-CI runs three cells, all at 1.13: macOS/arm64, Linux, and Linux at four
-threads. The macOS cell carries the coverage, which at 1.13 costs 1.24x
+CI runs three cells of the package's suite, all at 1.13: macOS/arm64,
+Linux, and Linux at four threads; and a fourth job, the coupled suite
+(`coupled/`, Linux, one thread, bounds checks), on every trigger. The macOS cell carries the coverage, which at 1.13 costs 1.24x
 (6m27s against 5m12s, both with bounds checks).
 
 The cells run in two tiers, the same in every Tree* repository: a pull
-request runs the two Linux cells only, uninstrumented; a push to `main`, a
+request runs the two Linux cells and the coupled job, uninstrumented; a push to `main`, a
 weekly schedule and a manual dispatch add the macOS cell and its coverage.
 Markdown and `docs/` changes run no CI, on pull requests as well as pushes,
 and tags are not tested, since a release tags a commit `main` has passed.
-The pull-request cells had taken 10–33 min (the threaded one the slowest),
-52 of the last 80 commits on `main` touched only Markdown, and macOS cells
-queued behind the other repositories', since the account runs five at once;
-TreeAMR's `HISTORY.md` ("Development environment and CI") has the
-measurements across the repositories.
+Why (most commits touch only Markdown, and macOS cells queue behind the
+other repositories'): TreeAMR's `HISTORY.md` ("Development environment and
+CI") and [HISTORY.md, "Julia version"](HISTORY.md#julia-version).
 
 The suite runs in **tiers** (`test/tiers.jl`, after
 TreeGeneralizedHarmonic's), chosen by `TREEGRRMHD_TEST_TIER`. On GitHub's
-runners, with bounds checks, the suite had taken 14 minutes at one thread
-and 32 at four (the step-9 pull request, 2026-11-05). The four-thread time
-was not the 3D or curved runs, which ran faster threaded (the curved file
-197 s → 127 s), but the 1D studies: 4–8 times their one-thread time there
-(the reconstructions' Alfvén waves 41 s → 278 s, the Alfvén wave across
-coarse-fine faces 13 s → 185 s, the shock tubes about 40 s → 296 s), where
-on Symmetry four threads are faster than one throughout. So `full`, the
+runners at four threads the 1D studies take 4–8 times their one-thread
+time (the 3D and curved runs are faster threaded), where on Symmetry four
+threads are faster than one throughout; the measurements are in
+[HISTORY.md, "Julia version"](HISTORY.md#julia-version). So `full`, the
 default, runs everything (the workstation and Symmetry before a pull
 request, `ci/full-suite.sh`, and CI's weekly run); `quick`, CI's one-thread
 cells, leaves out the `@full_tier` testsets (the curved cases' `h = M/8`
-runs, the 1000-step uniform flows); and `threaded`, CI's four-thread cell,
+runs, the 1000-step uniform flows, the vertex metric's and the magnetized
+star's convergence studies); and `threaded`, CI's four-thread cell,
 also the `@serial_tier` ones, the 1D studies. The kernels are one code for
 D = 1, 2, 3, so the 2D and 3D runs, refinement, the curved backgrounds, the
 step cache and the two-phase recovery still exercise every threaded path,
 and the 1D runs held bit for bit to 2D and 3D runs stay. A testset left out
-is one skipped test ("Broken") and is named at the end of the run: 3 in
-`quick`, 32 in `threaded`. The runs several testsets read are made on first
+is one skipped test ("Broken") per testset (per iteration, in a loop) and
+is named at the end of the run. The runs several testsets read are made on first
 use (`computed_once`) rather than by top-level constants, and the helpers
 shared between files live in files of their own.
 
@@ -3911,23 +4125,22 @@ duplicate-constant check at the top of `test/runtests.jl` is the only thing
 that finds a top-level name two test files share.
 
 `Project.toml` names EntropyEOS and IMEXRungeKutta there, by their GitHub
-URLs at `rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,
+URLs, EntropyEOS at a tag (`rev = "v2.3.0"`) and IMEXRungeKutta at
+`rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,
 a clean `git archive` and a developer's `Pkg.instantiate()` all resolve
 them the same way. The test environment reaches them through the
 package (`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing
 them again, so that a second `[sources]` cannot disagree with the first.
-
-**Inconsistent:** `CLAUDE.md`'s former "Current state" (now [HISTORY.md,
-"EntropyEOS"](HISTORY.md#entropyeos), 2026-10-30) said `[sources]` pins
-EntropyEOS to the tag `v2.2.1` (since 2026-10-30), not `rev = "main"`.
 
 The history of the floor (1.10, 1.11, 1.12), of the CI cells and of what
 1.11 needed is in [HISTORY.md, "Julia version"](HISTORY.md#julia-version).
 
 ## Precision and devices
 
-Every driver is generic in the element type `T`, a leading positional argument defaulting
-to `Float64`, and in the KernelAbstractions backend, a keyword defaulting to `CPU()`.
+Every driver is generic in the element type `T`, a leading positional argument (defaulting
+to `Float64` in the cases; `mhd_fields`, `VertexMetricSet` and `evolve!(T, case, …)` require
+it, and `evolve!(case, …)` takes the case's), and in the KernelAbstractions backend, a keyword
+defaulting to `CPU()`.
 Physics is validated in `Float64`; `Float32` is the device smoke test and the leak
 detector (a stray `Float64` constant widens a result), since EntropyEOS is validated in
 `Float64` only. `src/precision.jl` carries TreeHydro's bridges over `Base`'s gaps at a
@@ -4147,7 +4360,7 @@ ns per cell, the best of five, the workgroup size the backend's):
 - **The ghost fills cost a launch, not a cell**: the potentials' fill takes 2.3–3.0 ms on
   either mesh, 0.4 ns a cell on the larger.
 - **`Float32` is 1.6–1.9× faster a step**, the right-hand side 2.4–2.6×, but the reset is
-  2.4–2.9× slower than at `Float64`, with the same counts of resets (not examined **(open)**).
+  2.4–2.9× slower than at `Float64`, with the same counts of resets (not examined).
 
 ## Sharp edges
 
@@ -4264,26 +4477,32 @@ it names has the reasons.
 The suite is `test/runtests.jl`. It runs in tiers (`test/tiers.jl`,
 chosen by `TREEGRRMHD_TEST_TIER`; see "Julia version"): `full`, the
 default, runs everything; `quick` leaves out the `@full_tier` testsets (the
-finest curved runs, the 1000-step uniform flows); `threaded` also the
+finest curved runs, the 1000-step uniform flows, the vertex metric's and
+the magnetized star's convergence studies); `threaded` also the
 `@serial_tier` ones (the 1D studies). The rules for a new testset are in
 `CLAUDE.md`, "Conventions".
 
 - `test/prerequisite_tests.jl`: the names the scheme calls, the IMEX
-  contract, and a probe per upstream ID still waiting (`PLAN.md`,
-  "Upstream requirements", "Retiring a probe").
-- `test/recovery_tests.jl`, and after it `test/pointwise_tests.jl` and
-  `test/stage_solve_tests.jl`, which use its state generators.
+  contract, and a probe per upstream ID still waiting ([Requests still
+  waiting](#requests-still-waiting), "Retiring a probe").
+- `test/precision_tests.jl` (the bridges over `Base`'s gaps at a software
+  floating-point type) and `test/units_tests.jl` (the geometric units and
+  the density factor to an EOS's).
+- `test/recovery_tests.jl`, `test/pointwise_tests.jl` and
+  `test/stage_solve_tests.jl`, which share the state generators of
+  `test/recovery_states.jl`.
 - `test/step_cache_tests.jl` (the step cache) and `test/two_phase_tests.jl`
   (the two-phase recovery against fused, bit for bit).
 - `test/scheme_tests.jl` and `test/wave_tests.jl` (the convergence
   studies).
 - `test/shocktube_tests.jl`, `test/resistive_tests.jl`,
   `test/atmosphere_tests.jl`.
-- `test/reconstruction_tests.jl` (uses `wave_tests.jl`'s helpers).
-- `test/multid_tests.jl` and `test/multid_cases_tests.jl` (uses the
-  former's helpers).
+- `test/reconstruction_tests.jl` (with `wave_tests.jl`, uses
+  `test/wave_study.jl`).
+- `test/multid_tests.jl` and `test/multid_cases_tests.jl` (use
+  `test/multid_runs.jl`).
 - `test/refinement_tests.jl` and `test/refinement_cases_tests.jl` (use
-  `multid_tests.jl`'s helpers).
+  `multid_runs.jl` and `test/refinement_meshes.jl`).
 - `test/curved_tests.jl`: the right-hand side's truncation error, the
   drift to `t = M/2` at `h = M/4`, `M/8`, the interior, the curved-space
   bit identity; its boundary testset holds a gauge offset out of `𝔅`.
@@ -4300,10 +4519,10 @@ finest curved runs, the 1000-step uniform flows); `threaded` also the
   the studies' `10⁴ ρ_min` bit for bit; the magnetized star at `h = 1` to `2M` (∇·B, `E·B`,
   the drift, the rest mass, the outcome map); the convergence to `h = 1/2`
   is `@full_tier`.
-- `test/ye_advection_tests.jl` (step 13): a smooth `Yₑ` profile carried
+- `test/ye_advection_tests.jl`: a smooth `Yₑ` profile carried
   by a uniform flow at the scheme's order, and a step within its two
   values, `D Yₑ` to rounding; 1D, so `@serial_tier`.
-- `test/tabulated_tov_tests.jl` (step 13): the cold barotrope against
+- `test/tabulated_tov_tests.jl`: the cold barotrope against
   DD2's slice, the solve's convergence and the 1.4 M☉ radius, the
   composition table, the initial data's validity, and the star at `h = 1`
   to 4 M (the drift, rest mass and `D Yₑ` net of the reset, the entropy
@@ -4333,18 +4552,10 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   key, bit for bit; the regrid branch; the magnetized star through
   `problems(; case)`: its field's energy `½B²` in the matter TreeGH reads,
   and a run to `t = 1` (∇·B, the rest mass, the stage solve inside).
-- `coupled/tabulated_tests.jl` (step 13; gated on DD2 as above): the
+- `coupled/tabulated_tests.jl` (gated on DD2 as above): the
   tabulated star on TreeGH's frozen metric against its Cowling run, its
   `ℋ − 16πρ` with either transfer, and `main` to `t = 1` (rest mass and
   `D Yₑ` net of the reset).
-
-**Inconsistent:** the helper dependencies listed above
-(`recovery_tests.jl`'s state generators, `wave_tests.jl`'s and
-`multid_tests.jl`'s helpers) are the older layout; `CLAUDE.md`,
-"Conventions", and "Julia version" say the helpers shared between files
-live in files of their own (`recovery_states.jl`, `wave_study.jl`,
-`multid_runs.jl`, `refinement_meshes.jl`), included by `runtests.jl` before
-their first user.
 
 ## Code layout
 
@@ -4353,7 +4564,7 @@ and why.
 
 **The pointwise layer** (each runs inside a KernelAbstractions kernel,
 bit-identically to the host; "Precision and devices"):
-- the module shell; `src/precision.jl` and `src/device.jl`, ported from
+- the module shell, `src/TreeGRRMHD.jl`; `src/precision.jl` and `src/device.jl`, ported from
   TreeHydro ("Precision and devices");
 - `src/units.jl`: geometric units, `GeometricEOS` ("Thermodynamics");
 - `src/metric3.jl`: the 3+1 point metric;
@@ -4397,30 +4608,32 @@ bit-identically to the host; "Precision and devices"):
   `reset_atmosphere!`, `ohm_tally`, `max_light_rate`, the conserved totals ("The
   right-hand side", "Precision and devices");
 - `src/driver.jl`: `MHDCase`, exact initial data and references,
-  `l1_errors`, `mhd_integrator`, `evolve!`, and `DirichletBoundary`, the
-  Dirichlet hooks a non-periodic case gets from its own data ("The
-  partition", "Boundaries");
+  `l1_errors`, `mhd_integrator`, `evolve!` (a static mesh, `refine`, or an
+  adaptive one, `maxlevel`, `refine_tol`, `coarsen_tol`, `buffer`;
+  `adapt_case!` over every set), `central_density` (the largest cell
+  average of `ρ`), and `DirichletBoundary`, the Dirichlet hooks a
+  non-periodic case gets from its own data ("The partition", "Boundaries",
+  "Refinement");
 - `src/refinement.jl`: `mhd_flags` (Löhner on `ρ`, `|B|`, `|E|`), `flags`
-  (`prepare!` then `mhd_flags`, the verb), `regrid_pairs`, `regrid_state!`; `evolve!` runs a static mesh
-  (`refine`) or an adaptive one (`maxlevel`, `refine_tol`, `coarsen_tol`,
-  `buffer`; `adapt_case!` over every set) ("Refinement");
+  (`prepare!` then `mhd_flags`, the verb), `regrid_pairs`, `regrid_state!`
+  ("Refinement");
 - `src/interior.jl`: `HoleInterior(r_in; stage, step)`, an `MHDCase`'s
   `interior`, and the diagnostics `outside_l1`, `field_l1`,
   `charge_norms` ("The interior");
 - `src/tov.jl`: the host TOV solve in Lindblom's enthalpy form, generic
   over the barotrope (`barotrope_state`), `TOVMetric` ("Gauge for the TOV
   milestones").
-- `src/tov_table.jl` (step 13): `cold_barotrope`, a table's cold
+- `src/tov_table.jl`: `cold_barotrope`, a table's cold
   β-equilibrium slice as the solve's barotrope, `tov_solve(T, b; ρ_c)`,
   and `TOVComposition`, the star's matter at knots in `r̄²`
   ("Thermodynamics", "The cold barotrope").
 - `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
   theory, coupled and Cowling, `tov_radial_modes`, and the velocity that
   starts them, `tov_mode_velocity` ("Validation ladder" 5).
-- `reset_step!`, the reset as the step limiter, counted with the step
-  limiter's injection into `D`, `τ` and `D Yₑ`, and its entropy floors
-  outside the atmosphere (`ohm_tally`; the last two added in step 13); `max_div_B` and `evolve!`'s
-  `after_step` monitor.
+- in `src/evolution.jl` too: `reset_step!`, the reset as the step
+  limiter, counted with the step limiter's injection into `D`, `τ` and
+  `D Yₑ`, and its entropy floors outside the atmosphere (`ohm_tally`);
+  `max_div_B` and `evolve!`'s `after_step` monitor.
 - The public verbs, which a script that owns the loop calls ("The coupling
   contract", "Two scripts"): `prepare!`, `rhs!`, `stage_solve!`,
   `stage_limit!`, `step_limit!`, `max_rate`, `initial_state!`, `flags`,
@@ -4428,7 +4641,10 @@ bit-identically to the host; "Precision and devices"):
   `mhd_integrator` and `evolve!` are compositions of them, bit for bit.
 
 **The cases** (`src/cases/`; "Validation ladder"):
-- `em_wave_case`, `alfven_wave_case`;
+- `src/cases/em_wave.jl` and `src/cases/alfven_wave.jl`: `em_wave_case`,
+  `alfven_wave_case`;
+- `src/cases/gauge.jl`: `gauge_pulse_case`, a pure gauge pulse, the test
+  of the gauge damping `ξ` ("Refinement");
 - `src/cases/shocktubes.jl`: Balsara 1–5 with Giacomazzo & Rezzolla's
   exact plateaus, the resistive tube, Komissarov's current sheet and the
   atmosphere tube;
@@ -4441,16 +4657,15 @@ bit-identically to the host; "Precision and devices"):
   `a = 0`), `bondi_case` (`IdealConductor`, Michel's flow in a radial
   monopole) and `spinning_wald_case` on `Analytic(KerrSchild(1))`;
   `kerr_schild_r`;
-- `src/cases/tov.jl`: `tov_case`, `tov_boxes!`, `central_density` (the
-  largest cell average of `ρ`);
+- `src/cases/tov.jl`: `tov_case`, `tov_boxes!`;
 - `src/cases/magnetized_tov.jl`: `exterior_dipole` (the static vacuum
   dipole of Schwarzschild in isotropic coordinates), `StellarDipole` and
   `stellar_dipole` (its quadratic continuation inside the star),
   `ConfinedField` and `confined_field` (Duez et al.'s interior-only field),
   `magnetized_tov_case` ("Validation ladder" 6);
-- `src/cases/tabulated_tov.jl` (step 13): `tabulated_tov_case`, the star
+- `src/cases/tabulated_tov.jl`: `tabulated_tov_case`, the star
   on a table's cold barotrope, `TabulatedTOVStar` ("Validation ladder" 7);
-- `src/cases/ye_advection.jl` (step 13): `ye_advection_case`, a `Yₑ`
+- `src/cases/ye_advection.jl`: `ye_advection_case`, a `Yₑ`
   profile on a uniform flow.
 
 **The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
@@ -4479,22 +4694,29 @@ document's tables:
   (a test runs its `main` against `evolve!`, bit for bit; "Two scripts");
   `bin/tov_study.jl` (checkpointed, for `amdpreq`; `metric=analytic|vertex`),
   `bin/tov_compare.jl`, `bin/tov_drift.jl` and `bin/tov_modes.jl`: the
-  rung-4 record ("Validation ladder" 4); `bin/tov_study.jl table=dd2|sfho`
+  rung-4 record ("Validation ladder" 4), `bin/tov_cowling_cli.jl` the
+  script's command line; `bin/tov_study.jl table=dd2|sfho`
   the rung-7 record, its tables read by `bin/tables.jl` from
   `ENTROPYEOS_TABLE_DIR`, with `diag=` where the matter outside the star
   is ("Validation ladder" 7);
 - `bin/magnetized_tov_study.jl`: the magnetized star's time series and
   outcome map per chunk ("Validation ladder" 6);
-- `bin/recovery_cost.jl`: `steptime` times the fused and the two-phase
-  recovery, `finish` counts the share that reaches finish ("Primitive
-  recovery");
+- `bin/recovery_cost.jl` (with its instrumentation,
+  `bin/recovery_cost_hooks.jl`): `steptime` times the fused and the
+  two-phase recovery, `finish` counts the share that reaches finish
+  ("Primitive recovery");
+- experiments kept for their records, not part of the package:
+  `bin/endpoint_measure.jl` and `bin/hot_projection.jl` (the endpoint
+  branches behind EOS-9), `bin/front_investigation.jl` (the magnetized
+  atmosphere tube's chaos), `bin/ghost_entropy.jl` and
+  `bin/ghost_robustness.jl` (the matter's ghost fills; "Refinement");
 - `bin/benchmark.jl`: the per-phase table, ns per cell of each phase of a step on the
   magnetized star, on any backend and type; `bin/backend.jl`, TreeHydro's, resolves its
   and `bin/tov_cowling.jl`'s `backend=` and `type=` ("Precision and devices").
 
 **The coupled runs** (`coupled/`, its own environment; "The coupling
 contract"):
-- `coupled/tov_coupled.jl`: the step-11 script ("Two scripts"), with its
+- `coupled/tov_coupled.jl`: the coupled script ("Two scripts"), with its
   command line in `coupled/tov_coupled_cli.jl`; `coupled/gh7.jl`, TreeGH's
   regrid verbs and a segment's constraint norms composed from its exports
   (GH-7 workaround);
@@ -4525,15 +4747,18 @@ arithmetic's three partitions there ("Precision and devices");
 `-coupled-fine.toml`, the tabulated star's studies, each run a job of its own, with
 `tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the same coupled
 star at other constraint damping and on wider boxes, and `tabulated-tov-coupled-wide.toml`,
-`-wide-mid.toml` and `-wide-fine.toml`, the coupled study at `L = 96` ("Validation
-ladder" 7).
+`-wide-mid.toml` and `-wide-fine.toml`, the coupled study at `L = 96`, and
+`tabulated-tov-atmosphere.toml` and `tabulated-tov-cowling-long.toml`, where the
+coarse star's matter goes and the Cowling star to 1000 M ("Validation ladder" 7).
 
 ## Validation ladder
 
-These become the milestones of `PLAN.md`; each rung is a set of testsets
-named as claims.
+Each rung is a set of testsets named as claims, and every rung is done
+*(Done.)*: built, tested in the suite, and measured in the studies below.
+What each rung's step asked for (its acceptance list) and how it went are
+in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
 
-1. **Flat space, 1D**: the vacuum electromagnetic wave (`Vacuum`) at the
+1. **Flat space, 1D** *(Done.)*: the vacuum electromagnetic wave (`Vacuum`) at the
    scheme's order; the large-amplitude circularly polarized Alfvén wave
    (`IdealConductor`) at the scheme's order; the resistive shock tube swept
    over σ (Palenzuela et al. 2009, Dionysopoulou et al. 2013; the
@@ -4554,7 +4779,7 @@ named as claims.
    - **The vacuum EM wave** (`Vacuum`; `a = 1/10`, `b = 1/20` over a resting
      Γ = 5/3 gas at `ρ = p = 1`): `𝔈ʸ`, `𝔈ᶻ` at 1.938 (L1 9.1e−4 to
      1.6e−5), `A_y`, `A_z` at 1.912, `S_x` and `τ` at 1.914, `D`, `D Yₑ`,
-     `D s` at 2.00–2.02 — PLAN.md's prediction, ≥ 1.9, holds. `S_y`, `S_z`,
+     `D s` at 2.00–2.02 — the rung's prediction, ≥ 1.9, holds. `S_y`, `S_z`,
      `A_x` and `Φ̃` stay zero exactly. Every stage is `OHM_SIGMA_ZERO`.
    - **The circularly polarized Alfvén wave** (`IdealConductor`; Del Zanna
      et al.'s `ρ = p = B₀ = η = 1`, Γ = 4/3, `v_A = 0.3820`): `S_y`, `S_z`
@@ -4581,7 +4806,7 @@ named as claims.
      at four threads): L1 rates of `D`, `S_x`, `τ`, `𝔅ʸ` of 0.78, 0.85,
      0.77, 0.85 (test 1), 0.66, 0.67, 0.74, 0.81 (2), −0.02, 0.14, 0.17,
      0.53 (3), 0.95, 1.04, 0.94, 0.93 (4), 0.90, 0.75, 0.78, 0.97 (5).
-     PLAN.md's prediction, ≥ 0.7, holds but for test 2's `D` and `S_x` —
+     the rung's prediction, ≥ 0.7, holds but for test 2's `D` and `S_x` —
      whose error is the contact's, and a contact converges as `h^{2/3}`
      under a second-order scheme — and test 3, which is not asymptotic below
      800 cells: its dense shell (`R5`, ρ = 10.1, between a contact moving
@@ -4625,14 +4850,14 @@ named as claims.
      (what those moved in the uniform runs is in
      [HISTORY.md, "Validation ladder"](HISTORY.md#validation-ladder)): the
      scheme changed for them by rounding only, against reference errors of
-     10⁻³ (proposed).
+     10⁻³.
    - **The plateaus** against Giacomazzo & Rezzolla's exact solution
      (2006, Tables 7–11; `BALSARA_EXACT`, whose `p` is the total pressure),
      averaged at 400 cells over each region's window (`BALSARA_PLATEAUS`,
      where the 3200-cell run holds the region to 2%, less four cells either
      side), with `ρ` and `p` relative to their own value and each component
      of `v` and `B` to its largest magnitude in the solution
-     (`plateau_error`, proposed): every window within 2% —
+     (`plateau_error`): every window within 2% —
      the worst 1.26% (test 1, `R5`), 1.91% (2, `R5`), 0.13% (3, `R2`),
      0.64% (4, `R4`), 0.64% (5, `R2`) — but test 3's `R4`, 4.7% dense at
      400 cells (1.3% at 800), next to the unresolved shell. Too thin for a
@@ -4654,7 +4879,7 @@ named as claims.
      2013: a Brio–Wu tube with `Bʸ = ±1/2`, `Bˣ = 0`, `Γ = 2`, on `[0, 1]`
      to 0.4; 200 cells): the L1 distance of `𝔅ʸ` to the `IdealConductor`
      run is 0.392, 0.202, 0.0611, 0.0134 and 1.73e−5 at σ = 0, 10, 10²,
-     10³, 10⁶ — monotone, PLAN.md's claim — and falls as `σ^−0.96` from 10³
+     10³, 10⁶ — monotone, the rung's claim — and falls as `σ^−0.96` from 10³
      to 10⁶ (`σΔt ≈ 2000` there). The stages: all `OHM_SIGMA_ZERO` at σ = 0;
      all fixed point at σ = 10; 94,930 fixed point and 65,070 Newton of
      160,000 at 10²; 3,225 and 156,775 at 10³; 817 and 159,183 at 10⁶, every
@@ -4663,7 +4888,7 @@ named as claims.
    - **The current sheet** (Komissarov 2007, §6.1.4: `B₀ = 1`, `p = 50`,
      `ρ = 1`, `σ = 100`, `Γ = 4/3`, on `[−3/2, 3/2]` from the profile at
      `t = 1`, with the quasi-static `Eᶻ = ∂ₓBʸ/σ` where the paper starts
-     from `E = 0`, proposed): the erf profile solves the diffusion limit
+     from `E = 0`): the erf profile solves the diffusion limit
      and not the system — the field's pressure moves the fluid at
      `2·10⁻⁴`, whose `v × B` is 1% of the resistive `E`, and the
      displacement current lags the diffusion by `O(1/σt)` — so the
@@ -4676,7 +4901,7 @@ named as claims.
      to 0.1% — and at `B₀ = 1/10`, where the fluid's response (quadratic in
      `B₀`) drops out, it is five times smaller relative to `B₀`. Every stage
      is a fixed point (1,068,800 of them to `t = 9`), at most 4 recoveries.
-   - **The atmosphere** (`atmosphere_tube_case`, proposed: a gas
+   - **The atmosphere** (`atmosphere_tube_case`: a gas
      at ρ = p = 1 expanding into the policy's own atmosphere at
      `ρ_atm = 10⁻⁸`, `W` up to 4.9; 200 cells to `t = 0.4`): hydrodynamic
      (`B = 0`), and magnetized as a star's surface would be — `Bʸ = 10⁻³`,
@@ -4710,12 +4935,12 @@ named as claims.
    - Cost (Julia 1.13, Apple M3 Pro, one thread, 400 cells): a step of
      Balsara 1 is 6.5 ms, of Balsara 3 15 ms (the recoveries at a pressure
      ratio of 10⁴); the three test files take 45, 37 and 11 s.
-2. **Flat space, 2D and 3D, with AMR**: the cylindrical explosion, the
+2. **Flat space, 2D and 3D, with AMR** *(Done.)*: the cylindrical explosion, the
    magnetic rotor, Orszag–Tang, field-loop advection across coarse-fine
    faces — `∇·B` at round-off, rest mass and magnetic flux conserved
    across levels to round-off, regrids included.
 
-   *Rung 2a* (`test/multid_tests.jl`,
+   *Rung 2a* (`test/multid_tests.jl`, `test/multid_cases_tests.jl`,
    `test/reconstruction_tests.jl`; uniform meshes, HLLE, SSP3(4,3,3), `cfl`
    2/5 — 1/5 under MP5 — over `D` in `Δt = cfl/(D max λ/h)`; the cases in
    `src/cases/multid.jl` and `src/cases/geometry.jl`, every published number
@@ -4725,7 +4950,7 @@ named as claims.
    conservation drifts' last digit):
    - **`∇·𝔅`** after every step of every 2D and 3D run of the suite
      (`max_div_B` as the driver's `after_step`): at most 2.4e−16 of
-     `max |𝔅|` (asserted ≤ 1e−12, PLAN.md's bound).
+     `max |𝔅|` (asserted ≤ 1e−12, the rung's bound).
    - **Translation invariance**: the Alfvén wave extruded along `y`
      (`extruded_case`) is the 1D run bit for bit (`isequal`, every evolved
      set, every point) under MC, PPM, WENO-Z and MP5, and extruded along `y`
@@ -4754,9 +4979,10 @@ named as claims.
      field reads it), and the 2D and 3D symmetry, translation and turning
      claims hold bit for bit with the damping as without it.
    - **The cylindrical explosion** (GRaM-X §V B; 64² on `[−6, 6]²`, minmod as
-     GRaM-X runs it, `t = 1`, 27 steps): symmetric under `x → −x` to 1.6e−18
-     and under `y → −y` with the fields reversed to 2.5e−17 of each
-     variable's scale (asserted ≤ 1e−12); no repair, no reset. Under MC at
+     GRaM-X runs it, `t = 1`, 27 steps): symmetric under `x → −x` and under
+     `y → −y` with the fields reversed, exactly since both walls are
+     prescribed ("Boundaries"; 1.6e−18 and 2.5e−17 of each variable's scale
+     before; asserted ≤ 1e−12); no repair, no reset. Under MC at
      64² and 128² the reset floors the entropy of a few cells behind the
      front (`FLAG_POL_S_FLOORED`; 216 cells written as the stage limiter and
      96 as the step limiter to `t = 1` at 64², injecting `7·10⁻⁵` of energy);
@@ -4804,7 +5030,10 @@ named as claims.
    — "Refinement"; Julia 1.13; TreeAMR 0.2.2, with the potentials `A_j`
    conservative along the edge (AMR-9) and the matter's ghost fill in
    primitives, PointValue width 2 (AMR-10), with which the numbers below
-   are measured; the values before those two changes are in
+   are measured — the default fill is now the parent-centred one,
+   Conservative width 3 bounded ("Refinement"), which these tables were not
+   rerun with but for the number marked so below; the values before those
+   two changes are in
    [HISTORY.md, "Validation ladder"](HISTORY.md#validation-ladder)):
    - **Conservation at coarse-fine faces**: every total but `𝔈`'s drifts
      0.013 (1D) and 0.12 (2D) ulp of its scale a step on
@@ -4852,14 +5081,12 @@ named as claims.
      ("Refinement"): −1.6e−11 of rest mass, as the conserved fill's. The
      primitive fill of width 2 and of width 4 is in the tables in
      "Refinement".
-3. **Analytic curved backgrounds**: the Wald solution (`Vacuum`,
+3. **Analytic curved backgrounds** *(Done.)*: the Wald solution (`Vacuum`,
    Kerr-Schild) and the Michel monopole or magnetized Bondi flow
    (`IdealConductor`).
 
    *Rung 3* (`src/cases/kerr_schild.jl`,
-   `src/interior.jl`, `test/curved_tests.jl`, `bin/curved_stationarity.jl`;
-   proposed, but for the choice of the magnetized Bondi flow, `a = 0` and
-   the octant, which are decided):
+   `src/interior.jl`, `test/curved_tests.jl`, `bin/curved_stationarity.jl`):
    - **The background**: a Schwarzschild hole, `M = 1`, in Kerr-Schild
      coordinates (Cook 2000, Living Rev. Relativ. 3, 5, §3.3.1),
      `Analytic(KerrSchild(M))`. With `f = 2M/r` and `l = x/r`: `γ_ij = δ_ij +
@@ -4932,7 +5159,7 @@ named as claims.
    a wrong sign in a shift term or a metric read at the wrong point leaves
    an `O(1)` remainder.
 
-   **Stationarity** (PLAN.md: the L1 drift after `t = 50M` converges at
+   **Stationarity** (the acceptance: the L1 drift after `t = 50M` converges at
    `≥ 1.8`, judged on the finest pair, `M/8 → M/16`). The L1 drift outside
    `r = 2M` after `t = 50M`, both limiters, `r_in = M`, with the potentials'
    hooks absolute (option 1, below):
@@ -4969,36 +5196,28 @@ named as claims.
    second pair on, so the coarsest mesh is not yet asymptotic for the
    monopole's transverse components. The
    prediction is judged on the finest pair, `M/8 → M/16`, where it holds for
-   every variable; the `M/4 → M/8` rates 1.69 and 1.71 stand as measured — at
+   every variable but the charge `√γ q` (1.68 Wald, 1.63 Bondi); the
+   `M/4 → M/8` rates 1.69 and 1.71 stand as measured — at
    `M/4` only 8 cells lie between the hole's centre and the horizon.
-
-   **Inconsistent:** the paragraph above says the prediction holds on the
-   finest pair "for every variable", but the table's `M/8 → M/16` rates of
-   the charge `√γ q` are 1.68 (Wald) and 1.63 (Bondi), below 1.8, and the
-   verdict lists the charge (1.49–1.68) among the failures.
 
    **Option 1** — the case's own potential in the
    ghosts where it does not depend on `t`. *As built* (`static_potential` on
    `MHDCase`, `absolute` on `DirichletBoundary`, "Boundaries"): `wald_case` and
-   `bondi_case` declare their potentials static, and their potentials'
-   hooks are `CellBoundary(AllVariables(…))` of the case's `A_j` and `Φ̃`;
-   every other case keeps the relative hook. Options 2 (a relative hook that
-   carries the offset's gradient, upstream) and 3 (a gauge that damps a
-   static `χ`) are open questions for step 10's outer boundary and for
-   dynamic cases without an exact `A`. `bin/curved_localise.jl`'s
+   `bondi_case` declare their potentials static (as do the stars), and
+   their potentials' hooks are `CellBoundary(AllVariables(…))` of the
+   case's `A_j` and `Φ̃`; the flat-space cases keep the relative hook.
+   Options 2 (a relative hook that carries the offset's gradient, upstream)
+   and 3 (a gauge that damps a static `χ`) are not built; they matter for
+   dynamic cases without an exact `A` ("Possible extensions"). `bin/curved_localise.jl`'s
    `relhook=true` is the negative control.
-
-   **Inconsistent:** "Open questions" (the potentials' outer boundary) says
-   that the Cowling TOV star of step 10 is static and takes
-   `static_potential = true` (option 1) as is, so that options 2 and 3
-   matter for dynamic cases only; the paragraph above still names step 10's
-   outer boundary for them.
 
    **With the relative hook** (AMR-7; `relhook=true`) the drift does not
    converge: Wald saturates, the magnetized Bondi flow converges at first
    order. The L1
    drift outside `r = 2M` after `t = 50M`, both limiters, `r_in = M`, and the
-   rates `M/4 → M/8` and `M/8 → M/16` (`bin/curved_stationarity.jl`; jobs
+   rates `M/4 → M/8` and `M/8 → M/16` (measured with `bin/curved_stationarity.jl`
+   before the cases became static, reproducible with `bin/curved_localise.jl
+   relhook=true`; jobs
    588101/588102 on cn079 and cn080, 588111 and 588114 on cn079 and cn084,
    EPYC 7532, 588112 and 588113 on cn108 and cn083, EPYC 7543 and 7532, amdq,
    about 2 h at 64 threads):
@@ -5172,7 +5391,7 @@ named as claims.
      (`r < M`, which contains `r₋`; a process-local measurement,
      `bin/curved_localise.jl … ballks=true`) it is flat (`M/8`: 1.84e−4 at 10M,
      1.97e−4 at 50M). At `a = M/2` the Euclidean ball reaches `r = 0.87M >
-     r₋ = 0.13M` and is flat. **(open)**, left for future black-hole work
+     r₋ = 0.13M` and is flat. **Not done**, left for future black-hole work
      ("Known risks"): the paste's ball in Kerr-Schild
      `r`, or one Euclidean radius `ρ` chosen to contain `r₋` in the plane
      (`√(r₋² + a²) < ρ < r₊`, 1.06M to 1.44M at `a = 0.9M`).
@@ -5231,7 +5450,7 @@ named as claims.
      above; `𝔅` was not measured then). The
      spinning case differs in `ξ = 0` (nothing damps the gauge, the charge
      or `Φ̃`), the frame dragging, the inner horizon and the shifted box.
-     **Not localised further (open)**; the runs below are left for future
+     **Not localised further**; the runs below are left for future
      black-hole work ("Known risks"). The runs that would separate the causes: Wald at `a = 0`
      with `ξ = 0` at `M/8` and `M/16` to `50M` (the gauge damping alone, about
      45 min and 2.7 h on 64 threads); `a = M/2` with the heavy fluid at `M/16`
@@ -5258,7 +5477,7 @@ named as claims.
    their checksums, which the one- and four-thread runs print alike. The
    `· inv(√γ)` keys of "The step cache", written for curved space and first
    exercised here, hold.
-4. **TOV in the Cowling approximation**: a Γ = 2, K = 100 polytrope
+4. **TOV in the Cowling approximation** *(Done.)*: a Γ = 2, K = 100 polytrope
    at fixed entropy (needs EOS-1, EOS-2) on `Analytic(TOVMetric)`, with no
    TreeGH; stationarity and mode frequencies.
 
@@ -5272,7 +5491,7 @@ named as claims.
    0.375, 0.25; the star's own is 1.28e−3). Symmetry, amdpreq, 64 threads, the node per job
    in the logs.
 
-   **Stationarity** (PLAN.md: the drift after `200M` converges at `≥ 1.5`;
+   **Stationarity** (the acceptance: the drift after `200M` converges at `≥ 1.5`;
    it holds for both reconstructions):
 
    | | `h = 0.75` | `0.5` | `0.375` | `0.25` | orders |
@@ -5294,7 +5513,7 @@ named as claims.
    drift converges above second order, so it is the scheme's truncation
    error, not a boundary or atmosphere effect of fixed size.
 
-   **Conservation** (PLAN.md: rest mass to round-off, net of the outer
+   **Conservation** (the acceptance: rest mass to round-off, net of the outer
    boundary flux; it holds): in every run the change of the total
    `D` equals the mass the step limiter injected (`ohm_tally`'s
    `injected_D`) to `1.3–7.7·10⁻¹⁵` of a rest mass of 1.506 at `200M` and
@@ -5304,7 +5523,7 @@ named as claims.
    and `−3.5` to `−4.2·10⁻⁷` with PPM: PPM's reset removes mass, MC's adds
    it.
 
-   **Modes** (PLAN.md: F, H1 and H2 within 3% of Font et al. 2002, Table I,
+   **Modes** (the acceptance: F, H1 and H2 within 3% of Font et al. 2002, Table I,
    the fixed-spacetime values of this model from a 2D code: 2.701, 4.563,
    6.352 kHz; it holds at `h = 0.375`; H2 fails at
    `h = 0.5`). Nothing perturbs the star: the modes are the initial data's
@@ -5389,12 +5608,12 @@ named as claims.
      (`bin/tov_cowling.jl`'s default); the package's default stays MC (the
      tubes and waves of rungs 1–2 were measured with it).
 
-5. **TOV in a dynamical spacetime**: the frozen TreeGH metric, through its
+5. **TOV in a dynamical spacetime** *(Done.)*: the frozen TreeGH metric, through its
    adapter, reproducing rung 4; the F, H1, H2 radial
    modes against the literature (Font et al. 2002); convergence of the GH
    and ADM constraints with matter (needs GH-2 to GH-4).
 
-   *As built in step 11* (`coupled/`; Symmetry, EPYC 7532 and 7543). Two
+   *As built* (`coupled/`; Symmetry, EPYC 7532 and 7543). Two
    setups:
    - **The coupled suite:** step 10's star on `[−16, 16]³`, two roots, no
      boxes, MC, at `N = 10` and `N = 20`.
@@ -5408,7 +5627,7 @@ named as claims.
        owned vertex: `α` to 1.1e−16, and `β`, `γ` and `K` exactly.
      - The Cowling run on TreeGH's frozen metric equals step 10's script
        to 3.4e−16 relative at `t = 2`. That is round-off, not the
-       truncation error `PLAN.md` predicted: for the static star with no
+       truncation error the rung predicted: for the static star with no
        shift, TreeGH's `K` is 0 exactly, as the analytic one is.
    - **GH-3's static-matter check:** TreeGH alone on the star, with
      `ADMMatter` held fixed, drifts from its initial state at second
@@ -5437,7 +5656,7 @@ named as claims.
      | 740–760 | 1.91, 2.10 | 2.00, 2.26 | 2.19, 2.46 | 2.29, 2.44 |
      | 900–1000 | 1.81, 2.03 | 1.88, 2.21 | 2.09, 2.50 | 2.02, 2.40 |
 
-     **`PLAN.md`'s ≥ 1.8 holds on the finer pair, inside and outside, to
+     **The acceptance's ≥ 1.8 holds on the finer pair, inside and outside, to
      1000 M, but for `ℋ` outside over 490–510 M (1.76): a miss.** The
      windows on either side give 2.01 (500–520 M) and 1.96 (480–500 M),
      and the whole of 250–1000 M gives 2.03 and 2.24. A 20 M window
@@ -5630,16 +5849,17 @@ named as claims.
      transfers' must. The mean is the closer to linear theory at
      `h = 0.25`, which one resolution with each cannot tell from a
      cancellation of the mean's error against the scheme's. Whether the
-     4th order's 0.8% closes at a finer `h` is **(open)**. H1's damping
+     4th order's 0.8% closes at a finer `h` is not measured ("Possible
+     extensions"). H1's damping
      does not depend on the transfer (`τ` 384–389 M against 435–441 M at
      `h = 0.25`), since it comes from the matter scheme.
-6. **Magnetized TOV**: an interior poloidal field from an analytic `A`,
+6. **Magnetized TOV** *(Done.)*: an interior poloidal field from an analytic `A`,
    σ(ρ) through `DensityProfile`, an electrovacuum dipole exterior: the
    magnetized star of Dionysopoulou et al. (2013), whose field is LORENE's,
    and here the exact static form (Wasserman & Shapiro 1983). Palenzuela
    (2013) has a force-free exterior around a rotating star instead.
 
-   *As built in step 12* (`magnetized_tov_case`,
+   *As built* (`magnetized_tov_case`,
    `src/cases/magnetized_tov.jl`; `test/magnetized_tov_tests.jl`;
    `bin/magnetized_tov_study.jl`; the diagnostics in
    `src/field_diagnostics.jl`):
@@ -5878,7 +6098,7 @@ named as claims.
      own. The energy inversion fails outside the atmosphere in at most 10
      cells at a time, in 12 of the 50 samples at `h = 0.375`, once at
      `0.5`, never at `0.75`, and never inside `R̄`. **Whether `D s` earns
-     its keep (open) is not decided**: the fallback is blocked on EOS-3,
+     its keep is not decided**: the fallback is blocked on EOS-3,
      and without it this star gives it almost nothing to repair.
 
    **The confined-field star** (`field = :confined`): the resistive star
@@ -6050,12 +6270,12 @@ named as claims.
      37% of its stages at `h = 0.375` (the last chunk), beyond it 1.4% —
      as the dipole star did at `ρ_cut = ρ_min`, and harmless here, where
      the field there is zero.
-7. **TOV with a tabulated EOS and `Yₑ`**: a star on a real table in cold
+7. **TOV with a tabulated EOS and `Yₑ`** *(Done.)*: a star on a real table in cold
    β-equilibrium (EOS-4), static in the Cowling approximation and in
    TreeGH's spacetime as rungs 4 and 5 are, with `Yₑ` varying through it and
    `D Yₑ` conserved.
 
-   *As built in step 13* ("Thermodynamics": "The cold barotrope", "The
+   *As built* ("Thermodynamics": "The cold barotrope", "The
    tabulated star's surface and atmosphere"). The stars are their tables'
    1.4 M☉ ones: DD2 at `ρ_c = 9.4·10⁻⁴` (5.8·10¹⁴ g/cm³; `M = 1.404`,
    `R̄ = 7.47`) and SFHo at `ρ_c = 1.37·10⁻³`; the atmosphere at `10⁻¹⁰`
@@ -6094,7 +6314,7 @@ named as claims.
      | SFHo mean over `[160, 200]` M | −2.871e−2 | −1.062e−2 | −5.031e−3 | **2.45, 2.60** |
      | SFHo L1 change of `D`, `τ` | 3.62e−6, 1.65e−7 | 1.66e−6, 8.63e−8 | 1.11e−6, 4.85e−8 | |
 
-     **Stationarity** (`PLAN.md`: as in step 10, the drift after 200 M
+     **Stationarity** (the acceptance: as in rung 4, the drift after 200 M
      converging at ≥ 1.5): **it holds for the window means, and the
      endpoints miss on one pair each** (DD2 1.40, SFHo 1.07). The
      endpoint is one sample of the radial oscillation, whose half-range
@@ -6104,7 +6324,7 @@ named as claims.
      same mesh (MC at `h = 0.375`: −0.14% against −1.45%). The start rings
      harder than the polytrope's: the half-range over the first 40 M is
      2.6–3.4% at every `h`, falling to 0.2–0.4% by 160 M.
-   - **Conservation** (`PLAN.md`: `D Yₑ` to round-off): at `h ≤ 0.5` the
+   - **Conservation** (the acceptance: `D Yₑ` to round-off): at `h ≤ 0.5` the
      rest mass and `D Yₑ` change by exactly what the reset injected, to at
      most 4.6·10⁻¹⁵ of 1.53–1.55 and 2.1·10⁻¹⁶ of 0.089–0.098. **It holds
      over 200 M** (over 1000 M, below, `D Yₑ` does not). At `h = 0.75` both
@@ -6161,7 +6381,7 @@ named as claims.
      | 740–760 | 1.53, 3.26 | 2.02, 2.36 | 1.62, 2.41 | 0.76, **1.41** |
      | 900–1000 | 0.94, **1.64** | 1.95, 2.10 | 1.08, **1.66** | 1.20, **1.65** |
 
-     **`PLAN.md`'s ≥ 1.8 (step 11's) holds on the finer pair to 260 M,
+     **The acceptance's ≥ 1.8 (rung 5's) holds on the finer pair to 260 M,
      inside and outside, and fails after it**: `ℳ` outside from 490 M,
      `ℋ` inside and outside over 900–1000 M. The coarse pair is below 1.8
      in most windows. Unlike rung 5's, the norms grow: at `h = 0.375`, `ℋ`
@@ -6204,7 +6424,7 @@ named as claims.
      It grows at every `γ0`, without damping too, at 2.8–3.0 kHz in every
      run; stronger damping deepens the decay before 300 M and not the
      growth after it, and `γ2 = −1/2`, which suppresses GH-8's mode
-     ([`PLAN.md`, GH-8](PLAN.md#gh-8--constraint-damping-on-a-star-note)),
+     ([GH-8](#gh-8--constraint-damping-on-a-star-note)),
      starts it at 100 M. `ℋ` inside stays at 2.3–5.4·10⁻⁵ in the runs
      with `γ0 > 0` and `γ2 = 0` while it grows, and the reset and the
      entropy floor inject nothing that grows with it.
@@ -6251,7 +6471,7 @@ named as claims.
      | 740–760 | 2.04, 2.46 | 2.58, 2.84 | 1.51, **1.78** | 1.54, **1.78** |
      | 900–1000 | 2.07, 2.49 | 2.51, 2.90 | 1.49, 1.90 | 1.45, 1.88 |
 
-     **On the finer pair `PLAN.md`'s ≥ 1.8 holds inside throughout and
+     **On the finer pair the acceptance's ≥ 1.8 holds inside throughout and
      outside in every window but two**: around 100 M (1.38, 1.00) and
      1.78 at 750 M. The coarse pair is below 1.8 outside, as at `L = 24`.
      The outside region (`r ≥ 10` to the box edge) now spans the three
@@ -6298,7 +6518,7 @@ named as claims.
      loses 1.9·10⁻⁹ over 200–250 M and 1.8·10⁻⁸ over 970–1000 M, steps
      like the coarse Cowling stars' (not measured with `diag`). The entropy
      floor fires on 0, 6 and 0 cells.
-   - **`D Yₑ` over 1000 M on the Cowling metric** **(open)**: the run of
+   - **`D Yₑ` over 1000 M on the Cowling metric** ("Known risks"): the run of
      the last column holds the rest mass net of the reset to 4.7·10⁻¹⁶
      (and `diag` to 6.7·10⁻¹⁵ throughout), but `D Yₑ` to only 1.6·10⁻¹³
      of 0.098, where over 200 M it held to 2·10⁻¹⁶. Something moves
@@ -6313,85 +6533,75 @@ binaries, supernovae with neutrinos.
 
 ## Possible extensions
 
-Not planned; listed because they are the obvious next questions:
-split-speed and HLLC fluxes; limited prolongation once upstream has it;
-a mean-field dynamo in Ohm's law; force-free currents in the
-magnetosphere; subgrid (LES) models for unresolved amplification;
-neutrino leakage and M1 as a separate package on the same forest.
+Not built; each is an obvious next question, with what the measurements so
+far say about it.
 
-**Inconsistent:** "limited prolongation once upstream has it" is listed as
-not available, but "Known risks" and "Validation ladder" 4 say the matter's
-operator is bounded, TreeAMR's limited operator (AMR-4); and the split
-speeds are listed as an extension, but they are built
-(`riemann_flux(::Val{:hlle_split}, …)`, "Riemann solver") and measured.
+- **The entropy fallback**, and with it whether `D s` earns its keep: the
+  fallback of a failed energy inversion, at the advected `s`, waits for
+  EOS-3 ("Primitive recovery"). The magnetized star gives it almost
+  nothing to repair (the inversion fails outside the atmosphere in at most
+  10 cells at a time; "Validation ladder" 6). The reset writing
+  `√γ D s = (√γ D) s` from the recovered `s` in every cell it did not
+  repair was tried and not adopted: it breaks the conservation of `D s`
+  and the reset's no-op where it repairs nothing ([HISTORY.md, "Open
+  questions"](HISTORY.md#open-questions)). Without it `(√γ D s)/(√γ D)`
+  leaves the window where `D` is thin (−410 … 1220 outside the Cowling
+  star's surface at 200 M), which only seeds the recovery. The design
+  ("Primitive recovery", "Entropy fallback") switches on a threshold of
+  `½(E² + B²) / τ_fluid` whose value is not chosen; the cells it would act
+  on are already counted (`field_diagnostics`).
+- **Two stage-solve ideas** from the investigation of the magnetized
+  atmosphere tube's front ([HISTORY.md, "Floors, the atmosphere and the
+  magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere),
+  "Investigation (2026-10-16)" and the footnote to its controls): a
+  predictor in the atmosphere taking `OHM_SIGMA_ZERO`; and, in the stage
+  solve's pointwise sweep, a class of predictors whose fluid share is
+  near-null and at the entropy ceiling in the taper band, asserting a
+  finite, flagged fallback — what the front produced.
+- **SSP2(2,2,2) as a debugging tableau**, run and tested here; today it
+  is only available from IMEXRungeKutta ("The partition").
+- **A conductivity that falls where the field's energy dwarfs the
+  fluid's**, not only by density or `B²/D`: on the magnetized star the
+  cold gas outside the surface fell back in half its stages until σ was
+  cut at `ρ = 10⁻⁶`, a density of this star's chosen by hand ("Ohm's law
+  and the conductivity", "Validation ladder" 6). The nearest published
+  version is Palenzuela (2013)'s switch to a force-free exterior at
+  50–400 `ρ_atm`.
+- **A table's recovery warm-started from the cell's previous `log₁₀ T`**,
+  carried in the state as `D s` is ("Thermodynamics", "Warm starts"): a
+  tabulated cell-step costs about 2.7 times the polytrope's, not split
+  into the recovery's part.
+- **The fourth-order matter transfer at a finer `h`**: whether its H1,
+  0.8% above linear theory at `h = 0.25`, closes ("Matter to the
+  vertices", "Validation ladder" 5).
+- **The tabulated coupled star on boxes wider than `L = 96`** ("Validation
+  ladder" 7): where its F line (3.1 kHz at `L = 96`, 2.88 kHz at `L = 48`)
+  settles as `L` grows, or a radiative outer boundary in TreeGH (GH-6)
+  in place of the wider box.
+- **The potentials' outer boundary where no exact `A` exists** (dynamic
+  cases): a gradient-extrapolating relative hook (option 2, upstream) or a
+  gauge that damps a static `χ` (option 3); see "Boundaries", the design
+  rule. Every case built so far takes option 1 or has periodic or
+  flat-space faces. Likewise the vertex metric's outer boundary for a case
+  without an analytic provider ("Metric at cells, faces and edges").
+- **For a hole that forms in a collapse**, with no analytic solution
+  inside: a field-only interior — paste or damp `𝔈` and `A` inside, and
+  leave the matter to the ordinary reset, which rung 3 found sufficient
+  for the matter ("The interior").
+- **A resistive HLLC flux**; the split speeds are built and measured, and
+  not the default ("Riemann solver").
+- A mean-field dynamo in Ohm's law; force-free currents in the
+  magnetosphere; subgrid (LES) models for unresolved amplification;
+  neutrino leakage and M1 as a separate package on the same forest.
 
 ## Open questions
 
-Each is decided by a measurement in the step named in `PLAN.md`. The
-questions already decided, and when, are in
-[HISTORY.md, "Open questions"](HISTORY.md#open-questions); those the
-Cowling star settled are under "Validation ladder" 4, "What the star
-decides".
-
-- **(open)** `(ρ, S_i, S_ij)` to vertices at fourth order: whether its H1,
-  0.8% above linear theory at `h = 0.25`, closes at a finer `h` ("Matter
-  to the vertices").
-- **(open)** Whether the conductivity should fall where the field's energy
-  dwarfs the fluid's, not only by density or `B²/D`: on the magnetized star
-  the cold gas outside the surface fell back in half its stages, with the
-  linear profile or the literature's squared one, coupled and on the Cowling
-  metric alike, until σ was cut at `ρ = 10⁻⁶` — above every published
-  threshold, a density of this star's rather than of `ρ_min`, and chosen by
-  hand ("Ohm's law and the conductivity", "Validation ladder" 6). The
-  nearest published version is
-  Palenzuela (2013)'s switch to a force-free exterior at 50–400 `ρ_atm`.
-  Nothing built or measured beyond that.
-- **(open)** Whether a table's recovery should be warm-started from the
-  cell's previous `log₁₀ T`, carried in the state as `D s` is
-  ("Thermodynamics", "Warm starts"): on the tabulated star a cell-step costs
-  about 2.7 times the polytrope's, not yet split into the recovery's part.
-- **(open)** The tabulated coupled star on boxes wider than `L = 96`
-  ("Validation ladder" 7): where its F line (3.1 kHz at `L = 96`, 3.04 to
-  600 M at `h = 0.6`, against 2.88 at `L = 48`) settles as `L` grows;
-  whether the outside rates' dip near 100 M (1.0–1.4 on the finer pair)
-  is the start's transient crossing the coarse levels; and what adds
-  10⁻¹⁰ to the rest mass over 1000 M at `L = 96`.
-- **(open)** What moves `D Yₑ` by 1.6·10⁻¹³ over 1000 M on the Cowling
-  metric while the rest mass holds to 4.7·10⁻¹⁶ ("Validation ladder" 7);
-  the candidate is the outer faces, where the Dirichlet atmosphere's `Yₑ`
-  is the slice's and the reset's atmosphere keeps the replaced state's.
-- **(open)** The metric in the outermost ghost cell (see
-  [Metric at cells, faces and edges](#metric-at-cells-faces-and-edges)).
-
-  **Inconsistent:** "Metric at cells, faces and edges" says the outermost
-  ghost layer is settled by `Mv`'s `G = 4`.
-- **(open)** Whether `D s` earns its keep; the threshold that switches to
-  it. On the stationary Kerr-Schild flows it drifts further from
-  `D s_exact` than `D` does (see "Validation ladder" 3). The reset writing
-  `√γ D s = (√γ D) s` from the recovered `s` in every cell it did not
-  repair, in both roles, was tried and not adopted: it breaks the
-  conservation of `D s` and the reset's no-op where it repairs nothing
-  ([HISTORY.md, "Open questions"](HISTORY.md#open-questions) has the
-  measurement). Without it, `(√γ D s)/(√γ D)` leaves the window where `D`
-  is thin — −410 … 1220 outside the Cowling star's surface at 200 M ("As
-  built in step 10, round 2") — which only seeds the recovery and changes
-  nothing it returns. It earns its keep only once it is the fallback of a
-  failed energy inversion, which is not built: it waits for EOS-3. On the
-  magnetized star (rung 6) the energy inversion fails nowhere outside the
-  atmosphere at `t = 2M`, and the trigger `½(E² + B²) > τ_fluid` fires
-  only just outside the surface ("Validation ladder" 6), so that star does
-  not decide it either.
-- **(open)** For a hole that forms in a collapse, with no analytic
-  solution inside: a field-only interior — paste or damp `𝔈` and `A`
-  inside, and leave the matter to the ordinary reset, which rung 3 found
-  sufficient for the matter. Not measured; for the step that forms a hole.
-- **(open)** The potentials' outer boundary where no exact `A` exists
-  (dynamic cases): a gradient-extrapolating relative hook (option 2,
-  upstream) or a gauge that damps a static `χ` (option 3); see
-  "Boundaries", the design rule. The Cowling TOV star is static, so an
-  exterior field from an exact static potential takes
-  `static_potential = true` (option 1) as is; options 2 and 3 matter for
-  dynamic cases only.
+None is open. The questions decided, and when, are in [HISTORY.md, "Open
+questions"](HISTORY.md#open-questions); those the Cowling star settled are
+under "Validation ladder" 4, "What the star decides". What is measured
+short is under [Known risks](#known-risks), and what is not built under
+[Possible extensions](#possible-extensions). A new question is marked
+**(open)** where it arises and listed here.
 
 ## Known risks
 
@@ -6411,18 +6621,13 @@ decides".
 
   See "Validation ladder" 3 and "The interior".
 - No MPI yet: single node, although TreeAMR now has its M7.
-- Unlimited conservative prolongation at a stellar surface floors cells.
-  The matter's operator is bounded; the atmosphere tube
-  across a coarse-fine face repairs no ghost with it, where the unbounded
-  one made `D < 0` (see "Refinement" and "Validation ladder" 4).
 - Light-cone fluxes are diffusive in a star's interior. They smear
   contacts and slow waves: Balsara 2's contact converges as
   `h^{2/3}`, and Balsara 3's dense shell (ρ = 10.1 between a contact and a
   slow shock) is not resolved below 800 cells, where the 400-cell run's
   peak density is 8.35.
 - The implicit stage may converge poorly where magnetization and `σΔt`
-  are both large; rung 1's sweep exists to find out where. Measured
-  pointwise: not where both are large — the ideal seed is exact
+  are both large. Measured pointwise (the stage solve's sweep): not where both are large — the ideal seed is exact
   there — but at `b²/ρ ≥ 10` with `σΔt` between `10⁻³` and `10²`, when `E★`
   is so far from both the solution and the ideal field that neither seed is
   a fluid state. The
@@ -6432,8 +6637,7 @@ decides".
   evolves as in electrovacuum, not as force-free — no conduction current
   at all, where a magnetosphere's plasma would carry the force-free one —
   and the taper already begins at `μ = μ_max/10`, so σ is reduced a decade
-  below the threshold a case states. Rung 1 sees how often an evolution
-  meets the taper. On the magnetized star (rung 6) the stage's fallbacks
+  below the threshold a case states. On the magnetized star (rung 6) the stage's fallbacks
   were not the taper's to remove: with σ cut at `2ρ_min`, half the stages
   just outside the star fell back, and as many at `μ_max = 0.1` and at
   `σ₀ = 10³` — there the fluid's energy, not its rest mass, is what is
@@ -6452,6 +6656,17 @@ decides".
   recovery, raising `τ`. The reset counts these floors outside the
   atmosphere (`ohm_tally`'s `s_floors`, `s_floor_τ`); at `h = 1` to 4 M
   there are none ("Validation ladder" 7 has the studies).
+- On the Cowling metric over 1000 M the tabulated star's `D Yₑ` moves by
+  1.6·10⁻¹³ of 0.098 where its rest mass holds to 4.7·10⁻¹⁶, not
+  separated; the candidate is the outer faces, where the Dirichlet
+  atmosphere's `Yₑ` is the slice's and the reset's atmosphere keeps the
+  replaced state's ("Validation ladder" 7).
+- On the `L = 96` box the coupled tabulated star's rest mass gains up to
+  1.3·10⁻¹⁰ over 1000 M, net of the reset, ten times `L = 24`'s change
+  and of the other sign, and the constraints outside the star converge at
+  only 1.0–1.4 on the finer pair around 100 M, perhaps the start's
+  transient crossing the coarse levels; neither is separated ("Validation
+  ladder" 7).
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

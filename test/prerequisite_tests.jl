@@ -1,5 +1,5 @@
 # What the resolved releases have to provide before any of the scheme can be
-# written, and which of the upstream items in `PLAN.md` have landed.
+# written, and which of the upstream items in `CODE.md` have landed.
 #
 # `Project.toml` takes TreeAMR and SpacetimeMetrics from the General
 # registry and EntropyEOS and IMEXRungeKutta from their remotes through
@@ -9,14 +9,14 @@
 # a step rather than here; the name lists are the cheapest thing that fails
 # when an upstream release renames something.
 #
-# Then one testset per upstream ID still waiting ("Upstream requirements" in
-# `PLAN.md`). Each detects its item by `isdefined`, `hasmethod` or
+# Then one testset per upstream ID still waiting ("Requests still waiting" in
+# `CODE.md`). Each detects its item by `isdefined`, `hasmethod` or
 # `applicable` — never by a version number — and says, in an `@info` naming
 # the ID, whether it is waiting and which step it blocks. A waiting item is
 # not a failure: the suite stays green, and the log says what the next step
 # is waiting for. Once an item has landed and `[compat]` requires a release
 # that contains it, its probe is retired: the testset is deleted, the item
-# is marked "landed in <package> <version>" in `PLAN.md`, and its names
+# moves to `HISTORY.md`, "Upstream prerequisites", and its names
 # join the lists below (decided by Erik 2026-10-14). That retired AMR-1 to
 # AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0), SM-1
 # (SpacetimeMetrics 1.7.0), AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8), and
@@ -334,8 +334,8 @@ end
     # Guards nothing here. TreeGH is not a dependency of this package or of
     # this suite (`CODE.md`, "The coupling contract"); the coupled suite in
     # `coupled/` loads it beside this package and detects each GH item
-    # there (step 11). This suite only names the ones `PLAN.md` lists as
+    # there (step 11). This suite only names the ones `CODE.md` lists as
     # open (GH-0, GH-1, GH-3 and GH-4 have landed, GH-5 is withdrawn), so
     # that a grep of its log for `waiting:` still lists every upstream item.
-    prereq_report("GH-$n", false, "open in PLAN.md; detected in coupled/")
+    prereq_report("GH-$n", false, "open in CODE.md; detected in coupled/")
 end

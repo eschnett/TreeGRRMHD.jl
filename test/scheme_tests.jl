@@ -63,7 +63,7 @@ end
 
 @testset "AMR-1 downstream: the state vector round-trips over this package's sets: D=$D" for D in 1:3
     # Guards the multi-set state vector (AMR-1, landed in TreeAMR 0.2.1; its
-    # probe retired 2026-10-14, so this is now the check `PLAN.md` names): the
+    # probe retired 2026-10-14, so this is now the check the request named): the
     # matter set, the three edge sets of `A` and the vertex set of `Φ̃` — every
     # centering, mixed `nvars` — concatenated in `evolved_sets` order, each
     # segment bit for bit what that set's own state vector holds; `scatter!`
@@ -150,7 +150,7 @@ end
 
 @testset "The right-hand side is pure and never mutates u" begin
     # Guards "The right-hand side" (`CODE.md`: "The right-hand side never
-    # mutates `u`"; PLAN.md's purity claim): `mhd_rhs!` reads `u` and writes
+    # mutates `u`"; the plan's purity claim): `mhd_rhs!` reads `u` and writes
     # `du` and its own scratch, so `u` comes back bit for bit, and the same
     # `u` gives the same `du` bit for bit whatever was evaluated in between —
     # which is what makes the warm starts come from the state rather than
