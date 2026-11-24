@@ -5906,7 +5906,9 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      the current falls to zero at the surface, where σ does. Poloidal and
      axisymmetric, so the current and the resistive `E` are toroidal, and so
      is `−v × B` of a radial flow: `E·B = 0` in the continuum at any σ,
-     which makes `E·B` inside a measure of the scheme's error alone. The
+     which makes `E·B` inside a measure of the scheme's error alone —
+     under the default tableau mostly the time integrator's, not the
+     spatial truncation (measured below). The
      central field sets `μ`: `B_c` is the contravariant `Bᶻ` at the centre
      (default `10⁻⁴`; the norm there is `ψ_c² B_c = 1.43 B_c`, and
      `B²/(2p) = 6·10⁻⁵`, Heaviside–Lorentz geometric units; the
@@ -6073,10 +6075,18 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      not the cause.
    - **Inside the star**, `Σ|E·B|/ΣB²` converges: 5.26e−5, 1.90e−5,
      1.07e−5 at 2 M (rates 2.51, 2.00) and 1.76e−4, 8.73e−5, 5.11e−5 at
-     50 M (1.73, 1.86): `E·B → 0` at truncation error. `|E|/|B|` inside is
-     9.3e−3, 5.8e−3, 4.5e−3 at 50 M (0.93–1.16): `E` is `−v × B` of the
-     star's own truncation velocity, whose error at the surface is first
-     order.
+     50 M (1.73, 1.86). `|E|/|B|` inside is 9.3e−3, 5.8e−3, 4.5e−3 at
+     50 M (0.93–1.16). **Both are SSP3(4,3,3)'s offset, not the star's
+     spatial truncation**: the tableau is not stiffly accurate, and each
+     step leaves `𝔈` `−0.2844 Δt f` off the stage's ideal equilibrium,
+     `f` mostly `∇ × (αB)` ([The partition](#the-partition)), an error of
+     order `Δt ∝ h`. The suite's run (`h = 1`, `2 M`) gives `Σ|E·B|/ΣB²`
+     9.27e−5 and `|E|/|B|` 1.10e−2 under SSP3(4,3,3) and 2.92e−9 and
+     1.92e−3 under ARS(4,4,3), which is stiffly accurate, while the field's
+     drift inside is 1.684e−2 under both (`test/magnetized_tov_tests.jl`).
+     So the stored `E` inside a magnetized star is about 1% of `B` off ideal
+     at `h = 1` under the default tableau, and so is everything read from it
+     at a step's end: `E·B`, the field energy's electric part, the charge.
    - **Rest mass**: its change equals what the reset injects to at most
      7.7e−15 of 1.506 at every chunk (−9.4e−8 to −1.2e−7 injected by
      50 M).
@@ -6667,6 +6677,30 @@ short is under [Known risks](#known-risks), and what is not built under
   only 1.0–1.4 on the finer pair around 100 M, perhaps the start's
   transient crossing the coarse levels; neither is separated ("Validation
   ladder" 7).
+- Under the default SSP3(4,3,3), which is not stiffly accurate, the
+  stored `𝔈` of a stiff conductor ends each step `O(Δt)` off its ideal
+  value: inside the magnetized star about 1% of `B` at `h = 1`, against
+  0.2% under ARS(4,4,3) ("Validation ladder" 6). Everything read from the
+  state at a step's end inherits it — `E·B`, the field energy's electric
+  part, the charge, a Poynting flux. ARS(4,4,3) is the remedy where it
+  matters.
+- Step 11's coupled study missed two of its acceptance numbers, and they
+  stand as measured ("Validation ladder" 5): `ℋ` outside the star
+  converges at 1.76 over 490–510 M on the finer pair, against 1.8, and the
+  H2 mode is about 10% off at every `h`. The suite does not guard coupled
+  convergence at all: `coupled/coupled_tests.jl` checks the constraints at
+  `t = 0` and runs to `t = 1` at one resolution, so a regression there is
+  found only by rerunning the studies.
+- In a coupled run the vertex metric `Mv` is built with TreeAMR's default
+  `walls = :half_open`, so its low wall vertices are TreeGH's evolved ones
+  and its high wall and every ghost beyond an outer face are the case's
+  analytic metric (`src/vertex_metric.jl`). The matter's interpolation
+  next to an outer face then mixes the two, asymmetrically between the
+  low and the high faces, by as much as TreeGH's solution has left the
+  analytic star there. Not measured; it is a candidate for the `L = 96`
+  rest-mass gain above (not for the Cowling `D Yₑ` drift, which has no
+  `Mv`), which a budget of the fluxes through the outer faces would
+  settle.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

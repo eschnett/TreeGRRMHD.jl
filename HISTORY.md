@@ -961,6 +961,41 @@ step 15". It was the plan's last step. Two things it noted stay as they are: `to
 reads TreeAMR's unexported `forest.leaves`, and rung 2b's tables stand as measured with the
 old ghost fill, not rerun.
 
+**2026-11-24, an independent review after the plan.** At Erik's request a reviewer with no
+part in building the package read the design, the code and the retired `PLAN.md`. It found
+no error in the equations, the fluxes, the EMF, the stage solve or the recovery, and a 2D
+oblique Alfvén wave with one root refined converged as the uniform mesh does (L∞ 2.08–2.26
+against 2.12–2.27, N = 8 to 32). It found claims and tests that were weaker than they read,
+and Erik had them fixed ("Yes, fix them"):
+- **Rung 6's inside numbers were the tableau's.** `Σ|E·B|/ΣB²` 9.27e−5 and `|E|/|B|`
+  1.10e−2 inside the magnetized star (`h = 1`, 2 M) were attributed to the truncation of a
+  poloidal field and to the star's velocity; under ARS(4,4,3) they are 2.92e−9 and 1.92e−3,
+  with the field's drift unchanged (1.684e−2). They are SSP3(4,3,3)'s per-step offset of `𝔈`.
+  `CODE.md` (rung 6, "Known risks") and the test say so now, and a `@full_tier` testset runs
+  both tableaux.
+- **Three stars' stationarity was a loose bound.** The Cowling polytrope's `|Δρ_c/ρ_c| < 5%`
+  against a measured −3.33% passed the covariant momentum source scaled by 0.8, 0.9 and 1.1
+  (−4.55%, −3.93%, −2.68%). The drift is now held to its measured value within 0.1%, which
+  catches 2% in the source; DD2's (−0.824%, a bound of 2% before) likewise; the magnetized
+  star's `E·B`, `|E|/|B|`, drifts and exterior energy within 10% of their measured values,
+  where bounds of two to four times them stood.
+- **Two assertions said less than their names.** The interior's "outside is the evolution's"
+  was `!=` on two vectors, true if one entry differed; it now counts the points outside equal
+  to the solution (2103 of 56808). "Approaches the ideal answer at the rate 1/(σΔt)" asserted
+  a ratio below 10; measured, the ratio runs 0.0107 … 0.995, bounded above but not below, so
+  the name now claims "at least as fast" and the bound is 1.1.
+- **"Known risks" gained** the tableau's offset, step 11's two misses (`ℋ` outside at 1.76,
+  H2 about 10% off) with the suite's lack of any coupled convergence test, and the vertex
+  metric's analytic outer ghosts beside TreeGH's evolved low walls, a candidate (not
+  measured) for the `L = 96` rest-mass gain.
+
+One finding did not hold: that finite σ is checked in an evolution only up to a constant
+factor. The current sheet's distance to the erf profile of `η = 1/σ` (9.56e−4 of `B₀`,
+asserted ≤ 2e−3) fixes σ itself. Not acted on: an evolution on a `Yₑ`-dependent EOS on
+GitHub's CI (EntropyEOS's synthetic table, used pointwise only), a coupled convergence test,
+and the design critiques — one global `ξ` for the gauge leak at refinement boundaries,
+Dirichlet-only outer boundaries, no subcycling.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

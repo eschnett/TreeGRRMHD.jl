@@ -255,15 +255,19 @@ end
     @test length(ρs) == 2 && ρs[end] == TV.central_density(r.p, r.u, r.t)
 end
 
-@testset "The Cowling star holds still and conserves its rest mass" begin
+@testset "The Cowling star's central density moves by its measured truncation error, and its rest mass is conserved" begin
     # Guards the case as a whole (`tov_case`, `tov_boxes!`): initial data out of
     # equilibrium with the metric, an atmosphere off the star's isentrope or not at rest,
     # or Dirichlet faces that are not the static exterior would move the central density
     # at first order in `t`; a leak at a coarse-fine face, a boundary or the reset would
     # change the rest mass by more than what the reset injects. On `h = 1` (the star
-    # resolved by 8 cells in `R̄`), MC, to `t = 4M`: measured −3.3% in `ρ_c`, the
+    # resolved by 8 cells in `R̄`), MC, to `t = 4M`: measured −3.329% in `ρ_c`, the
     # truncation error of so coarse a star (the study is `bin/tov_study.jl`'s); the rest
-    # mass changes by exactly the reset's injected `D`, to rounding.
+    # mass changes by exactly the reset's injected `D`, to rounding. The drift is held to
+    # its measured value, not to a bound: the covariant momentum source scaled by 0.9 and
+    # 1.1 moves it to −3.935% and −2.678%, 0.063% per 1% of gravity, so 0.1% catches an
+    # error of 2% in the source, where the earlier bound of 5% caught none of 20% (the
+    # review of 2026-11-24).
     r = evolve!(TV_CASE, Val(3); N=8, t_end=4, chunk=1, limiter=:mc, refine=tv_boxes)
     ρ0 = TV.central_density(r.p, exact_state(r.p, TV_CASE, 0.0), 0.0)
     ρ1 = TV.central_density(r.p, r.u, r.t)
@@ -273,7 +277,7 @@ end
     @info "Cowling star, h = 1, t = 4M: ρ_c $(ρ0) → $(ρ1) ($(tv3((ρ1 - ρ0) / ρ0))); rest " *
           "mass $(M0), change $(ΔM), injected by the reset $(injected), difference " *
           "$(ΔM - injected); $(r.nsteps) steps, $(r.nblocks) blocks; checksum $(sum(abs, r.u))"
-    @test abs(ρ1 - ρ0) / ρ0 < 0.05
+    @test abs((ρ1 - ρ0) / ρ0 - (-0.03329)) < 1e-3
     @test abs(ΔM - injected) < 1e-14 * M0
     @test abs(injected) < 1e-8 * M0
 end

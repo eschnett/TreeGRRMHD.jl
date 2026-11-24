@@ -276,7 +276,15 @@ end
     keep = inside .& .!walls
     @test count(inside .& walls) < count(inside) ÷ 4
     @test r.u[keep] == uref[keep]
-    @test r.u[.!inside] != uref[.!inside]
+    # Outside the ball the state is the evolution's: a paste that wrote there would leave
+    # those points at the solution. `!=` on the two vectors, the check until the review of
+    # 2026-11-24, passed if a single entry differed. Measured: 2103 of the 56808 points
+    # outside equal the solution, against 536 pasted inside, so a paste one layer too wide
+    # would add hundreds.
+    same = count(r.u[.!inside] .== uref[.!inside])
+    @info "The interior: $(count(inside)) points pasted, $same of $(count(.!inside)) " *
+          "outside equal to the solution"
+    @test same ≤ 2200
     # Without an interior the evolution reaches the singularity's neighbourhood within a
     # few steps; with the interior in the step limiter alone the stages run there too.
     # Both measured in `bin/curved_stationarity.jl` ("The interior" in `CODE.md`).

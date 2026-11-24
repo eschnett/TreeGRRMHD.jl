@@ -125,15 +125,18 @@ tt_boxes(f) = tov_boxes!(f, tt_case(); levels=1)
     @test n_star > 1000 && n_star + n_flagged == n
 end
 
-@dd2_gated @testset "The tabulated Cowling star holds still and conserves rest mass and lepton number" begin
+@dd2_gated @testset "The tabulated Cowling star's central density moves by its measured truncation error, and rest mass and lepton number are conserved" begin
     # Guards the case as a whole (`tabulated_tov_case`, the barotrope's `η`, the cold
     # atmosphere) and `D Yₑ`'s transport through a star whose `Yₑ` varies: a star out of
     # equilibrium with its metric would move `ρ_c` at first order in `t`, and a leak of
     # `D Yₑ` at a coarse-fine face, a boundary or the reset beyond what the reset's tally
     # says would change the totals. On `h = 1`, MC, to `t = 4M`, as `tov_tests.jl`'s
-    # polytrope (−3.3%): measured −0.82% in `ρ_c`; rest mass and `D Yₑ` net of the reset
-    # to 6.6e−16 and 2.0e−17; no entropy floor on a state the policy did not send to the
-    # atmosphere (the cold edge, measured).
+    # polytrope (−3.329%): measured −0.824% in `ρ_c`; rest mass and `D Yₑ` net of the
+    # reset to 6.6e−16 and 2.0e−17; no entropy floor on a state the policy did not send to
+    # the atmosphere (the cold edge, measured). The drift is held to its measured value
+    # with the polytrope's tolerance, 0.1%, which there catches an error of 2% in gravity
+    # (`tov_tests.jl`); the bound it replaced, 2%, was 2.4 times the drift (the review of
+    # 2026-11-24).
     case = tt_case()
     r = evolve!(case, Val(3); N=8, t_end=4, chunk=1, limiter=:mc, refine=tt_boxes)
     ρ0 = TT.central_density(r.p, exact_state(r.p, case, 0.0), 0.0)
@@ -148,7 +151,7 @@ end
           "$(tot[TT.U_D] - M0 - injD); D Yₑ $Y0, change $(tot[TT.U_DYE] - Y0), injected " *
           "$injY, net $(tot[TT.U_DYE] - Y0 - injY); entropy floors $floors; $(r.nsteps) " *
           "steps; checksum $(sum(abs, r.u))"
-    @test abs(ρ1 - ρ0) / ρ0 < 0.02
+    @test abs((ρ1 - ρ0) / ρ0 - (-0.00824)) < 1e-3
     @test abs(tot[TT.U_D] - M0 - injD) < 1e-14 * M0
     @test abs(tot[TT.U_DYE] - Y0 - injY) < 1e-14 * Y0
     @test abs(injD) < 1e-8 * M0
