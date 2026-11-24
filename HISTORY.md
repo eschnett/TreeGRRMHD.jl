@@ -956,6 +956,11 @@ recovery" as a design not built, waiting for EOS-3; the predictor in the atmosph
 debugging tableau (available from IMEXRungeKutta, run by nothing here) are listed as possible
 extensions. `CODE.md` now has no **(proposed)** and no **(open)** marker.
 
+**2026-11-24, step 15 accepted.** Erik accepted step 15, the review pass, as done: "i accept
+step 15". It was the plan's last step. Two things it noted stay as they are: `tov_boxes!`
+reads TreeAMR's unexported `forest.leaves`, and rung 2b's tables stand as measured with the
+old ghost fill, not rerun.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
