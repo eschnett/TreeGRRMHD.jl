@@ -183,7 +183,7 @@ end
         (fl_geo == 0 && out.policy_flags == 0) || (bad += 1)
         # Two solves to the same tolerance from inputs a rounding apart
         # agree as two round trips do: conditioned, as in EntropyEOS's own
-        # test (EOS-2 in `PLAN.md`; `recovery_tests.jl`).
+        # test (EOS-2, `HISTORY.md`; `recovery_tests.jl`).
         o = out.base
         W² = cosh(o.w)^2
         κ_ρ = o.eos.h * W²

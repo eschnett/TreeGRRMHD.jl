@@ -1,5 +1,5 @@
 # Rung 2a, continued: the solutions that vary in more than one direction
-# ("Validation ladder" 2 in `CODE.md`; step 7 of `PLAN.md`) — the Alfvén wave
+# ("Validation ladder" 2 in `CODE.md`; step 7 of the plan in `HISTORY.md`) — the Alfvén wave
 # along the diagonal, and GRaM-X's and Beckwith & Stone's standard tests:
 # symmetry, conservation and `∇·𝔅` at every step. Uses `multid_runs.jl`'s
 # `md_run` (which asserts `∇·𝔅 ≤ 1e−12` after every step of every run),
@@ -46,8 +46,8 @@ end
     # above rounding long before it shows in a picture. Minmod, as GRaM-X runs
     # it, at 64² on `[−6, 6]²` to `t = 1`: no stage is repaired and no reset
     # fires (under MC the reset floors the entropy of a few cells behind the
-    # front — measured in step 7, `CODE.md`). Measured asymmetry 1.6e−18 and
-    # 2.5e−17 of each variable's scale; asserted ≤ 1e−12.
+    # front — `CODE.md`). Exactly symmetric since both walls are prescribed
+    # (1.6e−18 and 2.5e−17 of each variable's scale before); asserted ≤ 1e−12.
     run = md_run(cylindrical_explosion_case(Float64; roots=4), Val(2); N=16, t_end=1,
                  limiter=:minmod)
     ex = md_mirror_error(run.r.p, run.r.u, (1,), 1)
@@ -83,7 +83,7 @@ end
 end
 
 @testset "Orszag–Tang conserves every total to rounding and keeps its symmetry" begin
-    # Guards conservation in 2D on a periodic box (PLAN.md: `D`, `S_i`, `τ` to
+    # Guards conservation in 2D on a periodic box (the plan: `D`, `S_i`, `τ` to
     # round-off): the fluxes of a face computed once and used by both cells,
     # in both directions, and the explicit sources zero in flat space — so
     # each total drifts by a few ulp of its scale per step at most. And the
@@ -170,7 +170,7 @@ end
 end
 
 @testset "A spherical blast in 3D runs in a closed box, mirror-symmetric bit for bit, with ∇·𝔅 at rounding" begin
-    # The 3D smoke test (PLAN.md, step 7): the explosion with `r` the distance
+    # The 3D smoke test (the plan's step 7): the explosion with `r` the distance
     # from the origin, on `[−2, 2]³` at 16³ (two roots of `N = 8` a dimension),
     # minmod, to `t = 1/4` — every kernel along every direction, the
     # twelve-edge curl, and the field's three reflections (`x → −x` alone,

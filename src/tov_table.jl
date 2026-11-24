@@ -1,5 +1,5 @@
 # The cold barotrope of a tabulated EOS, for the TOV star of rung 7
-# ("Validation ladder" 7 in `CODE.md`; step 13 of `PLAN.md`).
+# ("Validation ladder" 7 in `CODE.md`; step 13 of the plan in `HISTORY.md`).
 #
 # EntropyEOS's cold β-equilibrium slice (EOS-4, `cold_beta_slice`) gives the
 # state of least Gibbs free energy at each pressure on the table's coldest

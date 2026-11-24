@@ -1,5 +1,5 @@
 # Rung 2b: coarse-fine faces and regridding ("Validation ladder" 2 and
-# "Refinement" in `CODE.md`; step 8 of `PLAN.md`). The scheme of steps 5–7 on
+# "Refinement" in `CODE.md`; step 8 of the plan in `HISTORY.md`). The scheme of steps 5–7 on
 # meshes with more than one level:
 #
 #   * the bounded conservative prolongation keeps a surface in range (AMR-4,
@@ -218,7 +218,8 @@ end
 
 @testset "A shock tube tracked through regrids conserves every total to rounding, and leaks without the fixup" begin
     # Guards the regrid over every field set (`regrid_state!`: `U` with the
-    # bounded conservative width-3 operators, `A` and `Φ̃` PointValue width 4,
+    # bounded conservative width-3 operators, `A` the conservative family and
+    # `Φ̃` PointValue width 4,
     # the rest resized) and the flux correction across moving coarse-fine
     # faces: Balsara 1 on its box made periodic (as `shocktube_tests.jl`
     # runs it, so that no flux leaves), 100 coarse cells and two levels more
@@ -395,7 +396,7 @@ function rf_flux_state_mismatch(p, u, t)
 end
 
 @testset "The magnetic flux through a coarse face is the sum through its fine faces, as a state, after steps and a regrid (AMR-9)" begin
-    # Guards PLAN.md's step-8 claim as a state (AMR-9): in 3D the flux through
+    # Guards step 8's claim as a state (AMR-9): in 3D the flux through
     # a face on a coarse-fine face is the circulation of the two in-plane
     # potentials around it, and the sum through the fine faces covering it is
     # the circulation around the same perimeter in fine edges — equal when
@@ -415,7 +416,7 @@ end
     # (2.7e−5 after the regrid): there each level's relative hook
     # writes its own wall edges from its own nearest evolved point, so a
     # coarse wall edge is not the sum of the fine ones (recorded, `CODE.md`;
-    # AMR-11 in `PLAN.md`).
+    # AMR-11 in `CODE.md`, "Requests still waiting").
     function measure(periodic; kw...)
         case = cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true,
                                           periodic=periodic)

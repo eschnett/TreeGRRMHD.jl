@@ -1,5 +1,5 @@
 # Rung 1a: the staggered scheme on smooth problems in one dimension
-# ("Validation ladder" in `CODE.md`; step 5 of `PLAN.md`). Two exact
+# ("Validation ladder" in `CODE.md`; step 5 of the plan in `HISTORY.md`). Two exact
 # solutions, each run at four resolutions on the uniform periodic mesh:
 #
 #   * the vacuum electromagnetic wave (`Vacuum`): the Maxwell subsystem —
@@ -26,7 +26,7 @@ using StaticArrays: SVector
     # carrying the field's energy and momentum in its totals. A reconstruction
     # that is first order, an EMF with the wrong upwinding, or a curl half a
     # cell off shows as a rate; a flux that is not the same on both sides of a
-    # face, as a drift of the totals. PLAN.md predicted an L1 rate ≥ 1.9 with
+    # face, as a drift of the totals. The plan predicted an L1 rate ≥ 1.9 with
     # MC, N = 50…400 (measured in step 5, below and in `CODE.md`).
     rs = wv_study((T, roots) -> em_wave_case(T; roots=roots), case -> one(eltype(case.𝔅̄)))
     rates = wv_rates(rs, (WV_FIELD..., WV_MATTER...))
@@ -61,7 +61,7 @@ end
     # totals, the ideal recovery at every implicit stage writing `E = −v × B`
     # into `𝔈`, the guide field from the background `𝔅̄`, and the transverse
     # field from the curl of `A` — an exact nonlinear solution, at Del Zanna
-    # et al.'s amplitude `η = 1`. PLAN.md predicted an L1 rate ≥ 1.8.
+    # et al.'s amplitude `η = 1`. The plan predicted an L1 rate ≥ 1.8.
     #
     # The state's own `𝔈` is the exception, and the test says so. SSP3(4,3,3)
     # is not stiffly accurate: each step ends `−0.2844 Δt f` off the

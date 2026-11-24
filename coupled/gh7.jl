@@ -1,4 +1,4 @@
-# GH-7 workaround (`PLAN.md`, GH-7; allowed, decided by Erik 2026-11-10): the verbs TreeGH
+# GH-7 workaround (GH-7, `CODE.md`, "Requests still waiting"; allowed, decided by Erik 2026-11-10): the verbs TreeGH
 # does not build yet — the regrid branch's `flags`, `regrid_pairs` and `rebuild`, and the
 # constraint norms of a segment — composed from TreeGH's exports. When TreeGH has them,
 # each line below becomes a call to `GH.flags`, `GH.regrid_pairs`, `GH.rebuild` and

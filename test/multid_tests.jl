@@ -1,5 +1,5 @@
 # Rung 2a: the scheme in two and three dimensions on a uniform mesh
-# ("Validation ladder" 2 in `CODE.md`; step 7 of `PLAN.md`). The kernels of
+# ("Validation ladder" 2 in `CODE.md`; step 7 of the plan in `HISTORY.md`). The kernels of
 # step 5 were written for D = 1, 2, 3 and validated in 1D; here the 2D and
 # 3D paths are held to the 1D run bit for bit where the solution allows it,
 # to a turned run bit for bit, to an exact solution crossing the mesh
@@ -17,7 +17,7 @@
 # The first two are this file's; the rest, which vary in more than one
 # direction, are `multid_cases_tests.jl`'s. The helpers are `multid_runs.jl`'s.
 #
-# **`∇·𝔅` at every step of every run** (PLAN.md: `max|∇·𝔅| h / max|𝔅| ≤
+# **`∇·𝔅` at every step of every run** (the plan: `max|∇·𝔅| h / max|𝔅| ≤
 # 1e−12`): every 2D and 3D run of this file goes through `md_run`, which
 # measures it after every step (`max_div_B`, as the driver's `after_step`
 # monitor) and asserts the largest. The bound is 10⁴ times the rounding of a
@@ -34,7 +34,7 @@ const MD_ALFVEN = alfven_wave_case(Float64; roots=5)
 const MD_T = 1 // 20                 # seven steps at N = 10
 
 @testset "A run translation-invariant along y is the 1D run, bit for bit: $lim" for lim in (:mc, :ppm, :wenoz, :mp5)
-    # Guards the 2D paths against the 1D ones (PLAN.md, step 7): the curl, the
+    # Guards the 2D paths against the 1D ones (the plan's step 7): the curl, the
     # cell average of `𝔅`, the fluxes in both directions, the three EMFs with
     # their transverse reconstructions, the gauge at vertices — on a solution
     # that does not vary along `y`, every one of them must reduce to the 1D
@@ -66,7 +66,7 @@ end
 end
 
 @testset "A run along y is the run along x, turned, bit for bit: $lim" for lim in (:mc, :ppm, :wenoz, :mp5)
-    # Guards the symmetry of the kernels under exchanging the two axes (PLAN.md,
+    # Guards the symmetry of the kernels under exchanging the two axes (the plan's
     # step 7): the turned case (`R(x, y, z) = (y, x, −z)`, a rotation, so that
     # `B = curl A` turns as a vector) must give the turned run exactly. A
     # kernel that treats `x` and `y` differently — an EMF that weights its

@@ -1,5 +1,5 @@
 # Rung 1b, ideal: Balsara's five relativistic MHD shock tubes under
-# `IdealConductor` ("Validation ladder" 1 in `CODE.md`; step 6 of `PLAN.md`),
+# `IdealConductor` ("Validation ladder" 1 in `CODE.md`; step 6 of the plan in `HISTORY.md`),
 # and the Dirichlet boundaries every non-periodic case stands on.
 #
 # Each tube runs once at 100, 200 and 400 cells (MC, HLLE, the default
@@ -111,7 +111,7 @@ end
 end
 
 # What each self-convergence rate is asserted against (measured in step 6;
-# PLAN.md predicted ≥ 0.7 throughout). Where the prediction failed, the test
+# the plan predicted ≥ 0.7 throughout). Where the prediction failed, the test
 # asserts the measured rate with a tolerance and says why, so that a change
 # shows either way:
 #   * Balsara 2, `D` and `S_x`: 0.662 and 0.672 — the `h^{2/3}` a contact
@@ -134,7 +134,7 @@ const ST_RATES = Dict((2, "D") => (0.6, Inf), (2, "S_x") => (0.6, Inf),
     # light-cone HLLE fluxes and the UCT EMF, with every implicit stage the
     # ideal recovery. A solution with shocks converges at first order at best,
     # and contacts and slow waves that the light-cone fluxes smear converge
-    # slower; PLAN.md predicted ≥ 0.7, which `ST_RATES` amends where it
+    # slower; the plan predicted ≥ 0.7, which `ST_RATES` amends where it
     # failed — test 2's `D` and `S_x` (≥ 0.6, a contact) and test 3 (its
     # shell: `D` within ±0.3, `S_x` and `τ` in [0.05, 0.4], `𝔅ʸ` ≥ 0.45), as
     # the testset's name says (renamed in step 7: it used to claim ≥ 0.7
@@ -208,7 +208,7 @@ end
     # mesh on either side). The error of `ρ` and the total pressure is
     # relative to the region's own value, and that of a component of `v` or
     # `B` to the largest magnitude it takes in the solution (`plateau_error`).
-    # PLAN.md predicted 2%. Regions too thin for 400 cells to hold a plateau
+    # The plan predicted 2%. Regions too thin for 400 cells to hold a plateau
     # have no window; `CODE.md` records which.
     #
     # One window misses the prediction: Balsara 3's `R4` (ρ = 0.098, between

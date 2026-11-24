@@ -26,16 +26,15 @@ The package's documents, and what goes in each:
   tense: purpose and requirements, the method, the code and its structure
   ("Code layout", "Tests", "Sharp edges"), the interfaces and their
   contracts, current measurements that support a current decision, known
-  limitations, open questions. No dates or step numbers on decisions and
-  no amendment notes; only **(open)** and **(proposed)** mark what is not
-  settled.
-- **`PLAN.md`**, the plan: the steps, each with what it delivers and how
-  one knows it is done, and the upstream requirements still waiting (a
-  finished step is one line saying where its results went).
+  limitations, open questions, the upstream requests still waiting. No
+  dates or step numbers on decisions and no amendment notes; only
+  **(open)** and **(proposed)** mark what is not settled.
 - **`HISTORY.md`**, how the package got here: who decided what and when,
   alternatives tried and rejected and why, measurements of code that no
   longer exists or that later measurements replaced, upstream bugs since
-  fixed, the release history, the suite's sizes and timings over time.
+  fixed, the release history, the suite's sizes and timings over time,
+  and the implementation plan the package was built by, step by step
+  ("The steps of the plan").
 
 Where new content goes: a design fact or its reason goes in `CODE.md` if
 someone changing the code today would need it, and in `HISTORY.md`
@@ -47,9 +46,9 @@ or incomplete, fix `CODE.md` to describe the current state, and record in
 `HISTORY.md` what changed, when and why — never an "(amended …)" note in
 `CODE.md`.
 
-**Tables of contents.** `README.md`, `CLAUDE.md`, `CODE.md`, `PLAN.md` and
+**Tables of contents.** `README.md`, `CLAUDE.md`, `CODE.md` and
 `HISTORY.md` each have one near the top, as links: `##` and `###` headings
-for `CODE.md`, `PLAN.md` and `HISTORY.md`, `##` only for `README.md` and
+for `CODE.md` and `HISTORY.md`, `##` only for `README.md` and
 `CLAUDE.md`. Keep them current whenever a heading is added, renamed, moved
 or removed.
 
@@ -116,7 +115,7 @@ TREEGRRMHD_TEST_TIER=quick julia --project=. -e 'using Pkg; Pkg.test(; julia_arg
 TREEGRRMHD_TEST_TIER=threaded julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4", "--check-bounds=yes"])'
 ```
 
-The testsets that read a real table (step 13; `test/tables.jl`) run only
+The testsets that read a real table (`test/tables.jl`) run only
 where `ENTROPYEOS_TABLE_DIR` names a directory holding DD2: on the laptop
 `~/src/EntropyEOS/tables`, on Symmetry `/mnt/beegfs/eschnetter/EOS`, which
 `jobs/full-suite.toml` sets. Without it they are skipped and named at the
@@ -126,7 +125,7 @@ end, as on GitHub; the same holds for the coupled suite:
 ENTROPYEOS_TABLE_DIR=~/src/EntropyEOS/tables julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-The coupled suite (step 11; `CODE.md`, "The coupling contract") runs in
+The coupled suite (`CODE.md`, "The coupling contract") runs in
 `coupled/`, an environment of its own that loads TreeGeneralizedHarmonic
 beside this checkout, never in the package's suite. The same three ways, the
 thread count and bounds checks passed to `julia` itself:
@@ -208,9 +207,17 @@ The design rules, each explained in the `CODE.md` section named:
 - **Upstream changes are Erik's.** When this package needs something from
   TreeAMR, TreeGeneralizedHarmonic or EntropyEOS, it goes in as a precise
   request — the reason in `CODE.md`'s "Upstream prerequisites", the exact
-  requirement in `PLAN.md`'s "Upstream requirements"; do not edit the
-  sibling checkouts, and do not work around a missing upstream feature
-  silently — say which item a step is waiting for.
+  requirement in its "Requests still waiting", in that section's format;
+  do not edit the sibling checkouts, and do not work around a missing
+  upstream feature silently — say which item the work is waiting for. A
+  workaround is allowed only where the request lists it, marked in the
+  code with the item's ID.
+- **Dependencies resolve from releases, never from sibling checkouts**:
+  registered ones from General, the others by URL in `[sources]`, which CI,
+  the clean-checkout check and a developer read alike.
+- **Spec-first.** A change that shows `CODE.md` wrong or incomplete fixes
+  `CODE.md` in the same commit ("Amending the documents" above). Never
+  loosen an assertion to get green; report the failure instead.
 - **One con2prim.** EntropyEOS's `con2prim_safe` is the only primitive
   recovery, called in hydrodynamic mode (EM energy and momentum
   subtracted, `B² = 0`) for every σ; its ideal-MHD mode is only the seed of
@@ -284,7 +291,12 @@ since the packages are read together:
 Tests (`CODE.md`, "Tests"):
 
 - **Testset names are claims**, each opening with a comment naming the
-  failure mode it guards.
+  failure mode it guards. Rates, drifts and iteration counts are asserted
+  as numbers with tolerances.
+- **Tests are small**: 1D up to 400 cells, 2D up to 128², 3D with `N = 8`
+  blocks on a few roots; under about a minute a file. Studies at
+  production size are scripts in `bin/` or `coupled/`, run as SimLaunch
+  specs in `jobs/`.
 - **A new testset goes in a tier.** One that runs a 3D curved study, or
   anything else long, at its finest resolution is `@full_tier`; a 1D study
   (many steps on a few hundred cells, 4–8 times slower at four threads on
@@ -305,15 +317,11 @@ Tests (`CODE.md`, "Tests"):
 
 ## Repository facts
 
-- No remote yet. Work on a branch, and do not commit, push or merge
-  without being asked.
-
-  **Inconsistent:** "No remote yet" contradicts `README.md`'s CI and
-  codecov badges for `github.com/eschnett/TreeGRRMHD.jl`, the merged pull
-  requests #6 and #7 in the git log, and this file's own "Commands" ("the
-  commit must be on GitHub") and "Conventions" (a pull request's CI).
-- Branches: a plan step works on `claude/step-N-<slug>` (`PLAN.md`,
-  "Ground rules, every step").
+- The remote is `github.com/eschnett/TreeGRRMHD.jl`; work reaches `main`
+  through pull requests. Work on a branch `claude/<slug>` off `main`, and
+  do not commit, push or merge without being asked.
+- Commits in TreeAMR's style: implement, then measure, then record, with
+  the measured numbers in the commit body.
 - `.gitignore` is TreeHydro's: `Manifest.toml` everywhere, `bin/output/`,
   `docs/build/`, editor leftovers, `TODO.md`. No `Manifest.toml` is
   tracked.
@@ -324,5 +332,6 @@ Tests (`CODE.md`, "Tests"):
   (the spacetime; its `CODE.md` and `notes/` for the formulation),
   `~/src/jl/EntropyEOS` (EOS and con2prim), `~/src/jl/SpacetimeMetrics`
   (analytic backgrounds), `~/src/jl/IMEXRungeKutta` (the time integrator;
-  edited only in steps 4a–4c; its `CODE.md` is the IMEX design).
+  its `CODE.md` is the IMEX design; built in its own repository as the
+  plan's steps 4a–4c, and like the others not edited from here).
   `~/src/jl/Con2Prim` is an abandoned prototype; do not depend on it.

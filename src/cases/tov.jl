@@ -1,5 +1,5 @@
 # Rung 4: the TOV star in the Cowling approximation ("Validation ladder" 4 in
-# `CODE.md`; step 10 of `PLAN.md`). The polytrope `K = 100`, `Γ = 2`,
+# `CODE.md`; step 10 of the plan in `HISTORY.md`). The polytrope `K = 100`, `Γ = 2`,
 # `ρ_c = 1.28·10⁻³` (`M = 1.400`, the standard model of Font et al. 2002) at
 # rest on its own frozen metric, `Analytic(TOVMetric)` (`src/tov.jl`), with no
 # field: `A = 0`, `Φ̃ = 0`, `E = B = 0` under `IdealConductor`, so the matter

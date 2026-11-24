@@ -1,5 +1,5 @@
 # Rung 2a: the multidimensional cases in flat space on a uniform mesh
-# ("Validation ladder" 2 in `CODE.md`; step 7 of `PLAN.md`), each an
+# ("Validation ladder" 2 in `CODE.md`; step 7 of the plan in `HISTORY.md`), each an
 # `MHDCase` in two (or three) dimensions under `IdealConductor`:
 #
 #   * the cylindrical explosion (Komissarov 1999), as GRaM-X sets it up;

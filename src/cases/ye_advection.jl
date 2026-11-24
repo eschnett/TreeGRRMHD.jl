@@ -1,4 +1,4 @@
-# The advection of the electron fraction (step 13 of `PLAN.md`): a uniform
+# The advection of the electron fraction (step 13 of the plan in `HISTORY.md`): a uniform
 # fluid moving at `v` along `x` through the periodic `[0, L]`, carrying a
 # profile of `Yₑ` that nothing else sees. On an EOS without `Yₑ` dependence
 # (the ideal gas) `Yₑ` is a passive scalar, `∂ₜ(√γ D Yₑ) + ∂ₓ(√γ D Yₑ vˣ) = 0`

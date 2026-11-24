@@ -1,5 +1,5 @@
 # Rung 2a, the higher-order reconstructions: PPM, WENO-Z and MP5 beside
-# step 5's PLM ("Reconstruction" in `CODE.md`; step 7 of `PLAN.md`). First
+# step 5's PLM ("Reconstruction" in `CODE.md`; step 7 of the plan in `HISTORY.md`). First
 # pointwise — the properties the direction-independence claims of
 # `multid_tests.jl` rest on, and each method's order on smooth data — then the
 # circularly polarized Alfvén wave of `wave_tests.jl` under each method

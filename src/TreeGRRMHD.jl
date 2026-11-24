@@ -23,9 +23,11 @@ positional argument and the KernelAbstractions backend it runs on as a
 keyword. Physics is validated in `Float64`; `Float32` is a device smoke
 test.
 
-*Status: steps 1 to 3 and 5 to 8 of `PLAN.md`: the pointwise layers, and the
-staggered scheme on the mesh with its evolutions in 1D, smooth and
-discontinuous, and in 2D and 3D, on uniform and refined meshes.* Step 1: geometric units and the EOS adapter
+*Status: built and validated through the seven rungs of `CODE.md`'s
+validation ladder — the pointwise layers; the staggered scheme on the mesh
+in 1D, 2D and 3D, on uniform and refined meshes; curved backgrounds; and
+the TOV star, on the Cowling metric, coupled to TreeGeneralizedHarmonic,
+magnetized and on a tabulated EOS.* Step 1: geometric units and the EOS adapter
 ([`GeometricEOS`](@ref)), the point metric ([`Metric3`](@ref)), the layouts
 of the ten evolved cell variables and of the primitive set,
 [`prim2con`](@ref) with the electromagnetic parts, and the 3+1 primitive
@@ -62,7 +64,7 @@ meshes in [`evolve!`](@ref), and a pure gauge pulse
 ([`gauge_pulse_case`](@ref)).
 
 See `CODE.md` in the package root for the design document — what each piece
-is for and why it is that way — and `PLAN.md` for the steps.
+is for and why it is that way — and `HISTORY.md` for how it was built.
 """
 module TreeGRRMHD
 

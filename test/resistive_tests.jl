@@ -1,6 +1,6 @@
 # Rung 1b, resistive: the shock tube swept over the conductivity and the
 # self-similar current sheet ("Validation ladder" 1 in `CODE.md`; step 6 of
-# `PLAN.md`) — the implicit stage solve inside an evolution, from σ = 0 to the
+# the plan in `HISTORY.md`) — the implicit stage solve inside an evolution, from σ = 0 to the
 # stiff limit, on discontinuous and on smooth data.
 
 const RS = TreeGRRMHD
@@ -14,7 +14,7 @@ rs_run(model; M=200) = evolve!(resistive_tube_case(Float64, model; roots=M ÷ 10
     # tube (`resistive_tube_case`) at σ ∈ {0, 10, 10², 10³, 10⁶} on 200 cells.
     # At σ = 0 the field's jump leaves as light waves; as σ grows the solution
     # must move steadily toward the `IdealConductor` run of the same mesh —
-    # PLAN.md's claim, the L1 distance decreasing monotonically — and at
+    # the plan's claim, the L1 distance decreasing monotonically — and at
     # σ = 10⁶ (`σΔt ≈ 2000`, the stage stiff) be within its rounding-free
     # distance of it, `O(1/σ)`. A stage solve that lost the stiff limit, or a
     # tableau that did not damp it (SSP3(4,3,3) is L-stable), would leave
@@ -67,7 +67,7 @@ end
     # `σ = 100`), where Ampère's stiff current and Faraday's law together
     # diffuse `Bʸ` with `η = 1/σ`.
     #
-    # PLAN.md predicted an L1 rate ≥ 1.8 *against the erf profile*. That
+    # The plan predicted an L1 rate ≥ 1.8 *against the erf profile*. That
     # profile solves the diffusion limit, not the full system: the field's
     # pressure moves the fluid (`|v| ≈ 2·10⁻⁴`, whose `v × B` is 1% of the
     # resistive `E`) and the displacement current lags the diffusion by

@@ -1,5 +1,5 @@
 # The Tolman–Oppenheimer–Volkoff star of rung 4 ("Validation ladder" 4 in
-# `CODE.md`; step 10 of `PLAN.md`): a static, spherical, isentropic polytrope
+# `CODE.md`; step 10 of the plan in `HISTORY.md`): a static, spherical, isentropic polytrope
 # `p = K ρ^Γ` in isotropic coordinates,
 #
 #     ds² = −α² dt² + ψ⁴ (dx² + dy² + dz²),
