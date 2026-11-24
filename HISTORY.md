@@ -926,6 +926,29 @@ preamble, its ground rules and the agent brief, as they stood when the file was 
 > 6. anything the next step should know, and any new upstream requirement, in the format below.
 >
 
+**2026-11-24, step 15: 59 proposals decided as built.** Erik decided the 59 decisions
+`CODE.md` marked **(proposed)** whose code does what they say: "Decide A as built". Each lost
+its marker. They are, by `CODE.md`'s sections: the device metadata uploaded with
+`KernelAbstractions.allocate`; the covariant momentum source and its being the default; the
+background `𝔅̄ⁱ`, densitized; σ as an `isbits` model in `src/ohm.jl`, `conductivity_slope`,
+`MagnetizationCutoff` and `μ = +∞` where `D ≤ 0`; `GeometricEOS`; the recovery seeded from
+the state; the velocity from the rapidity; the round trip measured against `𝓔 = τ + D`; the
+policy flags as the only validity signal; `P` at 30 slots and the diagnostics set `X`; the
+reconstructed variables, PLM and the higher orders; the light-cone fluxes and
+`physical_flux`; the UCT-HLL EMF, its kernel and the additive corner `E`; the reset writing
+back every repaired cell; `cfl = 2/5`; the stage solve per cell and stage, writing only `E`,
+carrying `u = W v`, its rank-one term, its branch rule and its tolerance; the metric
+providers, the one derivative-order conversion, `D = 3` coupling, `Mv`'s width 6 and the
+derivatives evaluated at the sources; the right-hand side's order, `P_from_W` at owned
+cells, the charge and the gauge averages; rung 2b's flux claim as a rate, the corner EMF
+accepted, the PointValue negative control and the outer-face mismatch recorded; the
+Dirichlet hooks, the low walls in the state and the refined box's asymmetry recorded; the
+indicator, the regrid, the initial and the static mesh, and `W`'s variables; and rung 1b's
+references, `plateau_error`, the current sheet's quasi-static start and the atmosphere tube.
+Still marked: the entropy fallback (waits for EOS-3), two stage-solve ideas never built (a
+predictor in the atmosphere at `OHM_SIGMA_ZERO`, near-null predictors in the sweep), and
+SSP2(2,2,2) "kept for debugging", available in IMEXRungeKutta but run by nothing here.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

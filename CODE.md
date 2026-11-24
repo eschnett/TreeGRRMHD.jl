@@ -317,7 +317,7 @@ bounds TreeAMR by a minor series, `TreeAMR = "0.2.2"`, the release the
 landed items are in. The prerequisite tests check the names it calls
 against the exports, and `src/device.jl` uploads its own metadata with
 `KernelAbstractions.allocate` rather than reaching for TreeAMR's internal
-`todevice` (proposed).
+`todevice`.
 
 What this package relies on from the landed items, beyond the summaries above (the requests and
 their record: [HISTORY.md, "TreeAMR"](HISTORY.md#treeamr)):
@@ -776,14 +776,14 @@ S^ij = ρ h W² vⁱ vʲ + p γ^ij    − Eⁱ Eʲ − Bⁱ Bʲ + ½ γ^ij (E² 
 (the Valencia form, e.g. Baumgarte & Shapiro; the electromagnetic parts as
 in Palenzuela 2013 and Dionysopoulou et al. 2013). The momentum source is
 equivalently `½ √−g T^{ab} ∂ⱼ g_ab`, which is the cheaper form when the
-metric derivatives come from TreeGH (proposed; the two are checked against
+metric derivatives come from TreeGH (the two are checked against
 each other in a test). Both are `geometric_source` in `src/sources.jl`, and
 on boosted Kerr-Schild with fields up to 100 times the fluid's energy they
 agree to 5.4e−16 of the magnitude of their terms; the covariant form also
 agrees with `√−g T^{μν}(∂_μ g_νj − Γ^δ_νμ g_δj)` from SpacetimeMetrics'
 Christoffels to 1.2e−15, and the energy source with Banyuls et al.
 (1997)'s `√−g (T^{μt} ∂_μα − α T^{μν} Γᵗ_μν)` to 5.6e−16. **The covariant
-form is the default** (proposed): every provider produces `∂ⱼ g_ab`
+form is the default**: every provider produces `∂ⱼ g_ab`
 natively, and the Valencia form must first derive `∂ⱼα` and `∂ⱼβⁱ` from it.
 Measured (Julia 1.11, `Float64`, one call, Apple M3 Pro): 36 ns against
 50 ns for the geometric source, 41 ns against 74 ns for a cell's whole
@@ -836,12 +836,12 @@ cost is that any numerical divergence of `E` — at coarse-fine interfaces,
 at the stellar surface — appears as charge and drives `q v` currents; the
 charge is monitored as a diagnostic.
 
-**A uniform background field** `𝔅̄ⁱ` is added to `curl A` (proposed). It
+**A uniform background field** `𝔅̄ⁱ` is added to `curl A`. It
 is what lets a vector potential represent a net flux through a periodic
 box, and a field along a direction the mesh does not resolve: a 1D shock
 tube's constant `Bˣ` is `B̄ˣ`, since no translation-invariant `A` produces
-it. It is zero for stars. **The densitized `𝔅̄ⁱ` is the constant**
-(proposed), not `B̄ⁱ`: with `√γ` varying, `∂ᵢ(√γ B̄ⁱ) = B̄ⁱ∂ᵢ√γ ≠ 0`, a
+it. It is zero for stars. **The densitized `𝔅̄ⁱ` is the constant**,
+not `B̄ⁱ`: with `√γ` varying, `∂ᵢ(√γ B̄ⁱ) = B̄ⁱ∂ᵢ√γ ≠ 0`, a
 divergence the curl cannot cancel, while a constant `𝔅̄ⁱ` is
 divergence-free on any metric. In flat space the two are the same. It is
 `MHDProblem`'s `𝔅̄` and a case's (`src/curl.jl`); the Alfvén wave's guide
@@ -856,7 +856,7 @@ fluid frame (Palenzuela et al. 2009; Palenzuela 2013):
 jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 ```
 
-`σ` is an `isbits` model type (proposed):
+`σ` is an `isbits` model type:
 
 | model | σ | use |
 |---|---|---|
@@ -869,7 +869,7 @@ jⁱ = q vⁱ + σ W [Eⁱ + ε^{ijk} v_j B_k − (v_k Eᵏ) vⁱ]
 The `q v` part is explicit. The `σ` part is **stiff** inside a star
 (`σ Δt ≫ 1`), and is the implicit part of the time integrator.
 
-*(Proposed:)* the models are in `src/ohm.jl`, and
+the models are in `src/ohm.jl`, and
 `conductivity(model, prim)` takes the whole primitive state, so that a
 later model may read `s` or `Yₑ`. `DensityProfile(σ₀, ρ_atm, cutoff = 2,
 power = 1)` is `σ₀ max(0, 1 − cutoff·ρ_atm/ρ)^power`: continuous, `σ₀`
@@ -912,7 +912,7 @@ holds `E = −v × B`, which the stage solve imposes — so `conductivity` is
 branches). Measured: at `E = −v × B` the current is 2.3e−16 of
 `σ W |B|`, and in flat space the bracket is the fluid-frame field
 `F^{ab} u_b` with the charge the normal observer sees, to 4.4e−16.
-*(Proposed:)* `conductivity_slope(model, prim)` is `∂σ/∂ρ`, for
+`conductivity_slope(model, prim)` is `∂σ/∂ρ`, for
 the stage solve's Newton Jacobian; a later model that reads `s` or `Yₑ`
 adds their derivatives. Extension slots, not planned: a mean-field dynamo
 term, and force-free currents in the magnetosphere.
@@ -932,11 +932,11 @@ choice by magnetization as well as by density. A globally convergent stage
 solve for that regime was built and is not in the code ([HISTORY.md, "Ohm's
 law and the conductivity"](HISTORY.md#ohms-law-and-the-conductivity)).
 
-*As built* (proposed): `MagnetizationCutoff(model, μ_max)` wraps
+*As built*: `MagnetizationCutoff(model, μ_max)` wraps
 any finite-σ model and multiplies its σ by a taper `g(μ)` of the
 magnetization `μ = magnetization(m, B, D) = γ_ij Bⁱ Bʲ / D` — the normal
 observer's field over the rest-mass density, which bounds the fluid
-frame's `μ/W ≤ b²/ρ ≤ W μ`. *(Proposed:)* `μ = +∞` where
+frame's `μ/W ≤ b²/ρ ≤ W μ`. `μ = +∞` where
 `D ≤ 0`, which a stage predictor next to a near vacuum can carry: no rest
 mass, no conductor. `B²/D` handed the taper's logarithm a negative number
 there, and the magnetized atmosphere tube threw a `DomainError`.
@@ -1029,7 +1029,7 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
 - **A units adapter** converts between geometric units (`G = c = M☉ = 1`)
   and EntropyEOS's run units (cgs-like: densities in g/cm³, `U = ε/c²`),
   including `κ`. It is the only place a unit conversion is written.
-  *(Proposed:)* it is `GeometricEOS(eos; density)` in
+  it is `GeometricEOS(eos; density)` in
   `src/units.jl`, an `AbstractEOS` around an EOS in its own units whose
   densities are the scheme's: `evaluate` scales `ρ★` by the density unit on
   the way in and `U_ρ`, `U_ρs` (once), `U_ρρ` (twice) and `p` (inversely)
@@ -1048,8 +1048,8 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   written directly in geometric units to 9.1e-15 in every `EOSPoint` field,
   and a table recovered through it agrees with the same table recovered in
   g/cm³ to 3.0e-15 in `(ρ, w)` and 8.4e-13 in `s`, conditioned.
-- **Warm starts** (`u_guess`, the previous `log₁₀ T`). *(Proposed:)*
-  every **recovery** is seeded from the state itself — `s` from the advected
+- **Warm starts** (`u_guess`, the previous `log₁₀ T`). Every
+  **recovery** is seeded from the state itself — `s` from the advected
   `(√γ D s)/(√γ D)`, a cold rapidity and EOS warm start (`state_guesses` in
   `src/evolution.jl`) — and not from `P`. A warm start carried in `P` makes
   each recovery depend, at the solver's tolerance, on whatever was evaluated
@@ -1126,7 +1126,7 @@ EntropyEOS requires `S_⊥ ≥ 0` while `S_∥` is signed, and its own `prim2con
 calls all of the momentum perpendicular when there is no field to project
 against; the repaired states it packages then carry the speed in `v_⊥`. The
 velocity is rebuilt with its direction from `Sⁱ = γ^{ij} S_j` and its
-magnitude from the returned rapidity, `vⁱ = tanh w · Sⁱ/|S|` (proposed).
+magnitude from the returned rapidity, `vⁱ = tanh w · Sⁱ/|S|`.
 That makes the primitive state self-consistent to rounding, and right on a
 repaired state; the literal `vⁱ = Sⁱ/(ρhW²)` carries the momentum residual
 into `atanh |v|` amplified by `W²`, which left 7e-11 in the conserved `D`
@@ -1155,8 +1155,8 @@ carrying 1e−4 to 100 times the fluid's `τ` — `con2prim_hydro ∘ prim2con`
 has conditioned worst errors 4.5e−13 in `(ρ, w, v)` and 8.4e−12 in `s`
 (raw `s` up to 5.7e−7 at `Γ = 2`, where the thermal energy is a tiny part
 of `τ` and `κ_s` is large). In the conserved variables, with `S_i` and `τ`
-measured against the energy density `𝓔 = τ + D` they are components of
-(proposed), the round trip at EntropyEOS's default tolerance is about
+measured against the energy density `𝓔 = τ + D`, of which they are
+components, the round trip at EntropyEOS's default tolerance is about
 10⁻¹² relative (worst 1.07·10⁻¹² and 1.21·10⁻¹², at EntropyEOS 2.0's five
 seed passes). That is the solver's stopping criterion — `con2prim` stops
 when its energy residual is below 1e−12 of `τ`, often at the cold seed with
@@ -1185,7 +1185,7 @@ which iterates on that share, calls the same recovery bit for bit.
 
 `con2prim_hydro` returns EntropyEOS's policy flags as they are, and only
 them: `policy_flags`, not the solver's result, is EntropyEOS's validity
-signal, and a failed solve is always repaired and flagged (proposed). The
+signal, and a failed solve is always repaired and flagged. The
 one decision this package adds to the policy — a state whose density the
 policy had to raise to the atmosphere's is the atmosphere at rest — is
 EntropyEOS's own level 2, below, and the flags of an atmosphere keep
@@ -1649,7 +1649,7 @@ the highest, since EntropyEOS 2.0 — so exact even in `Float32`, which holds
 every integer below 2²⁴, and tested at `Float32` with bit 17), `Eⁱ`, `Bⁱ`,
 `q`, and the metric `α`, `βⁱ`, `γ_ij` and `√γ`, all undensitized. The metric
 derivatives and `K_ij` the sources read are not stored, and `P` stays at 30
-slots (proposed). The sources are their only reader, once per cell per
+slots. The sources are their only reader, once per cell per
 right-hand side, so storing them (36 more slots: `∂ⱼg_ab` and `K_ij`) would
 only move the same evaluation into another kernel and add a write and a
 read; the source kernel asks the provider for them (`metric_gradient`), as
@@ -1674,7 +1674,7 @@ it would ask for the metric at a face.
 - **`B_d` holds the densitized `𝔅ᵈ`**, and `P`'s `Bⁱ` is its cell average
   over `√γ`. `P`'s `q` is written at the owned cells only (it is read by the
   sources and nothing else); its ghosts hold zero.
-- **`X`, the diagnostics set** (proposed): per owned cell, the
+- **`X`, the diagnostics set**: per owned cell, the
   implicit stages that set each of the nine `OhmStageResult` bits, the
   stages whose state the policy repaired and the `|` of their flags, the
   recoveries and the most one stage made, the cells the reset wrote, and the
@@ -1710,7 +1710,7 @@ PointValue width must be at least the scheme's order plus one.
 
 ### Reconstruction
 
-Reconstructed at faces (proposed): `ρ`, `s`, `Yₑ`, `uⁱ = W vⁱ` (so that
+Reconstructed at faces: `ρ`, `s`, `Yₑ`, `uⁱ = W vⁱ` (so that
 every reconstructed state is subluminal), `Eⁱ`, and the two **transverse**
 components of `B` from their cell averages. The **normal** component of
 `B` at a face is `B_d` itself, never reconstructed. Methods, in order of
@@ -1720,7 +1720,7 @@ unphysical (negative `ρ`, `s` outside its window) falls back to first
 order, per face and per variable group. EOS evaluation at face states uses
 the cell's warm start.
 
-*As built: PLM and the face state* (`src/reconstruction.jl`, proposed): twelve
+*As built: PLM and the face state* (`src/reconstruction.jl`): twelve
 numbers a cell, `(ρ, s, Yₑ, uⁱ, Eⁱ, Bⁱ)` from `P`, undensitized, each
 extrapolated as `q ± slope/2` with TreeHydro's `slope` (`:none`, `:minmod`,
 `:mc`; `limiter` has no default, as in TreeHydro). All three components of
@@ -1736,8 +1736,7 @@ evaluates at the face (`Flat`, `Analytic`, or `VertexMetric`
 interpolating from this package's vertex set `Mv`). A face's state costs two EOS evaluations, `primitive_state`'s and
 `prim2con`'s.
 
-*As built: the higher orders* (`src/reconstruction.jl`; proposed unless
-marked otherwise). `limiter` names the reconstruction: `:none`, `:minmod`,
+*As built: the higher orders* (`src/reconstruction.jl`). `limiter` names the reconstruction: `:none`, `:minmod`,
 `:mc` (PLM, `G ≥ 2`) or `:ppm`, `:wenoz`, `:mp5` (`G ≥ 3`, which
 `MHDProblem` checks). The keyword keeps the name `limiter` rather than
 becoming `reconstruction`, so that no caller changes.
@@ -1811,7 +1810,7 @@ in [HISTORY.md, "Floors, the atmosphere and the magnetosphere"](HISTORY.md#floor
 ### Riemann solver
 
 `riemann_flux(::Val{:llf | :hlle}, …)` on the ten matter-plus-`𝔈`
-variables at every face (proposed). Because `S_i` and `τ` are totals, their
+variables at every face. Because `S_i` and `τ` are totals, their
 fluxes contain the Maxwell stress, which propagates at the speed of light;
 the default wave speeds are therefore the local light cone,
 `λ_± = −β^d ± α √(γ^{dd})`, for all ten variables — the choice of the
@@ -1823,7 +1822,7 @@ extensions").
 *As built*: `src/flux.jl` and `src/riemann.jl`. A face state is the tuple
 `(cons, prim, E, B)` — the densitized conserved state, the primitive state
 it was built from, and the contravariant fields — which is what
-`physical_flux(m, cons, prim, E, B, Val(d))` takes (proposed).
+`physical_flux(m, cons, prim, E, B, Val(d))` takes.
 Both states are at the same face, so the light-cone speeds are the same on
 both sides and the solvers need no EOS. Measured: `F(U, U)` is the
 physical flux exactly for LLF and to 2.2e−16 for HLLE; the direction-`d`
@@ -1850,7 +1849,7 @@ is not built.
 
 ### The electromotive force for `A`
 
-Upwind constrained transport (proposed): at each `d`-edge the EMF
+Upwind constrained transport: at each `d`-edge the EMF
 `αE_d + (β × B)_d` is the average over the four edge states reconstructed
 from the surrounding cells (for `E`) and faces (for `B`), plus upwind terms
 proportional to the jumps of the face-normal `B` reconstructed to the edge
@@ -1860,8 +1859,8 @@ with the LLF/HLL dissipation `𝔈` receives from the Riemann solver; without
 it the Maxwell subsystem is upwinded in `E` alone. The metric at edges
 comes from 1D 4th-order interpolation between the edge's vertices.
 
-*As built*: `uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))` in `src/emf.jl`
-(proposed). With `(d, a, b)` cyclic, its four states are the full `E` of
+*As built*: `uct_hll_emf(m, E, Bᵃ, Bᵇ, Val(d))` in `src/emf.jl`.
+With `(d, a, b)` cyclic, its four states are the full `E` of
 each state (`LL, LR, RL, RR`, the first letter the side along `a`), and the
 face-normal fields that cross the edge: `Bᵃ` reconstructed along `b`, `Bᵇ`
 along `a`, one value per side. `Bᵈ` does not enter, since
@@ -1875,7 +1874,7 @@ Godunov solver, and the HLLE flux of `𝔈` together with the UCT EMFs equals
 the physical flux of the HLL middle state — to 3.9e−16. A wrong sign in the EMF's shift or jump terms, or in the flux of `𝔈`,
 breaks that.
 
-*As built on the mesh* (`emf_kernel!` in `src/evolution.jl`, proposed), at
+*As built on the mesh* (`emf_kernel!` in `src/evolution.jl`), at
 every edge of the closed range: the four states are the cells on
 either side of the edge along `a` and along `b` (along a missing direction,
 the one cell), each with its `E` extrapolated to the edge by the limited
@@ -1895,7 +1894,7 @@ additive, `E₀ + δ_a + δ_b` with the method's one-dimensional offsets — for
 PLM exactly the `E + σₐ slopeₐ/2 + σ_b slope_b/2` above — and not a tensor
 product (reconstruct along `a`, then those values along `b`), which would
 read 25 cells instead of 9 for a cross term that is `O(h²)`, the scheme's
-order in more than one dimension anyway (proposed). Measured on
+order in more than one dimension anyway. Measured on
 the Alfvén wave along the diagonal of a 2D box: `A_z`, whose EMF is the
 one with two transverse directions, converges at 2.31 (MC) and 2.01
 (WENO-Z).
@@ -1941,7 +1940,7 @@ codes".
 computes `B` from the state's own `A` (a scatter and ghost fill of the three
 `A` sets and the curl, as the stage solve does), recovers every owned cell,
 and **writes back every cell the policy repaired** — `FLAG_POL_ANY`, not the
-atmosphere alone (proposed): every repaired state is exactly
+atmosphere alone: every repaired state is exactly
 invertible and is what the next right-hand side would recover anyway, so
 writing it makes the state say what the scheme computes with. It writes the
 seven matter slots and never `𝔈`, and counts each cell it writes into `X`.
@@ -2239,7 +2238,7 @@ scratch (`reuse`) and steps the state in place (`alias_u0`). Each chunk's
 `Δt` is `cfl / (D · max λ/h)` from the light cone at the chunk's start
 (`max_light_rate`, a `mesh_mapreduce` of the cells' light speed over their
 spacing), rounded down to a whole number of steps with TreeHydro's
-`chunk_count` tolerance; `cfl = 2/5` (proposed: TreeHydro's, under
+`chunk_count` tolerance; `cfl = 2/5` (TreeHydro's, under
 SSP3(4,3,3)'s explicit part, which is SSPRK(3,3)). The stage arithmetic is
 split evenly over the threads (`partition = :even`) for a CPU state and
 broadcast on a device; the block-owner partition, which needs TreeAMR's
@@ -2259,7 +2258,7 @@ in leaves the data exactly the 1D data (the earlier form, which did not:
 
 ### The implicit stage solve
 
-Per cell, per stage (proposed). Known: `D`, `S_i`, `τ`, `D Yₑ`, `D s`, the
+Per cell, per stage. Known: `D`, `S_i`, `τ`, `D Yₑ`, `D s`, the
 cell-averaged `B` (explicit in the stage), the metric, and `𝔈★`, the
 explicit part of the stage value. Let `c = γΔt · α σ`, with `γΔt` the
 stage's implicit coefficient times `Δt`.
@@ -2286,7 +2285,7 @@ ideal call is a seed — and the exact answer for `IdealConductor` — not a
 second con2prim. The last resort is the lagged `v` of Palenzuela et al.
 (2009). Every outcome is flagged, counted, and reduced per chunk.
 
-**The solve writes only `E` into `U`** (proposed). No limiter has seen
+**The solve writes only `E` into `U`**. No limiter has seen
 `u★`, so its fluid part may be inadmissible. `con2prim_safe` repairs the
 solve's own view of it, and that repair stays local to the solve. Written
 into `U`, it would become part of the implicit increment `U − u★`. The
@@ -2314,7 +2313,7 @@ CPU kernel at `Float64` and `Float32`.
   back on 191 of 1296 points of the sweep below (Γ = 2); Newton on `X`
   hands the recovery only the linearly predicted share, which stays on the
   fluid's scale, and falls back on 40.
-- **The velocity is carried as `u = W v`** (proposed): every `u` is
+- **The velocity is carried as `u = W v`**: every `u` is
   subluminal, and the Jacobian through `v` has a `W² (E★ − E) vᵀ` term
   from `∂W/∂v` that through `u` becomes `(E★ − E) vᵀ/W`.
 - **The Jacobian is analytic.** `∂u/∂X` is the recovery's derivative by the
@@ -2324,11 +2323,11 @@ CPU kernel at `Float64` and `Float32`.
   differentiation of the linear system. Newton's `1 − PQ` (4×4,
   `P = ∂X/∂E · ∂E/∂u`, `Q = ∂u/∂X`) is inverted by Woodbury through the 3×3
   `1 − QP`, and a density-dependent σ adds a rank-one term through `∂ρ/∂X`
-  and `conductivity_slope(model, prim) = ∂σ/∂ρ` (proposed; a model reading
+  and `conductivity_slope(model, prim) = ∂σ/∂ρ` (a model reading
   `s` or `Yₑ` would add a column each). Both derivatives agree with central
   differences to the differences' own error, 1.1e−8 and 8.3e−8. No extra
   recovery, no finite difference.
-- **Which branch** (proposed): σ evaluated at the predictor's recovery, at
+- **Which branch**: σ evaluated at the predictor's recovery, at
   `E★`; if it is zero, `E = E★` and that recovery are the answer, bit for
   bit (`OHM_SIGMA_ZERO`). Otherwise the fixed point where the contraction
   factor `‖K‖`, the Frobenius norm in an orthonormal frame of the fixed
@@ -2352,8 +2351,8 @@ CPU kernel at `Float64` and `Float32`.
   first guessed, was not needed (the question and how grim and KHARMA
   answer it: [HISTORY.md, "The implicit stage
   solve"](HISTORY.md#the-implicit-stage-solve)).
-- **Converged** when `|X − X(E)| ≤ 10⁻¹²(τ + D)` (proposed;
-  `max(1e-12, 1024 eps(T))`): the share closes to EntropyEOS's own
+- **Converged** when `|X − X(E)| ≤ 10⁻¹²(τ + D)`
+  (`max(1e-12, 1024 eps(T))`): the share closes to EntropyEOS's own
   recovery tolerance, measured against the total energy density as the
   recovery's round trip is. The returned `E` was solved at the returned
   state's velocity, so Ohm's law holds between them to rounding, and
@@ -2839,7 +2838,7 @@ What the sketches leave visible, on purpose:
 
 ### Metric providers
 
-The kernels dispatch on a metric provider (proposed):
+The kernels dispatch on a metric provider:
 
 - `Flat()` — Minkowski, all `D`, no storage.
 - `Analytic(m::SpacetimeMetrics.AbstractMetric)` — evaluated at the point
@@ -2866,7 +2865,7 @@ GHSO2, then the spacetime indices with 1 = `t` — and `K_ij`; the lapse and
 shift derivatives are derived from it (`d_lapse`, `d_shift`, which agree
 with ForwardDiff of the 3+1 split to 2.4e−16 of their terms). The
 conversion from SpacetimeMetrics' derivative-last `dmetric` is written in
-`src/metric.jl` and nowhere else (proposed). `K_ij` is computed there from
+`src/metric.jl` and nowhere else. `K_ij` is computed there from
 the same `dmetric` call: `metric_gradient(::Analytic, …)` calls
 SpacetimeMetrics' allocation-free `ExtrinsicCurvature(g, dg)` (SM-1,
 SpacetimeMetrics 1.7.0) on the same `dmetric` result, and the pointwise
@@ -2939,7 +2938,7 @@ vertices); a block of 8³ with `G = 3` storing 5.4 times the cells it owns.
 
 The matter code is generic in `D ∈ {1, 2, 3}` with three-component fields
 and translation invariance along missing directions, so that shock tubes
-are one-dimensional runs; coupling to TreeGH is `D = 3` only (proposed).
+are one-dimensional runs; coupling to TreeGH is `D = 3` only.
 
 ### Metric at cells, faces and edges
 
@@ -2959,7 +2958,7 @@ variables, vertex-centered, on the matter's forest:
   faces, a PointValue prolongation at refinement boundaries. The
   derivatives taken from it must stay 4th order next to a coarse-fine face;
   TreeGH's interface rule (`p = q + 2` for second derivatives) gives `p ≥
-  q + 1` for first, so **width 6** (PointValue widths are even; proposed).
+  q + 1` for first, so **width 6** (PointValue widths are even).
 - **The outer boundary** (the shared plane `n = N + 1` and the ghosts
   beyond it) is this package's hook: Dirichlet from the case's own analytic
   provider where it has one, as the TOV star's static exterior;
@@ -2985,7 +2984,7 @@ variables, vertex-centered, on the matter's forest:
 
 Stored once per right-hand side in `P` for cells; on the fly at faces and
 edges. The derivatives and `K_ij` are not stored but evaluated where the
-sources are (proposed; see "Field sets"). `Mv`'s `G = 4` settles the
+sources are (see "Field sets"). `Mv`'s `G = 4` settles the
 outermost ghost layer; TreeGH's own ghost width does not enter (GH-5 stays
 withdrawn).
 
@@ -3201,7 +3200,7 @@ writes is on the star's isentrope; the exterior is that atmosphere at rest;
 
 ## The right-hand side
 
-In the order the explicit part of each stage evaluates it (proposed):
+In the order the explicit part of each stage evaluates it:
 
 1. `scatter!` the multi-set state; `fill_ghosts!` the potentials `A_j`, `Φ̃`
    (each fill applying the complete outer boundary condition). The matter's
@@ -3245,14 +3244,14 @@ and a step is pure in `uⁿ`.
   thirty slots of `P` through `P_from_W`), the fill of `W`, and
   `ghost_kernel!` over every stored cell that is not owned (`P` through the
   same `P_from_W` with the ghost's `B`). Owned cells take `P` through
-  `P_from_W` too, rather than straight from the recovery (proposed): where a
+  `P_from_W` too, rather than straight from the recovery: where a
   ghost is a copy of its owner — every ghost on a uniform mesh — the two
   blocks then hold the same `P` bit for bit and compute the same flux at
   their common face, as they did when both recovered the same conserved
   state; the two differ by rounding only (`v = u/W` from `u = cosh(w) v`,
   the rapidity `asinh |u|`, one forward EOS call). `q` is a second kernel
   over the owned cells, by centered differences,
-  `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h` (proposed); `q` is taken
+  `q = (1/√γ) Σ_d (𝔈ᵈ[n+e_d] − 𝔈ᵈ[n−e_d])/2h`; `q` is taken
   from `P`'s `√γ E` (the same numbers in flat space).
 - Step 7 for `A_j` is `−EMF_j − (ψ[n + e_j] − ψ[n])/h` with
   `ψ = αΦ − βᵏA_k` evaluated at the two vertices that bound the edge, `A_k`
@@ -3260,7 +3259,7 @@ and a step is pure in `uⁿ`.
   missing `j`, `−EMF_j` alone. For `Φ̃` it is the difference of the gauge
   flux `α√γ Aʲ − βʲΦ̃` on the two `j`-edges either side of the vertex, with
   `A_k`, `k ≠ j`, averaged to the `j`-edge (two or four points) and `Φ̃`
-  from its two vertices, plus `−ξαΦ̃` (proposed: second-order averages; in
+  from its two vertices, plus `−ξαΦ̃` (second-order averages; in
   flat space `ψ = Φ̃` and the flux is `A_j`, and nothing is averaged that
   enters).
 - The implicit stage (`ohm_solve!`) computes `B` from `u★`'s `A` — a scatter
@@ -3313,7 +3312,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   initial data, 16 faces) and of 5.5e−3 (3D, the spherical blast in its
   closed box, 192 faces) with the correction — rounding: the fine sum
   telescopes in floating point — and 0.025 of 0.029 and 0.0017 of 0.0055
-  without it (proposed: rung 2b's claim, "the flux through a
+  without it (rung 2b's claim, "the flux through a
   coarse face equals the sum through its fine faces", made as the rate it
   is made by).
 - **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
@@ -3326,7 +3325,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   with the coarse EMF. Nothing breaks: `A` is single-valued, so the state's
   fluxes on either side are the same numbers, and `∇·𝔅 = 0` is structural;
   it is the one place a coarse estimate of the EMF drives a value on a
-  coarse-fine face (proposed: accepted, not corrected).
+  coarse-fine face (accepted, not corrected).
 - **The magnetic flux, as a state** — not to rounding under the PointValue
   operators. In 2D the flux through a face on the coarse-fine face is a
   difference of `A_z` at two vertices the levels share, which the exchange
@@ -3358,9 +3357,9 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   mean, or a prolongation whose two children average to the parent). So
   rung 2b's negative control "and does not without [the EMF correction]"
   applies to the rate, where it is asserted (above), and the state's
-  negative control is the PointValue family (proposed).
+  negative control is the PointValue family.
 
-  **Not at an outer face** *(proposed: accepted, recorded)*. In the same
+  **Not at an outer face**. In the same
   blast's closed box the 147 faces away from the walls agree to rounding,
   but the 45 whose perimeter lies on an outer face miss by 1.2e−5 of the
   largest flux (2.7e−5 after the regrid): there each level's relative hook
@@ -3388,8 +3387,8 @@ needs them. `MHDProblem` takes `boundary = nothing` for a periodic domain
 set, in the order `(U, A₁, A₂, A₃, Φ̃)` — each set's `fill_ghosts!` gets
 its own (AMR-2). The waves are periodic; the shock tubes pass hooks.
 
-*As built* (`DirichletBoundary`, `case_boundary` in `src/driver.jl`;
-proposed). A case that is not periodic gets one hook per evolved set from
+*As built* (`DirichletBoundary`, `case_boundary` in `src/driver.jl`).
+A case that is not periodic gets one hook per evolved set from
 its own `fields` and `potential`, evaluated at the time of each fill
 (`boundary_at(hook, t)`: every fill — a right-hand side's, a stage's, a
 reset's — knows its time):
@@ -3450,7 +3449,7 @@ wall root refined, to `t = 1/4`): a second fill changes nothing bit for bit,
 and one fill of working arrays prefilled with `NaN` writes the same — every
 stored point, from the state alone; a hookless fill leaves it.
 
-**The low walls in the state** *(proposed)*. The low wall is owned, so it is
+**The low walls in the state**. The low wall is owned, so it is
 in the integrator's state vector, but TreeAMR writes it during the fill —
 into the set's working array after `scatter!`, not into `u`.
 `map_blocks!`'s owned range is unchanged by symmetric walls (the trimmed
@@ -3502,7 +3501,7 @@ block's owned plane when the face is the fine block's low face, and the
 coarse block's, interpolated at the fine points between, when it is its high
 face; 4.7e−5 upstream on smooth data, one fill), here at a discontinuity and
 through 20 steps. Recorded, not hidden: `test/refinement_tests.jl` asserts
-it present and bounded (proposed: nothing in this package needs a refined
+it present and bounded (nothing in this package needs a refined
 box to be symmetric; the stars sit at the centre of nested boxes, and no
 star test asks for mirror symmetry).
 
@@ -3783,7 +3782,7 @@ regrid below follow that split.
 
 *As built* (`src/refinement.jl`, `evolve!` in `src/driver.jl`):
 
-- **The indicator** (`mhd_flags`) *(proposed)*: Löhner's, with TreeHydro's
+- **The indicator** (`mhd_flags`): Löhner's, with TreeHydro's
   local and global noise floors (`ε = 1/100`, `ε_g = 1/1000`), on `ρ`, `|B|`
   and `|E|` of each cell and its neighbours along every dimension, from a
   current `P` (ghosts included) — the density for the matter's waves and the
@@ -3799,7 +3798,7 @@ regrid below follow that split.
   required. The geometric boxes around a star are not the indicator's:
   `tov_boxes!` (`src/cases/tov.jl`) refines them statically.
 - **The regrid** (`regrid_state!`, at the start of every chunk after the
-  first) *(proposed)*: `regrid!` over every field set (`regrid_pairs`) —
+  first): `regrid!` over every field set (`regrid_pairs`) —
   `U`, `A_j`, `Φ̃` with their schedules and each with its own hook at the
   regrid's time (AMR-2), so that `regrid!`'s own fill before its transfer
   applies the complete outer boundary condition (the potentials' relative
@@ -3813,14 +3812,14 @@ regrid below follow that split.
   recovery would repair is repaired in the state and its injection counted
   with the step limiter's (TreeHydro's post-regrid reset). The
   integrator's scratch is dropped when the mesh moved.
-- **The initial mesh** (`adapt_case!`) *(proposed)*: TreeAMR's several-set
+- **The initial mesh** (`adapt_case!`): TreeAMR's several-set
   `adapt_to_initial_data!` (AMR-3) over every field set, the evolved ones
   filled each pass from the case — the conserved state *at* each cell's
   centre, a point value standing in for the Gauss average while the mesh is
   chosen, and the potentials at their points — with their own hooks; the
   criterion recovers `P` from the filled sets and flags. On the converged
   mesh the exact initial data (`exact_state`, Gauss averages) is written.
-- **A static mesh** *(proposed)*: `evolve!`'s `refine(forest)` refines the
+- **A static mesh**: `evolve!`'s `refine(forest)` refines the
   root mesh before anything is built, for the coarse-fine tests.
 - **The operators**: the matter Conservative width 3, **bounded**, in its
   regrid (and its ghost fill's `W`, below); `A_j` the conservative family
@@ -3924,7 +3923,7 @@ In detail (`primitives_from_sets!`, `P_from_W`, `ghost_kernel!` in
 - **The set** `W`, cell-centred, 9 variables: `ρ★`, `s`, `Yₑ`, the
   contravariant `uⁱ = Wvⁱ` and the contravariant, undensitized `Eⁱ` — Erik's
   list, with `uⁱ` rather than `vⁱ` so that any interpolated value is a
-  subluminal velocity, and `E` undensitized, as a primitive (proposed).
+  subluminal velocity, and `E` undensitized, as a primitive.
   Scratch: resized, never transferred by a regrid.
 - **The recovery runs on the owned cells only**, before the exchange, and
   writes `W` and `P`; `W`'s fill has its own hook, the case's primitives at
@@ -4853,14 +4852,14 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      (what those moved in the uniform runs is in
      [HISTORY.md, "Validation ladder"](HISTORY.md#validation-ladder)): the
      scheme changed for them by rounding only, against reference errors of
-     10⁻³ (proposed).
+     10⁻³.
    - **The plateaus** against Giacomazzo & Rezzolla's exact solution
      (2006, Tables 7–11; `BALSARA_EXACT`, whose `p` is the total pressure),
      averaged at 400 cells over each region's window (`BALSARA_PLATEAUS`,
      where the 3200-cell run holds the region to 2%, less four cells either
      side), with `ρ` and `p` relative to their own value and each component
      of `v` and `B` to its largest magnitude in the solution
-     (`plateau_error`, proposed): every window within 2% —
+     (`plateau_error`): every window within 2% —
      the worst 1.26% (test 1, `R5`), 1.91% (2, `R5`), 0.13% (3, `R2`),
      0.64% (4, `R4`), 0.64% (5, `R2`) — but test 3's `R4`, 4.7% dense at
      400 cells (1.3% at 800), next to the unresolved shell. Too thin for a
@@ -4891,7 +4890,7 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
    - **The current sheet** (Komissarov 2007, §6.1.4: `B₀ = 1`, `p = 50`,
      `ρ = 1`, `σ = 100`, `Γ = 4/3`, on `[−3/2, 3/2]` from the profile at
      `t = 1`, with the quasi-static `Eᶻ = ∂ₓBʸ/σ` where the paper starts
-     from `E = 0`, proposed): the erf profile solves the diffusion limit
+     from `E = 0`): the erf profile solves the diffusion limit
      and not the system — the field's pressure moves the fluid at
      `2·10⁻⁴`, whose `v × B` is 1% of the resistive `E`, and the
      displacement current lags the diffusion by `O(1/σt)` — so the
@@ -4904,7 +4903,7 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      to 0.1% — and at `B₀ = 1/10`, where the fluid's response (quadratic in
      `B₀`) drops out, it is five times smaller relative to `B₀`. Every stage
      is a fixed point (1,068,800 of them to `t = 9`), at most 4 recoveries.
-   - **The atmosphere** (`atmosphere_tube_case`, proposed: a gas
+   - **The atmosphere** (`atmosphere_tube_case`: a gas
      at ρ = p = 1 expanding into the policy's own atmosphere at
      `ρ_atm = 10⁻⁸`, `W` up to 4.9; 200 cells to `t = 0.4`): hydrodynamic
      (`B = 0`), and magnetized as a star's surface would be — `Bʸ = 10⁻³`,
