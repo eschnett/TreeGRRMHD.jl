@@ -6513,3 +6513,9 @@ hour. Without the variable (the clean checkout on the M3 Pro, 1.13, four
 threads) the five gated testsets are each one broken test and named at the
 end: 26772 passing, 5 broken, in 18m04s. A step on the table costs about
 2.7 times the polytrope's per cell (the M3 Pro, four threads).
+
+**2026-11-24, step 15.** At dae7097, after the review pass (comments, the module docstring
+and one log string changed in the code): **26785 tests, every run passing whole** with the
+tables (Symmetry job 610236 on cn101, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`,
+study `full-suite-dae70977cb7d`, not posted) — 30m00s at one thread, 21m51s at four, 37m04s
+with `--check-bounds=yes`, side by side, the job 37m11s.
