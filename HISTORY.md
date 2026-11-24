@@ -742,6 +742,19 @@ Two hypotheses, tested at `h = 0.6` to 600 M on Symmetry's `amdq`:
 The tables are in `CODE.md`, "Validation ladder" 7. The coupled study's miss at `L = 24` is
 therefore the box, and the study on a wider box is open, for Erik to decide.
 
+**2026-11-24, step 13: the coupled study at `L = 96`.** Erik chose to rerun the coupled study
+on the widest box of the test (`jobs/tabulated-tov-coupled-wide.toml`, `-wide-mid.toml`,
+`-wide-fine.toml`, commit 892a43f, study `grrmhd-step13-892a43f86d5a`, Symmetry `amdq`, jobs
+608225, 608226, 608227 and 609114; 8.3, 16.2 and 46.1 h). The `h = 0.375` run outlived its
+24 h job and was continued from its checkpoint at 520 M with `simlaunch resubmit`. All three
+reached 1000 M. The oscillation is damped and levels off, the F line sits at 3.08–3.15 kHz at
+every `h`, and the finer pair converges at 1.8 or better except outside around 100 M (1.0–1.4)
+and at 750 M (1.78). The rest mass net of the reset gains up to 1.3·10⁻¹⁰, ten times
+`L = 24`'s loss and of the other sign, not separated. Measured with throwaway scripts in the
+session's scratchpad (fits of a damped sinusoid on a grid; numpy only, since scipy was not
+installed). The tables are in `CODE.md`, "Validation ladder" 7; whether this meets step 13's
+coupled acceptance is Erik's call.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

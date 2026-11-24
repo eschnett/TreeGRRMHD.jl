@@ -46,11 +46,13 @@ linear theory. Step 13 is the star on a real table (DD2, SFHo) in cold
 2.3.0's slice (EOS-4): on the Cowling metric the drift averaged over
 160–200 M converges at 1.5–2.6 and the rest mass and `D Yₑ` hold to
 round-off over 200 M once the mesh keeps the matter the coarsest star sheds
-off the outer faces; in the evolved spacetime the constraints converge at
-1.8 or better to 260 M, and then the star's oscillation grows, e-folding in
-about 330 M at every `h`, and they fall to 1.4–1.7. TreeGH's Dirichlet
-outer boundary at `L = 24` grows it: on a box four times as wide it is
-damped, and the coupled study on that box is (open). Over 1000 M `D Yₑ`
+off the outer faces. In the evolved spacetime, on rung 5's box
+(`L = 24`), the constraints converge at 1.8 or better to 260 M, and then
+the star's oscillation grows, fed by TreeGH's Dirichlet outer boundary,
+and they fall to 1.4–1.7. On a box four times as wide (`L = 96`) the
+oscillation is damped and the constraints converge on the finer pair at
+1.8–3.0 to 1000 M, except outside the star around 100 M (1.0–1.4).
+Over 1000 M on the Cowling metric `D Yₑ`
 moves by 10⁻¹³ where the rest mass does not (open). The numbers below
 about the scheme are measured where they say so and unmeasured otherwise.*
 
@@ -4520,10 +4522,12 @@ thread, at four and with bounds checks, side by side on one node;
 CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
 over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
 arithmetic's three partitions there ("Precision and devices");
-`tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml` and
-`tabulated-tov-coupled-fine.toml`, the tabulated star's studies, each run a job of its
-own, with `tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the
-same coupled star at other constraint damping and on wider boxes ("Validation ladder" 7).
+`tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml`, `-coupled-mid.toml` and
+`-coupled-fine.toml`, the tabulated star's studies, each run a job of its own, with
+`tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the same coupled
+star at other constraint damping and on wider boxes, and `tabulated-tov-coupled-wide.toml`,
+`-wide-mid.toml` and `-wide-fine.toml`, the coupled study at `L = 96` ("Validation
+ladder" 7).
 
 ## Validation ladder
 
@@ -6225,9 +6229,62 @@ named as claims.
      outside (`r ≥ 10`, to each box's edge) triples from 40 to 600 M at
      `L = 24`, grows by 1.4 at `L = 48` and falls at `L = 96`. Rung 5's
      polytrope, on the `L = 24` box with the same gauge and transfer, does
-     not grow; why the tabulated star does is not measured. The F mode's frequency on an
-     unbounded domain is not measured either: 3.04 kHz at `L = 96` still
-     moves with `L`.
+     not grow; why the tabulated star does is not measured. The F mode's
+     frequency on an unbounded domain is not measured either: the line
+     still moves between `L = 48` and 96.
+   - **The coupled study on the wide box**
+     (`jobs/tabulated-tov-coupled-wide.toml`, `-wide-mid.toml`,
+     `-wide-fine.toml`; Symmetry, `amdq`, jobs 608225, 608226 and 608227
+     with its continuation 609114, the last two checkpointed): the study
+     above with the box of the last row, `L = 96`, four roots and three
+     box levels (`h = 4.8, 2.4, 1.2` outside `[−12, 12]³`), at
+     `h = 0.6, 0.5, 0.375` on the star, to 1000 M (8.3, 16.2 and 46.1 h
+     on 64 threads, EPYC 7543; about twice `L = 24`'s). The rates, as
+     above:
+
+     | `t` (M) | `ℋ` inside | `ℳ` inside | `ℋ` outside | `ℳ` outside |
+     |---|---|---|---|---|
+     | 0 | 4.16, 3.79 | — | 4.33, 4.31 | — |
+     | 20–30 | 1.69, 2.10 | 1.97, 2.09 | 1.35, 2.00 | 1.34, 1.87 |
+     | 95–105 | 1.43, 2.25 | 2.31, 3.00 | 0.80, **1.38** | 0.68, **1.00** |
+     | 240–260 | 1.65, 2.57 | 2.37, 3.03 | 1.39, 2.18 | 1.49, 2.24 |
+     | 490–510 | 1.78, 2.49 | 2.45, 2.92 | 1.25, 1.87 | 1.18, 1.96 |
+     | 740–760 | 2.04, 2.46 | 2.58, 2.84 | 1.51, **1.78** | 1.54, **1.78** |
+     | 900–1000 | 2.07, 2.49 | 2.51, 2.90 | 1.49, 1.90 | 1.45, 1.88 |
+
+     **On the finer pair `PLAN.md`'s ≥ 1.8 holds inside throughout and
+     outside in every window but two**: around 100 M (1.38, 1.00) and
+     1.78 at 750 M. The coarse pair is below 1.8 outside, as at `L = 24`.
+     The outside region (`r ≥ 10` to the box edge) now spans the three
+     coarse levels; that the dip at 100 M is the start's transient
+     crossing them is a guess, not measured. The norms do not grow: at
+     `h = 0.375`, `ℋ` inside is 8.2·10⁻⁶ over 240–260 M and 6.8·10⁻⁶ over
+     900–1000 M (at `L = 24`: 1.2·10⁻⁵ and 6.6·10⁻⁵).
+
+     The half-range of `ρ_c/ρ_c(0)` per 100 M:
+
+     | `t` (M) | `h = 0.6` | `0.5` | `0.375` |
+     |---|---|---|---|
+     | 0–100 | 6.4e−3 | 4.8e−3 | 2.7e−3 |
+     | 200–300 | 2.4e−3 | 2.2e−3 | 1.4e−3 |
+     | 500–600 | 8.9e−4 | 8.0e−4 | 5.3e−4 |
+     | 900–1000 | 6.8e−4 | 4.6e−4 | 3.0e−4 |
+
+     A damped sinusoid fitted to `ρ_c` over 100–500 M e-folds in 220, 270
+     and 330 M by `h` — damping that weakens with resolution, so the
+     scheme's — and after 500 M the oscillation levels off at an amplitude
+     of 3.8–5.6·10⁻⁴, still several times the Cowling star's. **The F
+     line is at 3.08–3.10 kHz over 100–500 M and 3.13–3.15 kHz over
+     500–1000 M at every `h`**, so the resolution does not move it; the
+     Cowling star's F is at 4.2–4.4 kHz.
+     The drift, as below: −0.37, −0.21, −0.14% over 50–70 M (as at
+     `L = 24`), −0.68, −0.37, −0.18% over 490–510 M (rates 3.34, 2.51) and
+     −1.10, −0.60, −0.33% over 900–1000 M (3.32, 2.08). The rest mass net
+     of the reset gains 1.3, 0.80 and 0.40·10⁻¹⁰ of 1.53 by 1000 M, rising
+     steadily from about 100 M, and `D Yₑ` 5.8, 3.7 and 1.9·10⁻¹¹ of 0.098:
+     6–10 times `L = 24`'s and of the other sign, converging at 2.3–2.7,
+     not separated (the candidate is the outer faces, 16 times the area,
+     on cells 4 times coarser). The entropy floor fires on no cell.
    - **The central density's drift**, relative to `t = 0` and averaged over
      a window: −0.37, −0.20, −0.14% over 50–70 M (rates 3.19, 1.44),
      −1.17, −0.83, −0.42% over 490–510 M (1.88, 2.36), −1.09, −0.89,
@@ -6294,10 +6351,12 @@ decides".
   cell's previous `log₁₀ T`, carried in the state as `D s` is
   ("Thermodynamics", "Warm starts"): on the tabulated star a cell-step costs
   about 2.7 times the polytrope's, not yet split into the recovery's part.
-- **(open)** The tabulated coupled study on a box wide enough that the
-  outer boundary does not grow the star's oscillation ("Validation ladder"
-  7): whether at `L = 96` the constraints converge at 1.8 or better to
-  1000 M, and where the coupled F mode's line settles as `L` grows.
+- **(open)** The tabulated coupled star on boxes wider than `L = 96`
+  ("Validation ladder" 7): where its F line (3.1 kHz at `L = 96`, 3.04 to
+  600 M at `h = 0.6`, against 2.88 at `L = 48`) settles as `L` grows;
+  whether the outside rates' dip near 100 M (1.0–1.4 on the finer pair)
+  is the start's transient crossing the coarse levels; and what adds
+  10⁻¹⁰ to the rest mass over 1000 M at `L = 96`.
 - **(open)** What moves `D Yₑ` by 1.6·10⁻¹³ over 1000 M on the Cowling
   metric while the rest mass holds to 4.7·10⁻¹⁶ ("Validation ladder" 7);
   the candidate is the outer faces, where the Dirichlet atmosphere's `Yₑ`
