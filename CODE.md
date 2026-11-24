@@ -1298,7 +1298,8 @@ confined to the density box, the sound-speed flags), are recorded in
 The only coupling back to the fields is the implicit Ohm step, which is
 [a nested solve](#the-implicit-stage-solve) around this same call.
 
-**Entropy fallback** (proposed; **waits for EOS-3**): where
+**Entropy fallback** (not built: a [possible extension](#possible-extensions),
+waiting for EOS-3). The design: where
 `τ_fluid = τ − ½(E² + B²)` is a small difference of large numbers
 (electromagnetically dominated cells, the magnetosphere, a magnetized star's
 cold surface) or the energy inversion fails, invert at the advected `s`
@@ -2073,13 +2074,9 @@ or 10 removes the spikes in both versions, and at 10 the two are bit for bit
 the same (ARS `W` 4.96, `−4.0·10⁻⁹`; SSP3 `W` 3.99) — a policy change,
 untested elsewhere.
 
-A predictor in the atmosphere could take `OHM_SIGMA_ZERO` (proposed; the
-footnote to the controls of "Investigation (2026-10-16)" in [HISTORY.md, "Floors, the atmosphere and the magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere)).
-
-The stage solve's pointwise sweep could add (proposed) a class of predictors whose
-fluid share is near-null and at the entropy ceiling in the taper band,
-asserting a finite, flagged fallback — what the front produced (the same
-investigation).
+Two ideas from that investigation are not built ("Possible extensions"):
+a predictor in the atmosphere taking `OHM_SIGMA_ZERO`, and near-null
+predictors in the stage solve's sweep.
 
 ## Time integration
 
@@ -2090,8 +2087,9 @@ One IMEX Runge–Kutta integrator over the multi-set state vector. The
 and `𝔈` fluxes and sources, the EMF update of `A`, the gauge. The
 **implicit** part is the σ current in Ampère's law, which is local to a
 cell. The default tableau is Pareschi–Russo SSP3(4,3,3), whose implicit
-part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD; SSP2(2,2,2) is
-kept for debugging (proposed). Neither is stiffly accurate (their weights
+part is L-stable, so that `σ Δt → ∞` relaxes to ideal MHD. IMEXRungeKutta's
+SSP2(2,2,2) can be passed as `tableau =`, but nothing here runs or tests
+it ("Possible extensions"). Neither is stiffly accurate (their weights
 `b` differ from the last row of the implicit `A`), so the order *in* the
 stiff limit may drop; IMEXRungeKutta's validation measures it, and the ARS
 schemes, which are stiffly accurate, are the alternative if it matters.
@@ -6548,7 +6546,20 @@ far say about it.
   and the reset's no-op where it repairs nothing ([HISTORY.md, "Open
   questions"](HISTORY.md#open-questions)). Without it `(√γ D s)/(√γ D)`
   leaves the window where `D` is thin (−410 … 1220 outside the Cowling
-  star's surface at 200 M), which only seeds the recovery.
+  star's surface at 200 M), which only seeds the recovery. The design
+  ("Primitive recovery", "Entropy fallback") switches on a threshold of
+  `½(E² + B²) / τ_fluid` whose value is not chosen; the cells it would act
+  on are already counted (`field_diagnostics`).
+- **Two stage-solve ideas** from the investigation of the magnetized
+  atmosphere tube's front ([HISTORY.md, "Floors, the atmosphere and the
+  magnetosphere"](HISTORY.md#floors-the-atmosphere-and-the-magnetosphere),
+  "Investigation (2026-10-16)" and the footnote to its controls): a
+  predictor in the atmosphere taking `OHM_SIGMA_ZERO`; and, in the stage
+  solve's pointwise sweep, a class of predictors whose fluid share is
+  near-null and at the entropy ceiling in the taper band, asserting a
+  finite, flagged fallback — what the front produced.
+- **SSP2(2,2,2) as a debugging tableau**, run and tested here; today it
+  is only available from IMEXRungeKutta ("The partition").
 - **A conductivity that falls where the field's energy dwarfs the
   fluid's**, not only by density or `B²/D`: on the magnetized star the
   cold gas outside the surface fell back in half its stages until σ was

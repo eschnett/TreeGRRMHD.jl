@@ -949,6 +949,13 @@ Still marked: the entropy fallback (waits for EOS-3), two stage-solve ideas neve
 predictor in the atmosphere at `OHM_SIGMA_ZERO`, near-null predictors in the sweep), and
 SSP2(2,2,2) "kept for debugging", available in IMEXRungeKutta but run by nothing here.
 
+**2026-11-24, step 15: the last four proposals moved to "Possible extensions".** Erik: "Move
+them to extensions". The entropy fallback stays described in `CODE.md`'s "Primitive
+recovery" as a design not built, waiting for EOS-3; the predictor in the atmosphere at
+`OHM_SIGMA_ZERO`, the near-null predictors in the stage solve's sweep, and SSP2(2,2,2) as a
+debugging tableau (available from IMEXRungeKutta, run by nothing here) are listed as possible
+extensions. `CODE.md` now has no **(proposed)** and no **(open)** marker.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
