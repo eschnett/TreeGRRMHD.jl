@@ -664,6 +664,11 @@ AMR-5 item did not say how it landed. Step 14 now waits for nothing.
 >   more cores than a site's node has; and there is no way to refresh one script of a prepared
 >   study, so `bin/benchmark.jl` was copied into `grrmhd-step14-2` by hand for job 606643.
 
+**2026-11-24, step 14 accepted.** Erik accepted step 14 as built, measured and merged (PR #13,
+4c15565): "i accept step 14". Its three acceptance items stand as recorded above, and its
+decisions were taken on 2026-11-20: the split recovery as a device's default, no AMR-12, and
+the device claim's looser counts.
+
 
 > **Step 13 — Tabulated EOS and Yₑ (rung 7)**
 >

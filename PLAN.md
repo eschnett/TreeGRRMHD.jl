@@ -704,7 +704,7 @@ suite"](HISTORY.md#the-test-suite).
 
 ## Step 14 — Precision, threads, devices, benchmark
 
-*Done*, waiting for Erik's acceptance (2026-11-19). Results in `CODE.md`, "Precision and
+*Done* (accepted by Erik 2026-11-24). Results in `CODE.md`, "Precision and
 devices" ("Threads", "Devices", "The per-phase table"), "Tests", "Code layout" and "Sharp
 edges". The step's changes, acceptance list and measured outcomes are in [HISTORY.md, "The
 steps of the plan"](HISTORY.md#the-steps-of-the-plan) and [HISTORY.md, "Precision and
