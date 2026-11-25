@@ -191,33 +191,116 @@ end
                             guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
                             idx::Tuple=()) where {T}
     entry_hit(entry, cin) && return entry, true
-    out = level1(eos, opts, proj, cin, guesses, sc, idx)
+    out = level1(eos, opts, proj, pol, cin, guesses, sc, idx)
     out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
     return make_entry(cin, out), false
 end
 
-# Level 1: the fused `con2prim_safe`, or the hand-off's output.
-@inline level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn{T}, guesses::NTuple{3,T}, ::Nothing,
-               idx::Tuple) where {T} =
-    EntropyEOS.con2prim_safe(eos, cin, opts, proj, guesses[1], guesses[2], guesses[3])
-@inline level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn, guesses::NTuple{3}, sc::Handoff,
-               idx::Tuple) = @inbounds sc.out[idx...]
+"""
+    recovery_seed(eos, cin, guesses, w_max) -> guesses
+
+The seed EntropyEOS is handed for a seed from the state, `(s, NaN, NaN)`
+([`state_guesses`](@ref)); a seed with a rapidity (the step cache's, a stage
+iterate's) is passed on unchanged. Two changes, each a function of `cin` and
+`guesses` only, so that every recovery stays a function of its input and the
+fused and the two-phase recovery take the same seed:
+
+- **the rapidity at zero pressure**, `atanh(|S|/(τ + D))`, the cold seed's own
+  first pass, where `cin` carries no field (`B² = 0`: the hydrodynamic mode, an
+  ideal recovery without a field) and it is finite and below `tanh(w_max)`.
+  With a field it is a cubic's root, left to the cold seed;
+- **no seed at all where the advected `s` lies outside the EOS's window** at the
+  seed's density `D/cosh w`: it cannot be the recovered entropy, which the
+  recovery would project inside, and EntropyEOS's cold seed, which solves for
+  `s` from the energy, starts closer. On a table's cold slice the advected `s`
+  of a cell average lies below the window in most of the star (degenerate
+  matter's energy hardly depends on `s`): from it the Newton took 8.4
+  iterations, from the cold seed none.
+
+Measured per cell over the stars' initial data, at rest and at `v ≈ 10⁻²` (M3
+Pro): DD2's star 4.0 and 5.5 µs (the advected `s` with the rapidity: 6.9 and
+7.0; EntropyEOS's cold seed: 3.6 and 4.6; the advected `s` alone, as until
+2026-11-25: 10.2); the polytrope's 0.69 and 0.75 µs (the cold seed 1.4 and
+1.6; the advected `s` alone 1.8 and 2.4). "Warm starts" in `CODE.md`.
+"""
+@inline function recovery_seed(eos::EntropyEOS.AbstractEOS, cin::EntropyEOS.Con2PrimIn{T},
+                               guesses::NTuple{3,T}, w_max::T) where {T}
+    s, w, u = guesses
+    isnan(w) || return guesses
+    if iszero(cin.B²)
+        V = sqrt(cin.S_par * cin.S_par + cin.S_perp * cin.S_perp) / (cin.τ + cin.D)
+        (isfinite(V) && zero(T) <= V < tanh(w_max)) && (w = atanh(V))
+    end
+    if !isnan(s)
+        sr = EntropyEOS.srange(eos, cin.D / cosh(isnan(w) ? zero(T) : w), cin.D_Y / cin.D)
+        sr.s_min <= s <= sr.s_max || return (T(NaN), T(NaN), T(NaN))
+    end
+    return (s, w, u)
+end
+
+"""
+    policy_decides(eos, proj, pol, cin) -> Bool
+
+Whether `apply_policy` sends `cin` to the atmosphere whatever level 1 returns,
+and level 1 would have run a solve: a finite input with `ρ_min ≤ D <
+atm_trigger·ρ_min`. `apply_policy` builds that atmosphere from `cin` alone — its
+`Yₑ` from `D_Y/D`, its EOS point without a warm start — so the state is the
+same bit for bit without the solve; only level 1's bits, `result` and
+`solved`, which the atmosphere's flags would have carried, are not there. On a
+table almost every atmosphere cell is such an input: the gravitational
+source leaves it colder than the table's coldest row, and level 1 reports it
+`S_FLOORED` only after its whole Newton budget and the bracket scan, 32–41 µs
+a cell on DD2 against about 1 µs for the atmosphere's EOS point. Below `ρ_min`
+level 1 decides by `D` alone and is cheap, so those inputs keep its
+`ρ_FLOORED` bit. *(Proposed:* the bits it gives up are Erik's to weigh;
+"Primitive recovery", "The two levels" in `CODE.md`.*)*
+
+EOS-12: reads EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and
+`nan_safe_out`, until EntropyEOS answers this itself.
+"""
+@inline function policy_decides(eos::EntropyEOS.AbstractEOS, proj::EntropyEOS.ProjectionOptions{T},
+                                pol::EntropyEOS.PolicyOptions{T},
+                                cin::EntropyEOS.Con2PrimIn{T}) where {T}
+    ρ_min = EntropyEOS.proj_ρ_min(eos, proj)                     # EOS-12
+    finite = isfinite(cin.τ) & isfinite(cin.D_Y) & isfinite(cin.S_par) &
+             isfinite(cin.S_perp) & isfinite(cin.B²)
+    return finite && cin.B² >= zero(T) &&
+           ρ_min <= cin.D < EntropyEOS.pol_atm_trigger(pol) * ρ_min     # EOS-12
+end
+
+# Level 1: the fused `con2prim_safe`, or the hand-off's output; where the
+# policy decides alone, the unsolved placeholder `apply_policy` replaces.
+@inline function level1(eos, opts, proj, pol, cin::EntropyEOS.Con2PrimIn{T},
+                        guesses::NTuple{3,T}, ::Nothing, idx::Tuple) where {T}
+    policy_decides(eos, proj, pol, cin) && return EntropyEOS.nan_safe_out(T)   # EOS-12
+    s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)
+    return EntropyEOS.con2prim_safe(eos, cin, opts, proj, s, w, u)
+end
+@inline level1(eos, opts, proj, pol, cin::EntropyEOS.Con2PrimIn, guesses::NTuple{3},
+               sc::Handoff, idx::Tuple) = @inbounds sc.out[idx...]
 
 # The first pass at the cell `idx`: nothing where the step cache's entry is a
-# recovery of `cin` (the third pass reuses it); otherwise
+# recovery of `cin` (the third pass reuses it); the unsolved placeholder where
+# the policy decides alone (`policy_decides`); otherwise
 # `con2prim_safe_start` from `guesses`, its output kept where it is done and
 # its stage where it is not.
 @inline function level1_start!(sc::Handoff, idx::Tuple, eos::EntropyEOS.AbstractEOS,
                                opts::EntropyEOS.Con2PrimOptions{T},
                                proj::EntropyEOS.ProjectionOptions{T},
+                               pol::EntropyEOS.PolicyOptions{T},
                                cin::EntropyEOS.Con2PrimIn{T}, guesses::NTuple{3,T},
                                entry::NTuple{NC,T}) where {T}
     if entry_hit(entry, cin)
         @inbounds sc.todo[idx...] = false
         return nothing
     end
-    out, st = EntropyEOS.con2prim_safe_start(eos, cin, opts, proj, guesses[1], guesses[2],
-                                             guesses[3])
+    if policy_decides(eos, proj, pol, cin)
+        @inbounds sc.todo[idx...] = false
+        @inbounds sc.out[idx...] = EntropyEOS.nan_safe_out(T)                 # EOS-12
+        return nothing
+    end
+    s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)
+    out, st = EntropyEOS.con2prim_safe_start(eos, cin, opts, proj, s, w, u)
     done = EntropyEOS.is_done(st)
     @inbounds begin
         sc.todo[idx...] = !done

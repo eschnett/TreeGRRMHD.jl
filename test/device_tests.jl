@@ -28,6 +28,7 @@ if DEVICE_STANDALONE
     using TreeGRRMHD
     include(joinpath(@__DIR__, "tiers.jl"))
 end
+isdefined(@__MODULE__, :DD2_PRESENT) || include(joinpath(@__DIR__, "tables.jl"))
 using KernelAbstractions: CPU, Backend, get_backend
 
 const DEVICE_NAME = lowercase(get(ENV, "TREEGRRMHD_TEST_BACKEND", ""))
@@ -92,12 +93,23 @@ const DEVICE_RECOVERIES = DEVICE_REAL ? (true, false) : (false,)
 # scheme on a periodic box, against its exact solution), the magnetized atmosphere tube
 # (the reset at every stage and the magnetization cutoff's stiff stage solve, under the step
 # cache), the adaptive rotor (the adaptation, a regrid and the Dirichlet hooks on every
-# face), and the magnetized TOV star (three dimensions, two static levels, the
-# `Analytic(TOVMetric)` provider, a resistive interior and an atmosphere). The suite's own
-# sizes, made short; the wave on 40 cells, where its error is large enough for `Float32`'s
-# rounding (below).
+# face), the magnetized TOV star (three dimensions, two static levels, the
+# `Analytic(TOVMetric)` provider, a resistive interior and an atmosphere), and where DD2 is
+# found the tabulated star on the same mesh (the table's upload to the device, `eos_on`,
+# and the Dirichlet hooks that carry it; added 2026-11-25, when the first device run of a
+# table was refused at its first kernel). The suite's own sizes, made short; the wave on
+# 40 cells, where its error is large enough for `Float32`'s rounding (below).
 function device_runs(::Type{T}) where {T}
     star = magnetized_tov_case(T; σ₀=1e6, μ_max=10, L=12, roots=3)
+    tab = if DD2_PRESENT
+        d = dd2_table()
+        dd2 = tabulated_tov_case(T; d.table, d.eos, ρ_c=9.4e-4, ρ_min=1e-10, L=12, roots=3)
+        (("tabulated TOV star (DD2)", dd2, Val(3),
+          (; N=8, t_end=1, chunk=1 // 2, limiter=:mc,
+           refine=forest -> tov_boxes!(forest, dd2; levels=1))),)
+    else
+        ()
+    end
     return (("Alfvén wave", alfven_wave_case(T; roots=4), Val(1),
              (; N=10, t_end=1 // 8, limiter=:mc)),
             ("magnetized atmosphere tube",
@@ -110,7 +122,7 @@ function device_runs(::Type{T}) where {T}
               refine_tol=T(0.08), coarsen_tol=T(0.02), buffer=4)),
             ("magnetized TOV star", star, Val(3),
              (; N=8, t_end=1, chunk=1 // 2, limiter=:mc,
-              refine=forest -> tov_boxes!(forest, star; levels=1))))
+              refine=forest -> tov_boxes!(forest, star; levels=1))), tab...)
 end
 
 function device_run(::Type{T}, case, vD, kw, backend, two_phase) where {T}

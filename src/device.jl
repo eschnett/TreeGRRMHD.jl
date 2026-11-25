@@ -43,6 +43,21 @@ function to_backend(backend::Backend, a::AbstractArray)
 end
 
 """
+    eos_on(backend, eos)
+
+`eos` where `backend`'s kernels read it: on the CPU, or for an `isbits` EOS (the ideal
+gas, the hybrid), the same EOS; for a table (`GeometricEOS` around an `EOSTableView`) a
+copy whose coefficient arrays live on the device, through EntropyEOS's `Adapt` rules
+and `GeometricEOS`'s. A kernel's own adaptor would turn a device-resident table into an
+`isbits` view, but it cannot upload a host array: without this a table reaches a device
+kernel as host `Array`s and the launch is refused ("passing non-bitstype argument").
+Called where an EOS enters the kernels: [`MHDProblem`](@ref), the case's initial data and
+Dirichlet hooks, and the interior. On a device a call copies the table, so a problem
+uploads it once and its kernels read `p.eos`. See "Devices" in `CODE.md`.
+"""
+eos_on(backend::Backend, eos) = Adapt.adapt(backend, eos)
+
+"""
     hostcopy(fs)
 
 `fs` with its working array on the host: `fs` itself when it is already

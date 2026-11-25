@@ -197,7 +197,9 @@ results bit for bit (a test). `two_phase = nothing`, the default, is the
 backend's choice: fused on the CPU, where the split costs 1–10% a step and
 only 0–2.4% of the recoveries reach the second phase *(decided by Erik
 2026-11-02)*, and split on a device, where it is 14–15% faster a step on an
-H200 *(decided by Erik 2026-11-20)*.
+H200 *(decided by Erik 2026-11-20)*. On a table the fused recovery is the
+faster on a device too, by 6.5% a step of the DD2 star on an H200: a run on a
+table may pass `two_phase = false` ("Devices" in `CODE.md`).
 
 `interior` *(added in step 9; "The interior" in `CODE.md`)*: `nothing`, or an
 [`InteriorTarget`](@ref) — a black hole's interior and the case's solution —
@@ -307,6 +309,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     ischeds_EMF = ntuple(j -> any(==(1), staggers(f.EMF[j])) ? InterfaceSchedule(f.EMF[j]) :
                               nothing, 3)
     backend = get_backend(f.U.work)
+    eos = eos_on(backend, eos)                       # a table's arrays where the kernels run
     two_phase = something(two_phase, !(backend isa CPU))
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))
@@ -948,7 +951,7 @@ end
 # into the hand-off `sc`, or nothing where the entry is reused.
 @kernel function start_kernel!(sc, @Const(Uw), @Const(B1), @Const(B2), @Const(B3), @Const(Cw),
                                @Const(origins), @Const(spacings), provider, t, eos, opts, proj,
-                               model, active::Bool, ::Val{D}, ::Val{GU}, ::Val{GB},
+                               pol, model, active::Bool, ::Val{D}, ::Val{GU}, ::Val{GB},
                                ::Val{GC}) where {D,GU,GB,GC}
     I = @index(Global, NTuple)                       # local, owned
     b = I[D + 1]
@@ -961,7 +964,7 @@ end
     B = cell_𝔅((B1, B2, B3), n, b, GB, Val(D)) * isg
     E = cons_𝔈(cons) * isg
     entry = read_entry(Cw, stored(n, GC), b, active, typeof(h))
-    level1_start!(sc, (n..., b), eos, opts, proj, start_input(model, m, cons, E, B),
+    level1_start!(sc, (n..., b), eos, opts, proj, pol, start_input(model, m, cons, E, B),
                   seed_of(entry, cons), entry)
 end
 
@@ -1324,8 +1327,8 @@ function recovery_start!(p::MHDProblem{T,D}, Uw, GU::Val, model, t;
     sc === nothing && return nothing
     f = p.f
     map_blocks!(start_kernel!, p.cache, sc, Uw, f.B[1].work, f.B[2].work, f.B[3].work,
-                p.cache.work, p.origins, p.spacings, metric, t, p.eos, p.opts, p.proj, model,
-                p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G);
+                p.cache.work, p.origins, p.spacings, metric, t, p.eos, p.opts, p.proj, p.pol,
+                model, p.cache_on[], Val(D), GU, Val(GB_of(f)), Val(p.cache.G);
                 workgroupsize=p.workgroupsize)
     map_blocks!(finish_kernel!, p.cache, sc, p.eos, p.opts, p.proj, Val(D);
                 workgroupsize=p.workgroupsize)

@@ -190,8 +190,9 @@ and of `Φ̃` at the vertices.
 """
 function case_state!(u, p::MHDProblem{T,D}, case::MHDCase, t) where {T,D}
     sets = p.sets
+    eos = eos_on(get_backend(sets[SEG_U].work), case.eos)
     map_blocks!(cell_average_kernel!, sets[SEG_U], statearray(u, sets, SEG_U), case.fields,
-                case.eos, case.provider, T(t), p.origins, p.spacings, Val(D))
+                eos, case.provider, T(t), p.origins, p.spacings, Val(D))
     for j in 1:3
         i = SEG_A + j - 1
         map_blocks!(potential_kernel!, sets[i], statearray(u, sets, i), case.potential, T(t),
@@ -360,6 +361,16 @@ struct AbsolutePotentialAt{H}
 end
 @inline (a::AbsolutePotentialAt)(x::NTuple{D,T}, δ) where {D,T} = (a.at(x),)
 
+# A kernel's adaptor makes a device-resident table `isbits` only through a rule for every
+# struct around it: the hooks carry the EOS ([`eos_on`](@ref) uploads it; these unwrap it
+# at the launch). Without them a tabulated case's boundary kernel is refused on a device.
+Adapt.adapt_structure(to, h::DirichletBoundary{R}) where {R} =
+    DirichletBoundary{R}(Adapt.adapt(to, h.fields), Adapt.adapt(to, h.potential),
+                         Adapt.adapt(to, h.eos), Adapt.adapt(to, h.provider);
+                         absolute=h.absolute)
+Adapt.@adapt_structure DirichletAt
+Adapt.@adapt_structure AbsolutePotentialAt
+
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary, t) =
@@ -435,15 +446,25 @@ end
 `nothing` for a case periodic in every dimension, and otherwise one
 [`DirichletBoundary`](@ref) per evolved set, in the order `(U, A₁, A₂, A₃,
 Φ̃)` that [`MHDProblem`](@ref)'s `boundary` takes: the case's solution as the
-boundary of every set, through each set's own hook (AMR-2). The potentials'
+boundary of every set, through each set's own hook (AMR-2), its EOS `eos` (the case's,
+or the case's uploaded where the hooks run on a device, [`eos_on`](@ref)). Each hook holds
+only what it reads — the matter's the fields, `eos` and the provider, a potential's the
+potential — since a hook is a kernel argument and CUDA's are limited to 32 KiB. The potentials'
 hooks are absolute where the case declares its potential static
 (`static_potential`, decided by Erik 2026-11-03), and relative otherwise.
 """
-function case_boundary(case::MHDCase; static_potential::Bool=case.static_potential)
+function case_boundary(case::MHDCase; static_potential::Bool=case.static_potential,
+                       eos=case.eos)
     all(case.periodic) && return nothing
-    mk(R) = DirichletBoundary{R}(case.fields, case.potential, case.eos, case.provider;
+    # Each hook carries only what it reads: the matter's the fields, the EOS and the
+    # provider (and so the primitives' hook made from it), a potential's the potential. A
+    # hook is a kernel argument, and CUDA's limit is 32 KiB: the tabulated star's fields
+    # and potential are 14.5 KB each, and a potential's hook with everything came to 32.8.
+    matter = DirichletBoundary{:U}(case.fields, nothing, eos, case.provider;
+                                   absolute=static_potential)
+    mk(R) = DirichletBoundary{R}(nothing, case.potential, nothing, nothing;
                                  absolute=static_potential)
-    return (mk(:U), mk(1), mk(2), mk(3), mk(4))
+    return (matter, mk(1), mk(2), mk(3), mk(4))
 end
 
 """
@@ -830,11 +851,13 @@ added in step 10).
 function MHDProblem(f::MHDFields, case::MHDCase; limiter, ξ=nothing, interior=case.interior,
                     kw...)
     T = eltype(f.U.work)
-    return MHDProblem(f; eos=case.eos, opts=case.opts, proj=case.proj, pol=case.pol,
+    backend = get_backend(f.U.work)
+    eos = eos_on(backend, case.eos)                  # uploaded once, for all three
+    return MHDProblem(f; eos, opts=case.opts, proj=case.proj, pol=case.pol,
                       model=case.model, provider=case.provider, 𝔅̄=case.𝔅̄,
                       ξ=resolve_ξ(T, ξ, case), limiter=limiter,
-                      boundary=case_boundary(case), interior=interior_target(interior, case),
-                      kw...)
+                      boundary=case_boundary(case; eos),
+                      interior=interior_target(interior, case; eos), kw...)
 end
 
 """
@@ -896,9 +919,10 @@ cycle has not converged within `maxpasses`.
 function adapt_case!(f::MHDFields{D}, case::MHDCase{T,D}, build; ops_U, ops_A, ops_Φ,
                      refine_tol, coarsen_tol, maxlevel, ε, ε_g, buffer,
                      maxpasses) where {T,D}
-    hooks = case_boundary(case)
+    eos = eos_on(get_backend(f.U.work), case.eos)
+    hooks = case_boundary(case; eos)
     hook(i) = hooks === nothing ? nothing : boundary_at(hooks[i], zero(T))
-    fl, pt, eos, prov = case.fields, case.potential, case.eos, case.provider
+    fl, pt, prov = case.fields, case.potential, case.provider
     initU = AllVariables(x -> case_cons(fl, eos, prov, point3(x), zero(T)))
     initA(R) = AllVariables(x -> (let (A, Φ̃) = pt(point3(x), zero(T))
                                       R ≤ 3 ? A[R] : Φ̃

@@ -1,0 +1,38 @@
+# Performance before production on one H200 (`bin/benchmark.jl case=dd2`,
+# `bin/profile.jl`): the DD2 star at `Float64` on 120 blocks (4.9·10⁵ cells), 960
+# (3.9·10⁶) and 6056 (2.5·10⁷), both recoveries; on the middle mesh PR 16's code
+# (`variant = "base"`) with only the device fixes it needs to run a table at all (the
+# upload, the hooks under CUDA's parameter limit); and CUDA.jl's kernel profile of four
+# steps.
+name = "perf-gpu"
+env = "cuda"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+resources = { gpus = 1 }
+time = "2:00:00"
+
+[[run]]
+label = "m1"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=1 reps=3"
+
+[[run]]
+label = "m2"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+
+[[run]]
+label = "m2-fused"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 two_phase=false"
+
+[[run]]
+label = "m3"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=48 roots=8 levels=3 reps=3"
+
+[[run]]
+label = "m2-base"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+variant = "base"
+
+[[run]]
+label = "profile"
+cmd = "bin/profile.jl case=dd2 backend=cuda L=24 roots=4 levels=2 steps=4"

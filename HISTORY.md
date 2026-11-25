@@ -1163,6 +1163,7 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | AMR-9 | TreeAMR | wanted | — | a flux-conservative transfer of edge sets | landed in TreeAMR 0.2.2, as `vertex_prolongation` |
 | AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation | landed in TreeAMR 0.2.2 |
 | AMR-11 | TreeAMR | wanted | — | the relative hook consistent across levels where an outer face meets a coarse-fine face | waiting |
+| AMR-14 | TreeAMR | wanted | — | the curve split into threads' and ranks' parts by a weight per leaf | waiting |
 | EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
@@ -1175,6 +1176,9 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
+| EOS-12 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `apply_policy` without a level-1 output | waiting |
+| EOS-13 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
+| EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | waiting |
 | GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
 | GH-2 | TreeGH | req, workaround | 11 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -3100,6 +3104,63 @@ harness computed (`field_budget`).
 names its precedent: Palenzuela (2013) falls back to the isentropic `p = Kρ^Γ`
 near a star's surface; Dionysopoulou et al. (2013) treat a failed cell as
 atmosphere; GRaM-X has no fallback.
+
+**2026-11-25, performance before production.** Profiling the DD2 star
+(`bin/profile.jl case=dd2`, Erik's request to find the performance problems
+before larger runs) found the recovery 95% in EntropyEOS's `cold_seed`: from
+`state_guesses`' `(s, NaN, NaN)` a missing rapidity makes `con2prim_start`
+manufacture the whole seed, `s` included — 58–75 µs a recovery on DD2, where
+2026-10-23 had found 10–11 µs on the synthetic table and noted that the
+advected `s` alone saved nothing. In three rounds:
+
+1. **The zero-pressure rapidity** where the input has no field (then
+   `seed_rapidity`): 0.9–3.3 µs per test state, the result within the
+   tolerance (Δs ≤ 1.2·10⁻¹¹). It moves the cold-seeded recoveries of the
+   ideal-gas cases within their tolerance too, and the magnetized
+   atmosphere tube's reset count with and without the step cache parted by
+   3 of 36163 (`test/step_cache_tests.jl`, which holds them equal; one cell
+   a chunk in the tube's front, one of its 80–115 resets; the counts in
+   PR 16: 36162 both); the same cells move its recovered `ρ` by 4.9·10⁻¹¹
+   (2.4·10⁻¹² before), against the testset's 5·10⁻¹¹. Reported to Erik, who
+   accepted both (2026-11-25): the testset now allows that tube's counts to
+   differ by 12 and its recovered state by 2·10⁻¹⁰, margins of 4.
+2. **Why the cold seed was dear**: `GeometricEOS` forwarded `evaluate`, the
+   windows and the bounds, but not EntropyEOS's two optional methods, so a
+   table seen through it took their generic defaults — `entropy_from_energy`
+   a bisection in `s` over the whole extended window with an evaluation a
+   step, where the table's is one temperature solve, and
+   `evaluate_windowed` two more samples in every Newton residual. Forwarded:
+   a cold seed 3.2–3.6 µs, a warm recovery 0.52–0.58 µs (was 0.7).
+3. **The advected `s` as a seed** then measured worse than none on the
+   table: in the DD2 star a cell average's advected `s` is 0.30 where the
+   recovery finds 1.02 (degenerate matter's energy hardly depends on `s`),
+   below the window in 33088 of 35928 star cells, and the Newton took 8.4
+   iterations from it (7.8 µs a star cell, 11 times an atmosphere cell's),
+   none from the cold seed. On the ideal-gas stars the advected `s` with the
+   rapidity is the best seed (0.7–0.8 µs against the cold seed's 1.4–1.7).
+   So `recovery_seed` keeps it only inside the EOS's window: DD2's star 4.0
+   and 5.5 µs at rest and moving, the ideal gases unchanged. Measured: the
+   four seeds over the stars' initial data (`CODE.md`, "Warm starts").
+
+Not tried: a rapidity from a pressure at `(D, s)` through one EOS evaluation,
+which costs about as much as the Newton step it might save; a field-aware
+seed, a cubic's root this package would copy from EntropyEOS's
+`seed_z_solve`.
+
+The same profile found most of what remained in the atmosphere's recoveries
+below the table's cold edge, each 32–41 µs to an answer the policy discards
+(`CODE.md`, "The two levels", the skip of level 1; EOS-12, EOS-13),
+and half of each forward EOS evaluation in its bracket's ends (EOS-14).
+The skip was proposed with its measurement (a step 25% cheaper on M1 at four
+threads on the M3 Pro, at the cost of level 1's bits on those cells); Erik kept
+it on 2026-11-25, to be revisited when EOS-13 is available. He kept the DD2
+star's device run in the suite as it is, outside `@full_tier`, the same day, and
+left a device's default recovery split, with the fused recovery's 6.5% on the
+DD2 star (an H200) documented for a run on a table to choose: a default that
+depends on the EOS would rest on one table, one mesh and one device. The
+first device run of a table found two faults (`CODE.md`, "Devices"). The
+measurements are in `CODE.md`, "The tabulated star's cost", and the first
+measurements over nodes, on Symmetry, in [Precision and devices](#precision-and-devices).
 
 ### Where the fields live
 
@@ -5213,6 +5274,31 @@ found and changed:
   22 min, its CPU twin on the node's 8 cores 3.6 h, and the `Float32` run was
   killed at the limit seconds after it started (job 606354). The CPU twin now
   runs last, in six hours, and the `Float32` run ran alone (job 606641).
+- **The tabulated star over nodes, first on Symmetry** (2026-11-25). The DD2 star's
+  scaling over nodes was first measured on Symmetry's AMD nodes, 8 ranks of 8 threads a
+  node (seconds a step, the slowest rank's best of three):
+
+  | mesh | 1 node | 2 nodes | 4 nodes |
+  | --- | ---: | ---: | ---: |
+  | M2 (job 611312, cn090–093) | 5.73 | 3.52 | 8.91 |
+  | M2 (job 611210, cn083–084, 086, 090; before the EOS forwards) | 6.04 | 3.72 | 2.14 |
+  | M3 (job 611312, cn090–093) | 34.08 | 18.98 | 17.71 |
+
+  On cn090–093 every phase alone got faster on 4 nodes but `fill_potentials` (0.017 s on 2
+  nodes, 0.103 on 4; on M3 0.069 and 2.0) and the reset, which fills `Φ̃` too. The same code
+  on cn083–084, 086, 090 took 2.08 s a step under HPC-X and 2.17 under MPICH (job 611356;
+  `fill_potentials` 0.093 and 0.034 s): the slow step followed the nodes, not the code or
+  the MPI library. Eight nodes hung under HPC-X's Open MPI 4.1.7 through mpi_abi_wrapper
+  (SimLaunch's `mpiabi`): every rank waited in the first collective, `MPI_Comm_dup` in
+  TreeAMR's `communicator`, inside `ompi_comm_nextcid`, on every set of 8 nodes tried, at 1
+  and 8 ranks a node, at 1 and 8 threads, with HCOLL off, with UCX restricted to RC and over
+  TCP; 4, 6 and 7 of the same nodes worked, and MPICH_jll (`jll`) ran the dup and an
+  `Allreduce` on the same 8 nodes in 0.094 s. Round trips between the nodes were normal
+  (3.2–3.8 µs at 8 B, 22–34 µs at 64 KiB, 710 µs at 4 MiB) on both node sets. Erik
+  confirmed that Symmetry's InfiniBand setup is irregular, so at his request the scaling
+  was measured again on Trillium and Fir, where 8 nodes run under Open MPI and a step
+  scales smoothly (`CODE.md`, "The tabulated star's cost"); the per-rank imbalance of the
+  recovery is the same at both. `jobs/perf-mpi-nodes.toml` now runs 1, 2 and 4 nodes.
 
 ## Validation ladder
 

@@ -106,6 +106,7 @@ rather than diverging silently.
   - [Threads](#threads)
   - [Devices](#devices)
   - [The per-phase table](#the-per-phase-table)
+  - [The tabulated star's cost](#the-tabulated-stars-cost)
 - [Running distributed](#running-distributed)
   - [The communicator](#the-communicator)
   - [What this package makes global](#what-this-package-makes-global)
@@ -317,6 +318,11 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   touching an outer face is its fine faces' sum only to 1.2e−5 of the
   largest flux, where everywhere else it is to rounding ("Conservation at
   coarse-fine faces"). No workaround needed.
+- **AMR-14 (wanted, no step blocked) The curve split by a weight per
+  leaf**: the threads' chunks and the ranks' ranges are equal counts of
+  leaves, and on a tabulated star a block's cost varies by four: the star's
+  recoveries cost 5 times the atmosphere's, so the threads and ranks that
+  hold the star set the pace ("The tabulated star's cost"). No workaround.
 - MPI (M7) and checkpoints (M9, now TreeIOHDF5's) are used
   ([Running distributed](#running-distributed)), with TreeAMR's public
   communicator verbs (AMR-13, landed in TreeAMR 0.2.11; `HISTORY.md`,
@@ -484,6 +490,16 @@ TreeGRRMHD"; the request and its record:
   decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
   and how `μ_ν` follows from a table's chemical potentials, is the EOS's
   knowledge; the fitted `μ̃` is off by MeV on the cold edge.
+- **EOS-12 (wanted; workaround)** The atmosphere decided without level 1:
+  `apply_policy`'s decision for an input below the trigger, public, and its
+  output without a level-1 output, for the skip of level 1 there
+  ("Primitive recovery", "The two levels").
+- **EOS-13 (wanted)** A state below a table's cold edge recognised without
+  the Newton budget and the bracket scan, which cost 32–41 µs on DD2,
+  where its atmosphere and the cells truncation cools take that path.
+- **EOS-14 (wanted)** A warm evaluation without sampling its temperature
+  bracket's ends, two of its five or so samples, on the evaluations that are
+  a little over half of a tabulated step.
 - **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
   1.1.0), and the endpoint branches made edge-consistent, the hottest state
   projected onto the entropy ceiling (2.0.0, as the two-level projection).
@@ -591,6 +607,51 @@ no name to detect, and that testset is its check.
 boundary is the boundary condition's, which nothing conserves ("Conservation
 at coarse-fine faces").
 
+#### AMR-14 — The curve split by a weight per leaf (wanted)
+
+**Why.** `equalsplit` cuts the curve into contiguous parts of equal leaf
+counts, for the threads (`threadchunks`, `launch_by_owner!`) and for the ranks
+(`blockrange`, the repartition). On the DD2 star a block's recovery costs up to
+3.9 times the mean block's — a star cell's 4.0 µs against an atmosphere cell's
+0.7 — and the parts holding the star set the pace: at 64 threads a step's
+threads are asleep 23% of their samples, the recovery phases scale 18–34
+times on 64 cores where the fluxes scale 53, and over 1, 2, 4 and 8 nodes the
+slowest rank's recovery takes 1.23, 1.58, 1.73 and 1.84 times the mean rank's,
+waiting on it about 0.45 s of the 0.76 s a step loses on 8 nodes (Trillium and
+Fir; "The tabulated star's cost"). TreeAMR's own `equalsplit` says a
+cost-weighted split would change only that function.
+
+**API** (exported or `public`).
+```julia
+set_leaf_weights!(forest, w::AbstractVector{<:Real})   # one per local leaf, ≥ 0; collective
+leaf_weights(forest) -> Vector                         # the weights in use, 1 by default
+```
+
+**Semantics.**
+- The threads' chunks and, at the next repartition (`regrid!`, or a
+  `repartition!(forest, sets…)` the application calls), the ranks' ranges
+  are contiguous ranges of the curve whose weight sums differ by at most one
+  leaf's weight, instead of leaf counts that differ by at most one.
+- Weights travel with the leaves through a regrid (a child inherits its
+  parent's weight divided among its children, a parent its children's sum)
+  until set again; with all weights equal, today's split bit for bit.
+- Results do not depend on the split (TreeAMR's existing claim at every
+  thread and rank count), only the time does.
+
+**Upstream acceptance.** With unequal weights, the parts' sums are balanced to
+one leaf's weight; equal weights give today's chunks and ranges; a weighted
+run is bit for bit the unweighted one at 1, 2 and 3 ranks.
+
+**Downstream check.** `set_leaf_weights!` exists (`hasmethod`); then the DD2
+star's `bin/benchmark.jl` rows, with the weights a step's measured per-block
+recovery time.
+
+**What it does not fix.** A part cannot be lighter than its heaviest leaf: on
+the 120-block mesh at 64 threads the measured split by weight leaves the
+slowest part 3.3 times the mean (3.9 by count), and at 16 it is 1.3 (2.2).
+There, more and smaller blocks are the remedy, which this package's `N` and
+roots already choose.
+
 #### EOS-0 — Register EntropyEOS (req; workaround)
 
 Register EntropyEOS in General. Until then `Project.toml`'s `[sources]`
@@ -620,6 +681,95 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 - Pinning and non-convergence are reported, never silent.
 
 **What waits for it**: the entropy fallback ("Primitive recovery").
+
+#### EOS-12 — The atmosphere decided without level 1 (wanted; workaround)
+
+**Why.** `apply_policy` sends every finite input with `D < atm_trigger·ρ_min`
+to the atmosphere whatever level 1 returned, and on a table such inputs are
+most of a run's atmosphere and its dearest recoveries (EOS-13). A caller
+that skips level 1 there needs the decision and the output EntropyEOS's own
+call would give, without its unexported internals.
+
+**API** (exported).
+```julia
+policy_decides(eos, in::Con2PrimIn, proj::ProjectionOptions, pol::PolicyOptions) -> Bool
+apply_policy(eos, in, nothing, proj, pol) -> Con2PrimSafeOut   # where policy_decides
+```
+
+**Semantics.**
+- `policy_decides` is true exactly where `apply_policy` writes the atmosphere
+  for every level-1 output, and level 1 would run a solve: a finite input,
+  `B² ≥ 0`, `proj_ρ_min ≤ D < pol_atm_trigger·proj_ρ_min`.
+- `apply_policy(…, nothing, …)` there returns the state `apply_policy` writes
+  after `con2prim_safe`, bit for bit, with `policy_flags = ATMOSPHERE`,
+  `solved = false`, and a documented `base.result`.
+
+**Upstream acceptance.** On random inputs either side of both bounds, where
+`policy_decides`, the state, `cons` and the `EOSPoint` equal
+`apply_policy(con2prim_safe(…))`'s bit for bit; elsewhere it is false.
+
+**Downstream check.** `policy_decides` and the three-argument form exist
+(`hasmethod`).
+
+**Workaround** (marked `EOS-12` in `src/con2prim.jl`, `policy_decides`
+and its two callers): the bounds from the unexported `proj_ρ_min` and
+`pol_atm_trigger`, and `apply_policy` on the unexported `nan_safe_out(T)`,
+whose `policy_flags` are 0. Only for the skip of level 1 in "The two levels"
+("Primitive recovery"); without it, nothing.
+
+#### EOS-13 — A state below the cold edge found without the Newton budget (wanted)
+
+**Why.** A state colder than the table's coldest row at its density —
+`τ` below the energy at `s_min` for its `D` and `S` — has no root in the
+window. `con2prim_start` spends its whole Newton budget against the `s_min`
+face (30 iterations, `failed_no_bracket`) and `con2prim_safe_finish` then
+scans for a bracket and solves on the edge to report `S_FLOORED`: on DD2
+13–15 µs and 19–26 µs, against 0.5–3 µs for a state inside (M3 Pro, one
+thread). A star on a cold β-equilibrium slice lies on that row, so its
+atmosphere and the cells truncation pushes colder all take this path.
+
+**API.** None new: `con2prim_safe_start` and `con2prim_safe_finish` faster on
+those states.
+
+**Semantics.**
+- The same output bit for bit, or, if the edge solve must start elsewhere,
+  the same face and bits with the state within the solver's tolerance.
+- The test is cheap: for instance, the Newton stops once its `s` iterate is
+  clamped to `s_min` and the energy residual keeps its sign (colder) for two
+  iterations, and `con2prim_safe_finish` goes to the `s_min` edge without
+  the bracket scan where the diagnosis already says the energy lies below
+  it.
+
+**Upstream acceptance.** States below the `s_min` edge of a real table (DD2,
+SFHo) at densities from `ρ_min` to the core, at rest and moving, recover to
+`S_FLOORED` as today, with iteration counts and a timing printed.
+
+**Downstream check.** None by `hasmethod`; `bin/benchmark.jl case=dd2`'s
+`stage_solve` and `reset` rows, and the counts of `S_FLOORED`.
+
+#### EOS-14 — An evaluation without its bracket's ends (wanted)
+
+**Why.** `evaluate(eos, ρ, s, yₑ, u_guess)` on a table solves `s(x, u, y) = s`
+for the log-temperature `u` (`solve_u`), and samples both ends of the
+extended bracket first, before its warm start is used: two of the five or so
+B-spline samples of a warm evaluation, whose result (the entropy window)
+only `evaluate_windowed`'s callers read. On the DD2 star the face states
+and the ghosts' `P` are a little over half of a step and spend half of their
+`solve_u` on those two samples (the profile of `bin/profile.jl`).
+
+**API.** None new: `evaluate` faster.
+
+**Semantics.** From a warm start, `solve_u` iterates first and samples an
+end of the bracket only when an iterate leaves it or the iteration stalls;
+the same converged `u` to the solver's tolerance, the same flags.
+`evaluate_windowed` keeps its window.
+
+**Upstream acceptance.** `evaluate` on a real table at random states, from
+cold and from warm starts at several distances, agrees with today's to the
+solve's tolerance, with the samples counted.
+
+**Downstream check.** None by `hasmethod`; `bin/benchmark.jl case=dd2`'s
+`face_fluxes` and `fill_primitives` rows.
 
 #### GH-2 — Registration, registry-satisfiable compat (req; workaround)
 
@@ -1047,7 +1197,11 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   densities are the scheme's: `evaluate` scales `ρ★` by the density unit on
   the way in and `U_ρ`, `U_ρs` (once), `U_ρρ` (twice) and `p` (inversely)
   on the way out, the entropy windows are the inner EOS's at the scaled
-  density, and the density bounds shift by its logarithm. The recovery's
+  density, and the density bounds shift by its logarithm. It forwards
+  EntropyEOS's two optional methods too, `evaluate_windowed` and
+  `entropy_from_energy`, so that a table's own cheaper ones are reached ("Warm
+  starts" below has what their defaults cost), and `eos_on` uploads it to a
+  device ("Devices"). The recovery's
   equations are homogeneous of degree one in the densities (`D`, `τ`, `S`,
   `B²`, `ρhW²` and `p` scale together), so `con2prim_safe`, `prim2con` and
   the atmosphere policy then run in geometric units unchanged, with no
@@ -1063,20 +1217,47 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   g/cm³ to 3.0e-15 in `(ρ, w)` and 8.4e-13 in `s`, conditioned.
 - **Warm starts** (`u_guess`, the previous `log₁₀ T`). Every
   **recovery** is seeded from the state itself — `s` from the advected
-  `(√γ D s)/(√γ D)`, a cold rapidity and EOS warm start (`state_guesses` in
-  `src/evolution.jl`) — and not from `P`. A warm start carried in `P` makes
+  `(√γ D s)/(√γ D)` and no rapidity or EOS warm start (`state_guesses` in
+  `src/evolution.jl`) — and not from `P`. At the one place the recovery calls
+  EntropyEOS (`recovery_seed` in `src/con2prim.jl`) a seed from the state
+  gains the **rapidity at zero pressure**, `atanh(|S|/(τ + D))`, the cold
+  seed's own first pass, where EntropyEOS's input carries no field (`B² = 0`:
+  the hydrodynamic recovery, and an ideal one without a field); and **an
+  advected `s` outside the EOS's entropy window** at the seed's density
+  `D/cosh w` is dropped, the whole seed with it, for EntropyEOS's cold seed,
+  which solves for `s` from the energy. Such an `s` cannot be the recovered
+  one, and on a table's cold slice it is the rule: degenerate matter's energy
+  hardly depends on `s`, so a cell average's energy a hair above the slice is
+  a much hotter state (the DD2 star's initial data: advected 0.30, recovered
+  1.02, below the window in 33088 of its 35928 cells), and the Newton took 8.4
+  iterations from it where the cold seed's start needs none. Per cell over the
+  stars' initial data, at rest and at `v ≈ 10⁻²` (M3 Pro, one thread): DD2's
+  star 4.0 and 5.5 µs (the advected `s` alone 10.2; with the rapidity 6.9 and
+  7.0; EntropyEOS's cold seed 3.6 and 4.6), the polytrope's 0.69 and 0.75 µs
+  (the advected `s` alone 1.8 and 2.4; the cold seed 1.4 and 1.6), the
+  magnetized star's 0.70 and 1.08 µs. A seed with a rapidity (the step
+  cache's, a stage iterate's) is a recovered state, inside the window, and is
+  passed on unchanged. The cold seed is cheap on a table only because
+  `GeometricEOS` forwards EntropyEOS's two optional methods,
+  `entropy_from_energy` (one temperature solve) and `evaluate_windowed` (the
+  window from that solve's bracket): without them it took the generic
+  defaults, a bisection in `s` over the whole extended window with an
+  evaluation a step, 58–75 µs a cold seed on DD2 against 3.2–3.6, and two
+  more B-spline samples in every Newton residual. With a field the
+  zero-pressure velocity is a cubic's root, left to the cold seed, once a
+  step for `IdealConductor`'s stage solve on a magnetized state.
+  A warm start carried in `P` makes
   each recovery depend, at the solver's tolerance, on whatever was evaluated
   before: the right-hand side would not be a function of `(u, t)` bit for
   bit (the plan's purity claim), and a restart from a checkpoint, which
   holds no `P`, would not reproduce the run. The face states, reconstructed
   from `P` within one evaluation, still take their cell's EOS warm start.
-  The cost is a cold rapidity: a recovery over the stored cells is 0.86 µs a
-  cell on the Alfvén wave (measured below). A table's `log₁₀ T`
-  is the warm start this loses; whether it matters is not measured
-  ("Possible extensions"): on the
-  tabulated star a cell-step costs about 2.7 times the polytrope's (laptop,
-  four threads, `h = 1`; not split into the recovery's part). If it does,
-  the state can carry it the way it carries `D s`. The right-hand side is pure in
+  A table's `log₁₀ T` is the warm start the recovery then lacks, and it is
+  worth little: a forward evaluation of DD2 costs 0.6–0.9 µs warm and
+  0.95–1.2 µs cold (four iterations against one), since every evaluation
+  samples the ends of its temperature bracket and evaluates the result's
+  derivatives whatever its start (EOS-14); a recovery seeded fully warm
+  costs 0.52–0.58 µs. The right-hand side is pure in
   `(u, t)` **outside a step**;
   **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
   every recovery is seeded from the cell's latest recovery in that step,
@@ -1238,6 +1419,30 @@ recovery" below):
   `D = ρ_min = D_atm` (`test/recovery_tests.jl`, "A state the projection put
   on the ρ_min face is the atmosphere at rest"). The atmosphere's flags are
   level 1's bits plus `ATMOSPHERE`: the bits say why.
+- **Level 1 skipped where level 2 decides alone.** Where
+  `ρ_min ≤ D < atm_trigger·ρ_min` and the input is finite, `apply_policy`
+  writes the atmosphere whatever level 1 returned, and builds it from the
+  input alone (its `Yₑ` from `D_Y/D`, its EOS point without a warm start), so
+  the recovery hands it EntropyEOS's unsolved placeholder instead of
+  solving (`policy_decides` in `src/con2prim.jl`, both recoveries, fused and
+  two-phase): the same state bit for bit. On a table almost every atmosphere
+  cell is such an input: the atmosphere lies on the table's coldest row, the
+  gravitational source gives it an infall speed at fixed `τ`, which leaves it
+  colder than the table, and level 1 then spends its whole Newton budget (30
+  iterations) and the bracket scan to report `S_FLOORED`: 13–15 µs and
+  another 19–26 µs on DD2, against about 1 µs for the atmosphere's own EOS
+  evaluation (M3 Pro). On M1 at four threads (M3 Pro, `bin/benchmark.jl`, the
+  check switched off against on, two rounds each, interleaved) the skip takes a
+  step from 13.4 to 10.0 µs a cell (25%): `recover` from 0.89 to 0.45 µs,
+  `stage_solve` from 0.76 to 0.32. What the skip gives up is level 1's bits on
+  those cells — `S_FLOORED`, sometimes `ρ_FLOORED` — so their flags are
+  `ATMOSPHERE` alone, which then says "below the trigger", an exception to the
+  rule that the bits say why. Below `ρ_min` level 1 decides by `D` without a
+  solve and keeps its `ρ_FLOORED`. Until EntropyEOS answers this itself
+  (EOS-12) the check reads its unexported `proj_ρ_min`, `pol_atm_trigger` and
+  `nan_safe_out`. The alternative that keeps the bits is EOS-13, a cold edge
+  found without the Newton budget, which also serves the star's own floored
+  cells; when it lands, the skip is weighed against it again.
 - **The options.** `MHDProblem`, `MHDCase` and every recovery carry `proj`
   and `pol` (`isbits`, two kernel arguments, `proj` first).
   `recovery_options(eos, ρ_min)` states both for every case:
@@ -1455,9 +1660,11 @@ on a CPU (Zen 2) where a cold seed costs relatively more than on the M3 the
 estimate was made on. The whole suite runs 25% faster (14m00s → 10m32s at
 one thread on cn079). The tree with the cache off is 0–11% faster than
 stage 2 (the 1D waves most); not investigated. Correctness:
-`test/step_cache_tests.jl` (warm against cold — the final states 1.0·10⁻¹⁴
-to 2.5·10⁻¹² apart, the recovered `ρ`, `s`, `w` at most 9.9·10⁻¹², the same
-branches, resets and injected mass; one chunk = two; a restart = the run;
+`test/step_cache_tests.jl` (warm against cold — the final states 7.6·10⁻¹⁵
+to 1.7·10⁻¹² apart, the recovered `ρ`, `s`, `w` at most 3.0·10⁻¹², the same
+branches and injected mass, the same resets; but for cells at the atmosphere's
+threshold, which the tolerance may put on either side of it: in the magnetized
+atmosphere tube 3 of 36163 resets apart and its `ρ` 4.9·10⁻¹¹); one chunk = two; a restart = the run;
 monitors change nothing; the reuse counts exactly), and the suite's 1D =
 2D, turned, closed-box mirror, Orszag–Tang and one- = four-thread claims,
 unchanged. Re-measured under EntropyEOS 2.2 (2026-10-26), the cache's
@@ -4277,7 +4484,30 @@ call EntropyEOS's two levels in one kernel, pass on CUDA.jl 6.4.2, the version o
 EntropyEOS records ("The two-phase recovery"). On an H200 the split is the faster: a step of
 the star 15% at 8.8·10⁵ cells and 14% at 7.1·10⁶, its stage solve 39–40% ("The per-phase
 table"), where on the CPU it costs 5%. So the split is a device's default and fused the
-CPU's ("The two-phase recovery").
+CPU's ("The two-phase recovery"). On a table the fused recovery is the faster, by 6.5% a
+step of the DD2 star on an H200 ("The tabulated star's cost"); the default stays the
+backend's, measured on one table, one mesh and one device, and a run on a table that
+wants the last 6.5% passes `two_phase = false` itself.
+
+**A table on a device.** A kernel's adaptor turns a device-resident table into an
+`isbits` view but cannot upload a host array, so a tabulated case's EOS is uploaded once
+where it enters the kernels: `eos_on(backend, eos)` (`src/device.jl`, `Adapt.adapt` to the
+backend: the CPU keeps its arrays, CUDA copies them) in `MHDProblem`, the initial data, the
+Dirichlet hooks and the interior; the hooks' wrappers (`DirichletBoundary`, `DirichletAt`,
+`AbsolutePotentialAt`) carry `Adapt` rules, without which the launch refuses the table's
+arrays inside them. A hook is a kernel argument, and CUDA limits a launch's arguments to
+32 KiB: each hook holds only what it reads (`case_boundary`: the matter's the fields, the
+EOS and the provider; a potential's the potential), since the tabulated star's fields and
+potential, each holding its metric twice (4.2 KB) and its composition (6.2 KB), are
+14.5 KB apiece, and a potential's hook with everything came to 32.8 KiB. Both were found by
+the first device run of a table (2026-11-25; until then the device tests ran ideal gases
+only): the device tests now run the DD2 star where the table is found. On an H200
+(Symmetry job 611271) every assertion holds at both types and both recoveries, 386 of 386:
+at `Float64` the DD2 star's central density is the host's to 3·10⁻¹⁶ and its reset counts
+are equal, at `Float32` they differ by 7 and 1 of 2·10⁶ (a block's share is 1.4·10⁴); and
+the same 386 on each rank of two H200s under MPI (`jobs/device-mpi.toml`, job 611272). On
+Apple's M3 Pro (Metal, `Float32`) 194 of 194, the central density within 5·10⁻⁸ of the
+host's and the reset counts equal.
 
 **One construct crashes Metal's compiler**: a kernel's sum over the present directions
 written `sum(ntuple(j -> f(…, Val(j)), Val(D)))`, with the `Val` built from the closure's
@@ -4378,6 +4608,125 @@ ns per cell, the best of five, the workgroup size the backend's):
   either mesh, 0.4 ns a cell on the larger.
 - **`Float32` is 1.6–1.9× faster a step**, the right-hand side 2.4–2.6×, but the reset is
   2.4–2.9× slower than at `Float64`, with the same counts of resets (not examined).
+
+### The tabulated star's cost
+
+What a production run on a table pays, measured on the DD2 star before larger runs
+(2026-11-25; `bin/benchmark.jl case=dd2`, `bin/profile.jl`; `jobs/perf-*.toml`): the 1.4 M☉
+star in the Cowling approximation at `Float64`, on the Cowling study's finest mesh
+(`[−24, 24]³`, 4³ roots of 16³, one box level: 120 blocks, 4.9·10⁵ cells, `h = 0.375` in
+the box; "M1") and on two larger ones (two box levels, 960 blocks, 3.9·10⁶ cells, "M2";
+`[−48, 48]³`, 8³ roots, three levels, 6056 blocks, 2.5·10⁷ cells, "M3"). About 93% of M1's
+cells are atmosphere.
+
+**On the CPU** (`jobs/perf-cpu.toml`, Symmetry job 611275, cn095, AMD EPYC 7543, pinned;
+ns per cell, the best of three; "PR 16" is the code before this section's changes):
+
+| threads | recover | fill_primitives | face_fluxes | rhs | stage_solve | reset | step | PR 16's step |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2455 | 1845 | 8879 | 14897 | 1653 | 2428 | 58261 | |
+| 2 | 1227 | 920 | 4376 | 7439 | 822 | 1209 | 29306 | |
+| 4 | 652 | 478 | 2202 | 3804 | 467 | 650 | 15197 | |
+| 8 | 347 | 245 | 1109 | 1947 | 263 | 349 | 7929 | 23533 |
+| 16 | 203 | 137 | 597 | 1077 | 170 | 201 | 4539 | |
+| 32 | 115 | 77 | 318 | 589 | 101 | 120 | 2548 | |
+| 64 | 72 | 43 | 166 | 365 | 92 | 94 | 1653 | 4293 |
+| 64, M2 | 72 | 39 | 157 | 314 | 74 | 75 | 1246 | |
+
+- **A step is 3.0 times PR 16's at 8 threads and 2.6 at 64.** PR 16 spent 13 µs a
+  cell (at 8 threads) in each recovery outside a step, against 0.35 now: three faults
+  of the recovery on a table, each a few lines ("Thermodynamics", "Warm starts";
+  "Primitive recovery", "The two levels"): `GeometricEOS` did not forward EntropyEOS's
+  two optional methods, so a cold seed took a bisection in `s` (58–75 µs); the
+  advected `s` seeded the Newton from below the table's window in most of the star
+  (8.4 iterations); and the atmosphere's cells, colder than the table after the
+  gravitational source, each spent the solver's whole budget on an answer the policy
+  discards (32–41 µs; the skip of level 1).
+- **The EOS evaluations are now the step**: the face states (`face_fluxes`, six
+  evaluations a cell) and the primitives' ghosts (`fill_primitives`) are 72% of a
+  right-hand side at one thread, and half of each evaluation samples the ends of its
+  temperature bracket (EOS-14). A table's evaluation is about 0.6–1 µs; the ideal gas's
+  is analytic.
+- **Threads: 35 times on 64 cores** (a right-hand side 41 times), where the
+  magnetized polytrope's step scaled 27 times ("The per-phase table"). The fluxes
+  scale 53 times, the recoveries 18–34 (`stage_solve` the least): a star cell's
+  recovery costs 4.0 µs against an atmosphere cell's 0.7, a block's up to 3.9 times the
+  mean block's, and the threads take equal counts of blocks in curve order, so those
+  that hold the star set the pace. At 64 threads a step's threads are asleep 23% of
+  their samples (`bin/profile.jl`). A split by measured cost would help where a thread
+  has several blocks (AMR-14); at 64 threads on 120 blocks one star block is the limit,
+  and the larger mesh's step is 25% cheaper a cell (1246 against 1653).
+- **GC and allocation**: a step at 64 threads allocated 215 MB and spent 0.06 s of its
+  0.87 in GC (7%; an earlier measurement of the same step, before the EOS forwards,
+  66 MB and none); at one thread 46 MB and 0.02 s of 29 s. Whether a collection lands
+  in a step is chance; what allocates in proportion to the threads was not examined.
+
+**Over MPI ranks** (`jobs/perf-mpi-node192.toml`, `jobs/perf-mpi-nodes192.toml`; Trillium
+jobs 2930886 and 2930888, Fir jobs 6128536 and 6128672; nodes of 2× AMD EPYC 9655, 192
+cores in 8 NUMA domains; 8 ranks of 24 threads a node, one rank per NUMA domain, the site's
+Open MPI through mpi_abi_wrapper; seconds a step, the slowest rank's best of three,
+Trillium / Fir):
+
+| mesh | 1 node | 2 nodes | 4 nodes | 8 nodes |
+| --- | ---: | ---: | ---: | ---: |
+| M2, 3.9·10⁶ cells | 1.77 / 1.70 | 1.18 / 1.15 | 0.97 / 1.00 | 0.54 / 0.55 |
+| M3, 2.5·10⁷ cells | 8.81 / 8.77 | 4.94 / 4.92 | 2.84 / 2.83 | 1.86 / 1.94 |
+| M3's efficiency against 1 node | | 89% / 89% | 77% / 77% | 59% / 57% |
+
+- **The two sites agree** to 4%, on the same CPU. On M2 a 192-core node is 3.0 of
+  Symmetry's 64-core nodes (449 ns a cell against 1331), as many as its cores, and one H200
+  is 1.2–1.3 of these nodes (376 and 352 ns a cell).
+- **Ranks on one node cost nothing, and help a little**: 1, 2, 4 and 8 ranks of 192, 96, 48
+  and 24 threads give 514, 454, 462 and 449 ns a cell on M2 (Fir 522, 461, 458, 442); one
+  process on the whole node is the slowest, by 13–15% (on Symmetry's nodes by 9%: 1457
+  against 1328–1359, job 611209). Production runs one rank per NUMA domain.
+- **Over nodes the slowest rank sets the pace.** The ranks hold equal counts of blocks (94 or
+  95 of M3's on 8 nodes), but a star block costs more than an atmosphere block, in the
+  recovery most: the slowest rank's `recover` takes 1.23, 1.58, 1.73 and 1.84 times the mean
+  rank's on 1, 2, 4 and 8 nodes, its `tendencies` up to 1.63 and its `face_fluxes` 1.22
+  (`bin/benchmark.jl`'s `rank_mean_seconds`). On 8 nodes a right-hand side takes 0.42 s
+  where perfect scaling of one node's 2.38 would give 0.30; its phases' slowest ranks add
+  up to 0.41 s and their mean ranks to 0.30. Waiting on the slowest rank is about 0.45 s of
+  the 0.76 s a step loses on 8 nodes against perfect scaling (in its three right-hand
+  sides, four stage solves and four resets); the ghost exchanges are most of the rest
+  (`fill_primitives` 0.052 s on the mean rank against 0.038 scaled). A split by measured
+  cost would recover the first part (AMR-14).
+- **M2 is too small for 8 nodes**: 15 blocks a rank, fewer than its 24 threads, and 41% of
+  perfect scaling. A production run wants several blocks a thread.
+- **MPICH_jll** (SimLaunch's `jll` recipe) is 14% slower a step on Trillium's 8 nodes (2.12 s
+  on M3) and 2% on Fir's (1.98 s); the site's Open MPI stays the default.
+- **Symmetry's AMD nodes cannot measure scaling over nodes.** The same 4-node step took 2.1 s
+  or 8.9 s on M2 by the node set, and 8 nodes or more hang in the first collective under
+  HPC-X's Open MPI while MPICH_jll runs (`HISTORY.md`, "Precision and devices"). A run there
+  on 8 nodes or more takes `mpi = "jll"`.
+
+**On an H200** (`jobs/perf-gpu.toml`, Symmetry job 611277, cn113; ns per cell, the best of
+three; "PR 16" with the device fixes alone, which it needs to run a table at all):
+
+| mesh | recovery | recover | face_fluxes | rhs | stage_solve | reset | step |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| M1 | split | 13.5 | 29.8 | 104.5 | 28.5 | 42.2 | 706 |
+| M2 | split | 10.3 | 28.5 | 73.6 | 11.2 | 20.5 | 376 |
+| M2 | fused | 8.6 | 28.5 | 71.8 | 9.2 | 20.1 | 352 |
+| M2, PR 16 | split | 145.0 | 28.5 | 208.3 | 146.0 | 146.0 | 515 |
+| M3 | split | 9.9 | 28.1 | 69.7 | 9.5 | 18.2 | 354 |
+
+- **One H200 is 3.3–3.5 EPYC nodes** on M2 (376 and 352 against 1246 on 64 cores), and
+  M1 is too small to fill it (706). The fixes take 27% off a step there: inside a step
+  most recoveries were warm already.
+- **On the table the fused recovery is the faster**, by 6.5% a step, where on the
+  magnetized polytrope the split was 14–15% faster and became a device's default
+  ("Devices"); the default stays, and a run on a table may pass `two_phase = false`.
+- **Several H200s, one rank each** (`jobs/perf-gpu-mpi.toml`, job 611278, cn113, 1, 2 and 4
+  devices of one node; seconds a step): M2 1.47, 0.85 and 0.57 (86% and 65% of perfect
+  scaling), M3 8.72, 4.62 and 2.65 (94% and 82%). Four H200s are one 4-node step of the
+  192-core sites (2.84 s on M3). The ranks are balanced on a device (the slowest rank's
+  `recover` 1.01–1.11 times the mean), where on a CPU the star's ranks take 1.6–1.8 times;
+  what grows is `fill_potentials`, 0.010 s on one device and 0.026 on four (M2).
+- **The device is busy 92% of a step** (CUDA.jl's profile of four steps on M2,
+  `bin/profile.jl backend=cuda`): the recovery's first pass is 24% of the device's time
+  and its second 5%, the face fluxes 22%, the primitives' ghosts 8%; the ghost exchange's
+  copies, some 30,000 launches of 2–8 µs, 3%.
 
 ## Running distributed
 
@@ -4605,6 +4954,11 @@ it names has the reasons.
     from the returned rapidity, `|v| = tanh w`, not from that quotient.
   - The warm-start guesses of `con2prim`/`con2prim_safe` are
     **positional**, although the docstrings show keywords.
+  - An EOS wrapper forwards **every** method of EntropyEOS's interface,
+    the two optional ones included (`evaluate_windowed`,
+    `entropy_from_energy`): a missing one falls back to a generic default,
+    silently and many times slower for a table ("Thermodynamics", "Warm
+    starts").
   - EntropyEOS's two levels, `con2prim_safe` (the projection, onto
     `ProjectionOptions`) and `apply_policy` (the atmosphere, with
     `PolicyOptions`), are called in `src/con2prim.jl` only, the second
@@ -4677,6 +5031,11 @@ it names has the reasons.
   it first (`rank_reduce`), never from the rank's own blocks; a host
   diagnostic combines its sums before it forms a ratio ("Running
   distributed").
+- **A table on a device** ("Devices"). An EOS reaches a kernel through
+  `eos_on` (uploaded once, at `MHDProblem` and the case's initial data, hooks
+  and interior); a struct that carries one into a kernel needs an `Adapt`
+  rule; and a kernel's arguments stay under CUDA's 32 KiB, so a hook carries
+  only what it reads.
 - **A script picks the integrator's partition from the state**:
   `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
   `:even` on a device array is refused ("Precision and devices").
@@ -4950,9 +5309,13 @@ document's tables:
   atmosphere tube's chaos), `bin/ghost_entropy.jl` and
   `bin/ghost_robustness.jl` (the matter's ghost fills; "Refinement");
 - `bin/benchmark.jl`: the per-phase table, ns per cell of each phase of a step on the
-  magnetized star, on any backend and type; `bin/backend.jl`, TreeHydro's, resolves its
-  and `bin/tov_cowling.jl`'s `backend=` and `type=` ("Precision and devices"), and
-  `bin/mpi.jl` their `mpi=true` and every rank's device ("Running distributed").
+  magnetized star, the polytrope or a tabulated star (`case=dd2`, `sfho`, through
+  `bin/tables.jl`), on any backend and type; `bin/profile.jl`, the same problem's steps
+  (or one phase) under Julia's sampling profiler, with each thread's share asleep or
+  spinning, the allocations and the GC, or on a device CUDA.jl's kernel profile;
+  `bin/backend.jl`, TreeHydro's, resolves their and `bin/tov_cowling.jl`'s `backend=` and
+  `type=` ("Precision and devices"), and `bin/mpi.jl` their `mpi=true` and every rank's
+  device ("Running distributed").
 
 **The coupled runs** (`coupled/`, its own environment; "The coupling
 contract"):
@@ -4983,7 +5346,10 @@ thread, at four and with bounds checks, side by side on one node;
 `tov-cowling-device.toml`, the Cowling star on an H200 at both types and on the node's
 CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
 over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
-arithmetic's three partitions there ("Precision and devices");
+arithmetic's three partitions there ("Precision and devices"); `perf-cpu.toml`,
+`perf-gpu.toml`, `perf-mpi-node.toml`, `perf-mpi-nodes.toml` and `perf-gpu-mpi.toml`, the
+DD2 star's table and profile over threads, on an H200, over ranks on a node, over nodes and
+over H200s ("The tabulated star's cost");
 `tabulated-tov-cowling.toml`, `tabulated-tov-coupled.toml`, `-coupled-mid.toml` and
 `-coupled-fine.toml`, the tabulated star's studies, each run a job of its own, with
 `tabulated-tov-coupled-damping.toml` and `tabulated-tov-coupled-box.toml`, the same coupled
@@ -6818,10 +7184,11 @@ far say about it.
   and the conductivity", "Validation ladder" 6). The nearest published
   version is Palenzuela (2013)'s switch to a force-free exterior at
   50–400 `ρ_atm`.
-- **A table's recovery warm-started from the cell's previous `log₁₀ T`**,
-  carried in the state as `D s` is ("Thermodynamics", "Warm starts"): a
-  tabulated cell-step costs about 2.7 times the polytrope's, not split
-  into the recovery's part.
+- **A table's recovery warm-started from the cell's previous `log₁₀ T`**
+  and rapidity, carried in the state as `D s` is ("Thermodynamics", "Warm
+  starts"): it would save the step's one cold recovery a cell, 0.9–3.3 µs
+  from `s` and the zero-pressure rapidity against 0.7 µs fully warm on DD2;
+  the other recoveries of a step are seeded from the step cache.
 - **The fourth-order matter transfer at a finer `h`**: whether its H1,
   0.8% above linear theory at `h = 0.25`, closes ("Matter to the
   vertices", "Validation ladder" 5).
