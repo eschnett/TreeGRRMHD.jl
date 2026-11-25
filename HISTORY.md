@@ -59,6 +59,7 @@ requirements".
   - [The partition](#the-partition)
   - [The implicit stage solve](#the-implicit-stage-solve)
   - [The IMEX package](#the-imex-package)
+- [Neutrinos](#neutrinos)
 - [Spacetime coupling](#spacetime-coupling)
   - [The coupling contract](#the-coupling-contract)
   - [Two scripts](#two-scripts)
@@ -3932,6 +3933,49 @@ on it (proposed in step 0).
 **2026-10-24.** With the step cache, the requirement was added that a step
 is never retried or rejected, that its step limiter is its last call, and
 that an exception leaves `integ.u = uⁿ`.
+
+## Neutrinos
+
+**2026-11-25.** Erik asked for a simple neutrino scheme, suggesting
+GRaM-X's M0. GRaM-X has no neutrino treatment (Shankar et al. 2022 names M1
+as future work); M0 is THC's, Radice et al. (2016, arXiv:1601.02426; revised
+in 2018, arXiv:1809.11161), always paired with a leakage scheme. The design
+in `CODE.md`, "Neutrinos", follows the 2018 version. Erik decided its six
+choices as drafted, with these alternatives turned down:
+
+- **M0 on the forest, not on a spherical grid of rays.** Radice et al.
+  solve M0 on its own grid (a uniform 3096 × 32 × 64 spherical grid to
+  756 km in 2018; rays at `Δr ≃ 244 m` in 2016), first-order and fully
+  implicit along each ray. Here that would need a second grid, TreeAMR's
+  point interpolation onto it, and an interpolation of our own back to the
+  cells, and conservation across coarse-fine faces would be lost. On the
+  forest the light-speed CFL that Maxwell's equations already impose costs
+  nothing extra; the price is diffusion across the rays.
+- **M0's energy equation in conservative form**, with the number's flux,
+  rather than Radice et al.'s advective Eq. 9: the same equation where `∂_t`
+  is Killing, and with it the energy conserved to round-off.
+- **The matter's source along `k^μ`**, rather than Radice et al.'s
+  `G^μ = Q u^μ`, which conserves energy only up to the Doppler difference
+  between `−u_t` and `χ`.
+- **Absorption implicit and closed-form**, before Ohm's stage solve, with
+  the coefficients frozen at the cell's latest recovery, rather than
+  explicit: the factor `(E/E^β)²` makes it stiff where hot neutrinos reach
+  cold matter. Coupling it into the stage solve's Newton was not
+  considered worth the cost for a scheme this approximate.
+- **Neilsen et al. (2014)'s optical depth over all `3^D − 1` neighbours**,
+  rather than the `2D` face neighbours, whose L1 distance overestimates `τ`
+  by up to `√D` along a diagonal.
+- **A separate field set and `src/neutrinos/`**, rather than six more
+  slots in the matter's `U` (a run without neutrinos would no longer be
+  today's bit for bit) or a sibling package now ("Possible extensions" had
+  read "neutrino leakage and M1 as a separate package on the same forest";
+  the rates are kept free of the mesh so that they can move when M1 needs
+  them).
+
+The scope's "No neutrinos" became "leakage plus M0 only". Not verified
+against the papers' text, only against summaries of it: the diffusion
+constant `𝒟 = 6` (the extracted 2018 text reads "66"; 6 is Rosswog &
+Liebendörfer's) and the 2016 appendix's equations.
 
 ## Spacetime coupling
 

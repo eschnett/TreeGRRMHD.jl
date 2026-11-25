@@ -35,6 +35,10 @@ The package's documents, and what goes in each:
   fixed, the release history, the suite's sizes and timings over time,
   and the implementation plan the package was built by, step by step
   ("The steps of the plan").
+- **`PLAN.md`**, only while a plan is under way (now the neutrinos, steps
+  16–21): the work breakdown, step by step, for the agents that implement
+  it. When its last rung is done its steps move to `HISTORY.md` and the file
+  is deleted.
 
 Where new content goes: a design fact or its reason goes in `CODE.md` if
 someone changing the code today would need it, and in `HISTORY.md`
