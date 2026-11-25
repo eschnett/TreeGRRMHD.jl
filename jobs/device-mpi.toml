@@ -1,0 +1,23 @@
+# The device tests under MPI ("Running distributed" in `CODE.md`): `test/device_tests.jl`
+# by itself under the site's MPI launcher, two ranks of one H200 each, every run distributed
+# over both ranks on the devices and compared with the same runs distributed over both ranks
+# on the hosts. Each rank picks its device by its place on its node. The suite runs the
+# same file serially with the CPU standing in; `jobs/device-tests.toml` runs it on one
+# device. Its testset is named `TreeGRRMHD.jl`, so `ci/suite-summary.sh` reads its log.
+name = "device-mpi"
+env = "test+cuda"
+mode = "sequential"
+vars = { TREEGRRMHD_TEST_BACKEND = "cuda", TREEGRRMHD_TEST_DEVICE_MPI = "1" }
+
+[site.symmetry]                     # two H200s on one node and their cores; h200q
+resources = { gpus = 2 }
+time = "2:00:00"
+
+[[run]]
+label = "device-mpi"
+cmd = "test/device_tests.jl"
+ranks = 2
+threads = 4
+
+[after]
+cmd = "bash \"$PROJECT\"/ci/suite-summary.sh $SIMLAUNCH_JOBDIRS"

@@ -2,11 +2,13 @@
 # out of the script so that its `main` reads as the run alone.
 
 include(joinpath(@__DIR__, "..", "bin", "tables.jl"))
+include(joinpath(@__DIR__, "..", "bin", "mpi.jl"))
 
 function run_cli(main, args)
     kw = Dict{Symbol,Any}()
     out = nothing
     table, ρ_c = nothing, nothing
+    backendname, mpi = "cpu", false
     for a in args
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "order")
@@ -23,9 +25,14 @@ function run_cli(main, args)
             kw[:limiter] = Symbol(v)
         elseif k == "out"
             out = v
+        elseif k == "backend"
+            backendname = v
+        elseif k == "mpi"
+            mpi = parse(Bool, v)
         else
             error("tov_coupled.jl: unknown key `$k` (N, levels, L, roots, t_end, chunk, " *
-                  "cfl_gh, γ0M, γ2, δv, order, ρ_min, table, ρ_c, limiter, out)")
+                  "cfl_gh, γ0M, γ2, δv, order, ρ_min, table, ρ_c, limiter, out, backend, " *
+                  "mpi)")
         end
     end
     (table === nothing) == (ρ_c === nothing) ||
@@ -36,15 +43,18 @@ function run_cli(main, args)
                                                   ρ_min=get(kw, :ρ_min, 1e-12),
                                                   L=get(kw, :L, 24), roots=get(kw, :roots, 4))
     end
-    io = out === nothing ? stdout : open(out, "w")
     t0 = time()
-    try
-        main(; kw...,
-             record=(t, ρ_c, c) -> (println(io, t, "  ", ρ_c, "  ", c.ham_l2, "  ",
-                                            sqrt(sum(abs2, c.mom_l2))); flush(io)))
-    finally
-        out === nothing || close(io)
+    withrun(backendname, Float64, mpi) do backend, comm
+        root = TreeGRRMHD.isroot(comm)              # rank 0 writes, every rank computes
+        io = !root ? devnull : out === nothing ? stdout : open(out, "w")
+        try
+            main(; kw..., backend, comm,
+                 record=(t, ρ_c, c) -> (println(io, t, "  ", ρ_c, "  ", c.ham_l2, "  ",
+                                                sqrt(sum(abs2, c.mom_l2))); flush(io)))
+        finally
+            root && out !== nothing && close(io)
+        end
+        root && println("wall time ", round(time() - t0; digits=1), " s")
     end
-    println("wall time ", round(time() - t0; digits=1), " s")
     return nothing
 end

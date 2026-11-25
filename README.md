@@ -75,7 +75,9 @@ resistive runs. On a real nuclear equation of state (DD2, SFHo), in cold
 β-equilibrium with its electron fraction advected, the star holds still and
 conserves its rest mass and lepton number. The same runs work on a GPU
 (CUDA, and Metal at single precision) and give the same result at any
-thread count.
+thread count; distributed over MPI ranks, each on its threads or its own
+device, a run is the single-process run, and it checkpoints and restarts at
+any rank count.
 
 Beneath it lie the module
 shell and its host helpers; the tests that say the resolved releases of

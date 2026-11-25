@@ -13,6 +13,9 @@
 # relative to the working directory, which in a SimLaunch job is its job directory),
 # `backend` (`cpu`, `cuda`, `metal`; `bin/backend.jl`) and `type` (`f64`, `f32`; added in
 # step 14). A device run needs its package in the environment (a spec's `env = "cuda"`).
+# `mpi` (`false`; `true` runs over `MPI.COMM_WORLD` under `mpiexec`, each rank on its own
+# threads or its own device, rank 0 writing the record; `bin/mpi.jl`, "Running distributed"
+# in `CODE.md`) needs MPI in the environment.
 
 using KernelAbstractions: CPU
 using TreeAMR
@@ -32,9 +35,9 @@ stage_limit!(u, _, p, t) = MHD.stage_limit!(u, p.mhd, t; p.metric)
 step_limit!(u, _, p, t) = MHD.step_limit!(u, p.mhd, t; p.metric)
 
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
-              backend=CPU(), record=(t, ρ_c) -> println(t, "  ", ρ_c))
+              backend=CPU(), comm=nothing, record=(t, ρ_c) -> println(t, "  ", ρ_c))
     star = MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots)
-    forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
+    forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents, comm)
     MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
     mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest; backend), star; limiter)
     u = statevector(MHD.evolved_sets(mhd))           # matter, A_d, Φ̃ (AMR-1)
@@ -54,7 +57,7 @@ function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, lim
                          partition=u isa Array ? :even : nothing, alias_u0=true, reuse=integ)
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         t = t1
-        record(t, MHD.central_density(p.mhd, u, t))
+        record(t, MHD.central_density(p.mhd, u, t))  # collective; rank 0 records
     end
     return (; u, t, p)
 end

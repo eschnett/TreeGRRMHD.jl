@@ -152,7 +152,8 @@ state vector `d` (a difference of two states), over the owned points at a
 Euclidean distance `≥ r_min` from the origin: [`l1_errors`](@ref) with the
 inside of a hole left out, where the interior holds the solution and the
 singularity's neighbourhood would dominate a norm of anything else (a
-right-hand side, say). On the host; a diagnostic of step 9.
+right-hand side, say). On the host; a diagnostic of step 9. Over MPI ranks the sums are
+combined over the ranks (collective; "Running distributed" in `CODE.md`).
 """
 function outside_l1(p::MHDProblem{T,D}, d, r_min) where {T,D}
     sets = p.sets
@@ -173,7 +174,8 @@ function outside_l1(p::MHDProblem{T,D}, d, r_min) where {T,D}
                 acc[v] += w * abs(a[n..., v, b])
             end
         end
-        acc ./ vol
+        # Over MPI ranks the sums are combined before the mean is formed.
+        rank_sum!(acc, p) ./ rank_sum(p, vol)
     end
     U = one_set(SEG_U)
     return (; U=ntuple(v -> U[v], Val(NU)), A=ntuple(j -> one_set(SEG_A + j - 1)[1], 3),
@@ -186,7 +188,8 @@ end
 The mean `|𝔅ᵈ − 𝔅ᵈ_ref|` over the owned faces normal to each `d` at a
 distance `≥ r_min` from the origin, `𝔅` the curl of each state's potential
 plus `𝔅̄` ([`update_fields!`](@ref)): the field's error, which, unlike `A`'s,
-no gauge drift enters. Overwrites the scratch sets `A` and `B`. On the host.
+no gauge drift enters. Overwrites the scratch sets `A` and `B`. On the host; over MPI
+ranks combined over the ranks (collective).
 """
 function field_l1(p::MHDProblem{T,D}, u, uref, t, r_min) where {T,D}
     f = p.f
@@ -207,6 +210,7 @@ function field_l1(p::MHDProblem{T,D}, u, uref, t, r_min) where {T,D}
             acc += hs[b]^D * abs(a[k..., 1, b] - ref[d][k..., 1, b])
             vol += hs[b]^D
         end
+        acc, vol = rank_sum(p, (acc, vol))
         acc / vol
     end
 end
@@ -218,7 +222,8 @@ The charge `√γ q = ∂ᵢ𝔈ⁱ` the right-hand side derives from `u` at tim
 ([`update_primitives!`](@ref); "Maxwell" in `CODE.md`) over the owned cells at
 a distance `≥ r_min` from the origin: its volume mean `|√γ q|`, its largest
 `|√γ q|`, and its volume integral. Zero for an exact vacuum or ideal field; on
-the mesh, the divergence of the discrete `𝔈`. On the host.
+the mesh, the divergence of the discrete `𝔈`. On the host; over MPI ranks combined over
+the ranks (collective).
 """
 function charge_norms(p::MHDProblem{T,D}, u, t, r_min) where {T,D}
     P = update_primitives!(p, u, t)
@@ -238,5 +243,7 @@ function charge_norms(p::MHDProblem{T,D}, u, t, r_min) where {T,D}
         tot += w * q
         vol += w
     end
+    l1, tot, vol = rank_sum(p, (l1, tot, vol))
+    mx = rank_max(p, mx)
     return (; l1=l1 / vol, max=mx, total=tot)
 end

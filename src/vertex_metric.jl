@@ -435,7 +435,7 @@ function count_fallbacks(p::VertexMetric, fs)
     C = staggers(fs)
     map_blocks!(fallback_kernel!, fs, flags, p, Val(C),
                 Val(ntuple(e -> Int(fs.G[e]), 3)); stored=true)
-    return Int(sum(flags))
+    return rank_sum(fs, Int(sum(flags)))             # over MPI ranks, every rank's
 end
 
 """
@@ -446,7 +446,8 @@ point the kernels read: the cells of `P`, the faces of `B[d]`, the edges of
 `A[j]` and the vertices of `Φ̃` (`B`'s and `A`'s summed over the three
 directions). A diagnostic pass over the snapshot, since the provider itself is
 a pure function of the point (proposed in step 10, round 2: `X` holds per-cell
-tallies only, and a vertex or edge has no cell of its own).
+tallies only, and a vertex or edge has no cell of its own). Over MPI ranks the counts are
+every rank's (collective).
 """
 metric_fallbacks(p::VertexMetric, f::MHDFields{3}) =
     (; cells=count_fallbacks(p, f.P), faces=sum(s -> count_fallbacks(p, s), f.B),
