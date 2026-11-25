@@ -93,7 +93,7 @@ One item, stated in full in `CODE.md`, "Requests still waiting":
 
 | ID | what | needed by | state |
 |---|---|---|---|
-| EOS-12 | the composition `(μ_e, μ̂, μ_ν, X_n, X_p, X_α, X_h, Ā, Z̄)` on the device | step 16's tabulated half, step 20 | not sent |
+| EOS-12 | the composition `(μ_e, μ̂, μ_ν, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)` on the device, opt-in, with `q_np` and `matches` | step 16's tabulated half, step 20 | revised with upstream 2026-11-25; not landed |
 
 Everything before step 20 can be built and tested without it: `GrayRates`
 need no composition, and `RJS96Rates` are tested in step 16 on a
@@ -110,11 +110,18 @@ Changes:
   is the **(open)** this step owns, by their accuracy against quadrature
   and their cost.
 - `src/neutrinos/rates.jl`: the `Composition` type (EntropyEOS's, once
-  EOS-12 lands; until then a local `isbits` stand-in with the same fields,
+  EOS-12 lands; until then a local `isbits` stand-in with the same ten
+  fields and EOS-12's conventions, `μ_ν = μ_e − μ̂` and `μ̂` including `Q`,
   marked with EOS-12), `RJS96Rates` and `GrayRates`, each returning per
   species `R`, `Q`, `κ^α_a`, `κ^α_s`, `n^β`, `e^β`, `E^β` in code units; the
   references in the docstrings.
 - `src/neutrinos/leakage.jl`: `R^eff`, `Q^eff` from the rates and `τ^α`.
+- Two decisions on EOS-12's side of the rates: confirm against RJS96's
+  appendix that the Pauli-blocking factors take `(μ̂ − Q)/T`, the one place
+  `Q` is subtracted; and decide whether `Y_np` takes `2Yₑ − 1`, as for free
+  nucleons, or `X_p − X_n`, where nuclei and α hold much of the matter —
+  the **(open)** of that name, decided by the rates' change on DD2 between
+  the two at `log ρ` 11–13 (and its limit at `η̂ → 0`, a branch).
 - `bin/neutrino_reference.jl`, writing `test/data/` reference values;
   `test/neutrino_rates_tests.jl`; the EOS-12 probe.
 
@@ -125,8 +132,11 @@ Accept:
   limits of `R^eff` (`τ → 0`, `τ → ∞`) and the branch at `R = 0`.
 - Allocation-free in a CPU kernel at `Float64` and `Float32`, and under
   `--check-bounds=yes`.
-- With EOS-12 landed: the DD2 values through `composition`; else that
-  half reported as blocked on EOS-12.
+- The mass `X_l` holds where the rates ignore it, stated as a number on
+  DD2.
+- With EOS-12 landed: the DD2 values through `composition`, and
+  `M0Leakage` refusing a composition that does not `match` its EOS; else
+  that half reported as blocked on EOS-12.
 
 ## Step 17 — The optical depth (rung 8b)
 

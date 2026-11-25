@@ -2296,6 +2296,30 @@ of PR 15, whose tree is the head 1e324e4 checked above. Step 13 pinned it the sa
 `[sources]` the tag `v2.3.0` and `[compat]` `"2.3"`, in the package and in `coupled/`; the
 EOS-4 probe was retired and its names joined `test/prerequisite_tests.jl`'s list.
 
+**2026-11-25, EOS-12.** Written for the neutrinos' `RJS96Rates`
+("Neutrinos"), first as a method on the EOS's own view: `composition(eos,
+ρ★, T, yₑ)` with `μ_ν = μ_e − μ̂ + munu_offset`, the fields `X_n`, `X_p`,
+`X_α`, `X_h`, `Ā`, `Z̄`, plain trilinear interpolation. EntropyEOS's review
+the same day replaced it with the request now in `CODE.md`:
+- a `CompositionTable` and `CompositionView`, opt-in and separate from the
+  EOS's view, since the eight fields are 160–270 MB per table;
+- one convention for every table, `μ̂` including `Q` and `μ_ν = μ_e − μ̂`
+  computed rather than read from `munu`, which on O'Connor–Ott LS220 lacks
+  `−Q` below 10⁸ g/cm³;
+- `X_l`, the light clusters, without which the four RJS96 species miss up
+  to 30% of the mass on DD2;
+- `Ā`, `Z̄` as `X_h`-weighted means, so that the tables' fill values where
+  `X_h = 0` (4 and 1.8 on LS220) never enter.
+
+This package's review asked for three more, all taken into the second
+version: the `Q` warning narrowed to `η_ν`, since RJS96's Pauli-blocking
+factors still take `(μ̂ − Q)/T`, with `q_np(cv)` so that `Q` is not
+hard-coded twice; a fingerprint and `matches(cv, eos)`, since a composition
+paired with another table's EOS would convert `ρ★` silently wrong; and
+acceptance tests that `X_h Ā` and `X_h Z̄` are continuous where `X_h → 0`.
+The request's downstream paragraph (confirming `(μ̂ − Q)/T`, and `Y_np`
+from `2Yₑ − 1` or `X_p − X_n`) moved to `PLAN.md`, step 16.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of
