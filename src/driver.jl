@@ -199,6 +199,7 @@ function case_state!(u, p::MHDProblem{T,D}, case::MHDCase, t) where {T,D}
     end
     map_blocks!(potential_kernel!, sets[SEG_Φ], statearray(u, sets, SEG_Φ), case.potential,
                 T(t), p.origins, p.spacings, Val(D), Val(staggers(sets[SEG_Φ])), Val(4))
+    p.neutrinos === nothing || fill!(statearray(u, sets, SEG_NU), 0)   # no neutrinos yet
     return u
 end
 
@@ -662,7 +663,8 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
                  step_cache::Bool=true, two_phase::Union{Bool,Nothing}=nothing,
-                 interior=case.interior, workgroupsize=nothing) where {T,D}
+                 interior=case.interior, workgroupsize=nothing,
+                 neutrinos=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -686,7 +688,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     build() = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
                          ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
                          two_phase=two_phase, interior=interior,
-                         workgroupsize=workgroupsize)
+                         workgroupsize=workgroupsize, neutrinos=neutrinos)
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     passes = 0
     if maxlevel > 0
@@ -698,6 +700,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
     # The exact potentials satisfy the walls' condition already: the relative
     # hook gives `f(x_w) + (f(x_r) − f(x_r)) = f(x_w)` bit for bit.
     u = exact_state(p, case, zero(T))
+    initial_depth!(p, u, zero(T))          # the neutrinos' optical depth, converged
     totals0 = conserved_totals(p, u)
     maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
     nchunks = chunk_count(t_end, chunk)

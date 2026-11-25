@@ -99,6 +99,8 @@ include("tiers.jl")
     include("neutrino_rates_tests.jl")
     # Step 17: the optical depth on the forest (rung 8b).
     include("optical_depth_tests.jl")
+    # Step 18: M0's free-streaming neutrinos, without feedback (rungs 8c, 8d).
+    include("m0_tests.jl")
     # Step 14: the run bit for bit at another thread count (a subprocess), and on a device,
     # or on the CPU standing in for one (`TREEGRRMHD_TEST_BACKEND`; the file also runs by
     # itself, which is how a device job runs it).

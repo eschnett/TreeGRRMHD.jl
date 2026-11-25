@@ -2745,8 +2745,9 @@ second is its Eq. 9, `k^α ∂_α (E χ) = (χ/n)(Q^eff − E R^eff)`, multiplie
 the same flux: exact where `∂_t` is a Killing vector, and approximate
 otherwise, as Radice et al.'s is. Absorption leaves `E = m_B 𝓔/(χ N)`
 unchanged (the gray, number-weighted absorption of Eq. 9). The primitives
-are `n = N/(√−g m_B k^t)` and `E`; below `N_min` **(open)**, `E` is taken as
-`E^β` and absorption is off. `ν_x` has `κ_a = 0`: it is emitted and leaves.
+are `n = N/(√−g m_B k^t)` and `E`. Where `N` or `𝓔` is not positive there
+is no mean energy, and absorption is off there, by a branch: `N_min` is zero
+(decided in step 18). `ν_x` has `κ_a = 0`: it is emitted and leaves.
 
 **The centre.** `c` is a case's parameter with no default, fixed in time;
 a moving centre (a binary's remnant) is **(open)**, for when a binary is
@@ -2755,17 +2756,59 @@ parameter with no default, `ℓ` is scaled by `|x − c|/r_core`, so that `k`
 becomes timelike and the neutrinos are dragged with the fluid. This is only
 in an opaque core, where `R^eff` and `κ^eff` are small.
 
-**The fluxes.** `N/√γ` and `𝓔/√γ` reconstructed with minmod, whatever the
-matter's limiter is, and `vⁱ` at the face from the reconstructed `uⁱ` (`W`)
-and the face metric on each side; then upwind, positivity-preserving under
-the light-speed CFL:
+**The fluxes.** `N/√γ` and `𝓔/√γ` reconstructed with MC (the monotonized
+central slope), whatever the matter's limiter is, and `vⁱ` on each side of
+the face from the fluid's `uⁱ = W vⁱ` reconstructed there by the same MC,
+with the face's metric and position; then upwind, positivity-preserving
+under the light-speed CFL (MC, like minmod, keeps a face value between its
+two cells' values). MC rather than minmod (decided by Erik in step 18):
+every grid line through the radial field crosses a smooth extremum of `N`,
+which minmod clips by a factor of two, and away from the centre minmod's
+rates from 32³ to 64³ were 1.70–1.96 against MC's 2.16–2.24:
 ```
 F = max(v_L, 0) N_L + min(v_R, 0) N_R          (and the same for 𝓔).
 ```
-The outer faces' ghosts hold `N = 𝓔 = 0`: the flux there is outflow only.
-The luminosity and number flux at the outer faces are summed per step with
-the integrator's weights, into `X`, as the outer-face totals are; the mean
-energy at infinity is their ratio.
+The outer faces' ghosts hold `N = 𝓔 = 0` (`NuEscape`): the flux there is
+outflow only. The luminosity and number flux at the outer faces, summed per
+step with the integrator's weights, are step 20's, with the star whose
+luminosities they measure; until then `neutrino_totals(p, u)` sums `N` and
+`𝓔` over the owned cells (moved from step 18, decided by Erik 2026-11-25). A forest
+periodic in any direction is refused: the radial direction flips across a
+periodic face, so the blocks on either side would carry that face at
+different velocities, and step 18 measured the totals drifting there.
+
+**Measured** (step 18, `test/m0_tests.jl`, cold gas at rest in flat space
+with `GrayRates`, `optical_depth = false`; the steady state and the front in
+a uniform medium, the scheme's exact steady state, whose radial solution is
+closed-form):
+- the steady state inside `r ≤ 0.6` within 0.28–0.32% (L1, of the peak) of
+  the radial solution on 16³, converging at 1.99, 2.18 and 2.25 to 32³ for
+  κ = 4, 1 and 0 (`bin/m0_ball.jl` runs 64³);
+- `𝓔/N` the emitted energy to `10⁻¹²` (χ = 1 at rest); `N`, `𝓔`
+  non-negative;
+- the light front: at `t = 0.3` the time-dependent radial solution, with its
+  kink at `r = t`, to 0.31%;
+- across the rays: on 16³ the error 2.7% along an axis and 0.55% along a
+  diagonal: the diffusion across rays, which would make the diagonal worse,
+  does not show; the axis's error is the limiter's, at the extremum `N` has
+  in both directions across an axis;
+- conservation: `Σ du` plus the outflow through the outer faces zero to
+  `6·10⁻¹⁷`, across coarse-fine faces; a regrid changes `Σ N`, `Σ 𝓔` by
+  `8·10⁻¹⁶`, its bounded prolongation leaving rounding-sized negatives
+  (`−7·10⁻²¹`), where absorption is off;
+- the redshift, on the Cowling TOV star rather than Kerr-Schild (whose
+  matter would fall; the TOV exterior is Schwarzschild's): outside the star
+  `𝓔/N` of ν_x spread by 3.7% over `9 ≤ r ≤ 15` and within 1.9% of the
+  emission-weighted mean of `αE`, 0.776, at `h = 2` (decided by Erik
+  2026-11-25);
+- with `feedback = false` the matter, the potentials and the gauge evolve bit
+  for bit as without neutrinos;
+- with the fluid moving (a ball carried by a jet, `v = 0.3 exp(−y²/0.09)`,
+  2D): on the jet's axis `𝓔/N` the Doppler factor `√((1 ± v)/(1 ∓ v))` times
+  `E` to 0.71% and 0.81% on 64²; `N` converging at 2.13–2.20 from 32² to
+  128² behind the light front (with minmod 2.07–2.09, and with minmod and
+  the face velocities from the two cells' `uⁱ` alone 1.90–2.00; [HISTORY.md,
+  "The steps of the plan"](HISTORY.md#the-steps-of-the-plan), step 18).
 
 **Why on the forest** rather than on Radice et al.'s spherical grid of rays:
 no second grid, no interpolation in either direction (from the forest to
@@ -2799,7 +2842,8 @@ implies.
 
 - **Explicit**: the fluxes of `N` and `𝓔`; the emission `√−g m_B R^eff` and
   `√−g χ Q^eff`; the matter's share of the emission.
-- **Implicit**: the absorption, `−(κ^eff/k^t)` times `N` and `𝓔`, and the
+- **Implicit** (`stage_solve!`, before Ohm's solve): the absorption,
+  `−(κ^eff/k^t)` times `N` and `𝓔`, and the
   matter's share of it. With `κ^eff`, `k^t` and `χ` frozen at the cell's latest
   recovery (the step cache, or `P`) it is linear in `(N, 𝓔)` with one
   coefficient, so the stage's solution is closed-form:
@@ -2830,13 +2874,26 @@ recorded per chunk in `X` and is expected to be small (rung 8f).
 | `Nτ` — `τ^α_ν` (6), and `κ^α_ν = κ_a + κ_s` (6) for the sweep | cell | 12 | 1 | Conservative width 3, bounded / `=> schedule`, `κ` recomputed before the next sweep |
 | `Nτ`'s work set — the new `τ` (6) and each cell's relative change | cell | 7 | 0 | `=> nothing`; the convergence measure is its max-reduction |
 
+`Nν` is the state vector's last segment, `SEG_NU = 6`, after the matter, the
+potentials and the gauge, so that their segments keep their offsets; it and
+its fluxes, their schedules and the `OpticalDepth` are built by
+`MHDProblem` from the `M0Leakage` and handed back by `rebuild` after a
+regrid, so the regrid's resized sets are the ones the new problem holds.
+`NuEscape`'s hook follows the case's five. `prepare!` fills `Nν`'s ghosts,
+`rhs!` adds its fluxes and tendencies, `stage_solve!` its absorption, the
+step limiter one optical-depth sweep (from `P` as the step's last stage left
+it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
+the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
+takes `τ ≡ 0`, the optically thin limit, for the transport's tests; until
+step 19, `feedback = true` is refused.
+
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
 three would triple the fill of twelve variables (step 17, **(proposed)**).
 It is held, with its work set, schedule and hook, by `OpticalDepth`
 (`src/neutrinos/optical_depth.jl`): `opacities!(od, model, P)`,
 `sweep!(od, P)`, `converge!(od, P)`; `depth_regrid_pairs(od)` are its
 entries for `regrid!` and `rebuild(od)` its schedule after one. `M0Leakage`
-will hold it (step 18).
+holds it (step 18).
 
 `Nν` is a separate set, not slots in the matter's `U`, so that a run without
 neutrinos is today's, bit for bit, and the matter's kernels do not change.
@@ -4927,6 +4984,14 @@ the magnetized star's convergence studies); `threaded` also the
   neighbours' √3; a uniform sphere; one sweep a step following a moving
   sphere; coarse-fine faces and a regrid against the uniform mesh (step 17;
   2D and 3D, no tier).
+- `test/m0_tests.jl`: the static ball's steady state against the radial
+  solution, and its rate to 32³ (`@full_tier`); the light front; the error
+  along an axis and a diagonal; conservation across coarse-fine faces and a
+  regrid; the redshift outside the Cowling star; the matter bit for bit
+  without feedback; a ball carried by a jet, the Doppler factor on its axis
+  and its rate behind the front to 128² (`@full_tier`) (step 18; 3D, 16³ and
+  32³; 2D, 32² to 128²). `bin/m0_ball.jl` runs 64³
+  (`jobs/m0-ball.toml`).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -4995,7 +5060,10 @@ bit-identically to the host; "Precision and devices"):
   `Composition` with the nucleons' `μ_n`, `μ_p` (EOS-13); `src/neutrinos/leakage.jl`: `effective_rates`,
   `absorption_opacity` ("Neutrinos", "Leakage"); `src/neutrinos/optical_depth.jl`:
   `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
-  ("Neutrinos", "The optical depth").
+  ("Neutrinos", "The optical depth"); `src/neutrinos/m0.jl`: the closure
+  `m0_closure`, the upwind flux, the absorption, `M0Leakage`, `NuEscape`, the
+  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`
+  ("Neutrinos", "M0").
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -6948,12 +7016,14 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      behind a moving sphere; across a coarse-fine face within `κ h_fine` of
      the uniform mesh, and a regrid's transferred `τ` within 1.29 `κ h_fine`
      ("Neutrinos", "The optical depth").
-   - **8c, M0 in flat space** (`GrayRates`, the matter at rest, its
+   - **8c, M0 in flat space** *(done, step 18; "Neutrinos", "M0")*
+     (`GrayRates`, the matter at rest, its
      feedback off): a uniform sphere's steady state, `r² n` solving
      `(r² n)′ + κ r² n = η r²` inside and `n ∝ r⁻²` outside, converging at
      2 away from the surface; the front at `r = t`; the spread across rays
      stated as a number.
-   - **8d, the redshift**: steady emission from a static sphere on
+   - **8d, the redshift** *(done, step 18, on the Cowling star)*: steady
+     emission from a static sphere on
      Schwarzschild (the Kerr-Schild provider, `a = 0`), `𝓔/N` constant
      along rays and the mean energy at infinity `χ` times the emitted one.
    - **8e, conservation**: `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` and, in flat
@@ -7036,10 +7106,8 @@ far say about it.
 
 ## Open questions
 
-Two are open, both in the [Neutrinos](#neutrinos) section (the Fermi
-integrals' fits and `Y_np`'s fractions were decided in step 16):
-- **`N_min`**, below which M0's mean energy is `E^β` and absorption is off
-  (rungs 8c, 8f).
+One is open, in the [Neutrinos](#neutrinos) section (the Fermi integrals'
+fits and `Y_np`'s fractions were decided in step 16, `N_min` in step 18):
 - **A moving centre** for M0's closure, for when a binary is built.
 
 The questions decided, and when, are in [HISTORY.md, "Open

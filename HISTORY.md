@@ -1030,6 +1030,68 @@ cut from step 16's branch. Built: `src/neutrinos/optical_depth.jl` (`OpticalDept
   periodic forest refused; faces declared reflecting or outflow filled by the schedule, so
   neutrinos escape only through the hook's faces.
 
+**2026-11-25, step 18 — M0 transport, without feedback (rungs 8c, 8d).** On
+`claude/step-18-m0-transport`, cut from step 17's branch. Built: `src/neutrinos/m0.jl` (the
+closure, the upwind flux, the closed-form absorption, `M0Leakage`, `NuEscape`, the kernels and
+the scheme's hooks, `initial_depth!`, `neutrino_totals`); `Nν` as the state vector's segment 6,
+held with its fluxes and the optical depth by `MHDProblem` and handed back by `rebuild`;
+`evolve!`'s `neutrinos` keyword; `test/m0_tests.jl` (26 tests); `bin/m0_ball.jl` and
+`jobs/m0-ball.toml`.
+- **A periodic forest is refused.** On a periodic box `Σ N` drifted by `10⁻⁶` in six steps
+  although every right-hand side summed to `10⁻¹⁸` at the start and every face shared by two
+  blocks matched: the blocks either side of a periodic face see it at `x = ±L`, where the
+  radial direction points opposite ways, so they carry it at different velocities.
+- **The first background was not static**: `p = 1` against `ρ = 10⁻⁶` outside the ball (an
+  ultra-relativistic atmosphere) moved at `v ≈ 0.5`, and a 1000:1 ramp at `p = 10⁻⁴` still at
+  `0.09` — the scheme reconstructs entropy and density apart, so a steep ramp at uniform
+  pressure has non-uniform face pressures. 𝓔/N then read 1.4 E, correctly, since χ ≠ 1 for
+  moving gas. The tests use a 4:1 ramp, `|v| < 3·10⁻⁵`.
+- **The first conservation test was wrong**: the upwind scheme's numerical diffusion carries
+  a pulse's tail to the outer faces of a 16³ box within 15 steps, so the totals fell by
+  `10⁻⁵`. The test now checks the spatial operator — `Σ du` plus the outer-face outflow, zero
+  to `5·10⁻¹⁷` — and the regrid's transfer separately.
+- **The face velocities.** First built from the two cells' fluid `uⁱ`, not the design's
+  reconstructed `uⁱ`; Erik asked what argued for that, and the answer was only that the
+  kernel then reconstructs three variables fewer and that at rest the two agree. He decided
+  to reconstruct `uⁱ` by minmod and to add a test with the fluid moving (2026-11-25). A
+  ball carried by a smooth jet (2D, `v = 0.3 exp(−y²/0.09)`, uniform pressure, so each layer
+  advects exactly) measured both: inside `r ≤ 0.5`, behind the light front, `N`'s
+  self-convergence from 32² to 128² was 1.90, 1.96, 2.00 with the cells' values and 2.07,
+  2.07, 2.09 reconstructed, the 64²→128² differences 2.73, 3.93, 4.48 against 2.22, 3.42,
+  4.02 `·10⁻⁴`. Including the front, a moving kink, both fell to about 1.6, which first
+  looked like the face velocities' doing; the matter's density converged at 2.6 there. On
+  the jet's axis `𝓔/N` is the Doppler factor times `E` to 0.70% and 0.81% (64²), unchanged
+  by the reconstruction, since one velocity carries both `N` and `𝓔`.
+- **The steady-state test moved from the ball to a uniform medium.** The 64³ run on Symmetry
+  (job 611506, the ball at `t = 0.7`) gave rates of 1.97, 1.75, 1.65 from 32³, against
+  2.21–2.25 from 16³; at `t = 1.2` the 16³ errors were larger, not equal (2.1e−3 against
+  1.3e−3): the matter scheme smears the ball profile's kinks at rest, and the M0 error was
+  measured against the initial density. In a uniform medium the gas stays at rest to
+  `10⁻¹⁹`, the errors at `t = 0.7` and `1.2` agree to three digits, and the radial solution
+  is closed-form; the 16³ errors fell from 1.6–1.9% to 0.35–0.48%, and the rates to 32³ are
+  1.71, 2.08, 2.25 (κ = 4, 1, 0). The ball remains for the bit-for-bit check, where its gas
+  moves.
+- **MC, not minmod.** On 64³ (Symmetry job 611526's study) the uniform medium converged at
+  1.78, 1.83, 2.01 from 32³ (κ = 4, 1, 0). Not the integrator: ARS(4,4,3) gave SSP3(4,3,3)'s
+  errors to four digits, `κΔt ≈ 0.01` being far from stiff. Not the centre: inside `r < 0.2`
+  the rates were 2.2–2.3; the shortfall was in `0.2 ≤ r ≤ 0.6`, 1.70, 1.74, 1.96. Every
+  grid line through the radial field crosses a smooth extremum of `N`, which minmod clips by
+  a factor of two; with MC for `N` and `𝓔` the outer band converged at 2.16, 2.22, 2.24 and
+  its 64³ errors halved (4.8, 7.3, 9.0 against 2.2, 4.0, 5.1 `·10⁻⁵`). The design said
+  minmod; Erik decided MC, for `N`, `𝓔` and `uⁱ` alike (2026-11-25). With it the 16³ errors
+  are 0.28–0.32% (minmod 0.35–0.48%), the rates to 32³ 1.99, 2.18, 2.25, the jet's
+  2.13–2.20, the front 0.31%; along a diagonal the error fell from 2.1% to 0.55%, along an
+  axis it is 2.7% (minmod 2.3%), the limiter's at the extremum across the axis.
+- **Decided**: `N_min` zero, a branch on `N, 𝓔 > 0` (the "(open)"). **Proposed**:
+  `optical_depth = false` for the transport's tests, so that the emission does not depend on the swept τ's staircase
+  error. **Decided by Erik** (2026-11-25, "agreed"): the outer-face luminosity tally moved to
+  step 20, with `neutrino_totals` meanwhile; rung 8d on the Cowling star rather than
+  Kerr-Schild, whose matter would fall.
+- **Measured** (with MC): see `CODE.md`, "Neutrinos", "M0" — 0.28–0.32% on 16³, rates
+  1.99–2.25 to 32³; the front to 0.31%; axis 2.7%, diagonal 0.55%; conservation
+  `6·10⁻¹⁷`, regrid `8·10⁻¹⁶`; the Cowling star's `𝓔/N` within 1.9% of `⟨αE⟩ = 0.776`; the closure null and normalized to
+  rounding, `χ = √(1 − 2M/r)` for a static fluid on Kerr-Schild at `r = 6M`.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -6721,3 +6783,10 @@ no tier; 43 s alone on the M3 Pro): **38145 tests, every run passing whole** wit
 (Symmetry job 611409 on cn110, EPYC 7543, `amddebugq`; study `step17-depth-suite`, the
 uncommitted working tree, not posted) — 32m57s at one thread, 23m04s at four, 40m06s with
 `--check-bounds=yes`, side by side.
+
+**2026-11-25, step 18 (first version).** M0 with face velocities from the cells' `uⁱ`
+(`test/m0_tests.jl`, 23 tests): **38168 tests, every run passing whole** with the tables
+(Symmetry job 611504 on cn103, EPYC 7543, `amddebugq`; study `step18-m0-suite`, the
+uncommitted working tree, not posted) — 34m32s at one thread, 23m35s at four, 42m10s with
+`--check-bounds=yes`, side by side. The version committed reconstructs `uⁱ`; its run is
+below.

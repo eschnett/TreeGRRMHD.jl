@@ -211,7 +211,7 @@ default, leaves the choice to the backend. The CPU ignores it, since there the w
 the block ("Precision and devices" in `CODE.md`).
 """
 struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
-                  LIM,RS,FC,HO,IN,WG}
+                  LIM,RS,FC,HO,IN,WG,NUS}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
     schedules::SC                # one GhostSchedule per evolved set
@@ -245,6 +245,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     handoff::HO                  # the two-phase hand-off, or `nothing`: fused (2026-10-30)
     interior::IN                 # a black hole's interior, or `nothing` (step 9)
     workgroupsize::WG            # the kernels' workgroup on a device, or `nothing` (step 14)
+    neutrinos::NUS               # M0's sets and the optical depth, or `nothing` (step 18)
 end
 
 function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, pol,
@@ -255,7 +256,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                     ops_Φ::Operators=default_ops_Φ(), ops_W::Operators=default_ops_W(),
                     boundary=nothing, boundary_W=nothing, fixup::Bool=true,
                     two_phase::Union{Bool,Nothing}=nothing, interior=nothing,
-                    workgroupsize=nothing) where {D}
+                    workgroupsize=nothing, neutrinos=nothing) where {D}
     T = eltype(f.U.work)
     limiter === nothing && throw(ArgumentError(
         "MHDProblem has no default limiter: pass `limiter`, one of $(MHD_LIMITERS). " *
@@ -273,7 +274,14 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     riemann in MHD_SOLVERS || throw(ArgumentError(
         "riemann must be one of $(MHD_SOLVERS), got :$riemann: `riemann_flux` has a " *
         "method for each of those and no others (CODE.md, \"Riemann solver\")."))
-    sets = evolved_sets(f)
+    # The neutrinos (step 18): `Nν` is the state vector's last segment,
+    # `SEG_NU`, and its zero hook follows the case's five, so that a run
+    # without them is today's, segment for segment.
+    nu = m0_state(neutrinos, f, ops_U, get_backend(f.U.work))
+    sets = nu === nothing ? evolved_sets(f) : (evolved_sets(f)..., nu.Nν)
+    if nu !== nothing && boundary !== nothing && length(boundary) == SEG_Φ
+        boundary = (boundary..., nu.hook)
+    end
     for s in (sets..., f.P, f.W, f.B...)
         s.G == G || throw(ArgumentError(
             "every ghosted set must have the matter set's ghost width G=$G, got " *
@@ -288,15 +296,16 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     end
     boundary === nothing || length(boundary) == length(sets) || throw(ArgumentError(
         "boundary is `nothing` (a periodic domain) or one hook per evolved set, " *
-        "$(length(sets)) of them in the order (U, A₁, A₂, A₃, Φ̃); got $(length(boundary))."))
+        "$(length(sets)) of them in the order (U, A₁, A₂, A₃, Φ̃) and, with neutrinos, Nν " *
+        "(appended when five are given); got $(length(boundary))."))
     if boundary === nothing && !all(f.U.forest.periodic)
         throw(ArgumentError(
             "the forest is not periodic in every dimension ($(f.U.forest.periodic)) but " *
             "no boundary hooks were given: the ghosts facing outside the domain would " *
             "hold whatever the allocation left."))
     end
-    schedules = ntuple(i -> GhostSchedule(sets[i], i == SEG_U ? ops_U : i == SEG_Φ ? ops_Φ :
-                                                   ops_A), length(sets))
+    schedules = ntuple(i -> GhostSchedule(sets[i], (i == SEG_U || i == SEG_NU) ? ops_U :
+                                                   i == SEG_Φ ? ops_Φ : ops_A), length(sets))
     schedule_W = GhostSchedule(f.W, ops_W)
     bW = boundary === nothing ? nothing :
          boundary_W === nothing ? primitive_boundary(boundary[SEG_U]) : boundary_W
@@ -328,11 +337,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
                       typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff),
-                      typeof(interior),typeof(workgroupsize)}(
+                      typeof(interior),typeof(workgroupsize),typeof(nu)}(
         f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
         haswalls,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
-        Val(riemann), cache, Ref(false), handoff, interior, workgroupsize)
+        Val(riemann), cache, Ref(false), handoff, interior, workgroupsize, nu)
 end
 
 """
@@ -354,7 +363,7 @@ rebuild(p::MHDProblem; kwargs...) =
                riemann=unval(p.solver), ops_U=p.ops_U, ops_A=p.ops_A, ops_Φ=p.ops_Φ,
                ops_W=p.ops_W, boundary=p.boundary, boundary_W=p.boundary_W, fixup=p.fixup,
                two_phase=p.handoff !== nothing, interior=p.interior,
-               workgroupsize=p.workgroupsize, kwargs...)
+               workgroupsize=p.workgroupsize, neutrinos=p.neutrinos, kwargs...)
 
 unval(::Val{X}) where {X} = X
 
@@ -1132,6 +1141,7 @@ step 10). Public, not exported.
 """
 function prepare!(p::MHDProblem, u, t; metric=p.provider)
     update_primitives!(p, u, t; metric)
+    m0_prepare!(p.neutrinos, p, t)
     return p
 end
 
@@ -1146,6 +1156,7 @@ function rhs!(du, p::MHDProblem, t; metric=p.provider)
     face_fluxes!(p, t; metric)
     edge_emfs!(p, t; metric)
     tendencies!(du, p, t; metric)
+    m0_rhs!(p.neutrinos, du, p, t; metric)
     return nothing
 end
 
@@ -1226,6 +1237,9 @@ script's `solve_imp!` calls. Public, not exported.
 function stage_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
     update_fields!(p, ustar, t)
+    # The neutrinos' absorption first, closed-form (step 18): with no matter
+    # feedback yet it touches only `Nν`.
+    m0_stage!(p.neutrinos, U, ustar, γΔt, p, t)
     us = statearray(ustar, p.sets, SEG_U)
     recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t; metric)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
@@ -1274,7 +1288,11 @@ integrator argument: the verbs a script's limiters call (added in step 10).
 Public, not exported.
 """
 stage_limit!(u, p::MHDProblem, t; metric=p.provider) = reset!(u, p, t, Val(false); metric)
-step_limit!(u, p::MHDProblem, t; metric=p.provider) = reset!(u, p, t, Val(true); metric)
+function step_limit!(u, p::MHDProblem, t; metric=p.provider)
+    reset!(u, p, t, Val(true); metric)
+    m0_step!(p.neutrinos, p, t)            # one sweep of the optical depth (step 18)
+    return u
+end
 
 """
     reset_step!(u, integ, p::MHDProblem, t)

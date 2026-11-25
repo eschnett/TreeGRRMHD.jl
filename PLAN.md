@@ -173,6 +173,10 @@ Accept:
 
 ## Step 18 — M0 transport, without feedback (rungs 8c, 8d)
 
+*Built* (2026-11-25, on `claude/step-18-m0-transport`): M0 on the forest and its tests;
+`HISTORY.md`, "The steps of the plan", has what changed from this brief — periodic forests
+refused, the luminosity tally moved to step 20, 8d on the Cowling star.
+
 `CODE.md`: "Neutrinos" ("M0", "In the time integrator", "Field sets and
 interface"), "Reconstruction", "Riemann solver", "The partition",
 "Conservation at coarse-fine faces", "Boundaries". Waits: none.
@@ -232,6 +236,8 @@ Changes:
   EOS-13 rather than `CompositionPoint`'s keywords.
 - The cold star and a heated star (its entropy raised), on the Cowling
   metric in the suite at `h = 1`, and as `bin/` studies coupled to TreeGH.
+- The luminosity and number flux through the outer faces, summed per step
+  with the integrator's weights (moved from step 18).
 - A neutrino row in the per-phase table; a CUDA run of the heated star
   against the CPU.
 
