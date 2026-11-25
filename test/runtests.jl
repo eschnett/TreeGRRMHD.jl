@@ -119,7 +119,8 @@ else
 end
 end
 
-isempty(TABLE_SKIPPED) ||
+# The `mpi` tier includes no table file, so it has no list.
+(!@isdefined(TABLE_SKIPPED) || isempty(TABLE_SKIPPED)) ||
     @info "without DD2 under ENTROPYEOS_TABLE_DIR, $(length(TABLE_SKIPPED)) testsets were " *
           "left out:\n  " * join(first.(TABLE_SKIPPED), "\n  ")
 isempty(TIER_SKIPPED) ||
