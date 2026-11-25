@@ -962,6 +962,51 @@ step 15". It was the plan's last step. Two things it noted stay as they are: `to
 reads TreeAMR's unexported `forest.leaves`, and rung 2b's tables stand as measured with the
 old ghost fill, not rerun.
 
+**2026-11-25, step 16 — Rates and opacities, pointwise (rung 8a).** The neutrinos' plan
+(`PLAN.md`, steps 16–21), on `claude/step-16-neutrino-rates`, cut from the design commits
+rather than `main`, which does not have them yet. Built: `src/neutrinos/fermi.jl`,
+`rates.jl`, `leakage.jl` and `test/neutrino_rates_tests.jl` (11 305 tests, 10.4 s on the
+M3 Pro); the EOS-12 probe. Blocked on EOS-12 at first: the DD2 values through
+`composition`, the mass `X_l` holds, and the mismatch refusal; after EOS-12 landed the
+same day, the refusal is built (`RJS96Rates(T, units, table, cv)`) and the mass is
+EntropyEOS's measurement, and only the DD2 values wait, for EOS-13.
+- **The formulas are RJS96 Paper I's own** (A&A 311, 532; arXiv:astro-ph/9509006,
+  Appendices A and B), read from its PDF. The restatements first consulted differ from it:
+  Galeazzi et al. (2013) label the nucleon blocking factors inconsistently, print
+  `−η_ν` inside the blocking exponentials, `F₃/F₄` for the pairs' mean energy and
+  `(1 − Z/A)` unsquared, and use `1/4` for nucleon scattering; Rosswog & Liebendörfer
+  (2003) also use `1/4`, `σ₀ = 1.76e−44` and `g_A = 1.25`. Paper I has
+  `C_{s,n} = (1 + 5g_A²)/24`, `C_{s,p} = (4(C_V − 1)² + 5g_A²)/24`, transport cross
+  sections, and neglects scattering on nuclei. arXiv:astro-ph/9606181, at first taken for
+  it, is Paper II.
+- **Bremsstrahlung and coherent scattering from BRT06**, which RJS96 lacks: Eq. 142 with
+  `ζ = 1/2`; the number from their spectrum, Eq. 145, mean energy `(2.4/1.1) T` per
+  neutrino, half the 4.364 T they quote per pair (the spectrum integrates to 0.504 of the
+  pair's energy, so it is per neutrino). Scattering on nuclei as a transport cross section
+  (⅔ of BRT06's total), for consistency with RJS96's nucleons (proposed).
+- **The Fermi integrals exactly, not by fits** (the "(open)" of their fits): the CRVZ
+  acceleration of the alternating series below zero and the reflection formula above, the
+  weights computed in `BigFloat` when the method compiles. With the weights recomputed by
+  the recurrence in every call, 117 ns a call; precomputed, 9 ns; the rates at one state,
+  2.4 μs and 0.35 μs.
+- **`X_p − X_n` for RJS96's `2Yₑ − 1`** in the nucleons' blocking (the "(open)" of
+  `Y_np`): with nuclei present `2Yₑ − 1` divided by the table's `exp(η_p − η_n) − 1` does
+  not tend to `X_n`, and can be negative or exceed it.
+- **Measured**: the Fermi integrals within 2.1 ulp (`Float64`) and 3.1 ulp (`Float32`) of
+  128-bit quadrature on `η ∈ [−60, 120]`; detailed balance of ν_e capture against
+  absorption, non-degenerate, `e^{Q/T}` to 4e−11; the pair emission 0.9953 of BRT06's
+  Eq. 121 at `η_e = 0`, `T = 10 MeV`; `Float32` within 13 `eps · (1 + |η|)` of `Float64`.
+- **Two failures found and fixed by the tests**: `F₄/F₂` was 0/0 where both integrals
+  underflow (`η_ν = −3200`), now `fermi_ratio`, with `Eβ` carried in `SpeciesRates`; and
+  `exp(−x) Y_np` was `Inf·0` at `x = −213` in `Float32`, now `(X_n − X_p)/expm1(x)`.
+- **Changed from the plan**: the reference values are RJS96's and BRT06's formulas written
+  out in cgs inside the test, not a `bin/` script and `test/data/` file — they check the
+  folding of constants and units into the prefactors without a data file to regenerate.
+  `RJS96Rates` holds only constants and takes the composition as an argument; the view
+  goes with `M0Leakage` (proposed). The rates turned out to need the nucleons' own
+  `μ_n`, `μ_p` and the table's baryon mass, which EOS-12 does not carry: an addendum
+  (`CODE.md`, "Requests still waiting"), not yet sent.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -2319,6 +2364,44 @@ paired with another table's EOS would convert `ρ★` silently wrong; and
 acceptance tests that `X_h Ā` and `X_h Z̄` are continuous where `X_h → 0`.
 The request's downstream paragraph (confirming `(μ̂ − Q)/T`, and `Y_np`
 from `2Yₑ − 1` or `X_p − X_n`) moved to `PLAN.md`, step 16.
+
+**2026-11-25, EOS-12 landed, and EOS-0.** EOS-12 landed in EntropyEOS 2.4.0 (its PR 16,
+merged as 85fac77), registered in General the same day. Erik: "no need to pin, a compat
+setting should do": EntropyEOS left `[sources]` in the package and in `coupled/`, and
+resolves from General by `[compat]` `"2.4"`. With that EOS-0, registration, is done: the
+suite's probe had reported EntropyEOS in a reachable registry since step 16's first run.
+Both probes were retired; EOS-12's names joined the prerequisite test's list.
+
+EOS-0's request, as it stood: "Register EntropyEOS in General. Until then `Project.toml`'s
+`[sources]` names `url = "https://github.com/eschnett/EntropyEOS.jl"` at a tag (today
+`rev = "v2.3.0"`), which CI, the clean-checkout check and a developer all read." EOS-12's
+request, as accepted, is the second version described in the entry above; EntropyEOS
+implemented it with these differences:
+- on O'Connor–Ott LS220 below 10⁸ g/cm³ `μ_ν` is the table's `munu` − Q, not + Q (the
+  table's `munu` lacks the −Q there; `μ_ν` follows `mu_e − muhat` everywhere);
+- the node test's entry point is `EntropyEOS.composition_index(cv, fi, fj, fk)`, in
+  fractional 0-based grid indices, unexported: through `log10` a node cannot be hit
+  exactly;
+- on a device that flushes subnormals, where `X_h` is subnormal in Float32, the fallback is
+  taken where the host does not take it, so only `X_h Ā`, not `Ā`, can be compared; and
+  `X_h Ā` is exact only to `floatmin(T) Ā`;
+- the measured O'Connor–Ott offset is −Q to 0.6 eV.
+
+EntropyEOS's findings: O'Connor–Ott LS220 is noisy where its nuclei dissolve (now under
+`CODE.md`'s "Known risks"); `κ` does not identify a table (DD2's and SFHo's agree to
+1e−10); without `X_l` the four RJS96 species miss up to 34% of the mass on DD2 and SFHo,
+7% on SRO. Validated there: macOS 36 605 tests; Metal Float32 bitwise the host; Fir H100
+CUDA Float64 and Float32, device against host 8.6e−16 and 5e−7; on the real tables
+`μ_ν = munu` at every node to 9e−13 MeV (7.5e−11 on O'Connor–Ott apart from 88 nodes) and
+`|μ_ν| ≤ 3.5e−12 MeV` on the cold β-equilibrium.
+
+Of step 16's addendum, the baryon mass turned out not to be needed: the built table's
+provenance carries it (`EOSTable`'s `m_B_table_g`, and `m_B_star_g = κ m_B`), and
+`RJS96Rates(T, units, table, cv)` reads it there. The nucleons' own `μ_n`, `μ_p` became
+EOS-13. Step 16's two questions EntropyEOS left to this package were already answered:
+RJS96 (A5) writes the equilibrium `η_{ν_e} = η_e + η_p − η_n − Q/T` with `η_n`, `η_p`
+without rest masses, so with EOS-12's `μ̂` the nucleons' blocking takes `(μ̂ − Q)/T` and
+`η_ν = μ_ν/T` takes no `Q`; and `Y_np` takes `X_p − X_n`.
 
 ### SpacetimeMetrics
 
@@ -6592,3 +6675,20 @@ and one log string changed in the code): **26785 tests, every run passing whole*
 tables (Symmetry job 610236 on cn101, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`,
 study `full-suite-dae70977cb7d`, not posted) — 30m00s at one thread, 21m51s at four, 37m04s
 with `--check-bounds=yes`, side by side, the job 37m11s.
+
+**2026-11-25, step 16.** The neutrino rates (`test/neutrino_rates_tests.jl`, 11 305 tests,
+pointwise, no tier; 10.4 s alone on the M3 Pro): **38090 tests, every run passing whole**
+with the tables (Symmetry job 611295 on cn085, EPYC 7532, `amddebugq`; `jobs/full-suite.toml`
+on SimLaunch's snapshot of the uncommitted working tree, study `step16-rates-suite`, not
+posted) — 42m25s at one thread, 29m11s at four, 51m09s with `--check-bounds=yes`, side by
+side. Against step 13 on the same CPU, 2.7 minutes more in each run; the bounds-checked run
+on Zen 2 now takes 85% of `amddebugq`'s hour. The log still reports EOS-0 landed (EntropyEOS
+in a reachable registry) beside EOS-3, EOS-12 and GH-2, GH-6, GH-7 waiting.
+
+**2026-11-25, step 16 on EntropyEOS 2.4.0.** After EOS-12 landed, with EntropyEOS from
+General by `[compat]` `"2.4"`, the EOS-0 and EOS-12 probes retired, the EOS-13 probe and the
+composition's testset added: **38110 tests, every run passing whole** with the tables
+(Symmetry job 611362 on cn106, EPYC 7543, `amddebugq`; study `step16-eos24-suite`, the
+uncommitted working tree, not posted) — 32m22s at one thread, 24m02s at four, 39m04s with
+`--check-bounds=yes`, side by side. Against step 15 on Zen 3, about two minutes more in
+each run. The log reports EOS-3, EOS-13 and GH-2, GH-6, GH-7 waiting.

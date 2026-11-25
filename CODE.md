@@ -47,8 +47,8 @@ What is not built, or measured short, is under [Known risks](#known-risks)
 and [Possible extensions](#possible-extensions); the neutrinos (leakage
 plus M0) are designed and not built ([Neutrinos](#neutrinos)). The
 upstream items still waiting (TreeGH's registration and regrid verbs, each
-with a workaround, and EntropyEOS's registration, fixed-entropy inversion
-and, for the neutrinos, composition on the device) are under
+with a workaround; EntropyEOS's fixed-entropy inversion; and, for the
+neutrinos, the nucleons' own chemical potentials, EOS-13) are under
 [Requests still waiting](#requests-still-waiting). The numbers below about
 the scheme are measured where they say so and unmeasured otherwise.*
 
@@ -188,8 +188,8 @@ The state, as `[compat]` guarantees it for what has landed, as
 `test/prerequisite_tests.jl` reports it for what is waiting, and, for
 TreeGH, as its `main` reads. A landed item whose release the compat floor
 requires has no probe any more (the rule is under [Requests still
-waiting](#requests-still-waiting)): AMR-1 to AMR-10, EOS-1, EOS-2, EOS-4
-and EOS-8 to EOS-11, and SM-1. Their names are in
+waiting](#requests-still-waiting)): AMR-1 to AMR-10, EOS-0 to EOS-2,
+EOS-4, EOS-8 to EOS-12, and SM-1. Their names are in
 the prerequisite test's name lists; what this package relies on from them
 and does not yet exercise through its own code goes in
 `test/upstream_behaviour_tests.jl`, which is removed while it is empty (the
@@ -202,10 +202,10 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS, not registered (EOS-0 waiting), through `[sources]`, which
-  pins the tag `v2.3.0`, with `[compat]` `"2.3"`: **EOS-1 and EOS-2 have
-  landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since, and **EOS-4 in
-  2.3.0** (below); EOS-3 has not.
+- EntropyEOS **2.4.0**, registered (EOS-0), from General by `[compat]`
+  `"2.4"` alone: **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0**,
+  EOS-8 to EOS-11 since, **EOS-4 in 2.3.0** and **EOS-12 in 2.4.0**
+  (below); EOS-3 and EOS-13 have not.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -446,9 +446,9 @@ TreeGRRMHD"; the request and its record:
 
 ### EntropyEOS
 
-- **EOS-0 (req, step 0; workaround) Registration** in General. Until then
-  `Project.toml`'s `[sources]` adds it by URL, for CI, a clean checkout
-  and a developer alike.
+- **EOS-0 (landed)** Registration in General: EntropyEOS resolves from the
+  registry by `[compat]`, as TreeAMR and SpacetimeMetrics do, and
+  `[sources]` no longer names it (step 16).
 - **EOS-1 (req, step 5) An abstract EOS interface**: an
   `AbstractEOS` supertype, the solver and policy retyped to it, and the
   four bounds read through accessors instead of fields, so that `evaluate`,
@@ -481,15 +481,19 @@ TreeGRRMHD"; the request and its record:
   decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
   and how `μ_ν` follows from a table's chemical potentials, is the EOS's
   knowledge; the fitted `μ̃` is off by MeV on the cold edge.
-- **EOS-12 (req for `RJS96Rates`) The composition on the
-  device**: the table's chemical potentials, mass fractions and mean
-  nucleus at `(ρ★, T, Yₑ)`, evaluated in a kernel, for the leakage rates
+- **EOS-12 (landed, EntropyEOS 2.4.0) The composition on the device**:
+  the table's chemical potentials, mass fractions and mean nucleus at
+  `(ρ★, T, Yₑ)`, evaluated in a kernel, for the leakage rates
   ([Neutrinos](#neutrinos), "Leakage"), opt-in and separate from the EOS's
   view, with a fingerprint that ties it to the table its EOS was built
   from. Upstream for the reason EOS-4 is: the tables differ in their `μ̂`
   convention, their light clusters and their fill values for `Ā` and `Z̄`,
-  and which is which is the EOS's knowledge. `GrayRates` need nothing from
-  it.
+  and which is which is the EOS's knowledge.
+- **EOS-13 (req for `RJS96Rates` on a table, step 20) The nucleons' own
+  chemical potentials**, `μ_n` and `μ_p` without rest masses, in
+  `Composition`: Bruenn's scattering blocking in RJS96 reads each (A7, A8),
+  and EOS-12 carries only their difference. Upstream for EOS-12's reason:
+  the zero of the tables' `mu_n`, `mu_p` differs by table.
 - **EOS-8, EOS-9 (landed)**: the density floor reported (EntropyEOS
   1.1.0), and the endpoint branches made edge-consistent, the hottest state
   projected onto the entropy ceiling (2.0.0, as the two-level projection).
@@ -508,6 +512,14 @@ What this package relies on from the landed items, beyond the summaries above (t
 their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
 - **EOS-1.** The prerequisite test's EntropyEOS name list asserts that `κ` is unexported, so an
   export later is noticed.
+- **EOS-12.** `CompositionTable(raw, eos)`, `CompositionView`, `composition(cv, ρ★,
+  T_MeV, yₑ) -> Composition` (`μ_e`, `μ̂`, `μ_ν`, `X_n`, `X_p`, `X_α`, `X_h`, `X_l`, `Ā`,
+  `Z̄`), `q_np`, `matches`, `fingerprint`; `ρ★` in the EOS's units and `T_MeV` the
+  recovery's `EOSPoint.T_MeV`; `μ_ν = μ_e − μ̂` exactly, `μ̂` including `Q`; `X_h Ā`
+  and `X_h Z̄` exact to `floatmin(T) Ā`, so that on a device that flushes subnormals
+  only products are compared, not `Ā`; the synthetic table's composition with
+  `SyntheticOptions(; with_composition = true)`, multilinear. Exercised in
+  `test/neutrino_rates_tests.jl`.
 - **EOS-11.** `inside_window(eos, ρ, s, yₑ) -> Bool`, exported — `Yₑ` within one ulp of the
   table's range and `s` within `srange(eos, ρ, yₑ)` widened by `face_slack` of its width; `ρ` not
   tested against a range; non-finite input or `ρ ≤ 0` gives `false`. Every state `con2prim_safe`
@@ -597,13 +609,6 @@ no name to detect, and that testset is its check.
 boundary is the boundary condition's, which nothing conserves ("Conservation
 at coarse-fine faces").
 
-#### EOS-0 — Register EntropyEOS (req; workaround)
-
-Register EntropyEOS in General. Until then `Project.toml`'s `[sources]`
-names `url = "https://github.com/eschnett/EntropyEOS.jl"` at a tag (today
-`rev = "v2.3.0"`), which CI, the clean-checkout check and a developer all
-read.
-
 #### EOS-3 — Public fixed-entropy inversion and entropy from energy (wanted)
 
 **API.**
@@ -627,122 +632,34 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 
 **What waits for it**: the entropy fallback ("Primitive recovery").
 
-#### EOS-12 — The composition on the device (req for `RJS96Rates`)
+#### EOS-13 — The nucleons' own chemical potentials (req for `RJS96Rates` on a table)
 
-Upstream for the reason EOS-4 is: how the chemical potentials and the
-composition follow from a table's datasets is the EOS's knowledge. The
-datasets differ by table in their μ̂ convention, their light clusters and
-their fill values for Ā and Z̄, and `ρ★ = κ·ρ` is the view's coordinate, not
-the table's. `GrayRates` need nothing from it.
-
-**API.**
+**API.** Two more fields of EOS-12's `Composition`, MeV:
 ```julia
-CompositionTable(raw::RawTable, eos::EOSTable; munu_offset = nothing)  # host
-CompositionView(ct)          # kernel side; Adapt moves it, narrow narrows it
-composition(cv, ρ★, T_MeV, yₑ) -> Composition{T}
-q_np(cv) -> T                # m_n − m_p in MeV, the Q the view assumes
-fingerprint(cv), fingerprint(eos) -> UInt64
-matches(cv, eos) -> Bool     # false for any EOS without a fingerprint
-struct Composition{T}        # isbits
-    μ_e::T; μ̂::T; μ_ν::T     # MeV; μ_ν = μ_e − μ̂ exactly
-    X_n::T; X_p::T; X_α::T; X_h::T; X_l::T
-    Ā::T; Z̄::T               # of the heavy nuclei
+struct Composition{T}
+    …                        # EOS-12's ten fields, unchanged
+    μ_n::T; μ_p::T           # without rest masses; μ_n − μ_p = μ̂ − q_np(cv)
 end
 ```
 
 **Semantics.**
-- Opt-in and separate from the EOS's view, so that a code that does not ask
-  for it carries no composition arrays (8 fields are 160–270 MB in Float64 on
-  the real tables). The analytic EOSes have none; `hasmethod` is the test.
-- **Conventions, one for every table.**
-  - μ_e includes mₑc², as the tables' `mu_e` does.
-  - μ̂ = `muhat − munu_offset`, so it always includes the neutron–proton mass
-    difference Q, and μ_ν = μ_e − μ̂. On O'Connor–Ott LS220 the raw `muhat`
-    lacks Q, and on the Hempel and SRO tables it includes it.
-  - So in η_ν = μ_ν/T, code written against stellarcollapse tables that
-    subtracts Q/T by hand must not do so here. The nucleons' own degeneracy,
-    without rest masses, is (μ̂ − Q)/T. That is what RJS96's Pauli-blocking
-    factors use, and there Q is subtracted.
-  - Q is `q_np(cv)`, CODATA m_n − m_p = 1.29333 MeV, so that rate code does
-    not hard-code a second value. Where `munu_offset` is nonzero
-    (O'Connor–Ott LS220, measured −1.293), the build requires it to equal
-    −Q within 10 keV, unless `munu_offset` is given explicitly.
-  - μ_ν is computed this way, not interpolated from the `munu` dataset. On
-    O'Connor–Ott LS220 below 10⁸ g/cm³ that dataset lacks the −Q it has
-    above.
-  - `munu_offset` is the median of `munu − (mu_e − muhat)` on the coldest row,
-    as in `cold_beta_slice`, but without that function's energy check, which
-    O'Connor–Ott LS220 fails for reasons unrelated to composition. It may be
-    given explicitly.
-- **Table identity.**
-  - `EOSTableView` and `CompositionView` both carry a `UInt64` fingerprint of
-    the raw table they were built from: a hash of its axes and its `logenergy`
-    dataset, computed at build time. `narrow` and `adapt` carry it unchanged.
-    It is an identity within one Julia session, not a stable checksum.
-  - `CompositionTable(raw, eos)` throws an `ArgumentError` unless the raw
-    table's fingerprint equals the EOS's and its axes match the EOS's box, as
-    in `cold_beta_slice`. So a composition must be built from the same file
-    as its EOS: one built from unrepaired DD2 does not match an EOS built from
-    the repaired file, though their composition datasets are identical.
-  - `matches(cv, eos)` compares fingerprints. `RJS96Rates` refuses a
-    mismatch with an `ArgumentError`.
-- **Mass fractions.** X_l is the light clusters other than α: on the Hempel
-  tables `Xd + Xt + X3he + X4li`, on SRO `Xl`, otherwise 0. Without it, the
-  four RJS96 species miss up to 30% of the mass at log ρ 11–13, T 3–10 MeV,
-  Yₑ 0.1–0.3 on DD2. What RJS96 does with X_l is the rates' decision. Each
-  fraction is clamped to [0, 1]; none is renormalized.
-- **Ā and Z̄.**
-  - They are the X_h-weighted means over the cell's corners,
-    Σ wᵢ X_h,ᵢ Āᵢ / Σ wᵢ X_h,ᵢ (likewise Z̄), so that the tables' fill values
-    where `Xh = 0` never enter. Those fills are Ā = Z̄ = 1 on Hempel, 4 and
-    1.8 on O'Connor–Ott LS220, and 1 and Yₑ on SRO. X_h·Ā and X_h·Z̄ are
-    then exactly the trilinear interpolants of the product fields.
-  - Each is clamped to the range of the corners with X_h > 0. Without that,
-    in Float32 a denominator in the subnormal range, or flushed to zero on a
-    device, can produce a ratio outside it.
-  - Where Σ wᵢ X_h,ᵢ < `floatmin(T)`, the result is X_h = 0, Ā = 1, Z̄ = 0.
-    The fallback values therefore appear only multiplied by X_h = 0, and
-    X_h·g(Ā, Z̄) is continuous and tends to 0 for any g bounded on real
-    nuclei, such as the coherent-scattering factor X_h(Ā − Z̄)²/Ā.
-- **Interpolation** is trilinear in (log₁₀ρ, log₁₀T, Yₑ) on the raw table's
-  own grid, with log₁₀ρ = log₁₀(ρ★/κ). Each coordinate is clamped to the
-  table's axes; composition has no extension. `Composition` carries no flags:
-  `EOSPoint.flags` already marks a state outside the box.
-- **T** is the temperature the recovery landed on, `EOSPoint.T_MeV`, not `T̂`.
-- Allocation-free in a CPU kernel, with bounds checks on and off, and in a
-  device kernel. Float64 and, after `narrow`, Float32.
+- From the tables' `mu_n`, `mu_p`, shifted to one convention for every table,
+  as EOS-12 does for `muhat`: without rest masses, so that
+  `μ_n − μ_p = μ̂ − Q`.
+- Interpolated as EOS-12's other fields: trilinear on the raw grid, clamped
+  to the table's axes, at `EOSPoint.T_MeV`.
 
 **Upstream acceptance.**
-- Through an entry point in table coordinates: at the nodes, the clamped
-  datasets' values exactly (Ā, Z̄ the dataset's where X_h > 0).
-- On a synthetic table whose composition fields are linear in each of
-  (log ρ, log T, Yₑ): exact to round-off everywhere in the box, through
-  `composition(cv, ρ★, T_MeV, yₑ)`.
-- μ_ν = `munu` to round-off at every node of the Hempel and SRO tables. On
-  O'Connor–Ott LS220, the same above 10⁸ g/cm³ and `munu` + Q below.
-- At T = T_min, μ_ν = 0 to round-off at `cold_beta_slice`'s crossings. At the
-  slice's states, evaluated at s_min, μ_ν = 0 to within the T solve's
-  tolerance times ∂μ_ν/∂log₁₀T. States with `FLAG_CLAMP_YE` are excluded.
-- Near the heavy-nucleus edge of DD2, in Float64 and after `narrow` to Float32:
-  - X_h·Ā and X_h·Z̄ continuous across cell faces.
-  - Ā and Z̄ within the contributing corners' range everywhere.
-  - X_h = 0 exactly wherever the fallback is used.
-- `q_np(cv)` = 1.29333 MeV, and the build's check against O'Connor–Ott
-  LS220's offset passes.
-- `matches` is true for a composition and EOS built from the same file. It is
-  false for DD2 against SFHo, and false against an analytic EOS.
-  `CompositionTable(raw, eos)` throws for a mismatched pair.
-- Builds on all five real tables without an `energy_offset`.
-- A CPU kernel and a device kernel agree to the precision's round-off.
+- At the nodes (through `composition_index`), the shifted datasets' values
+  exactly, and `μ_n − μ_p = μ̂ − Q` to the tables' own consistency.
+- The synthetic table's composition gains both, multilinear like the rest.
 
 **Downstream check**: `test/prerequisite_tests.jl` probes
-`isdefined(EntropyEOS, :composition)`, `:CompositionTable` and `:matches`.
-It evaluates `composition` on the synthetic table, which upstream gives the
-composition datasets for this purpose.
+`hasfield(EntropyEOS.Composition, :μ_n)`; until it lands, `CompositionPoint`
+takes `μ_n`, `μ_p` as keywords (`src/neutrinos/rates.jl`).
 
-**What waits for it**: `RJS96Rates`, and with them rung 8's tabulated
-studies ("Validation ladder" 8). What step 16 decides on this side is in
-`PLAN.md`, step 16.
+**What waits for it**: Bruenn's scattering blocking in `RJS96Rates` on a real
+table, and with it step 20.
 
 #### GH-2 — Registration, registry-satisfiable compat (req; workaround)
 
@@ -2636,38 +2553,88 @@ M1 would replace M0 on the same field set ("Possible extensions").
 ### Leakage
 
 Per species `ν` and per owned cell, from the recovered `(ρ★, T, Yₑ)` and the
-table's composition (EOS-12), all in the fluid frame:
+table's composition (EOS-12), all in the fluid frame. The formulas are
+RJS96's own (Ruffert, Janka & Schäfer 1996, A&A 311, 532, Appendices A and
+B), read from the paper: the later restatements (Rosswog & Liebendörfer
+2003, Galeazzi et al. 2013) differ from it and from each other in labels,
+signs and constants, and where they do, RJS96 is followed. Two processes
+that RJS96 leaves out and Radice et al. (2018)'s Table 1 includes come from
+Burrows, Reddy & Thompson (2006, "BRT06"). `src/neutrinos/rates.jl` writes
+each out with its equation number.
 
-- **Free rates** `R_ν`, `Q_ν` (number and energy per volume per time), from
-  Radice et al. (2018)'s Table 1: electron and positron capture on nucleons
-  (Bruenn 1985) for `ν_e` and `ν̄_e`; pair annihilation and plasmon decay
-  (Ruffert, Janka & Schäfer 1996, "RJS96") for all three; nucleon–nucleon
-  bremsstrahlung (Burrows et al. 2006).
-- **Opacities** `κ^α_{ν,a}` (absorption on nucleons, Bruenn; `ν_e`, `ν̄_e`
-  only) and `κ^α_{ν,s}` (scattering on nucleons, RJS96, and on heavy nuclei,
-  Shapiro & Teukolsky), number-weighted (`α = 0`) and energy-weighted
-  (`α = 1`), in inverse proper length.
+- **Free rates** `R_ν`, `Q_ν` (number and energy per volume per time):
+  - electron capture on protons (`ν_e`) and positron capture on neutrons
+    (`ν̄_e`), RJS96 B1–B4, B14, energy `T F₅/F₄` per neutrino;
+  - pair annihilation, B8–B10, B15, and plasmon decay, B11–B13, B16, for
+    all three species, each neutrino carrying half the pair's energy;
+  - nucleon–nucleon bremsstrahlung, BRT06 Eq. 142 with `ζ = 1/2` and
+    `X_n² + X_p² + (28/3) X_n X_p`, per νν̄ pair (`ν_e` and `ν̄_e` half a
+    pair each, `ν_x` two pairs), and as many neutrinos as the spectrum of
+    their Eq. 145 gives: mean energy `(2.4/1.1) T` each, half the pair's
+    4.364 T **(proposed)**.
+- **Opacities**, number-weighted (`α = 0`, `⟨ε²⟩ = T² F₄/F₂`) and
+  energy-weighted (`α = 1`, `T² F₅/F₃`), RJS96 A6–A16, all transport
+  (momentum-transfer) cross sections:
+  - scattering on free nucleons, `C_{s,n} = (1 + 5g_A²)/24`,
+    `C_{s,p} = (4(C_V − 1)² + 5g_A²)/24`, with Bruenn's blocking
+    `X_N/(1 + ⅔ max(η_N, 0))` (A7, A8), which reads the nucleons' own
+    degeneracies `η_n`, `η_p` (EOS-13);
+  - coherent scattering on heavy nuclei and on α particles, which RJS96
+    neglects: BRT06's Eqs. 25–26 in the Freedman limit with the weak charge
+    `W = 1 − (2Z/A)(1 − 2 sin²θ_W)`, as a transport cross section,
+    `(σ₀/24)(ε/mₑc²)² A² W²` per nucleus **(proposed)** — for α, their
+    Eq. 32 times ⅔;
+  - absorption on neutrons (`ν_e`) and protons (`ν̄_e`),
+    `(1 + 3g_A²)/4`, with the final-state lepton's blocking (A11–A16).
+- **The nucleons' blocking** (A13, A14):
+  `Y_np = (X_p − X_n)/(exp(η_p − η_n) − 1)`, `Y_pn = exp(η_p − η_n) Y_np`,
+  with `η_n − η_p = (μ̂ − Q)/T` (EOS-12's `μ̂` includes `Q`; this is the
+  one place `Q` is subtracted). RJS96 writes `2Yₑ − 1` for `X_p − X_n`,
+  which is the same for dissociated matter; with nuclei and α holding much
+  of it, only `X_p − X_n` has the free fractions `X_n`, `X_p` as its
+  non-degenerate limit (decided in step 16). Within `√eps` of
+  `η_n = η_p` the free fractions are taken, and the results are clamped to
+  `[0, X_n]` and `[0, X_p]`, where a table's fractions and potentials
+  disagree.
 - **Neutrinos in equilibrium**: Fermi–Dirac at the matter's `T` with
   `η_ν = μ_ν/T` (Rosswog & Liebendörfer 2003), `μ_{ν_e}` the composition's
-  `μ_ν = μ_e − μ̂` (EOS-12, whose `μ̂` includes the neutron–proton mass
-  difference `Q` on every table, so that nothing here subtracts `Q` from
-  it), `μ_{ν̄_e} = −μ_{ν_e}`, `μ_{ν_x} = 0`; so `n^β_ν = 4π g (T/hc)³ F₂(η_ν)`,
-  `e^β_ν = 4π g T (T/hc)³ F₃(η_ν)` and `E^β_ν = T F₃/F₂`.
-- **Effective rates** (Radice et al. 2018, Eqs. 4–6):
+  `μ_ν = μ_e − μ̂`, `μ_{ν̄_e} = −μ_{ν_e}`, `μ_{ν_x} = 0`; so
+  `n^β_ν = 4π g (T/hc)³ F₂(η_ν)`, `e^β_ν = 4π g T (T/hc)³ F₃(η_ν)` and
+  `E^β_ν = T F₃/F₂` (B18, B19). RJS96 itself takes `η_ν` between the
+  equilibrium value at large optical depth and 0 where transparent (A3,
+  A4); the design keeps Radice et al.'s choice.
+- **The constants** are RJS96's: `σ₀ = 1.76·10⁻⁴⁴ cm²`, `g_A = 1.25`,
+  `sin²θ_W = 0.23`, `C_V = ½ + 2 sin²θ_W`, `C_A = ½`, `α = 1/137.036`,
+  `γ₀ = 2√(α/3π)`; `mₑc²`, `hc` and `Q = 1.29333 MeV` are CODATA 2018's.
+- **Effective rates** (Radice et al. 2018, Eqs. 4–6; RJS96 B20–B23):
   ```
   R^eff_ν = R_ν / (1 + t⁰_diff / t⁰_loss),   t⁰_diff = 𝒟 (τ⁰_ν)² / (κ⁰_{ν,a} + κ⁰_{ν,s}),   t⁰_loss = n^β_ν / R_ν
   Q^eff_ν = Q_ν / (1 + t¹_diff / t¹_loss),   t¹_diff = 𝒟 (τ¹_ν)² / (κ¹_{ν,a} + κ¹_{ν,s}),   t¹_loss = e^β_ν / Q_ν
   ```
-  with `𝒟 = 6` and the optical depths `τ^α_ν` below. Where `R_ν = 0`,
-  `R^eff_ν = 0` (a branch, not a division).
+  with `𝒟 = 6` and the optical depths `τ^α_ν` below; computed as
+  `R y/(y + x)`, `x = 𝒟 τ² R`, `y = κ n^β`, so that `R = 0`, `τ = 0` and
+  `κ n^β = 0` are branches, not divisions (`src/neutrinos/leakage.jl`).
 
-The rates are evaluated in the table's units (cgs and MeV) and converted once,
-with the conversion scalars the EOS view carries. The formulas are written
-out with their references in the docstrings of `src/neutrinos/rates.jl`.
-The Fermi integrals `F_k(η)`, `k = 0 … 5`, use closed-form fits; which fits,
-and to what accuracy against quadrature, is **(open)** (rung 8a measures it):
-Takahashi, El Eid & Hillebrandt (1978)'s, the leakage codes' usual choice,
-or a fit to round-off.
+**Units.** The number is counted in units of the baryon mass `m★ = κ m_B`
+that the EOS's `ρ★` counts baryons in, so that `R` is a density rate like
+`D`'s and `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` is conserved without a factor, and
+an energy per neutrino is in units of `m★c²`; `n_b = ρ★/m★`. Every
+constant and unit conversion is folded into a handful of prefactors when
+`RJS96Rates` is built, in `Float64`, so that a kernel multiplies numbers
+of order one: `Float32` stays finite where cgs numbers (`n_b ∼ 10³⁸ cm⁻³`,
+`R ∼ 10⁴⁰ cm⁻³ s⁻¹`) would overflow it. The baryon mass is a keyword with
+no default: it is a property of the table family that is not in the file.
+
+**The Fermi integrals** `F_k(η)`, `k = 0 … 5`, are exact to round-off, not
+fits (decided in step 16): for `η ≤ 0` the alternating series
+`k! Σ (−1)ʲ e^{(j+1)η}/(j+1)^{k+1}`, summed by Cohen, Rodriguez Villegas &
+Zagier's (2000) acceleration with weights computed in `BigFloat` when the
+method compiles (22 terms at `Float64`, 11 at `Float32`), and for `η > 0`
+the reflection formula for integer order. Measured in step 16: within 2.1
+ulp (`Float64`) and 3.1 ulp (`Float32`) of 128-bit quadrature over
+`η ∈ [−60, 120]`, 9 ns a call on the M3 Pro; the rates at one state,
+sixteen integrals, 0.35 μs. Ratios `F_a/F_b` take `e^η` out of both below
+zero, so that they stay finite where both integrals underflow.
 
 **Where the rates are evaluated.** In the source kernel, once per cell per
 right-hand side, from `P` (`ρ★`, `Yₑ`, and `T` from the EOS's own warm start,
@@ -2675,20 +2642,28 @@ right-hand side, from `P` (`ρ★`, `Yₑ`, and `T` from the EOS's own warm star
 neutrino–matter sources there are zero by a branch ("Masks branch, never
 multiply"). M0's transport runs everywhere.
 
-**The rates are a model**, as the conductivity is. `GrayRates(κ_a, κ_s, η,
-E)` is `isbits`: per species an absorption and a scattering opacity and a
-number emissivity, each proportional to `ρ★`, and one emitted energy, for
-the tests, on any EOS. `RJS96Rates(cv)` holds EOS-12's composition view and
-is `isbits` once moved to the backend, as the EOS view is; `M0Leakage`
-refuses it, with an `ArgumentError` saying why, unless `matches(cv, eos)`.
-Its nucleon Pauli-blocking factors take the nucleons' degeneracy without
-rest masses, `(μ̂ − Q)/T` with `Q = q_np(cv)`, the one place `Q` is
-subtracted. The light clusters `X_l` enter no rate: RJS96 has no
-processes for them, and the mass they hold on DD2 (up to 30% at
-`log ρ` 11–13, `T` 3–10 MeV, `Yₑ` 0.1–0.3) is stated by rung 8a
-**(proposed)**. Whether `Y_np` takes `2Yₑ − 1`, as for free nucleons, or
-`X_p − X_n`, where nuclei and α hold much of the matter, is **(open)**
-(step 16).
+**The rates are a model**, as the conductivity is, answering
+`neutrino_rates(model, ρ★, T_MeV, yₑ, comp)` with one `SpeciesRates` per
+species (`R`, `Q`, `κa0`, `κa1`, `κs0`, `κs1`, `nβ`, `eβ`, and `Eβ`, carried
+rather than taken as `eβ/nβ`, which is 0/0 where `nβ` underflows). Both
+models are `isbits`. `GrayRates(κ_a, κ_s, η, E)`: per species an absorption
+and a scattering opacity and a number emissivity, each proportional to
+`ρ★`, one emitted energy, and Kirchhoff's `n^β = R/κ_a`; for the tests, on
+any EOS. `RJS96Rates(T, units; baryon_mass, q_np)` holds only constants and
+reads the composition at the state as an argument; the composition view
+itself goes with `M0Leakage`, which refuses it, with an `ArgumentError`
+saying why, unless `matches(cv, eos)` (steps 18 and 20) **(proposed)**;
+on a table the rates are built as `RJS96Rates(T, units, table, cv)`, which
+takes the baryon mass from the table's provenance (`m_B_table_g`) and `Q`
+from `q_np(cv)`, and refuses a composition that does not `match` the table
+or units whose `κ` is not the table's — `κ` does not tell tables apart
+(DD2's and SFHo's agree to 1e−10). The argument is `CompositionPoint`,
+built from EntropyEOS's `Composition` (EOS-12) with the nucleons' `μ_n`,
+`μ_p` as keywords until EOS-13 lands. The light clusters `X_l` enter no
+rate: RJS96 has no processes for them, and without them its four species
+miss up to 34% of the mass on DD2 and SFHo (30% at `log ρ` 11–13, `T`
+3–10 MeV, `Yₑ` 0.1–0.3) and 7% on SRO's tables (EntropyEOS's measurement)
+**(proposed)**.
 
 ### The optical depth
 
@@ -4499,13 +4474,14 @@ shared between files live in files of their own.
 duplicate-constant check at the top of `test/runtests.jl` is the only thing
 that finds a top-level name two test files share.
 
-`Project.toml` names EntropyEOS and IMEXRungeKutta there, by their GitHub
-URLs, EntropyEOS at a tag (`rev = "v2.3.0"`) and IMEXRungeKutta at
-`rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`,
-a clean `git archive` and a developer's `Pkg.instantiate()` all resolve
-them the same way. The test environment reaches them through the
-package (`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing
-them again, so that a second `[sources]` cannot disagree with the first.
+`Project.toml` names IMEXRungeKutta there, by its GitHub URL at
+`rev = "main"`; EntropyEOS, registered since EOS-0, resolves from General
+by `[compat]`. CI adds nothing by hand: `julia-buildpkg`, a clean
+`git archive` and a developer's `Pkg.instantiate()` all resolve them the
+same way. The test environment reaches both through the package
+(`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing them
+again, so that a second `[sources]` cannot disagree with the first and the
+suite reads the one release the package resolved.
 
 The history of the floor (1.10, 1.11, 1.12), of the CI cells and of what
 1.11 needed is in [HISTORY.md, "Julia version"](HISTORY.md#julia-version).
@@ -4905,6 +4881,12 @@ the magnetized star's convergence studies); `threaded` also the
   (`@dd2_gated`): where `ENTROPYEOS_TABLE_DIR` does not hold the table, as
   on GitHub, it is one skipped test, named at the end of the run. Symmetry's
   suite sets the variable (`jobs/full-suite.toml`).
+- `test/neutrino_rates_tests.jl`: the Fermi integrals against 128-bit
+  quadrature; RJS96's β-processes in detailed balance; the pair emission
+  against BRT06's fit; the nucleons' blocking; the rates in geometric units
+  against the formulas written out in cgs in the test; Float32 against
+  Float64; the effective rates' limits; `GrayRates`; a CPU kernel at both
+  precisions, allocation-free (step 16; pointwise, no tier).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -4965,7 +4947,13 @@ bit-identically to the host; "Precision and devices"):
   `:hlle_split`, measured, not the default; "Riemann solver"),
   `src/emf.jl` and `src/sources.jl`;
 - `src/stage_solve.jl`: `solve_ohm_stage`, Newton on the fluid's share of
-  the energy and momentum, `OhmStageResult` ("The implicit stage solve").
+  the energy and momentum, `OhmStageResult` ("The implicit stage solve");
+- `src/neutrinos/fermi.jl`: `fermi`, the Fermi integrals of order 0 … 5 to
+  round-off, and `fermi_ratio`; `src/neutrinos/rates.jl`: `SpeciesRates`,
+  `GrayRates`, `RJS96Rates` (with its table form, refusing a composition
+  from another table), `neutrino_rates`, and `CompositionPoint`, EOS-12's
+  `Composition` with the nucleons' `μ_n`, `μ_p` (EOS-13); `src/neutrinos/leakage.jl`: `effective_rates`,
+  `absorption_opacity` ("Neutrinos", "Leakage").
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -7003,10 +6991,8 @@ far say about it.
 
 ## Open questions
 
-Four are open, all in the [Neutrinos](#neutrinos) section:
-- **The Fermi integrals' fits** and their accuracy against quadrature
-  (rung 8a).
-- **`Y_np` in the Pauli blocking**: `2Yₑ − 1` or `X_p − X_n` (rung 8a).
+Two are open, both in the [Neutrinos](#neutrinos) section (the Fermi
+integrals' fits and `Y_np`'s fractions were decided in step 16):
 - **`N_min`**, below which M0's mean energy is `E^β` and absorption is off
   (rungs 8c, 8f).
 - **A moving centre** for M0's closure, for when a binary is built.
@@ -7082,6 +7068,15 @@ short is under [Known risks](#known-risks), and what is not built under
   only 1.0–1.4 on the finer pair around 100 M, perhaps the start's
   transient crossing the coarse levels; neither is separated ("Validation
   ladder" 7).
+- **O'Connor–Ott LS220's composition is noisy where its nuclei dissolve**
+  (`log ρ` 12.8–14.3, every `Yₑ`, up to `T = 13.5 MeV`): single nodes off
+  both neighbours in `mu_e`, `muhat`, `Xh`, `Xn` and the pressure at once,
+  which the composition's trilinear interpolation spreads over the
+  neighbouring cells, changing the heavy-nucleus opacity locally by up to
+  about 3× (EntropyEOS's measurement, its `CODE.md`, "Composition"). The
+  matter is optically thick there, so the effect on the luminosities is
+  probably small; unmeasured. Production runs with LS220 physics take SRO's
+  LS220.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

@@ -118,6 +118,9 @@ export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_
        update_fields!, boundary_at
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B,
        with_step_cache
+# The neutrinos (step 16): the Fermi integrals, the rates, the leakage
+export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint,
+       neutrino_rates, effective_rates, absorption_opacity
 # The driver and the cases
 export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
        DirichletBoundary, case_boundary, profile_1d, walls_to_state!
@@ -194,5 +197,8 @@ include("cases/tov.jl")
 include("cases/magnetized_tov.jl")
 include("cases/tabulated_tov.jl")
 include("field_diagnostics.jl")
+include("neutrinos/fermi.jl")
+include("neutrinos/rates.jl")
+include("neutrinos/leakage.jl")
 
 end # module TreeGRRMHD

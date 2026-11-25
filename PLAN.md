@@ -93,14 +93,22 @@ One item, stated in full in `CODE.md`, "Requests still waiting":
 
 | ID | what | needed by | state |
 |---|---|---|---|
-| EOS-12 | the composition `(μ_e, μ̂, μ_ν, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)` on the device, opt-in, with `q_np` and `matches` | step 16's tabulated half, step 20 | revised with upstream 2026-11-25; not landed |
+| EOS-12 | the composition on the device | step 16, step 20 | landed, EntropyEOS 2.4.0 (registered; `[compat]` `"2.4"`) |
+| EOS-13 | the nucleons' own `μ_n`, `μ_p` in `Composition` | step 20 | not sent |
 
-Everything before step 20 can be built and tested without it: `GrayRates`
-need no composition, and `RJS96Rates` are tested in step 16 on a
-`Composition` built by hand. Its probe goes in
-`test/prerequisite_tests.jl` in step 16.
+Everything before step 20 can be built and tested without EOS-13:
+`GrayRates` need no composition, and `RJS96Rates` take `μ_n`, `μ_p` as
+`CompositionPoint` keywords until then. Its probe is in
+`test/prerequisite_tests.jl`.
 
 ## Step 16 — Rates and opacities, pointwise (rung 8a)
+
+*Built* (2026-11-25, on `claude/step-16-neutrino-rates`): the Fermi integrals, both
+rate models, the effective rates, the table form refusing another table's
+composition (EOS-12, landed in EntropyEOS 2.4.0) and their tests; `HISTORY.md`,
+"The steps of the plan", has what changed from this brief. The DD2 values wait
+for EOS-13 and move to step 20; the mass `X_l` holds is EntropyEOS's
+measurement (34%).
 
 `CODE.md`: "Neutrinos" ("Leakage"), "Thermodynamics", "Precision and
 devices". Waits: EOS-12 for the DD2 reference values only.
@@ -213,11 +221,11 @@ Accept:
 ## Step 20 — The star with neutrinos (rung 8g)
 
 `CODE.md`: "Neutrinos", "Thermodynamics", "Validation ladder" 7, "The
-per-phase table", "Devices". Waits: EOS-12.
+per-phase table", "Devices". Waits: EOS-13.
 
 Changes:
-- `RJS96Rates` on DD2 through `composition`; the stand-in `Composition`
-  and its EOS-12 marks removed.
+- `RJS96Rates` on DD2 through `composition`, with `μ_n`, `μ_p` from
+  EOS-13 rather than `CompositionPoint`'s keywords.
 - The cold star and a heated star (its entropy raised), on the Cowling
   metric in the suite at `h = 1`, and as `bin/` studies coupled to TreeGH.
 - A neutrino row in the per-phase table; a CUDA run of the heated star

@@ -35,13 +35,13 @@
 
 using KernelAbstractions: CPU, @kernel, @index
 using StaticArrays: SVector
-import Pkg
 import SpacetimeMetrics
 
 # Reached through the package rather than added to the test environment a
-# second time: neither is in the General registry, so the test environment
-# would need `[sources]` entries of its own, which could then disagree with
-# the package's.
+# second time: IMEXRungeKutta is not in the General registry, so the test
+# environment would need a `[sources]` entry of its own, which could then
+# disagree with the package's; EntropyEOS, registered since EOS-0, is reached
+# the same way so that the suite reads the one release the package resolved.
 const EOS = TreeGRRMHD.EntropyEOS
 const IRK = TreeGRRMHD.IRK
 
@@ -104,6 +104,10 @@ end
     # bits the tests keep apart from the policy's. Since step 13 the table
     # reader and the cold β-equilibrium slice the tabulated star's initial
     # data reads (EOS-4, in 2.3.0; `[compat]` "2.3", so its probe is retired).
+    # Since step 16 the composition on the device the neutrino rates read
+    # (EOS-12, in 2.4.0; `[compat]` "2.4", so its probe is retired), and
+    # `SyntheticOptions`, whose `with_composition` gives the synthetic table
+    # its composition datasets.
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
                  :IdealGasEOS, :HybridEOS, :polytropic_entropy,
                  :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
@@ -117,7 +121,9 @@ end
                  :FLAG_POL_W_CEILED, :FLAG_POL_ANY, :FLAG_CS2_OUT_OF_RANGE,
                  :make_synthetic_table, :build_eos,
                  :RawTable, :read_stellarcollapse, :cold_beta_slice, :ColdBetaSlice,
-                 :beta_equilibrium, :BetaEquilibrium)
+                 :beta_equilibrium, :BetaEquilibrium,
+                 :CompositionTable, :CompositionView, :Composition, :composition, :q_np,
+                 :matches, :fingerprint, :SyntheticOptions)
         @test name in names(EOS)
     end
     @test isdefined(EOS, :κ) && :κ ∉ names(EOS)
@@ -308,19 +314,6 @@ function prereq_report(id, landed::Bool, what)
     return landed
 end
 
-@testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
-    # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
-    # way — but says whether the URL workaround can go. Read from the
-    # registries this depot reaches, which may be stale, so this is a
-    # report and not an assertion.
-    uuid = Base.PkgId(EOS).uuid
-    landed = any(reg -> haskey(reg.pkgs, uuid), Pkg.Registry.reachable_registries())
-    prereq_report("EOS-0", landed,
-                  landed ? "EntropyEOS is in a reachable registry; the `[sources]` " *
-                  "entry can go" :
-                  "EntropyEOS is in no reachable registry; `[sources]` adds it by URL")
-end
-
 @testset "EOS-3: the fixed-entropy inversion is public (when landed)" begin
     # Guards the entropy fallback of step 12 and the entropy-from-energy
     # solve for initial data.
@@ -328,6 +321,15 @@ end
     prereq_report("EOS-3", landed,
                   landed ? "`con2prim_entropy`, `entropy_from_energy`" :
                   "no public fixed-entropy inversion; wanted by step 12")
+end
+
+@testset "EOS-13: the nucleons' own chemical potentials (when landed)" begin
+    # Guards `RJS96Rates` on a table (step 20): Bruenn's scattering blocking
+    # reads μ_n and μ_p, which until then `CompositionPoint` takes as keywords.
+    landed = hasfield(EOS.Composition, :μ_n) && hasfield(EOS.Composition, :μ_p)
+    prereq_report("EOS-13", landed,
+                  landed ? "`Composition` has `μ_n`, `μ_p`" :
+                  "`Composition` has no μ_n, μ_p; CompositionPoint takes them as keywords")
 end
 
 @testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)

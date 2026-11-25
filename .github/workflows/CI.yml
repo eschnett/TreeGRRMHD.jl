@@ -95,12 +95,12 @@ jobs:
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
-      # EntropyEOS (until EOS-0) and IMEXRungeKutta are not in the General
-      # registry. They are added by URL through `Project.toml`'s `[sources]`
-      # rather than by a `Pkg.add(url = ...)` step here, so that CI, a clean
-      # checkout and a developer's `Pkg.instantiate()` resolve them the same
-      # way, from their remotes and never from a sibling checkout (see
-      # "Upstream prerequisites" in `CODE.md`).
+      # IMEXRungeKutta is not in the General registry. It is added by URL
+      # through `Project.toml`'s `[sources]` rather than by a
+      # `Pkg.add(url = ...)` step here, so that CI, a clean checkout and a
+      # developer's `Pkg.instantiate()` resolve it the same way, from its
+      # remote and never from a sibling checkout (see "Upstream
+      # prerequisites" in `CODE.md`). EntropyEOS is registered (EOS-0).
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:
