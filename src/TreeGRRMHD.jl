@@ -121,6 +121,9 @@ export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scal
 # The neutrinos (step 16): the Fermi integrals, the rates, the leakage
 export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint,
        neutrino_rates, effective_rates, absorption_opacity
+# The optical depth (step 17)
+export OpticalDepth, OpacityEscape, opacities!, sweep!, converge!, depth_regrid_pairs,
+       reset_depth!
 # The driver and the cases
 export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
        DirichletBoundary, case_boundary, profile_1d, walls_to_state!
@@ -200,5 +203,6 @@ include("field_diagnostics.jl")
 include("neutrinos/fermi.jl")
 include("neutrinos/rates.jl")
 include("neutrinos/leakage.jl")
+include("neutrinos/optical_depth.jl")
 
 end # module TreeGRRMHD

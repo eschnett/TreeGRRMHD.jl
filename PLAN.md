@@ -148,6 +148,10 @@ Accept:
 
 ## Step 17 — The optical depth (rung 8b)
 
+*Built* (2026-11-25, on `claude/step-17-optical-depth`): `OpticalDepth` and its tests;
+`HISTORY.md`, "The steps of the plan", has what changed from this brief — after a
+regrid τ is transferred and not reconverged, and `Nτ` has one ghost layer.
+
 `CODE.md`: "Neutrinos" ("The optical depth", "Field sets and interface"),
 "Field sets", "Refinement". Waits: none.
 

@@ -97,6 +97,8 @@ include("tiers.jl")
     # Step 16: the neutrino rates and opacities, pointwise (rung 8a). Uses
     # `recovery_states.jl`'s `rec_allocations`.
     include("neutrino_rates_tests.jl")
+    # Step 17: the optical depth on the forest (rung 8b).
+    include("optical_depth_tests.jl")
     # Step 14: the run bit for bit at another thread count (a subprocess), and on a device,
     # or on the CPU standing in for one (`TREEGRRMHD_TEST_BACKEND`; the file also runs by
     # itself, which is how a device job runs it).

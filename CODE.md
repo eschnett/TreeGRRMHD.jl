@@ -2675,18 +2675,44 @@ forest: per species and weighting (six fields),
 with `ℓ_cn` the proper distance between the two centres from the cell metric
 (the two cells' `√(γ_ij Δxⁱ Δxʲ)`, averaged). Over all `3^D − 1` neighbours,
 not only the `2D` across faces: the face neighbours alone measure distance in
-the L1 norm and overestimate `τ` by up to `√D` along a diagonal; with the
-diagonals the overestimate is a few per cent (rung 8b measures it on a
-uniform sphere, against `κ (R − r)`). The ghosts at the outer faces hold
-`τ = 0` and `κ = 0`, so neutrinos escape there.
+the L1 norm and overestimate `τ` by up to `√D` along a diagonal. The ghosts
+at the outer faces hold `τ = 0` and `κ = 0` (`OpacityEscape`), so neutrinos
+escape there; the first cell inside gets `κh/2`, its centre's distance to
+the face. Faces the forest declares reflecting or outflow are filled by the
+ghost schedule, not by that hook, so neutrinos escape only through the other
+outer faces, and a forest periodic in every direction, with no boundary for
+`τ` to be measured to, is refused.
+
+It is a Bellman–Ford relaxation: from `τ = 0` it rises one cell per sweep to
+the shortest optical path to the outer faces. Each sweep reads the previous
+`τ` and writes the new one into an owned-only work set (Jacobi), so that a
+sweep is the same at any thread count and on any backend.
+
+**Measured** (step 17, `test/optical_depth_tests.jl`): the kernel's fixed
+point is a plain Bellman–Ford's over the same stencil bit for bit, in the
+same number of sweeps (64² and 32³, many blocks); on planar boundaries
+oblique to the grid on 32³, `τ/κd` between 0.92 and 1.00 at depths `4h …
+0.35` — the staircase of the boundary takes up to 8% off, and the chamfer
+metric's overestimate does not show — against √3 for the face neighbours
+alone on the (1, 1, 1) plane; inside a uniform sphere `τ` within
+−0.76 … +0.30 `κh` of `κ (R − r)`.
 
 `τ` is frozen over a step, a parameter of the right-hand side. **One sweep
 per step**, after the step limiter: `κ` from the step's result into the
-`Nτ` set, a ghost fill, one sweep from the previous `τ`. At the initial data
-and after each regrid the sweep repeats until no cell's `τ` changes by more
-than `10⁻¹⁰` of itself; `τ` travels one cell per sweep, so from scratch this
-takes as many sweeps as the star is cells across, and after a regrid (which
-transfers `τ`, see below) a few.
+`Nτ` set, a ghost fill, one sweep from the previous `τ`. Since `τ` travels
+one cell per sweep, `1/cfl` times the speed of light, it shows the matter as
+it was about `L h · cfl` earlier, `L` the optical path in cells: on a sphere
+of 13 cells' radius moving at `v = 0.1` (step 17), 0.69 `κh` behind the
+converged `τ`. At the initial data the sweeps repeat until no cell's `τ`
+changes by more than `10⁻¹⁰` of itself (`converge!`), as many as the longest
+path is cells long. **After a regrid** `τ` is transferred with the matter's
+bounded conservative operators and the sweeps go on one per step from it,
+without converging again: a Bellman–Ford fixed point is reached only once
+the boundary's information has crossed the whole path, whatever the start,
+so reconverging takes as many sweeps as from zero (20 against 20 in step
+17), while the transferred `τ` is already within the coarse mesh's
+resolution of the converged one (1.29 `κ h_fine`). Across a coarse-fine face
+the converged `τ` is within `κ h_fine` of the uniform fine mesh's.
 
 ### M0: the free-streaming neutrinos
 
@@ -2801,7 +2827,16 @@ recorded per chunk in `X` and is expected to be small (rung 8f).
 |---|---|---|---|---|
 | `Nν` — `N_ν`, `𝓔_ν` per species, in the state vector | cell | 6 | 3 | Conservative width 3, bounded / `=> schedule` |
 | `Fν_d` — their fluxes | face `d` | 6 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
-| `Nτ` — `τ^α_ν` (6), and `κ^α_ν = κ_a + κ_s` (6) for the sweep | cell | 12 | 3 | Conservative width 3, bounded, for `τ` / `=> schedule` for `τ`; `κ` recomputed |
+| `Nτ` — `τ^α_ν` (6), and `κ^α_ν = κ_a + κ_s` (6) for the sweep | cell | 12 | 1 | Conservative width 3, bounded / `=> schedule`, `κ` recomputed before the next sweep |
+| `Nτ`'s work set — the new `τ` (6) and each cell's relative change | cell | 7 | 0 | `=> nothing`; the convergence measure is its max-reduction |
+
+`Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
+three would triple the fill of twelve variables (step 17, **(proposed)**).
+It is held, with its work set, schedule and hook, by `OpticalDepth`
+(`src/neutrinos/optical_depth.jl`): `opacities!(od, model, P)`,
+`sweep!(od, P)`, `converge!(od, P)`; `depth_regrid_pairs(od)` are its
+entries for `regrid!` and `rebuild(od)` its schedule after one. `M0Leakage`
+will hold it (step 18).
 
 `Nν` is a separate set, not slots in the matter's `U`, so that a run without
 neutrinos is today's, bit for bit, and the matter's kernels do not change.
@@ -4887,6 +4922,11 @@ the magnetized star's convergence studies); `threaded` also the
   against the formulas written out in cgs in the test; Float32 against
   Float64; the effective rates' limits; `GrayRates`; a CPU kernel at both
   precisions, allocation-free (step 16; pointwise, no tier).
+- `test/optical_depth_tests.jl`: the sweep against a plain Bellman–Ford, bit
+  for bit, in 2D and 3D; oblique planar boundaries against the face
+  neighbours' √3; a uniform sphere; one sweep a step following a moving
+  sphere; coarse-fine faces and a regrid against the uniform mesh (step 17;
+  2D and 3D, no tier).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -4953,7 +4993,9 @@ bit-identically to the host; "Precision and devices"):
   `GrayRates`, `RJS96Rates` (with its table form, refusing a composition
   from another table), `neutrino_rates`, and `CompositionPoint`, EOS-12's
   `Composition` with the nucleons' `μ_n`, `μ_p` (EOS-13); `src/neutrinos/leakage.jl`: `effective_rates`,
-  `absorption_opacity` ("Neutrinos", "Leakage").
+  `absorption_opacity` ("Neutrinos", "Leakage"); `src/neutrinos/optical_depth.jl`:
+  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
+  ("Neutrinos", "The optical depth").
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -6899,10 +6941,13 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      against reference values computed once by a script and kept in
      `test/data/`, as the shock tubes' are; `R^eff → R` as `τ → 0` and
      `→ n^β/t_diff` as `τ → ∞`.
-   - **8b, the optical depth**: a uniform-`κ` sphere against `κ (R − r)`,
-     the overestimate along the diagonals stated as a number; the sweeps to
-     convergence equal to the cells across; one sweep per step following
-     a moving sphere.
+   - **8b, the optical depth** *(done, step 17)*: the sweep a plain
+     Bellman–Ford's bit for bit, in as many sweeps; oblique planes, 0.92 …
+     1.00 of the distance against the face neighbours' √3; a uniform sphere
+     within −0.76 … +0.30 `κh` of `κ (R − r)`; one sweep per step 0.69 `κh`
+     behind a moving sphere; across a coarse-fine face within `κ h_fine` of
+     the uniform mesh, and a regrid's transferred `τ` within 1.29 `κ h_fine`
+     ("Neutrinos", "The optical depth").
    - **8c, M0 in flat space** (`GrayRates`, the matter at rest, its
      feedback off): a uniform sphere's steady state, `r² n` solving
      `(r² n)′ + κ r² n = η r²` inside and `n ∝ r⁻²` outside, converging at

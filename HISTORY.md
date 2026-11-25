@@ -1007,6 +1007,29 @@ EntropyEOS's measurement, and only the DD2 values wait, for EOS-13.
   `μ_n`, `μ_p` and the table's baryon mass, which EOS-12 does not carry: an addendum
   (`CODE.md`, "Requests still waiting"), not yet sent.
 
+**2026-11-25, step 17 — The optical depth (rung 8b).** On `claude/step-17-optical-depth`,
+cut from step 16's branch. Built: `src/neutrinos/optical_depth.jl` (`OpticalDepth`, the
+`Nτ` set and its work set, `opacities!`, `sweep!`, `converge!`, `depth_regrid_pairs`,
+`rebuild`) and `test/optical_depth_tests.jl` (35 tests, 43 s on the M3 Pro).
+- **The design's regrid rule was wrong.** It said the sweeps repeat to convergence after
+  each regrid and take "a few", since τ is transferred. Measured: reconverging after a regrid
+  took 19 sweeps against 20 from zero. A Bellman–Ford fixed point is reached only once the
+  boundary's information has crossed the whole path, whatever the start. The transferred τ
+  is within 1.29 `κ h_fine` of the converged one, the coarse mesh's own resolution, so after
+  a regrid the sweeps go on one per step from it; `converge!` runs only at the initial data.
+- **`Nτ` has one ghost layer**, not the three of the design's table: the sweep reads one,
+  and three would triple the fill of twelve variables (proposed).
+- **Measured**: bit for bit a plain Bellman–Ford's fixed point, in as many sweeps (64² in 24,
+  32³ in 12); oblique planes on 32³ at depths `4h … 0.35`, `τ/κd` 1.000, 0.916, 0.972, 0.990,
+  0.976 for the normals (1,0,0), (1,1,0), (1,1,1), (2,1,0), (3,2,1), against 1.000, 1.313,
+  1.732, 1.171, 1.372 with face neighbours alone; a uniform sphere within −0.65 … +0.30 `κh`
+  (64²) and −0.76 … +0.07 `κh` (32³) of `κ (R − r)`; one sweep per step 0.69 `κh` behind a
+  sphere of 13 cells' radius moving at `v = 0.1` for 150 steps; across a coarse-fine face
+  within `κ h_fine` (exactly one fine step of the staircase) of the uniform fine mesh.
+- **Also decided**: Jacobi sweeps, so that a sweep is the same at any thread count; a fully
+  periodic forest refused; faces declared reflecting or outflow filled by the schedule, so
+  neutrinos escape only through the hook's faces.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -6692,3 +6715,9 @@ composition's testset added: **38110 tests, every run passing whole** with the t
 uncommitted working tree, not posted) — 32m22s at one thread, 24m02s at four, 39m04s with
 `--check-bounds=yes`, side by side. Against step 15 on Zen 3, about two minutes more in
 each run. The log reports EOS-3, EOS-13 and GH-2, GH-6, GH-7 waiting.
+
+**2026-11-25, step 17.** The optical depth (`test/optical_depth_tests.jl`, 35 tests, 2D and 3D,
+no tier; 43 s alone on the M3 Pro): **38145 tests, every run passing whole** with the tables
+(Symmetry job 611409 on cn110, EPYC 7543, `amddebugq`; study `step17-depth-suite`, the
+uncommitted working tree, not posted) — 32m57s at one thread, 23m04s at four, 40m06s with
+`--check-bounds=yes`, side by side.
