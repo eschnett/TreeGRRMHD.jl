@@ -1,0 +1,40 @@
+# Performance before production, on 192-core nodes (Trillium, Fir; AMD EPYC 9655 on
+# Trillium): how many ranks a node should hold, as `perf-mpi-node.toml` asks on Symmetry's
+# 64-core nodes. The DD2 star (`bin/benchmark.jl case=dd2`) on 960 blocks (`[−24, 24]³`, 4³
+# roots of 16³, two box levels, 3.9·10⁶ cells), one node of 8 NUMA domains, 192 cores as 1,
+# 2, 4 and 8 ranks, each bound to its share of the domains; the runs one after another.
+name = "perf-mpi-node192"
+mode = "sequential"
+placement = "numa"
+
+[site.trillium]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.fir]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/eos-tables" }
+
+[[run]]
+label = "r1"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 1
+threads = 192
+
+[[run]]
+label = "r2"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 2
+threads = 96
+
+[[run]]
+label = "r4"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 4
+threads = 48
+
+[[run]]
+label = "r8"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 8
+threads = 24

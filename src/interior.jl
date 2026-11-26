@@ -70,11 +70,12 @@ struct InteriorTarget{T,FL,PT,EOS,MET}
     provider::MET
 end
 
-InteriorTarget(hole::HoleInterior, case) =
-    InteriorTarget(hole, case.fields, case.potential, case.eos, case.provider)
+InteriorTarget(hole::HoleInterior, case; eos=case.eos) =
+    InteriorTarget(hole, case.fields, case.potential, eos, case.provider)
 
-interior_target(::Nothing, case) = nothing
-interior_target(hole::HoleInterior, case) = InteriorTarget(hole, case)
+# `eos`: the case's, or the case's uploaded to where the kernels run (`eos_on`).
+interior_target(::Nothing, case; eos=case.eos) = nothing
+interior_target(hole::HoleInterior, case; eos=case.eos) = InteriorTarget(hole, case; eos)
 
 # Whether the point `x` is inside the ball.
 @inline function in_hole(h::HoleInterior{T}, x::SVector{3,T}) where {T}

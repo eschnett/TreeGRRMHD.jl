@@ -1,0 +1,76 @@
+# Performance before production, on 192-core nodes (Trillium, Fir): strong scaling over
+# nodes, as `perf-mpi-nodes.toml` measures it on Symmetry, where 8 nodes hung in the first
+# collective under HPC-X and a 4-node step was slow on some nodes (`CODE.md`, "The
+# tabulated star's cost"): here with each site's own Open MPI through mpi_abi_wrapper. The
+# DD2 star (`bin/benchmark.jl case=dd2`) on 960 blocks (3.9·10⁶ cells) and on 6056 (`[−48,
+# 48]³`, 8³ roots, three box levels, 2.5·10⁷ cells), on 1, 2, 4 and 8 nodes, 8 ranks of 24
+# threads a node, one rank per NUMA domain, and the larger mesh on 8 nodes under MPICH_jll
+# as well; the runs one after another in one allocation.
+name = "perf-mpi-nodes192"
+mode = "sequential"
+placement = "numa"
+threads = 24
+resources = { nodes = 8 }
+
+[site.trillium]
+time = "3:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.fir]
+time = "3:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/eos-tables" }
+
+[[run]]
+label = "m2-n1"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 8
+nodes = 1
+
+[[run]]
+label = "m2-n2"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 16
+nodes = 2
+
+[[run]]
+label = "m2-n4"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 32
+nodes = 4
+
+[[run]]
+label = "m2-n8"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 64
+nodes = 8
+
+[[run]]
+label = "m3-n1"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 8
+nodes = 1
+
+[[run]]
+label = "m3-n2"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 16
+nodes = 2
+
+[[run]]
+label = "m3-n4"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 32
+nodes = 4
+
+[[run]]
+label = "m3-n8"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 64
+nodes = 8
+
+[[run]]
+label = "m3-n8-jll"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 64
+nodes = 8
+mpi = "jll"

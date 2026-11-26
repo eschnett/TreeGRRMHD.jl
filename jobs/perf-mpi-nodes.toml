@@ -1,0 +1,60 @@
+# Performance before production: strong scaling over nodes. The DD2 star
+# (`bin/benchmark.jl case=dd2`) on two meshes — 960 blocks (`[−24, 24]³`, 4³ roots, two box
+# levels, 3.9·10⁶ cells) and 6056 blocks (`[−48, 48]³`, 8³ roots, three box levels,
+# 2.5·10⁷ cells) — on 1, 2 and 4 AMD nodes, 8 ranks of 8 threads a node, one rank per
+# NUMA domain; the runs one after another in one allocation. Not 8: with the site's MPI
+# (HPC-X through mpi_abi_wrapper) any job on 8 nodes hung in its first collective, on every
+# set of nodes tried, at 8 and at 64 ranks, where 7 worked (2026-11-25; `HISTORY.md`,
+# "Precision and devices"). Its multi-node timings depend on the nodes: scaling is measured
+# on Trillium and Fir (`perf-mpi-nodes192.toml`; `CODE.md`, "The tabulated star's cost").
+name = "perf-mpi-nodes"
+mode = "sequential"
+placement = "numa"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+resources = { nodes = 4 }
+time = "3:00:00"
+
+[[run]]
+label = "m2-n1"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 8
+nodes = 1
+threads = 8
+
+[[run]]
+label = "m2-n2"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 16
+nodes = 2
+threads = 8
+
+[[run]]
+label = "m2-n4"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 32
+nodes = 4
+threads = 8
+
+[[run]]
+label = "m3-n1"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 8
+nodes = 1
+threads = 8
+
+[[run]]
+label = "m3-n2"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 16
+nodes = 2
+threads = 8
+
+[[run]]
+label = "m3-n4"
+cmd = "bin/benchmark.jl case=dd2 L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 32
+nodes = 4
+threads = 8
+

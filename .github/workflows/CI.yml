@@ -101,8 +101,8 @@ jobs:
       # through `Project.toml`'s `[sources]` rather than by a
       # `Pkg.add(url = ...)` step here, so that CI, a clean checkout and a
       # developer's `Pkg.instantiate()` resolve it the same way, from its
-      # remote and never from a sibling checkout (see "Upstream
-      # prerequisites" in `CODE.md`). EntropyEOS is registered (EOS-0).
+      # remote and never from a sibling checkout (see
+      # "Upstream prerequisites" in `CODE.md`).
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:
