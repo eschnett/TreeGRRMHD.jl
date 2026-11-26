@@ -341,15 +341,6 @@ end
                   "no public fixed-entropy inversion; wanted by step 12")
 end
 
-@testset "EOS-13: the nucleons' own chemical potentials (when landed)" begin
-    # Guards `RJS96Rates` on a table (step 20): Bruenn's scattering blocking
-    # reads μ_n and μ_p, which until then `CompositionPoint` takes as keywords.
-    landed = hasfield(EOS.Composition, :μ_n) && hasfield(EOS.Composition, :μ_p)
-    prereq_report("EOS-13", landed,
-                  landed ? "`Composition` has `μ_n`, `μ_p`" :
-                  "`Composition` has no μ_n, μ_p; CompositionPoint takes them as keywords")
-end
-
 @testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)
     # Guards nothing here. TreeGH is not a dependency of this package or of
     # this suite (`CODE.md`, "The coupling contract"); the coupled suite in

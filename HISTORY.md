@@ -2644,11 +2644,57 @@ RJS96 (A5) writes the equilibrium `η_{ν_e} = η_e + η_p − η_n − Q/T` wit
 without rest masses, so with EOS-12's `μ̂` the nucleons' blocking takes `(μ̂ − Q)/T` and
 `η_ν = μ_ν/T` takes no `Q`; and `Y_np` takes `X_p − X_n`.
 
+**2026-11-26, EOS-13 withdrawn.** The draft sent to EntropyEOS asked for two more fields
+of `Composition`, `μ_n` and `μ_p` in MeV "without rest masses", shifted to one convention
+for every table as EOS-12 shifts `muhat`, so that `μ_n − μ_p = μ̂ − Q`; accepted at the
+nodes and on the synthetic table; probed by `hasfield(EntropyEOS.Composition, :μ_n)`, with
+`CompositionPoint` taking both as keywords until then. It was for Bruenn's scattering
+blocking in RJS96 (A7, A8), `X_N/(1 + ⅔ max(η_N, 0))` with `η_N = μ_N/T`.
+
+EntropyEOS's reply questioned the physics first. Bruenn's formula comes from a free gas, so
+its `η_N` is the kinetic degeneracy, about `E_F/T` when degenerate; the tables' `μ_n − m_n`
+also holds the mean-field potential and the effective mass. At `T ≈ 1 MeV` it is −15 MeV at
+`log ρ` 14.42, `Yₑ` 0.5 (SRO LS220, DD2), where the free gas's `E_F(n_n)` is 37 MeV, so the
+table's value would turn the blocking off where it is strong; and 598 MeV against 136 MeV at
+`log ρ` 15, `Yₑ` 0.1 (DD2). Had the fields been wanted, the identity `μ_n − μ_p = μ̂ − Q`
+would not have fixed their common shift, which is what the blocking reads: the tables'
+reference masses differ (SRO and O'Connor–Ott LS220 `m_n` for both; DD2 and SFHo `m_u`, so
+"as EOS-12 shifts `muhat`" would have left them about 8 MeV high with the draft's acceptance
+test still passing). They proposed measuring the reference mass per table against the ideal
+gas, an absolute acceptance test, and storing `μ_n` alone, since `μ_p = μ_n − μ̂ + Q` holds
+at every node.
+
+This package agreed with the physics point: the mean field shifts the initial and final
+nucleon alike, and only the phase space counts. In A5 the same symbols mean the
+thermodynamic potentials, and there the table's are right (EOS-12's `μ̂`), as they are in
+the absorption blocking (A13, A14), where `U_n − U_p` shifts the Q-value. Erik withdrew
+EOS-13. The blocking is now the free non-relativistic gas's, from `n_N = X_N n_b` and `T`,
+which `RJS96Rates` already has, so nothing is needed upstream, not even the baryon mass on
+the device. Measured against the exact `ξ = F₋½/(2F_½)` over `η ∈ [−8, 40]` (the trapezoid
+rule in `u = √x`): Bruenn's interpolation with the exact `η` is off by up to 26% (at `η = 0`), the
+same with `η → E_F/T` by about 25%, and `X/√(1 + (⅔ E_F/T)²)`, which was taken, by 4.9% (at
+`η = 0`), with both of Bruenn's limits. `CompositionPoint` lost its two fields and the
+keywords, the probe was removed. No neutrino test had read a table, so no validated number
+changed; the cgs reference in `test/neutrino_rates_tests.jl` follows the new blocking.
+
+The same reply announced EntropyEOS 2.4.1, which corrects EOS-12's `μ̂` on O'Connor–Ott
+LS220 by Q (its `munu`, which 2.4.0 trusted, subtracts a further Q above 10⁸ g/cm³); this
+package moves to it separately. Their unconfirmed hint that O'Connor–Ott LS220's density
+counts baryons in `m_n` rather than `m_u` went back to them as a question, with whether
+`m_B_table_g` and `m_B_star_g` are the same mass. The hint did not hold: from the first
+law at fixed `ρ` and `Yₑ` (`m_B = ∫T ds/Δε`, `log ρ` 4–8, `T` 2–60 MeV, Richardson to zero
+step) the baryon mass is `m_u` on O'Connor–Ott LS220 (0.99999), DD2 and SFHo (1.00000),
+and `m_n` on SRO LS220 (1.00866 `m_u`); the `−T ln(m_n/m_u)` residual was in that table's
+`mu_n`, `mu_p`, which nothing here reads. The two masses differ by `κ`, each paired with
+its own density, `n_b = ρ★/m_B★ = ρ_table/m_B_table`, which `RJS96Rates` already did;
+`m_B_table_g` is what the EOS is built with, so SRO LS220 needs `M_NEUTRON_G`. Both went
+into `CODE.md`'s "Leakage".
+
 **2026-11-26, EntropyEOS 2.4.1.** EntropyEOS 2.4.1 (its PR 17, 63f4374) fixes `μ̂` and `μ_ν`
 on O'Connor–Ott LS220, which 2.4.0 had off by `Q = 1.293 MeV`: `μ̂` too high (`muhat + Q`)
 and `μ_ν` too low (`mu_e − muhat − Q`). 2.4.0 had read the table's `muhat` convention off its
 `munu`, which differs from `mu_e − muhat` by `−Q` above 10⁸ g/cm³ and not below, and taken
-the larger region to be right. Reviewing this package's EOS-13 draft showed the opposite:
+the larger region to be right. Reviewing this package's EOS-13 draft (entry above) showed the opposite:
 every table's raw `muhat` includes `Q`, O'Connor–Ott LS220's as well (in the hot, dilute
 region its `muhat` is `Q + T ln[(X_n/X_p)(m_p/m_n)^{3/2}]` to 10 keV on both sides of
 10⁸ g/cm³, and in uniform matter SRO LS220's to 0.05–0.2 MeV), and that table's `munu`
@@ -7002,3 +7048,9 @@ side; the bounds-checked run now takes three quarters of `amddebugq`'s hour on Z
 restart): **38423 tests, every run passing whole** with the tables (Symmetry job 612323 on
 cn101, EPYC 7543, `amddebugq`; study `pr18-merged-suite`, not posted) — 38m10s at one
 thread, 27m13s at four, 46m42s with `--check-bounds=yes`, side by side.
+
+**2026-11-26, EOS-13 withdrawn.** At 6c45220 (the scattering blocking from the free gas's
+density, the EOS-13 probe removed, its new testset): **38428 tests, every run passing
+whole** with the tables (Symmetry job 613620 on cn096, EPYC 7543, `amddebugq`; study
+`full-suite-6c4522075c1f`, not posted) — 38m04s at one thread, 26m39s at four, 46m47s with
+`--check-bounds=yes`, side by side.

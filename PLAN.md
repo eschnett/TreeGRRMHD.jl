@@ -95,21 +95,20 @@ One item, stated in full in `CODE.md`, "Requests still waiting":
 | ID | what | needed by | state |
 |---|---|---|---|
 | EOS-12 | the composition on the device | step 16, step 20 | landed, EntropyEOS 2.4.0 (registered; `[compat]` `"2.4"`) |
-| EOS-13 | the nucleons' own `μ_n`, `μ_p` in `Composition` | step 20 | not sent |
+| EOS-13 | the nucleons' own `μ_n`, `μ_p` in `Composition` | step 20 | withdrawn: the scattering blocking reads the free gas's degeneracy, from the density |
 
-Everything before step 20 can be built and tested without EOS-13:
-`GrayRates` need no composition, and `RJS96Rates` take `μ_n`, `μ_p` as
-`CompositionPoint` keywords until then. Its probe is in
-`test/prerequisite_tests.jl`.
+Nothing upstream waits for any step: `RJS96Rates` reads only EOS-12's
+composition.
 
 ## Step 16 — Rates and opacities, pointwise (rung 8a)
 
 *Built* (2026-11-25, on `claude/step-16-neutrino-rates`): the Fermi integrals, both
 rate models, the effective rates, the table form refusing another table's
 composition (EOS-12, landed in EntropyEOS 2.4.0) and their tests; `HISTORY.md`,
-"The steps of the plan", has what changed from this brief. The DD2 values wait
-for EOS-13 and move to step 20; the mass `X_l` holds is EntropyEOS's
-measurement (34%).
+"The steps of the plan", has what changed from this brief. The DD2 values move
+to step 20; the mass `X_l` holds is EntropyEOS's measurement (34%). The
+scattering blocking was later changed to the free gas's, from the density, and
+EOS-13 withdrawn (`HISTORY.md`, "EntropyEOS").
 
 `CODE.md`: "Neutrinos" ("Leakage"), "Thermodynamics", "Precision and
 devices". Waits: EOS-12 for the DD2 reference values only.
@@ -234,11 +233,10 @@ Accept:
 ## Step 20 — The star with neutrinos (rung 8g)
 
 `CODE.md`: "Neutrinos", "Thermodynamics", "Validation ladder" 7, "The
-per-phase table", "Devices". Waits: EOS-13.
+per-phase table", "Devices". Waits: nothing upstream.
 
 Changes:
-- `RJS96Rates` on DD2 through `composition`, with `μ_n`, `μ_p` from
-  EOS-13 rather than `CompositionPoint`'s keywords.
+- `RJS96Rates` on DD2 through `composition`.
 - The cold star and a heated star (its entropy raised), on the Cowling
   metric in the suite at `h = 1`, and as `bin/` studies coupled to TreeGH.
 - The luminosity and number flux through the outer faces, summed per step
