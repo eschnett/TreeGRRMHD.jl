@@ -1164,7 +1164,7 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | AMR-10 | TreeAMR | req | 8 (re-measurement), 10, 12 | bounded PointValue interpolation | landed in TreeAMR 0.2.2 |
 | AMR-11 | TreeAMR | wanted | — | the relative hook consistent across levels where an outer face meets a coarse-fine face | waiting |
 | AMR-14 | TreeAMR | wanted | — | the curve split into threads' and ranks' parts by a weight per leaf | waiting |
-| EOS-0 | EntropyEOS | req, workaround | 0 | register in General | waiting (`[sources]`) |
+| EOS-0 | EntropyEOS | req, workaround | 0 | register in General | landed in General (1.0.0, 2026-10-24); `[sources]` dropped 2026-11-25 |
 | EOS-1 | EntropyEOS | req | 5 | `AbstractEOS` interface | landed in EntropyEOS 1.0.0 |
 | EOS-2 | EntropyEOS | req | 5 | analytic Γ-law and hybrid EOS | landed in EntropyEOS 1.0.0 |
 | EOS-3 | EntropyEOS | wanted | 12 | public fixed-entropy inversion; entropy from energy | waiting |
@@ -1176,9 +1176,9 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
-| EOS-12 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `apply_policy` without a level-1 output | waiting |
-| EOS-13 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
 | EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | waiting |
+| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `apply_policy` without a level-1 output | waiting |
+| EOS-16 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
 | GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
 | GH-2 | TreeGH | req, workaround | 11 | registration; registry-satisfiable compat; Julia floor | open, see below |
@@ -2414,6 +2414,22 @@ of PR 15, whose tree is the head 1e324e4 checked above. Step 13 pinned it the sa
 `[sources]` the tag `v2.3.0` and `[compat]` `"2.3"`, in the package and in `coupled/`; the
 EOS-4 probe was retired and its names joined `test/prerequisite_tests.jl`'s list.
 
+**2026-11-25.** EOS-0 found landed: the suite at 23f31cd (Symmetry job 611693) reported
+EntropyEOS in a reachable registry, as the suites at dae7097 and before had, unnoticed. It
+has been in General since 1.0.0 (2026-10-24), every release since registered too, 2.3.0 on
+2026-11-20 and 2.4.0 on 2026-11-25. At Erik's request the `[sources]` entry went, in the
+package and in `coupled/`, and with it the EOS-0 probe; `[compat]` `"2.3"` stays, so a
+clean checkout now resolves 2.4.0, which adds the composition on the device for the
+neutrino work and nothing this package calls.
+
+**2026-11-25, later.** The performance work's requests had taken EOS-12, EOS-13 and EOS-14
+(23f31cd, PR 17), while the neutrino work (`claude/step-19-neutrino-coupling`) had taken
+EOS-12 for the composition on the device, landed in EntropyEOS 2.4.0 under that ID and
+cited so in EntropyEOS's `HISTORY.md`, and EOS-13 for the nucleons' own chemical
+potentials. At Erik's request the performance work's moved: the atmosphere decided
+without level 1 is EOS-15, the state below the cold edge EOS-16; EOS-14, the evaluation
+without its bracket's ends, kept its ID.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of
@@ -3149,11 +3165,11 @@ seed, a cubic's root this package would copy from EntropyEOS's
 
 The same profile found most of what remained in the atmosphere's recoveries
 below the table's cold edge, each 32–41 µs to an answer the policy discards
-(`CODE.md`, "The two levels", the skip of level 1; EOS-12, EOS-13),
+(`CODE.md`, "The two levels", the skip of level 1; EOS-15, EOS-16),
 and half of each forward EOS evaluation in its bracket's ends (EOS-14).
 The skip was proposed with its measurement (a step 25% cheaper on M1 at four
 threads on the M3 Pro, at the cost of level 1's bits on those cells); Erik kept
-it on 2026-11-25, to be revisited when EOS-13 is available. He kept the DD2
+it on 2026-11-25, to be revisited when EOS-16 is available. He kept the DD2
 star's device run in the suite as it is, outside `@full_tier`, the same day, and
 left a device's default recovery split, with the fused recovery's 6.5% on the
 DD2 star (an H200) documented for a run on a table to choose: a default that

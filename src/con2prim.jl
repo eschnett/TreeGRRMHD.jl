@@ -255,24 +255,24 @@ level 1 decides by `D` alone and is cheap, so those inputs keep its
 `ρ_FLOORED` bit. *(Proposed:* the bits it gives up are Erik's to weigh;
 "Primitive recovery", "The two levels" in `CODE.md`.*)*
 
-EOS-12: reads EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and
+EOS-15: reads EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and
 `nan_safe_out`, until EntropyEOS answers this itself.
 """
 @inline function policy_decides(eos::EntropyEOS.AbstractEOS, proj::EntropyEOS.ProjectionOptions{T},
                                 pol::EntropyEOS.PolicyOptions{T},
                                 cin::EntropyEOS.Con2PrimIn{T}) where {T}
-    ρ_min = EntropyEOS.proj_ρ_min(eos, proj)                     # EOS-12
+    ρ_min = EntropyEOS.proj_ρ_min(eos, proj)                     # EOS-15
     finite = isfinite(cin.τ) & isfinite(cin.D_Y) & isfinite(cin.S_par) &
              isfinite(cin.S_perp) & isfinite(cin.B²)
     return finite && cin.B² >= zero(T) &&
-           ρ_min <= cin.D < EntropyEOS.pol_atm_trigger(pol) * ρ_min     # EOS-12
+           ρ_min <= cin.D < EntropyEOS.pol_atm_trigger(pol) * ρ_min     # EOS-15
 end
 
 # Level 1: the fused `con2prim_safe`, or the hand-off's output; where the
 # policy decides alone, the unsolved placeholder `apply_policy` replaces.
 @inline function level1(eos, opts, proj, pol, cin::EntropyEOS.Con2PrimIn{T},
                         guesses::NTuple{3,T}, ::Nothing, idx::Tuple) where {T}
-    policy_decides(eos, proj, pol, cin) && return EntropyEOS.nan_safe_out(T)   # EOS-12
+    policy_decides(eos, proj, pol, cin) && return EntropyEOS.nan_safe_out(T)   # EOS-15
     s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)
     return EntropyEOS.con2prim_safe(eos, cin, opts, proj, s, w, u)
 end
@@ -296,7 +296,7 @@ end
     end
     if policy_decides(eos, proj, pol, cin)
         @inbounds sc.todo[idx...] = false
-        @inbounds sc.out[idx...] = EntropyEOS.nan_safe_out(T)                 # EOS-12
+        @inbounds sc.out[idx...] = EntropyEOS.nan_safe_out(T)                 # EOS-15
         return nothing
     end
     s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)

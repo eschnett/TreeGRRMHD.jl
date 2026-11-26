@@ -92,9 +92,9 @@ suite", has the measurements). The log names every upstream ID still probed as w
 grep it for `waiting:` (a landed item guaranteed by `[compat]` has no
 probe, so `landed:` should not appear).
 
-The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR
-and SpacetimeMetrics from the General registry and EntropyEOS and
-IMEXRungeKutta from their remotes through `[sources]` — never from a
+The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR,
+SpacetimeMetrics and EntropyEOS from the General registry and
+IMEXRungeKutta from its remote through `[sources]` — never from a
 sibling checkout. This is what CI does; run it under the floor too:
 
 ```bash
