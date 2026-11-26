@@ -2716,7 +2716,7 @@ contract is checked before the scheme builds on it.
 
 *Designed and not built: the design was decided by Erik on 2026-11-25
 ([HISTORY.md, "Neutrinos"](HISTORY.md#neutrinos)); what it leaves open is
-marked **(open)**. The work is broken down in `PLAN.md`, steps 16–21.*
+marked **(open)**. The work is broken down in `PLAN.md`, steps 16–22.*
 
 The scheme is **leakage plus M0**, Radice et al.'s (2016, arXiv:1601.02426,
 §2.2 and Appendices A–B; as revised in Radice et al. 2018, arXiv:1809.11161,
@@ -2848,9 +2848,11 @@ zero, so that they stay finite where both integrals underflow.
 
 **Where the rates are evaluated.** In the source kernel, once per cell per
 right-hand side, from `P` (`ρ★`, `Yₑ`, and `T` from the EOS's own warm start,
-`log₁₀ T`). Cells the atmosphere policy flags are skipped: the
-neutrino–matter sources there are zero by a branch ("Masks branch, never
-multiply"). M0's transport runs everywhere.
+`log₁₀ T` on a table, EntropyEOS's `u_solved`). Cells the atmosphere
+policy flags are skipped: the neutrino–matter sources there are zero by a
+branch ("Masks branch, never multiply"); so is a cell with `ρ★ ≤ 0` or a warm
+start that is not finite, as `P` is before the first fill. The optical
+depth's opacities come from the same rates. M0's transport runs everywhere.
 
 **The rates are a model**, as the conductivity is, answering
 `neutrino_rates(model, ρ★, T_MeV, yₑ, comp)` with one `SpeciesRates` per
@@ -2861,8 +2863,9 @@ and a scattering opacity and a number emissivity, each proportional to
 `ρ★`, one emitted energy, and Kirchhoff's `n^β = R/κ_a`; for the tests, on
 any EOS. `RJS96Rates(T, units; baryon_mass, q_np)` holds only constants and
 reads the composition at the state as an argument; the composition view
-itself goes with `M0Leakage`, which refuses it, with an `ArgumentError`
-saying why, unless `matches(cv, eos)` (steps 18 and 20) **(proposed)**;
+itself goes with `M0Leakage` ("Field sets and interface"), and the problem
+refuses it unless `matches(cv, eos)`; the composition is evaluated at the
+EOS's density, `ρ★` times the units' density, which `RJS96Rates` carries;
 on a table the rates are built as `RJS96Rates(T, units, table, cv)`, which
 takes the baryon mass from the table's provenance (`m_B_table_g`) and `Q`
 from `q_np(cv)`, and refuses a composition that does not `match` the table
@@ -2985,10 +2988,25 @@ rates from 32³ to 64³ were 1.70–1.96 against MC's 2.16–2.24:
 F = max(v_L, 0) N_L + min(v_R, 0) N_R          (and the same for 𝓔).
 ```
 The outer faces' ghosts hold `N = 𝓔 = 0` (`NuEscape`): the flux there is
-outflow only. The luminosity and number flux at the outer faces, summed per
-step with the integrator's weights, are step 20's, with the star whose
-luminosities they measure; until then `neutrino_totals(p, u)` sums `N` and
-`𝓔` over the owned cells (moved from step 18, decided by Erik 2026-11-25). A forest
+outflow only, and summed over the outer faces it is the computational
+check: the totals' change plus that outflow is zero to round-off (the
+tests). The physical diagnostic is measured further in, since the outer
+boundary is not a physical one (decided by Erik in step 20):
+`neutrino_luminosity(p, u, t; r_L, width)` is, per species, the number and
+energy luminosity through a spherical shell about `center`,
+```
+L_N = ∫ N vⁱ r̂_i W(r) d³x,   L_𝓔 = ∫ 𝓔 vⁱ r̂_i W(r) d³x,
+W(r) = (1 + cos(π (r − r_L)/width)) / (2 width)  for |r − r_L| < width,
+```
+`r̂` the coordinate radial unit vector and `d³x` the coordinate volume, since
+`N` and `𝓔` are densitized: where nothing is absorbed, `∂_r L = 0`, and the
+window's average over the shell is the luminosity through any sphere in it,
+second order in the cells (`∫ W dr = 1`) and with no point interpolation.
+`vⁱ` is the closure's at the cell, from its own `uⁱ`. `𝓔` is the energy at
+infinity, so `L_𝓔` is the luminosity at infinity and `L_𝓔/L_N` the mean
+energy at infinity. `r_L` and `width` have no default; the shell must lie
+outside the matter and inside the domain. `neutrino_totals(p, u)` sums `N`
+and `𝓔` over the owned cells. A forest
 periodic in any direction is refused: the radial direction flips across a
 periodic face, so the blocks on either side would carry that face at
 different velocities, and step 18 measured the totals drifting there.
@@ -3133,11 +3151,14 @@ step limiter one optical-depth sweep (from `P` as the step's last stage left
 it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
 the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
 takes `τ ≡ 0`, the optically thin limit, for the transport's tests.
-`evolve!` refuses neutrinos with a checkpoint, a restart or MPI ranks
-(`comm`): the optical depth is carried from step to step outside the state
-vector, so a checkpoint would not hold it and a restart would not be the
-uninterrupted run, and nothing of the neutrinos' has run across ranks yet
-(`PLAN.md`).
+A checkpoint holds the neutrinos beside the five evolved sets: `Nν`'s
+segment of the state vector, and `Nτ` (`τ` and `κ`), which is carried from
+step to step outside the state vector and is current in its working array
+at a chunk boundary; the recipe holds the `M0Leakage` (its rates, centre,
+`r_core`, switches and the composition's fingerprint). A restart reads both
+back and does not reconverge `τ`, so that it is the uninterrupted run bit
+for bit (step 20). `evolve!` still refuses neutrinos on MPI ranks (`comm`):
+nothing of theirs has run across ranks yet (`PLAN.md`, step 21).
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
 three would triple the fill of twelve variables (step 17, **(proposed)**).
@@ -3153,7 +3174,14 @@ neutrinos is today's, bit for bit, and the matter's kernels do not change.
 `neutrinos = M0Leakage(rates; center, r_core, feedback = true)` (`center`
 and `r_core` with no default) the sets are added; `feedback = false` keeps
 the matter's sources off, for the transport's tests (rungs 8c, 8d) and for
-a run that switches the heating on later, as Radice et al.'s binaries do. The code is `src/neutrinos/`: `fermi.jl`,
+a run that switches the heating on later, as Radice et al.'s binaries do.
+With `RJS96Rates` the composition comes with it,
+`M0Leakage(rates; composition = cv, …)` (step 20): `RJS96Rates` holds only
+constants, `cv` is EntropyEOS's `CompositionView`, moved to the run's device
+with the rest, and `MHDProblem` refuses it unless `matches(cv, eos)` for the
+problem's EOS; `RJS96Rates` without a composition and `GrayRates` with one
+are refused. The kernels receive the two together (`TabulatedRates`), and
+evaluate the composition at each cell's `ρ★`, `T` and `Yₑ`. The code is `src/neutrinos/`: `fermi.jl`,
 `rates.jl`, `leakage.jl`, `optical_depth.jl`, `m0.jl`; the rates touch
 nothing of the mesh, so that they can move to a package of their own when
 M1 needs them too.
@@ -7690,10 +7718,20 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      has a closed form: `N` and the changes of `√γ D Yₑ` and `√γ τ` at
      every cell, through the approach to `R^eff = κ^eff n`; the emission's
      rate recorded (`neutrino_tally`).
-   - **8g, the star**: DD2's cold star in β-equilibrium stays as it is
-     (luminosity below a stated bound over 1000 M); the same star heated
-     (its entropy raised) cools and deleptonizes, the luminosities and
-     mean energies converging with `h`.
+   - **8g, the star**: DD2's 1.4 M☉ star on its Cowling metric, with
+     `RJS96Rates` on the table's composition. The cold star in
+     β-equilibrium stays as it is: its luminosity through a shell outside
+     it below a measured bound over 1000 M. A hot star at constant entropy
+     `s` with the cold star's `Yₑ(ρ)`, in hydrostatic equilibrium (a hot
+     barotrope, below), cools, and its `Yₑ` moves toward the hot
+     β-equilibrium (the sign measured); its luminosities and mean energies
+     at the shell converge with `h` at a measured rate. Lepton number,
+     matter plus neutrinos, is conserved to round-off net of the outflow.
+     The hot barotrope is `cold_barotrope`'s construction on states at
+     `(ρ★, s, Yₑ(ρ★))`, `Yₑ` the slice's, evaluated by EntropyEOS: the
+     solve needs only `p(e)`, and `dp/dη = e + p` holds by the definition of
+     `η` for any barotrope; nothing is asked upstream. `s` is the case's,
+     with no default.
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.

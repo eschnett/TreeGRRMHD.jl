@@ -36,7 +36,7 @@ The package's documents, and what goes in each:
   and the implementation plan the package was built by, step by step
   ("The steps of the plan").
 - **`PLAN.md`**, only while a plan is under way (now the neutrinos, steps
-  16–21): the work breakdown, step by step, for the agents that implement
+  16–22): the work breakdown, step by step, for the agents that implement
   it. When its last rung is done its steps move to `HISTORY.md` and the file
   is deleted.
 
