@@ -1092,6 +1092,38 @@ held with its fluxes and the optical depth by `MHDProblem` and handed back by `r
   `6·10⁻¹⁷`, regrid `8·10⁻¹⁶`; the Cowling star's `𝓔/N` within 1.9% of `⟨αE⟩ = 0.776`; the closure null and normalized to
   rounding, `χ = √(1 − 2M/r)` for a static fluid on Kerr-Schild at `r = 6M`.
 
+**2026-11-25, step 19 — Coupling to the matter (rungs 8e, 8f).** On
+`claude/step-19-neutrino-coupling`, cut from step 18's commit. Built: the matter's share of the
+emission in `m0_rhs_kernel!` and of the absorption in `m0_absorb_kernel!`, both off in
+atmosphere cells by a branch; Ohm's stage solve on a shifted copy of u★'s matter
+(`M0State.shifted`); `X_NU_RATE` (`NX` 35) and `neutrino_tally`; `feedback = true` allowed;
+`initial_depth!` always prepares `P`; `test/neutrino_coupling_tests.jl` (16 tests).
+- **A NaN found by the reset's flags.** The first coupled run repaired 285 374 cells in 20
+  steps (flags ATMOSPHERE and NONFINITE), and a regrid afterwards moved the lepton number by
+  `10⁻¹²`. SSP3(4,3,3)'s first stage is implicit, so the run's first stage solve came
+  before any right-hand side had filled `P`, still the allocation's zeros: the closure divides
+  by `α = 0`, and the matter's deposit multiplied `κ = 0` by it. Without feedback the
+  absorption is skipped where `κ = 0`, which is why step 18 never met it. Fixed by branching
+  the deposits (the "masks branch, never multiply" rule) and by `initial_depth!` preparing
+  `P`; the tests now assert no cell was repaired, and the regrid moves the lepton number by
+  `2·10⁻¹⁶`.
+- **8f without a periodic box.** M0 refuses periodic forests (step 18), so the brief's one-zone
+  box cannot run; the coupled problem in a uniform medium has a closed form instead, checked
+  at every cell. Its first version at `p = 10⁻²` missed Δτ by 3.8% on 16³ and 3.9% on 32³:
+  the absorbed neutrinos' push moves the gas, and the enthalpy flux `(τ + p) v` changes τ by
+  about `τ + p` of the deposit, which the closed form leaves out; at `p = 10⁻⁴` Δτ is within
+  0.25% and converges at 2.38.
+- **Δ√γ D Yₑ converges at 1.37**, against 2.04–2.13 for `N` and 2.38 for Δτ; identical at a
+  quarter of the step, so spatial, and the matter scheme's: its MC clips the extremum the
+  deposited Yₑ has at the centre (rung 7: 1.69–1.86 for a smooth advected Yₑ).
+- **Measured** (`CODE.md`, "Neutrinos", "Coupling to the matter"): the right-hand side's
+  lepton and energy balances to `3·10⁻¹⁶` of the cancelling magnitudes, an implicit stage
+  `< 10⁻¹⁷` of the state, a regrid `2·10⁻¹⁶`; the coupled exchange on 16³ within 0.5–0.8%
+  (`N`), 0.85% (Δ√γ D Yₑ), 0.25% (Δ√γ τ); the emission's largest `|d ln(√γ D Yₑ)/dt|` 0.061.
+- **The conservation tests' scales**: first normalized by the neutrinos' terms alone, the
+  balances read `10⁻¹¹` — the matter's τ, `10⁻²` against deposits of `10⁻⁶`, rounds at
+  `ε·τ`; normalized by every magnitude that cancels they read `10⁻¹⁶`.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -6790,3 +6822,17 @@ uncommitted working tree, not posted) — 32m57s at one thread, 23m04s at four, 
 uncommitted working tree, not posted) — 34m32s at one thread, 23m35s at four, 42m10s with
 `--check-bounds=yes`, side by side. The version committed reconstructs `uⁱ`; its run is
 below.
+
+**2026-11-25, step 18.** As committed (a3a8d4e: `uⁱ` reconstructed, MC throughout,
+`test/m0_tests.jl` 26 tests): **38171 tests, every run passing whole** with the tables
+(Symmetry job 611576 on cn104, EPYC 7543, `amddebugq`; study `step18-mc-suite`, not posted) —
+35m30s at one thread, 26m11s at four, 43m30s with `--check-bounds=yes`, side by side. Its
+64³ study (job 611581, `bin/m0_ball.jl`): the uniform medium's L1 errors 4.9, 9.9, 13.1
+`·10⁻⁴` on 16³, 1.23, 2.19, 2.74 `·10⁻⁴` on 32³, 2.75, 4.66, 5.76 `·10⁻⁵` on 64³, the
+rates 1.99, 2.18, 2.25 and 2.16, 2.23, 2.25 (κ = 4, 1, 0).
+
+**2026-11-25, step 19.** The neutrinos' feedback (`test/neutrino_coupling_tests.jl`, 16 tests,
+2D and 3D): **38187 tests, every run passing whole** with the tables (Symmetry job 611859 on
+cn104, EPYC 7543, `amddebugq`; study `step19-coupling-suite`, the uncommitted working tree,
+not posted) — 36m59s at one thread, 24m36s at four, 45m35s with `--check-bounds=yes`, side by
+side; the bounds-checked run now takes three quarters of `amddebugq`'s hour on Zen 3.

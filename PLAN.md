@@ -205,6 +205,10 @@ Accept:
 
 ## Step 19 — Coupling to the matter (rungs 8e, 8f)
 
+*Built* (2026-11-25, on `claude/step-19-neutrino-coupling`): the feedback and its tests;
+`HISTORY.md`, "The steps of the plan", has what changed from this brief — 8f against the
+coupled problem's closed form in a uniform medium, since M0 refuses a periodic box.
+
 `CODE.md`: "Neutrinos" ("Coupling to the matter", "In the time
 integrator"), "Sources", "The implicit stage solve", "Floors, the
 atmosphere and the magnetosphere". Waits: none.

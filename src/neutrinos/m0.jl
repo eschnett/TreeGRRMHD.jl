@@ -134,8 +134,7 @@ The neutrino scheme of `CODE.md`'s "Neutrinos", for `MHDProblem`'s
 [`RJS96Rates`](@ref)) and M0's free-streaming neutrinos, radial from
 `center` (a 3-vector, no default), dragged with the fluid inside `r_core`
 (no default). `feedback = false` keeps the matter's sources off, for the
-transport's tests and for a run that switches the heating on later; the
-feedback itself is step 19's, and until then `feedback = true` is refused.
+transport's tests and for a run that switches the heating on later.
 `optical_depth = false` takes `τ ≡ 0`, the optically thin limit, in which
 the effective rates are the free ones: for the transport's tests, whose
 analytic solutions it makes exact. `isbits` where `rates` is.
@@ -149,9 +148,6 @@ struct M0Leakage{R,T}
 end
 function M0Leakage(rates::NeutrinoRates; center, r_core, feedback::Bool=true,
                    optical_depth::Bool=true)
-    feedback && throw(ArgumentError(
-        "M0Leakage: the neutrinos' feedback on the matter is step 19's and not built; " *
-        "pass `feedback = false` (PLAN.md)."))
     T = typeof(float(r_core))
     (isfinite(r_core) && r_core > 0) || throw(ArgumentError(
         "M0Leakage needs a positive r_core, got $r_core: inside it the radial direction " *
@@ -175,13 +171,14 @@ struct NuEscape end
 
 # The neutrinos' sets on the forest, built by `MHDProblem` from an
 # `M0Leakage` and handed back by `rebuild` after a regrid.
-struct M0State{L,FN,FF,IS,OD,H}
+struct M0State{L,FN,FF,IS,OD,H,SH}
     config::L
     Nν::FN                       # N, 𝓔 per species: the state vector's segment SEG_NU
     Fν::FF                       # NTuple{D}: their fluxes at the faces
     ischeds::IS                  # NTuple{D}: their interface schedules
     od::OD                       # the OpticalDepth, or nothing (τ ≡ 0)
     hook::H                      # NuEscape, as TreeAMR's CellBoundary
+    shifted::SH                  # with feedback: u★'s matter plus the absorbed share
 end
 
 const SEG_NU = 6
@@ -200,12 +197,25 @@ function m0_state(c::M0Leakage, f::MHDFields{D}, ops, backend) where {D}
                                  backend=backend), D)
     od = c.optical_depth ? OpticalDepth(T, forest; backend=backend, ops=ops) : nothing
     return M0State(c, Nν, Fν, ntuple(d -> InterfaceSchedule(Fν[d]), D), od,
-                   CellBoundary(AllVariables(NuEscape())))
+                   CellBoundary(AllVariables(NuEscape())), shifted_buffer(c, f, backend))
 end
-# After a regrid the sets are the same, resized; the schedules are new.
+# After a regrid the sets are the same, resized; the schedules and the
+# buffer are new.
 m0_state(s::M0State, f::MHDFields{D}, ops, backend) where {D} =
     M0State(s.config, s.Nν, s.Fν, ntuple(d -> InterfaceSchedule(s.Fν[d]), D),
-            s.od === nothing ? nothing : rebuild(s.od), s.hook)
+            s.od === nothing ? nothing : rebuild(s.od), s.hook,
+            shifted_buffer(s.config, f, backend))
+
+# The matter segment's shape, owned cells only, for the shifted u★ that Ohm's
+# solve reads when the neutrinos feed back ("Neutrinos", "In the time
+# integrator" in `CODE.md`): the integrator forbids changing u★ itself, and
+# handing Ohm's kernel `U` would alias its input and output.
+function shifted_buffer(c::M0Leakage, f::MHDFields{D}, backend) where {D}
+    c.feedback || return nothing
+    w = f.U.work
+    dims = ntuple(e -> size(w, e) - 2 * f.U.G[e], Val(D))
+    return allocate(backend, eltype(w), (dims..., NU, size(w, ndims(w))))
+end
 
 # The rates at one cell from its row of `P`. `GrayRates` read only `ρ★`; the
 # tabulated rates read the composition too, which step 20 adds.
@@ -257,11 +267,22 @@ end
     end
 end
 
+# Whether a cell's neutrino–matter sources are on: off, by a branch, where
+# the atmosphere policy flagged the cell's recovery ("Masks branch, never
+# multiply").
+@inline sources_on(Pc::NTuple) = aux_flags(Pc) & EntropyEOS.FLAG_POL_ATMOSPHERE == 0
+
 # The neutrinos' tendencies at an owned cell: the flux divergence and the
-# emission, `√−g R^eff` and `√−g χ Q^eff`.
-@kernel function m0_rhs_kernel!(du, @Const(Pw), Tw, Fs, @Const(origins), @Const(spacings),
-                                model, center, r_core, ::Val{D}, ::Val{GP}, ::Val{GT},
-                                ::Val{GF}) where {D,GP,GT,GF}
+# emission, `√−g R^eff` and `√−g χ Q^eff`; with feedback, the matter's share
+# of the emission into the matter's tendencies (`duU`, written by the matter's
+# kernel first): `√γ D Yₑ` loses `√−g (R^eff_{ν_e} − R^eff_{ν̄_e})`, and
+# `G^μ = −Σ Q^eff k^μ` enters `√γ τ` as `α²√γ G^t` and `√γ S_j` as `α√γ G_j`
+# ("Neutrinos", "Coupling to the matter" in `CODE.md`). The cell's rate
+# `|d ln(√γ D Yₑ)/dt|` from the emission goes into `X` (its largest in the
+# chunk).
+@kernel function m0_rhs_kernel!(du, duU, Xw, @Const(Pw), Tw, Fs, @Const(origins),
+                                @Const(spacings), model, center, r_core, ::Val{D},
+                                ::Val{GP}, ::Val{GT}, ::Val{GF}) where {D,GP,GT,GF}
     I = @index(Global, NTuple)
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
@@ -272,23 +293,51 @@ end
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     cl = m0_closure(m, cell_u(Pc, m), x, center, r_core)
     r = cell_rates(model, Pc)
+    on = sources_on(Pc)
     sqrtmg = m.α * m.sqrtγ
     c = stored(n, GF)
     tc = ntuple(e -> n[e] + GT, Val(D))
+    Rnet = zero(T)                   # R^eff_{ν_e} − R^eff_{ν̄_e}
+    Qsum = zero(T)
     for i in 1:3
         τ0, τ1 = cell_depth(Tw, tc, b, i, T)
-        R, Q = effective_rates(r[i], τ0, τ1)
+        R, Q = on ? effective_rates(r[i], τ0, τ1) : (zero(T), zero(T))
+        i == 1 && (Rnet += R)
+        i == 2 && (Rnet -= R)
+        Qsum += Q
         dN = flux_difference_sum(zero(h), Fs, c, nu_N(i), b)
         dE = flux_difference_sum(zero(h), Fs, c, nu_E(i), b)
         @inbounds du[n..., nu_N(i), b] = -dN / h + sqrtmg * R
         @inbounds du[n..., nu_E(i), b] = -dE / h + sqrtmg * cl.χ * Q
     end
+    # A branch, not a product with zero (step 19: before the first right-hand
+    # side `P` holds zeros, whose closure is not finite).
+    if duU !== nothing && !(iszero(Rnet) && iszero(Qsum))
+        k = cl.kt * cl.v                         # kⁱ
+        kl = lower(m, k) + cl.kt * lower(m, m.β)  # k_j = γ_jk kᵏ + β_j kᵗ
+        @inbounds begin
+            duU[n..., U_DYE, b] -= sqrtmg * Rnet
+            duU[n..., U_TAU, b] -= m.α * sqrtmg * cl.kt * Qsum
+            duU[n..., U_S, b] -= sqrtmg * Qsum * kl[1]
+            duU[n..., U_S + 1, b] -= sqrtmg * Qsum * kl[2]
+            duU[n..., U_S + 2, b] -= sqrtmg * Qsum * kl[3]
+        end
+        # √γ D Yₑ = √γ ρ★ W Yₑ from the cell's primitives.
+        DYe = m.sqrtγ * Pc[P_RHO] * cosh(Pc[P_W]) * Pc[P_YE]
+        rate = DYe > 0 ? abs(sqrtmg * Rnet) / DYe : zero(T)
+        @inbounds Xw[n..., X_NU_RATE, b] = max(Xw[n..., X_NU_RATE, b], rate)
+    end
 end
 
 # The implicit stage's absorption at an owned cell: closed-form, with κ^eff,
 # kᵗ and χ from the cell's latest recovery (`P`) and the frozen τ, the mean
-# energy from u★ ("Neutrinos", "In the time integrator" in `CODE.md`).
-@kernel function m0_absorb_kernel!(Uw, @Const(Sw), @Const(Pw), Tw, @Const(origins),
+# energy from u★ ("Neutrinos", "In the time integrator" in `CODE.md`). With
+# feedback, the matter's share from the solved N and 𝓔, the same numbers the
+# neutrinos lose: `√γ D Yₑ` gains `(κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/kᵗ`, and
+# `G^μ = Σ κ n E k^μ` with `√−g n E = 𝓔/(χ kᵗ)` enters `√γ τ` as
+# `α Σ κ 𝓔/χ` and `√γ S_j` as `Σ κ 𝓔 k_j/(χ kᵗ)`, times `γΔt`, into `U` and
+# into the shifted u★ Ohm's solve then reads (`Sh`, a copy of u★'s matter).
+@kernel function m0_absorb_kernel!(Uw, @Const(Sw), UU, Sh, @Const(Pw), Tw, @Const(origins),
                                    @Const(spacings), model, center, r_core, γΔt, ::Val{D},
                                    ::Val{GP}, ::Val{GT}) where {D,GP,GT}
     I = @index(Global, NTuple)
@@ -301,15 +350,37 @@ end
     x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
     cl = m0_closure(m, cell_u(Pc, m), x, center, r_core)
     r = cell_rates(model, Pc)
+    on = sources_on(Pc)
     tc = ntuple(e -> n[e] + GT, Val(D))
+    dYe = zero(T)
+    κ𝓔 = zero(T)
     for i in 1:3
         τ0, _ = cell_depth(Tw, tc, b, i, T)
         N★ = @inbounds Sw[n..., nu_N(i), b]
         𝓔★ = @inbounds Sw[n..., nu_E(i), b]
-        κ = m0_absorption_opacity(r[i], τ0, N★, 𝓔★, cl.χ)
+        κ = on ? m0_absorption_opacity(r[i], τ0, N★, 𝓔★, cl.χ) : zero(T)
         N, 𝓔 = m0_absorption(N★, 𝓔★, κ, cl.kt, oftype(h, γΔt))
         @inbounds Uw[n..., nu_N(i), b] = N
         @inbounds Uw[n..., nu_E(i), b] = 𝓔
+        i == 1 && (dYe += κ * N / cl.kt)
+        i == 2 && (dYe -= κ * N / cl.kt)
+        κ𝓔 += κ * 𝓔
+    end
+    # A branch, not a product with zero: SSP3(4,3,3)'s first stage is implicit,
+    # so a run's first stage solve can come before any right-hand side has
+    # filled `P`, whose zeros make the closure not finite; κ is zero there, and
+    # the product was NaN (step 19, found by the reset's NONFINITE flags).
+    if UU !== nothing && !(iszero(dYe) && iszero(κ𝓔))
+        g = oftype(h, γΔt)
+        k = cl.kt * cl.v
+        kl = lower(m, k) + cl.kt * lower(m, m.β)
+        Δ = (g * dYe, g * m.α * κ𝓔 / cl.χ, g * κ𝓔 * kl[1] / (cl.χ * cl.kt),
+             g * κ𝓔 * kl[2] / (cl.χ * cl.kt), g * κ𝓔 * kl[3] / (cl.χ * cl.kt))
+        slots = (U_DYE, U_TAU, U_S, U_S + 1, U_S + 2)
+        for j in 1:5
+            @inbounds UU[n..., slots[j], b] += Δ[j]
+            @inbounds Sh[n..., slots[j], b] += Δ[j]
+        end
     end
 end
 
@@ -337,24 +408,47 @@ function m0_rhs!(s::M0State, du, p, t; metric=p.provider)
         p.fixup && restrict_interfaces!(Fd, s.ischeds[d])
         nothing
     end
-    map_blocks!(m0_rhs_kernel!, s.Nν, statearray(du, p.sets, SEG_NU), f.P.work, depth_work(s),
-                map(F -> F.work, s.Fν), p.origins, p.spacings, c.rates, c.center, c.r_core,
-                Val(D), Val(f.P.G), depth_G(s), Val(first(s.Fν).G);
+    duU = c.feedback ? statearray(du, p.sets, SEG_U) : nothing
+    map_blocks!(m0_rhs_kernel!, s.Nν, statearray(du, p.sets, SEG_NU), duU, f.X.work, f.P.work,
+                depth_work(s), map(F -> F.work, s.Fν), p.origins, p.spacings, c.rates,
+                c.center, c.r_core, Val(D), Val(f.P.G), depth_G(s), Val(first(s.Fν).G);
                 workgroupsize=p.workgroupsize)
     return nothing
 end
 
-# The implicit stage, before Ohm's solve.
-m0_stage!(::Nothing, U, ustar, γΔt, p, t) = nothing
+# The implicit stage, before Ohm's solve; returns the matter's conserved
+# state Ohm's solve reads: u★'s, or with feedback the shifted copy.
+m0_stage!(::Nothing, U, ustar, γΔt, p, t) = statearray(ustar, p.sets, SEG_U)
 function m0_stage!(s::M0State, U, ustar, γΔt, p, t)
     f = p.f
     c = s.config
     D = length(s.Fν)
+    us = statearray(ustar, p.sets, SEG_U)
+    if c.feedback
+        copyto!(s.shifted, us)
+        UU, Sh = statearray(U, p.sets, SEG_U), s.shifted
+    else
+        UU, Sh = nothing, nothing
+    end
     map_blocks!(m0_absorb_kernel!, s.Nν, statearray(U, p.sets, SEG_NU),
-                statearray(ustar, p.sets, SEG_NU), f.P.work, depth_work(s), p.origins,
-                p.spacings, c.rates, c.center, c.r_core, γΔt, Val(D), Val(f.P.G), depth_G(s);
-                workgroupsize=p.workgroupsize)
-    return nothing
+                statearray(ustar, p.sets, SEG_NU), UU, Sh, f.P.work, depth_work(s),
+                p.origins, p.spacings, c.rates, c.center, c.r_core, γΔt, Val(D), Val(f.P.G),
+                depth_G(s); workgroupsize=p.workgroupsize)
+    return c.feedback ? s.shifted : us
+end
+
+"""
+    neutrino_tally(p::MHDProblem) -> (; dYe_rate)
+
+The largest `|d ln(√γ D Yₑ)/dt|` the neutrinos' emission gave any owned cell
+in any right-hand side since the last `clear_tally!` (the chunk's, in
+`evolve!`): times the step, the change in `Yₑ` per step the explicit emission
+makes ("Neutrinos", "In the time integrator" in `CODE.md`). Zero without
+feedback.
+"""
+function neutrino_tally(p)
+    T = eltype(p.f.X.work)
+    return (; dYe_rate=mesh_mapreduce(identity, max, zero(T), p.f.X; vars=X_NU_RATE))
 end
 
 # The step limiter: one sweep of the optical depth from the step's κ.
@@ -374,8 +468,10 @@ m0_regrid_pairs(s::M0State) =
 """
     initial_depth!(p::MHDProblem, u, t) -> sweeps
 
-The optical depth of the state `u` at `t`, converged from zero
-(`converge!`): what `evolve!` does once on its initial data, and a script
+The neutrinos' start on the state `u` at `t`: `P` prepared, so that the
+first implicit stage, which SSP3(4,3,3) makes before any right-hand side,
+reads real coefficients; and the optical depth converged from zero
+(`converge!`). What `evolve!` does once on its initial data, and a script
 that owns the loop does likewise. After a regrid the depth is transferred
 and the sweeps go on one per step ("Neutrinos", "The optical depth" in
 `CODE.md`). Zero sweeps without neutrinos or without an optical depth.
@@ -383,8 +479,8 @@ and the sweeps go on one per step ("Neutrinos", "The optical depth" in
 initial_depth!(p, u, t) = m0_initial_depth!(p.neutrinos, p, u, t)
 m0_initial_depth!(::Nothing, p, u, t) = 0
 function m0_initial_depth!(s::M0State, p, u, t)
-    s.od === nothing && return 0
     prepare!(p, u, t)
+    s.od === nothing && return 0
     reset_depth!(s.od)
     opacities!(s.od, s.config.rates, p.f.P)
     return converge!(s.od, p.f.P)

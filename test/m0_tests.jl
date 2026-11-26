@@ -11,16 +11,17 @@ const M0 = TreeGRRMHD
 # is mild because the scheme reconstructs entropy and density apart, and a
 # steep ramp at uniform pressure moves the gas (step 18: v ≈ 0.09 at a
 # 1000:1 ramp over three cells); here |v| stays below 3e−5.
-function m0_ball(; L=0.8, roots=2, r_in=0.2, r_out=0.7, ρ_in=1.0, ρ_out=0.25)
+function m0_ball(; L=0.8, roots=2, r_in=0.2, r_out=0.7, ρ_in=1.0, ρ_out=0.25, p=1e-4,
+                 dim=3)
     T = Float64
     eos = M0.explosion_gas(T, 4 // 3)
     s₁ = M0.EntropyEOS.polytropic_entropy(eos, one(T))
-    w = M0.MultiDCase{:explosion,T}(r_in, r_out, ρ_in, ρ_out, 1e-4, 1e-4, 0.0, 4 / 3, s₁, s₁,
+    w = M0.MultiDCase{:explosion,T}(r_in, r_out, ρ_in, ρ_out, p, p, 0.0, 4 / 3, s₁, s₁,
                                     0.5, true)
-    return MHDCase(T, Val(3); fields=M0.WaveFields(w), potential=M0.WavePotential(w),
+    return MHDCase(T, Val(dim); fields=M0.WaveFields(w), potential=M0.WavePotential(w),
                    eos=eos, M0.recovery_options(eos, 1e-10)..., model=IdealConductor(),
                    𝔅̄=SVector(0.0, 0.0, 0.0), periodic=false,
-                   extents=ntuple(_ -> (-L, L), Val(3)), roots=roots)
+                   extents=ntuple(_ -> (-L, L), Val(dim)), roots=roots)
 end
 
 const M0_GRAY = GrayRates{Float64}(; κa=(4.0, 1.0, 0.0), κs=(0.0, 0.0, 0.0),

@@ -1237,10 +1237,10 @@ script's `solve_imp!` calls. Public, not exported.
 function stage_solve!(U, ustar, γΔt, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
     f = p.f
     update_fields!(p, ustar, t)
-    # The neutrinos' absorption first, closed-form (step 18): with no matter
-    # feedback yet it touches only `Nν`.
-    m0_stage!(p.neutrinos, U, ustar, γΔt, p, t)
-    us = statearray(ustar, p.sets, SEG_U)
+    # The neutrinos' absorption first, closed-form (steps 18, 19): with
+    # feedback its matter share is written into `U`, and Ohm's solve recovers
+    # from u★ shifted by it, a copy; without neutrinos `us` is u★'s.
+    us = m0_stage!(p.neutrinos, U, ustar, γΔt, p, t)
     recovery_start!(p, us, Val(ntuple(_ -> 0, D)), p.model, t; metric)
     map_blocks!(ohm_kernel!, f.U, statearray(U, p.sets, SEG_U), us, f.B[1].work, f.B[2].work,
                 f.B[3].work, f.X.work, p.cache.work, p.handoff, p.origins, p.spacings,

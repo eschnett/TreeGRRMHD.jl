@@ -1692,7 +1692,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Mv` — the vertex metric `(α, β^i, γ_ij, K_ij)`, owned vertices from the producer's ADM adapter, in its own `VertexMetricSet`, not `MHDFields` | vertex | 16 | 4 (so `N ≥ 10`) | PointValue width 6 in its fill / `=> nothing` (`regrid_pairs(vm)`), refilled from the rebuilt adapter |
-| `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ` | cell | 34 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ`, the neutrinos' emission rate | cell | 35 | 0 | `=> nothing` |
 | step cache — the cell's latest recovery in the step: EntropyEOS's input and output; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
 `P`'s 30 slots are laid out in `src/variables.jl`: the eleven the recovery
@@ -2782,8 +2782,9 @@ with `GrayRates`, `optical_depth = false`; the steady state and the front in
 a uniform medium, the scheme's exact steady state, whose radial solution is
 closed-form):
 - the steady state inside `r ≤ 0.6` within 0.28–0.32% (L1, of the peak) of
-  the radial solution on 16³, converging at 1.99, 2.18 and 2.25 to 32³ for
-  κ = 4, 1 and 0 (`bin/m0_ball.jl` runs 64³);
+  the radial solution on 16³, converging at 1.99, 2.18 and 2.25 to 32³ and
+  at 2.16, 2.23 and 2.25 from 32³ to 64³ for κ = 4, 1 and 0
+  (`bin/m0_ball.jl`, Symmetry job 611581);
 - `𝓔/N` the emitted energy to `10⁻¹²` (χ = 1 at rest); `N`, `𝓔`
   non-negative;
 - the light front: at `t = 0.3` the time-dependent radial solution, with its
@@ -2838,6 +2839,26 @@ fluid frame; that conserves energy only up to the difference between `−u_t`
 and `χ`, a Doppler term. `G^μ ∝ k^μ` is the radial recoil the closure
 implies.
 
+In a cell the atmosphere policy flagged, both sides' sources are zero, by a
+branch, so the balance holds there too. **Measured** (step 19,
+`test/neutrino_coupling_tests.jl`, a uniform medium at rest with `GrayRates`,
+feedback on, a refined corner block): in a right-hand side `Σ du` of the
+lepton number plus its outflow through the outer faces is zero to
+`3·10⁻¹⁶` of the magnitudes that cancel, the matter's included, and so is
+that of `√γ τ + Σ 𝓔`, in 2D and 3D; an implicit stage changes either total
+by less than `10⁻¹⁷` of the state; a regrid changes the lepton number by
+`2·10⁻¹⁶`. Against the coupled problem's closed form — while the gas stays
+at rest each ray's `r² n` is `η e^{−κr}(F(r) − F(a))`, `a = max(0, r − t)`,
+and `√γ D Yₑ` and `√γ τ` change by its time integrals at each cell — at
+`t = 0.4` on 16³ `N` is within 0.5–0.8%, the change of `√γ D Yₑ` within
+0.85% and of `√γ τ` within 0.25%, converging at 2.04–2.13, 1.37 and 2.38 to
+32³. `√γ D Yₑ`'s rate is the matter scheme's: the same at a quarter of the
+step, and its MC clips the extremum the deposited `Yₑ` has at the centre
+(rung 7 measured 1.69–1.86 for a smooth advected `Yₑ`). The medium is cold,
+`p = 10⁻⁴`: at `p = 10⁻²` the absorbed neutrinos' push moved the gas enough
+that the enthalpy flux `(τ + p) v` changed `τ` by 4% of the deposit, which
+the closed form leaves out.
+
 ### In the time integrator
 
 - **Explicit**: the fluxes of `N` and `𝓔`; the emission `√−g m_B R^eff` and
@@ -2850,10 +2871,19 @@ implies.
   `N = N★/(1 + γΔt κ^eff/k^t)`, `𝓔` likewise; and `E`, which enters
   `κ^eff`, is the same in `u★` and the solution. The matter's increments
   follow from the solved `N` and `𝓔`, the same numbers subtracted from one
-  side and added to the other. This runs first in each implicit stage, and
-  Ohm's stage solve then runs on the shifted `u★`; the neutrino increments
-  are closed-form sources, not a repair, so "the solve writes only `E`"
-  is unchanged in meaning.
+  side and added to the other: `√γ D Yₑ` gains
+  `γΔt (κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/k^t`, `√γ τ` gains
+  `γΔt α Σ κ 𝓔/χ` and `√γ S_j` `γΔt Σ κ 𝓔 k_j/(χ k^t)`, written into `U`.
+  This runs first in each implicit stage, and Ohm's stage solve then
+  recovers from `u★` shifted by them: a copy (`M0State`'s `shifted`, the
+  matter segment's size), since the integrator forbids changing `u★` and
+  handing Ohm's kernel `U` itself would alias its input and output on a
+  device. The neutrino increments are closed-form sources, not a repair, so
+  "the solve writes only `E`" is unchanged in meaning. SSP3(4,3,3)'s first
+  stage is implicit, so a run's first stage solve can come before any
+  right-hand side has filled `P`: `initial_depth!` prepares it, and the
+  deposits are branches where `κ = 0` (step 19: `P`'s zeros gave a
+  non-finite closure, and `0·NaN` sent every cell to the atmosphere).
 
 Why the absorption is implicit: without the factor `(E/E^β)²`,
 `κ^eff ≤ 2/(e h)` wherever `τ` is at least the cell's own `κ h/2`, so
@@ -2862,8 +2892,10 @@ cold matter make `(E/E^β)²` large. Freezing the coefficients at the latest
 recovery is first order in the coefficients' change over a stage, as Radice
 et al.'s operator split is.
 
-The emission stays explicit: `R^eff Δt/n_e`, the change in `Yₑ` per step, is
-recorded per chunk in `X` and is expected to be small (rung 8f).
+The emission stays explicit: each cell's largest `|d ln(√γ D Yₑ)/dt|` from
+it goes into `X` (`X_NU_RATE`), reduced per chunk by `neutrino_tally(p)`;
+times the step it is the change in `Yₑ` per step, expected to be small (in
+step 19's medium 0.061 per unit time).
 
 ### Field sets and interface
 
@@ -2884,8 +2916,7 @@ regrid, so the regrid's resized sets are the ones the new problem holds.
 step limiter one optical-depth sweep (from `P` as the step's last stage left
 it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
 the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
-takes `τ ≡ 0`, the optically thin limit, for the transport's tests; until
-step 19, `feedback = true` is refused.
+takes `τ ≡ 0`, the optically thin limit, for the transport's tests.
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
 three would triple the fill of twelve variables (step 17, **(proposed)**).
@@ -4992,6 +5023,10 @@ the magnetized star's convergence studies); `threaded` also the
   and its rate behind the front to 128² (`@full_tier`) (step 18; 3D, 16³ and
   32³; 2D, 32² to 128²). `bin/m0_ball.jl` runs 64³
   (`jobs/m0-ball.toml`).
+- `test/neutrino_coupling_tests.jl`: the feedback's lepton and energy balance
+  in a right-hand side, an implicit stage and a regrid, in 2D and 3D across
+  coarse-fine faces, with no cell repaired; the coupled exchange against its
+  closed form, and its rates to 32³ (`@full_tier`) (step 19).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -5062,8 +5097,8 @@ bit-identically to the host; "Precision and devices"):
   `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
   ("Neutrinos", "The optical depth"); `src/neutrinos/m0.jl`: the closure
   `m0_closure`, the upwind flux, the absorption, `M0Leakage`, `NuEscape`, the
-  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`
-  ("Neutrinos", "M0").
+  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`,
+  `neutrino_tally` ("Neutrinos", "M0", "Coupling to the matter").
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -7026,13 +7061,16 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      emission from a static sphere on
      Schwarzschild (the Kerr-Schild provider, `a = 0`), `𝓔/N` constant
      along rays and the mean energy at infinity `χ` times the emitted one.
-   - **8e, conservation**: `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` and, in flat
+   - **8e, conservation** *(done, step 19; "Neutrinos", "Coupling to the
+     matter")*: `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` and, in flat
      space, the matter's energy plus `Σ 𝓔` to round-off net of the outer
      faces and the reset, across coarse-fine faces and a regrid, in 2D and
      3D.
-   - **8f, one zone**: a uniform hot box, periodic, its `Yₑ`, `T`, `N` and
-     `𝓔` against the ODE integrated to tolerance, through the approach to
-     `R^eff = κ^eff n`; `R^eff Δt/n_e` per step recorded.
+   - **8f, the coupled exchange** *(done, step 19)*: not a periodic box,
+     which M0 refuses (step 18), but a uniform medium whose coupled problem
+     has a closed form: `N` and the changes of `√γ D Yₑ` and `√γ τ` at
+     every cell, through the approach to `R^eff = κ^eff n`; the emission's
+     rate recorded (`neutrino_tally`).
    - **8g, the star**: DD2's cold star in β-equilibrium stays as it is
      (luminosity below a stated bound over 1000 M); the same star heated
      (its entropy raised) cools and deleptonizes, the luminosities and
