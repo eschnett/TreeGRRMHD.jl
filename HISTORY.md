@@ -6973,3 +6973,9 @@ rates 1.99, 2.18, 2.25 and 2.16, 2.23, 2.25 (κ = 4, 1, 0).
 cn104, EPYC 7543, `amddebugq`; study `step19-coupling-suite`, the uncommitted working tree,
 not posted) — 36m59s at one thread, 24m36s at four, 45m35s with `--check-bounds=yes`, side by
 side; the bounds-checked run now takes three quarters of `amddebugq`'s hour on Zen 3.
+
+**2026-11-25, PR 18 merged with "Running distributed".** At b9579b8 (steps 16–19 with
+`main`'s PR 16, and the test that `evolve!` refuses neutrinos with a checkpoint or a
+restart): **38423 tests, every run passing whole** with the tables (Symmetry job 612323 on
+cn101, EPYC 7543, `amddebugq`; study `pr18-merged-suite`, not posted) — 38m10s at one
+thread, 27m13s at four, 46m42s with `--check-bounds=yes`, side by side.
