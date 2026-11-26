@@ -17,7 +17,13 @@
 # same way; AMR-5, ignored on the CPU), `reps` (the best of, 5), `steps` (steps in the timed
 # step phase, 2), `mpi` (`false`; `true` over `MPI.COMM_WORLD` under `mpiexec`, each rank on
 # its own threads or device, `bin/mpi.jl`: a phase's time is then the slowest rank's best,
-# and `blocks` and `cells` are the whole mesh's).
+# and `blocks` and `cells` are the whole mesh's), `neutrinos` (`false`; `true` for a
+# tabulated case: the star with `RJS96Rates` on the table's composition, step 20, its case
+# column `dd2+nu`, every phase that calls the neutrinos' hooks with them, and three phases
+# of their own: `nu_rhs` (`m0_rhs!`, the fluxes and the tendencies), `nu_absorb`
+# (`m0_stage!`, the implicit absorption after a copy of the state), `nu_opacities`
+# (`opacities!`) and `nu_sweep` (`sweep!`, one sweep of the optical depth): the step
+# limiter's `m0_step!` is the last two).
 #
 # Prints a header row, then one tab-separated row per phase:
 #
@@ -85,25 +91,33 @@ end
 # The tabulated stars' 1.4 M☉ central densities (`jobs/tabulated-tov-cowling.toml`).
 const TABLE_RHO_C = Dict(:dd2 => 9.4e-4, :sfho => 1.37e-3)
 
-function benchmark_case(::Type{T}, case::Symbol, L) where {T}
-    case === :star && return magnetized_tov_case(T; σ₀=1e6, μ_max=10, L, roots=1)
-    case === :tov && return tov_case(T; L, roots=1)
+function benchmark_case(::Type{T}, case::Symbol, L; neutrinos=false) where {T}
+    neutrinos && !haskey(TABLE_RHO_C, case) &&
+        error("neutrinos=true needs a tabulated case (dd2, sfho), got case=$case")
+    case === :star && return magnetized_tov_case(T; σ₀=1e6, μ_max=10, L, roots=1), nothing
+    case === :tov && return tov_case(T; L, roots=1), nothing
     if haskey(TABLE_RHO_C, case)
         d = load_table(String(case))
-        return tabulated_tov_case(T; d.table, d.eos, ρ_c=TABLE_RHO_C[case], ρ_min=1e-10,
-                                  L, roots=1)
+        c = tabulated_tov_case(T; d.table, d.eos, ρ_c=TABLE_RHO_C[case], ρ_min=1e-10, L,
+                               roots=1)
+        neutrinos || return c, nothing
+        E = MHD.EntropyEOS
+        cv = E.CompositionView(E.CompositionTable(d.table, d.eos))
+        units = EOSUnits(E.EOSTableView(d.eos); density=MSUN_DENSITY_CGS)
+        rates = RJS96Rates(T, units, d.eos, cv)
+        return c, M0Leakage(rates; composition=cv, center=(0.0, 0.0, 0.0), r_core=1.0)
     end
     error("unknown case=$case; expected star, tov, dd2 or sfho")
 end
 
 function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_phase,
-                          workgroupsize, reps, steps, comm=nothing) where {T}
-    c = benchmark_case(T, case, L)
+                          workgroupsize, reps, steps, neutrinos=false, comm=nothing) where {T}
+    c, nu = benchmark_case(T, case, L; neutrinos)
     forest = Forest{T}(ntuple(_ -> roots, 3); N, periodic=c.periodic, extents=c.extents,
                        comm)
     levels > 0 && tov_boxes!(forest, c; levels)
     p = MHD.MHDProblem(mhd_fields(T, forest; backend), c; limiter=:mc, two_phase,
-                       workgroupsize)
+                       workgroupsize, neutrinos=nu)
     u = statevector(evolved_sets(p))
     MHD.initial_state!(u, p, c, zero(T))
     du, v, U = similar(u), similar(u), similar(u)
@@ -111,6 +125,7 @@ function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_pha
     dt = T(MHD.default_cfl(:mc)) / (3 * MHD.max_rate(p, u, t))
     γΔt = dt / 4                                      # a stage's, near SSP3(4,3,3)'s γ
     MHD.prepare!(p, u, t)
+    MHD.initial_depth!(p, u, t)                       # the neutrinos' optical depth
     # Over MPI ranks a phase takes as long as its slowest rank; the ranks' mean and fastest
     # say how unequal their shares are (each rank's own best, no barrier between them).
     nranks = TreeAMR.commsize(TreeAMR.communicator(comm))
@@ -138,6 +153,14 @@ function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_pha
     copyto!(v, u)
     push_timing!("reset", best(() -> MHD.stage_limit!(v, p, t)))
     push_timing!("light", best(() -> MHD.max_rate(p, u, t)))
+    if p.neutrinos !== nothing
+        push_timing!("nu_rhs", best(() -> MHD.m0_rhs!(p.neutrinos, du, p, t)))
+        push_timing!("nu_absorb", best(() -> (copyto!(U, u);
+                                              MHD.m0_stage!(p.neutrinos, U, u, γΔt, p, t))))
+        od, model = p.neutrinos.od, MHD.rate_model(p.neutrinos.config)
+        push_timing!("nu_opacities", best(() -> opacities!(od, model, p.f.P)))
+        push_timing!("nu_sweep", best(() -> sweep!(od, p.f.P)))
+    end
     # The step: `steps` steps of one integrator, rebuilt for every repetition as `evolve!`
     # builds one a chunk, on the state stepped in place.
     function stepper(partition)
@@ -164,7 +187,7 @@ end
 function main(args)
     kw = Dict{Symbol,Any}(:case => :star, :N => 16, :roots => 3, :levels => 1, :L => 12,
                           :two_phase => nothing, :workgroupsize => nothing, :reps => 5,
-                          :steps => 2)
+                          :steps => 2, :neutrinos => false)
     backendname, T, mpi = "cpu", Float64, false
     for a in args
         k, val = split(a, '='; limit=2)
@@ -188,9 +211,11 @@ function main(args)
             backendname = val
         elseif k == "mpi"
             mpi = parse(Bool, val)
+        elseif k == "neutrinos"
+            kw[:neutrinos] = parse(Bool, val)
         else
             error("benchmark.jl: unknown key `$k` (case, N, roots, levels, L, type, " *
-                  "backend, two_phase, workgroupsize, reps, steps, mpi)")
+                  "backend, two_phase, workgroupsize, reps, steps, mpi, neutrinos)")
         end
     end
     return withrun(backendname, T, mpi) do backend, comm
@@ -201,7 +226,8 @@ function main(args)
                       "ns_per_cell", "rank_mean_seconds", "rank_min_seconds"), '\t'))
         ranks = TreeAMR.commsize(TreeAMR.communicator(comm))
         wgs = kw[:workgroupsize] === nothing ? "auto" : join(kw[:workgroupsize], 'x')
-        prefix = join((ranks, Threads.nthreads(), backendname, TYPENAMES[T], kw[:case], kw[:N],
+        casename = kw[:neutrinos] ? "$(kw[:case])+nu" : kw[:case]
+        prefix = join((ranks, Threads.nthreads(), backendname, TYPENAMES[T], casename, kw[:N],
                        kw[:roots], kw[:levels], r.blocks, r.cells, r.two_phase, wgs),
                       '\t')
         for (phase, s) in r.timings

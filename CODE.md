@@ -3162,7 +3162,9 @@ the cell's latest recovery in `P`, which a restart does not have, so
 (`resume_neutrinos!`), the restart's first included: the restart is then the
 uninterrupted run bit for bit (step 20; without it the static restart
 differed by 1e−12), and a script that owns the loop and checkpoints does
-the same. `evolve!` still refuses neutrinos on MPI ranks (`comm`):
+the same. For the same reason a monitor between steps (`evolve!`'s
+`after_step`) must not refresh `P` in a run with neutrinos: it reads `P` as
+the last stage left it, as `neutrino_luminosity` does. `evolve!` still refuses neutrinos on MPI ranks (`comm`):
 nothing of theirs has run across ranks yet (`PLAN.md`, step 21).
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
@@ -5557,6 +5559,11 @@ it names has the reasons.
   surface `η = 0` at the atmosphere's density, so `R̄` and `M` depend on
   `ρ_min`, slightly (DD2's 1.4 M☉ star: 13.194 km at 10⁻¹⁰ against 13.225
   km at 10⁻¹⁴); the literature's radius is the lower surface's.
+- **With neutrinos `P` carries state between steps.** A step's first
+  implicit stage absorbs with the cell's latest recovery in `P`, so `P` is
+  prepared from the state at every chunk boundary (`resume_neutrinos!`,
+  which makes a restart exact), and a monitor between steps reads `P` and
+  never refreshes it ("Neutrinos", "Field sets and interface").
 
 ## Tests
 

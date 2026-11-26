@@ -291,6 +291,8 @@ The sharp edges, each explained in `CODE.md`, "Sharp edges":
 - An adapter is a snapshot of its producer's prepared state.
 - A kernel's sum over directions is written out, not `sum(ntuple(… Val(j) …))`.
 - A script picks the integrator's partition from the state's array type.
+- With neutrinos `P` carries state between steps: prepare it at chunk boundaries
+  (`resume_neutrinos!`), never refresh it in a monitor.
 - A collective call is gated by the replicated forest or an agreed value, never by the
   rank's own blocks; a host diagnostic combines its sums over the ranks before a ratio.
 

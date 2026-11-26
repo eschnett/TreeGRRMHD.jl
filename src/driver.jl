@@ -645,7 +645,10 @@ checkpoint was written at another rank count.
 problem, the state and its time — a monitor, such as the `∇·𝔅` check of
 rung 2a ([`max_div_B`](@ref); added in step 7); it must not change `u`.
 It runs outside the step, with the step cache off, so a monitor that calls
-[`update_primitives!`](@ref) or [`mhd_rhs!`](@ref) does not change the run.
+[`update_primitives!`](@ref) or [`mhd_rhs!`](@ref) does not change the run —
+except with `neutrinos`, whose next implicit stage reads `P` as the last stage
+left it: there a monitor reads `P` and does not refresh it
+([`neutrino_luminosity`](@ref) does so).
 
 The steps run with the **step cache** ([`with_step_cache`](@ref); added
 2026-10-24, decided by Erik 2026-10-23): inside a step every recovery is

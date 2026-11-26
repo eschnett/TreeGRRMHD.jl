@@ -110,6 +110,16 @@ end
     return sqrt(ℓ²)
 end
 
+# The six τ through the neighbour at `tn`, at the proper distance `ℓ`, where
+# lower. A function of its own, so that the closure captures arguments: with
+# `best` reassigned in the kernel's loop and captured there, Julia boxed it and
+# the sweep allocated at every neighbour (step 20: 7.7 µs a cell, ten times a
+# right-hand side's flux phase).
+@inline relax_through(best::NTuple{6,T}, Tw, tn, κc::NTuple{6,T}, ℓ::T, b::Int) where {T} =
+    ntuple(Val(6)) do k
+        @inbounds min(best[k], Tw[tn..., k, b] + (κc[k] + Tw[tn..., TAU_K + k, b]) * ℓ / 2)
+    end
+
 # One Jacobi sweep at an owned cell: the new τ into the work set, and the
 # largest relative change among the six. A change from or to zero that is
 # not zero counts as infinite, so that a sweep converges only once every τ
@@ -134,9 +144,7 @@ end
         tn = ntuple(e -> tc[e] + o[e], Val(D))
         pn = ntuple(e -> pc[e] + o[e], Val(D))
         ℓ = proper_step(Pw, pc, pn, b, h, o)
-        best = ntuple(Val(6)) do k
-            @inbounds min(best[k], Tw[tn..., k, b] + (κc[k] + Tw[tn..., TAU_K + k, b]) * ℓ / 2)
-        end
+        best = relax_through(best, Tw, tn, κc, ℓ, b)
     end
     change = zero(T)
     for k in 1:6
