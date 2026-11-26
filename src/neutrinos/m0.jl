@@ -191,16 +191,21 @@ rate_model(c::M0Leakage) = TabulatedRates(c.rates, c.composition)
 eos_view(e::GeometricEOS) = e.eos
 eos_view(e) = e
 
-# The composition checked against the problem's EOS and moved to its device.
-function placed(c::M0Leakage, eos, backend)
-    c.composition === nothing && return c
-    EntropyEOS.matches(c.composition, eos_view(eos)) || throw(ArgumentError(
-        "M0Leakage's composition was not built from the problem's EOS table " *
-        "(EntropyEOS.matches is false): its densities and fractions belong to another " *
-        "table."))
-    cv = Adapt.adapt(backend, c.composition)
-    return M0Leakage{typeof(c.rates),eltype(c.center),typeof(cv)}(
-        c.rates, c.center, c.r_core, c.feedback, c.optical_depth, cv)
+# The `M0Leakage` at the problem's type `T` (its centre and `r_core`, which the
+# kernels combine with the cell's coordinates), and its composition checked against the
+# problem's EOS and moved to its device.
+function placed(c::M0Leakage, ::Type{T}, eos, backend) where {T}
+    cv = c.composition
+    if cv !== nothing
+        EntropyEOS.matches(cv, eos_view(eos)) || throw(ArgumentError(
+            "M0Leakage's composition was not built from the problem's EOS table " *
+            "(EntropyEOS.matches is false): its densities and fractions belong to another " *
+            "table."))
+        cv = Adapt.adapt(backend, cv)
+    end
+    return M0Leakage{typeof(c.rates),T,typeof(cv)}(c.rates, SVector{3,T}(c.center),
+                                                   T(c.r_core), c.feedback, c.optical_depth,
+                                                   cv)
 end
 
 """
@@ -229,8 +234,8 @@ const SEG_NU = 6
 
 m0_state(::Nothing, f, ops, backend, eos) = nothing
 function m0_state(c0::M0Leakage, f::MHDFields{D}, ops, backend, eos) where {D}
-    c = placed(c0, eos, backend)
     T = eltype(f.U.work)
+    c = placed(c0, T, eos, backend)
     forest = f.U.forest
     any(forest.periodic) && throw(ArgumentError(
         "M0Leakage needs a forest periodic in no direction: the closure's radial " *
@@ -506,7 +511,7 @@ m0_regrid_pairs(s::M0State) =
     (map(F -> F => nothing, s.Fν)..., (s.od === nothing ? () : depth_regrid_pairs(s.od))...)
 
 """
-    initial_depth!(p::MHDProblem, u, t) -> sweeps
+    initial_depth!(p::MHDProblem, u, t; metric = p.provider) -> sweeps
 
 The neutrinos' start on the state `u` at `t`: `P` prepared, so that the
 first implicit stage, which SSP3(4,3,3) makes before any right-hand side,
@@ -516,10 +521,10 @@ that owns the loop does likewise. After a regrid the depth is transferred
 and the sweeps go on one per step ("Neutrinos", "The optical depth" in
 `CODE.md`). Zero sweeps without neutrinos or without an optical depth.
 """
-initial_depth!(p, u, t) = m0_initial_depth!(p.neutrinos, p, u, t)
-m0_initial_depth!(::Nothing, p, u, t) = 0
-function m0_initial_depth!(s::M0State, p, u, t)
-    prepare!(p, u, t)
+initial_depth!(p, u, t; metric=p.provider) = m0_initial_depth!(p.neutrinos, p, u, t; metric)
+m0_initial_depth!(::Nothing, p, u, t; metric) = 0
+function m0_initial_depth!(s::M0State, p, u, t; metric)
+    prepare!(p, u, t; metric)
     s.od === nothing && return 0
     reset_depth!(s.od)
     opacities!(s.od, rate_model(s.config), p.f.P)
@@ -527,7 +532,7 @@ function m0_initial_depth!(s::M0State, p, u, t)
 end
 
 """
-    resume_neutrinos!(p::MHDProblem, u, t)
+    resume_neutrinos!(p::MHDProblem, u, t; metric = p.provider)
 
 `P` prepared from the state `u`, as [`initial_depth!`](@ref) prepares it, so that the next
 implicit stage, which reads the cell's latest recovery, reads the state's: what `evolve!`
@@ -535,7 +540,8 @@ does at every chunk boundary, so that a restart, which has no `P` of its own and
 optical depth the checkpoint restored (`restore_run!`), is the run that never stopped. A
 script that owns the loop and checkpoints does likewise. Nothing without neutrinos.
 """
-resume_neutrinos!(p, u, t) = (p.neutrinos === nothing || prepare!(p, u, t); nothing)
+resume_neutrinos!(p, u, t; metric=p.provider) =
+    (p.neutrinos === nothing || prepare!(p, u, t; metric); nothing)
 
 """
     neutrino_totals(p::MHDProblem, u) -> NTuple{6}

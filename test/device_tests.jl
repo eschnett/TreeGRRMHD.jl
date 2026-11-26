@@ -104,9 +104,22 @@ function device_runs(::Type{T}) where {T}
     tab = if DD2_PRESENT
         d = dd2_table()
         dd2 = tabulated_tov_case(T; d.table, d.eos, ρ_c=9.4e-4, ρ_min=1e-10, L=12, roots=3)
+        # The hot star with neutrinos (step 20): the composition's upload with the
+        # `M0Leakage` and the neutrinos' kernels, at the run's type.
+        E = TreeGRRMHD.EntropyEOS
+        cv = computed_once(() -> E.CompositionView(E.CompositionTable(d.table, d.eos)),
+                           :device_dd2_composition)
+        units = EOSUnits(E.EOSTableView(d.eos); density=MSUN_DENSITY_CGS)
+        nu = M0Leakage(RJS96Rates(T, units, d.eos, cv); composition=cv,
+                       center=(0.0, 0.0, 0.0), r_core=1.0)
+        hot = tabulated_tov_case(T; d.table, d.eos, ρ_c=9.4e-4, ρ_min=1e-10, s=1, L=12,
+                                 roots=3)
         (("tabulated TOV star (DD2)", dd2, Val(3),
           (; N=8, t_end=1, chunk=1 // 2, limiter=:mc,
-           refine=forest -> tov_boxes!(forest, dd2; levels=1))),)
+           refine=forest -> tov_boxes!(forest, dd2; levels=1))),
+         ("hot DD2 star with neutrinos", hot, Val(3),
+          (; N=8, t_end=1, chunk=1 // 2, limiter=:mc, neutrinos=nu,
+           refine=forest -> tov_boxes!(forest, hot; levels=1))))
     else
         ()
     end
@@ -131,7 +144,8 @@ function device_run(::Type{T}, case, vD, kw, backend, two_phase) where {T}
     return (; r, drift=conserved_totals(r.p, r.u) .- r.totals0,
             scales=max.(conserved_scales(r.p, r.u), conserved_scales(r.p, u0)),
             divB=max_div_B(r.p, r.u, r.t), ρ_max=TreeGRRMHD.central_density(r.p, r.u, r.t),
-            l1=l1_errors(r.p, r.u, exact_state(r.p, case, r.t)))
+            l1=l1_errors(r.p, r.u, exact_state(r.p, case, r.t)),
+            nu=r.p.neutrinos === nothing ? nothing : neutrino_totals(r.p, r.u))
 end
 
 # The agreement asked of a continuous result — an error norm, a density, `∇·𝔅`: `≈` at
@@ -229,6 +243,8 @@ function device_testsets()
             @test device_same_drift(dev, host, T)
             @test device_close_divB(dev.divB, host.divB, T)
             @test device_close(dev.ρ_max, host.ρ_max, T)
+            # The neutrinos' totals, continuous results like the density (step 20).
+            host.nu === nothing || @test all(device_close.(dev.nu, host.nu, T))
             # The error norms only where there is an exact solution to measure against, and
             # of the components the wave carries — `S_y`, `S_z`, `𝔈ʸ`, `𝔈ᶻ`, `A_y`, `A_z` —
             # whose error is its truncation error; the others' is rounding, which a device

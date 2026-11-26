@@ -1226,6 +1226,44 @@ with a checkpoint, a restart or `comm`: the optical depth is outside the state v
 checkpoint would not hold it, and nothing of the neutrinos' had run across ranks
 (`PLAN.md`, "Neutrinos with checkpoints and MPI ranks").
 
+**2026-11-26, step 20 — The star with neutrinos (rung 8g).** On
+`claude/step-20-neutrino-star`, cut from PR 18's branch after it was merged with `main`.
+Erik decided the step's six choices, two of them changed from the draft: the luminosity is
+measured through a spherical shell inside the domain, since the outer boundary is not a
+physical one (the outer faces' outflow only the computational check), and checkpoints with
+neutrinos come within the step, before any run of more than a few hours, while MPI ranks
+are a step of their own (21) without which the scheme is not finished; the review pass
+became step 22. The other four as drafted: the composition travels with `M0Leakage`; `T`
+from the warm start; the hot star a hot barotrope in hydrostatic equilibrium rather than a
+perturbed cold star; the suite's runs short at `h = 1`, the long ones `bin/` studies.
+- **20a.** `M0Leakage(rates; composition)`, `TabulatedRates` into the kernels,
+  `RJS96Rates` with the units' density; on the synthetic table the opacity kernel's κ
+  equals the pointwise rates at all 254 filled cells bit for bit.
+- **20b, and `P` between steps.** The first neutrino restart differed from the run that
+  never stopped by 1e−12: a step's first implicit stage absorbs with the cell's latest
+  recovery in `P`, which the uninterrupted run carried over from its previous step and
+  the restart had not. The adaptive restart already agreed, since its regrid prepares `P`
+  from the state at every chunk boundary; so now does `evolve!` (`resume_neutrinos!`), and
+  both restarts are exact. The same makes a monitor that refreshes `P` change a run with
+  neutrinos, which `evolve!`'s docstring had said could not happen (now a sharp edge).
+- **20c.** The hot barotrope at `s = 1` on DD2: 26.3 MeV at the centre, 1.51 M☉ at the
+  cold star's central density (cold 1.404); `s = 0.5` 12.7 MeV, 1.431 M☉; `s = 2` leaves
+  the table's entropy window above the star's densities. The hot star's matter, with the
+  cold slice's `Yₑ`, emits more ν̄_e than ν_e, so its `Yₑ` rises: `PLAN.md`'s
+  "deleptonization" had the sign wrong for this star.
+- **The cold star is not cold on the mesh.** The slice is at 0.01 MeV, but the recovered
+  cell averages of the initial data are 4.4 MeV at the centre and 6.4 MeV where the density
+  falls, at `h = 1`: the Gauss quadrature's averages of the conserved variables are exact
+  to its order, and a small error in the energy of degenerate matter is a large
+  temperature. At `t = 2M` its neutrinos hold 40% of the hot star's energy; its emission is
+  the discretization's, and rung 8g's bound becomes its fall with `h`.
+- **The optical depth's sweep allocated at every neighbour since step 17.** The kernel
+  reassigned `best` in its neighbour loop and captured it in an `ntuple` closure, which
+  Julia boxed: 7.7 µs a cell at four threads on the laptop, twice a right-hand side and a
+  third of a step with neutrinos. With the update a function of its own (`relax_through`)
+  it is 145 ns, the arithmetic unchanged. With it a step with neutrinos costs 1.26 times
+  one without (laptop, DD2 at `h = 1`).
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:

@@ -144,11 +144,12 @@ end
 #
 # `backend` is where every set lives, `comm` the communicator the forest is distributed over
 # (`nothing`, serial), and `forest` a forest to build on instead of the star's boxes: a
-# checkpoint's (`MHD.load_run`), already distributed.
+# checkpoint's (`MHD.load_run`), already distributed. `neutrinos` is the matter's
+# `M0Leakage` (step 20; `nothing`, none): their stress-energy does not reach TreeGH.
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
                   refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0, δv=(0, 0, 0),
                   order=4, ρ_min=1e-12, case=nothing, backend=CPU(), comm=nothing,
-                  forest=nothing)
+                  forest=nothing, neutrinos=nothing)
     order in (2, 4) || throw(ArgumentError("the transfer order is 2 or 4, got $order"))
     case === nothing || all(iszero, δv) || throw(ArgumentError(
         "δv perturbs `tov_case`'s star; a `case` holds its own velocity."))
@@ -164,7 +165,7 @@ function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
     U = FieldSet{T}(forest, 20; G=q ÷ 2 + 1, centering=vertexcentered(3), backend)
     ops = Operators(; prolongation=q + 2, restriction=q + 2)
     gh = GH.GHProblem(U, GhostSchedule(U, ops), ghcase; q)   # q ≥ 4: K at the contract's order
-    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest; backend), star; limiter)
+    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest; backend), star; limiter, neutrinos)
     vm = MHD.VertexMetricSet(T, forest; boundary=star.provider, backend)  # Mv: G = 4, N ≥ 10
     sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
     u = statevector(sets)
@@ -173,6 +174,9 @@ function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
     p = (; gh, mhd, vm, am, s, key=reuse_fill ? FillKey(u, s[1]) : nothing)
     GH.initial_state!(view(u, p.s[1]), gh, zero(T))             # fill_exact!
     MHD.initial_state!(view(u, p.s[2]), mhd, star, zero(T))     # exact_state
+    # The neutrinos' `P` and optical depth, in TreeGH's metric (step 20).
+    neutrinos === nothing ||
+        MHD.initial_depth!(mhd, view(u, p.s[2]), zero(T); metric=metric_at(p, u, zero(T)))
     return (; p, u, star, forest, sets)
 end
 

@@ -1,0 +1,20 @@
+# Step 20: the neutrinos' row of the per-phase table (`bin/benchmark.jl`, "The per-phase
+# table" and "The tabulated star's cost" in `CODE.md`): DD2's star on the cost study's
+# mesh "M1" (`[−24, 24]³`, 4³ roots of 16³, one box level), at 64 threads, without and with
+# neutrinos, in one job on one node, so that the two are comparable.
+name = "benchmark-neutrinos"
+threads = 64
+pin = true
+mode = "sequential"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "dd2"
+cmd = "bin/benchmark.jl case=dd2 N=16 roots=4 L=24 levels=1"
+
+[[run]]
+label = "dd2-nu"
+cmd = "bin/benchmark.jl case=dd2 N=16 roots=4 L=24 levels=1 neutrinos=true"

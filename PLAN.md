@@ -242,6 +242,14 @@ equilibrium; the luminosity through a spherical shell inside the domain, the
 outer faces' outflow only the computational check; checkpoints within this
 step, before the long studies; MPI a step of its own (21).
 
+*Built* (2026-11-26, on `claude/step-20-neutrino-star`): 20a, 20b and 20c, and 20d's
+scripts and specs (`bin/neutrino_star.jl`, `bin/benchmark.jl neutrinos=true`,
+`coupled/tov_coupled_study.jl s= neutrinos=`, `test/device_tests.jl`'s hot star with
+neutrinos, `jobs/neutrino-star*.toml`, `jobs/benchmark-neutrinos.toml`); the Symmetry runs
+and their numbers to come. Found on the way: the optical depth's sweep had allocated at
+every neighbour since step 17 (53 times faster now), and with neutrinos `P` carries state
+between steps (`CODE.md`, "Sharp edges").
+
 **20a, the composition in the kernels.**
 - `M0Leakage(rates; composition, …)`, refused as `CODE.md` says;
   `TabulatedRates` into the kernels; `RJS96Rates` gains the units' density.

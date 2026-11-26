@@ -23,7 +23,12 @@
 # β-equilibrium, read from `ENTROPYEOS_TABLE_DIR`) with `ρ_c` (its central density,
 # geometric). The series then gains four columns: `ΔDYₑ injected_DYₑ s_floors s_floor_τ`,
 # the change of the total `D Yₑ`, the reset's injection into it, and its entropy floors
-# outside the atmosphere with their `τ`, since `t = 0`.
+# outside the atmosphere with their `τ`, since `t = 0`. *(Added in step 20)* `s` (the hot
+# star's entropy per baryon, `tabulated_tov_case`; none, the cold star) and `neutrinos`
+# (`false`; `true`: `RJS96Rates` on the table's composition, `M0Leakage` about the centre
+# with `r_core = 1`, whose stress-energy does not reach TreeGH); the series then gains two
+# columns, the neutrinos' total energy `Σ𝓔` and lepton number's change net of the reset,
+# `ΔDYₑ + N_e − N_ē − injected_DYₑ`.
 
 include(joinpath(@__DIR__, "tov_coupled.jl"))
 include(joinpath(@__DIR__, "..", "bin", "tables.jl"))
@@ -46,12 +51,22 @@ end
 function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, limiter=:ppm,
                cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12,
                out=nothing, checkpoint=nothing, every=20, table=nothing, ρ_c=nothing,
-               comm=nothing)
+               s=nothing, neutrinos=false, comm=nothing)
+    nu = nothing
     case = if table === nothing
+        (s === nothing && !neutrinos) ||
+            error("tov_coupled_study.jl: `s` and `neutrinos` need a table")
         nothing
     else
         d = load_table(table)
-        MHD.tabulated_tov_case(T; d.table, d.eos, ρ_c, ρ_min, L, roots)
+        if neutrinos
+            E = MHD.EntropyEOS
+            cv = E.CompositionView(E.CompositionTable(d.table, d.eos))
+            units = MHD.EOSUnits(E.EOSTableView(d.eos); density=MHD.MSUN_DENSITY_CGS)
+            nu = MHD.M0Leakage(MHD.RJS96Rates(T, units, d.eos, cv); composition=cv,
+                               center=(0.0, 0.0, 0.0), r_core=1.0)
+        end
+        MHD.tabulated_tov_case(T; d.table, d.eos, ρ_c, ρ_min, s, L, roots)
     end
     # A directory (SimLaunch's `ck/`, `mutable_restarts`) holds the checkpoint as a file;
     # whether to resume is rank 0's view of it, the rank that reads its index.
@@ -59,10 +74,15 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
     resume = checkpoint !== nothing && MHD.rank_reduce((a, b) -> a, comm, isfile(checkpoint))
     recipe = MHD.checkpoint_recipe(; T, N, levels, L, roots, chunk=T(chunk), limiter,
                                    cfl_gh=T(cfl_gh), γ0M, γ2, δv, order, ρ_min, table, ρ_c)
+    # The neutrinos' keys only where they are, so that an older checkpoint keeps its recipe.
+    s === nothing || (recipe = merge(recipe, MHD.checkpoint_recipe(; s)))
+    nu === nothing ||
+        (recipe = merge(recipe, MHD.checkpoint_recipe(; neutrinos=MHD.neutrino_recipe(nu))))
     ck = resume ? MHD.load_run(checkpoint; comm) : nothing
     ck === nothing || MHD.check_recipe(ck.recipe, recipe)
     (; p, u, forest) = problems(T; N, levels, L, roots, limiter, γ0M, γ2, δv, order, ρ_min,
-                                case, comm, forest=ck === nothing ? nothing : ck.forest)
+                                case, comm, forest=ck === nothing ? nothing : ck.forest,
+                                neutrinos=nu)
     root = MHD.isroot(comm)
     tot0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))
     M0, Y0 = tot0[MHD.U_D], tot0[MHD.U_DYE]
@@ -87,7 +107,8 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
     else
         push!(rows, (; t, study_norms(p, u, t)..., injected=zero(T), steps=0,
                      ΔM=zero(T), resets=0, injected_τ=zero(T), ΔY=zero(T), injY=zero(T),
-                     floors=0, floorτ=zero(T)))
+                     floors=0, floorτ=zero(T), nuE=nu === nothing ? T(NaN) : zero(T),
+                     nuY=nu === nothing ? T(NaN) : zero(T)))
     end
     # The series is rewritten from the rows the checkpoint holds, so that a resumed run's
     # file has no row twice (a pre-emption after a row and before its checkpoint).
@@ -96,12 +117,16 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
              (println(io, join((r.t, r.ρ_c, r.ham_in, r.mom_in, r.ham_out, r.mom_out,
                                 r.injected, r.steps, get(r, :ΔM, NaN), get(r, :resets, -1),
                                 get(r, :injected_τ, NaN), get(r, :ΔY, NaN), get(r, :injY, NaN),
-                                get(r, :floors, -1), get(r, :floorτ, NaN)), "  ")); flush(io))
+                                get(r, :floors, -1), get(r, :floorτ, NaN), get(r, :nuE, NaN),
+                                get(r, :nuY, NaN)), "  ")); flush(io))
     foreach(put, rows)
     wall0 = time()
     for c in (c0 + 1):nchunks
         t1 = c == nchunks ? t_end : c * chunk
         MHD.clear_tally!(p.mhd)
+        # The neutrinos' first implicit stage reads `P`: from the state at every chunk
+        # boundary, so that a resumed run is the one that never stopped (step 20).
+        MHD.resume_neutrinos!(p.mhd, view(u, p.s[2]), t; metric=metric_at(p, u, t))
         nsteps = step_count(p, u, t, t1, forest, cfl_gh, cfl_mhd)
         prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
         integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=(t1 - t) / nsteps,
@@ -120,8 +145,14 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
         floorτ += tally.s_floor_τ
         tot = MHD.conserved_totals(p.mhd, view(u, p.s[2]))
         ΔM, ΔY = tot[MHD.U_D] - M0, tot[MHD.U_DYE] - Y0
+        nuE, nuY = if nu === nothing
+            T(NaN), T(NaN)
+        else
+            nt = MHD.neutrino_totals(p.mhd, view(u, p.s[2]))
+            nt[2] + nt[4] + nt[6], ΔY + nt[1] - nt[3] - injY
+        end
         r = (; t, study_norms(p, u, t)..., injected, steps, ΔM, resets, injected_τ, ΔY, injY,
-             floors, floorτ)
+             floors, floorτ, nuE, nuY)
         push!(rows, r)
         put(r)
         if checkpoint !== nothing && (c % every == 0 || c == nchunks)
@@ -149,8 +180,10 @@ function study_main(args)
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every", "order")
             kw[Symbol(k)] = parse(Int, v)
-        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2", "ρ_min", "ρ_c")
+        elseif k in ("L", "t_end", "chunk", "cfl_gh", "γ0M", "γ2", "ρ_min", "ρ_c", "s")
             kw[Symbol(k)] = parse(Float64, v)
+        elseif k == "neutrinos"
+            kw[:neutrinos] = parse(Bool, v)
         elseif k == "table"
             kw[:table] = String(v)
         elseif k == "δv"

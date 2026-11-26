@@ -1,0 +1,23 @@
+# Step 20 (rung 8g): the hot DD2 star with neutrinos coupled to TreeGH
+# (`coupled/tov_coupled_study.jl table=dd2 s=1 neutrinos=true`; "The coupling contract" in
+# `CODE.md`), at `h = 0.5` (`N = 12`) on step 13's coupled mesh and atmosphere (PPM,
+# `ρ_min = 1e−12`), to 100 M: the coupled star cools as the Cowling one does, its lepton
+# number conserved net of the reset; the neutrinos' stress-energy does not reach TreeGH.
+# About 4 h, from step 13's coupled cost (30 h to 1000 M) and the neutrinos' 1.26;
+# checkpointed every 10 M.
+name = "neutrino-star-coupled"
+project = "coupled"
+checkpoints = true
+mutable_restarts = true
+threads = 64
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[restart]
+to = "checkpoint"
+
+[site.symmetry]
+time = "12:00:00"
+
+[[run]]
+label = "hot-h0.5"
+cmd = "tov_coupled_study.jl table=dd2 ρ_c=9.4e-4 s=1 neutrinos=true N=12 t_end=100 chunk=1 every=10 out=series.txt"
