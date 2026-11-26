@@ -281,8 +281,9 @@ The sharp edges, each explained in `CODE.md`, "Sharp edges":
 - The atmosphere reset is both the stage and the step limiter.
 - The explicit and implicit abscissae differ; write `t`-dependent boundary
   data so that `t` drops out.
-- The right-hand side never mutates `u`; an owned low wall gets zero
-  tendency.
+- The right-hand side never mutates `u`; a potential's wall is an own
+  point (TreeAMR 0.3), evolved and overwritten by every fill from the
+  hook (`wall = :prescribed`), so nothing reads `u` there unfilled.
 - Masks branch, never multiply.
 - An adapter is a snapshot of its producer's prepared state.
 - A kernel's sum over directions is written out, not `sum(ntuple(… Val(j) …))`.

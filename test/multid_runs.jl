@@ -159,8 +159,10 @@ end
 # every point has its mirror. Compared with `==`: bit identity for every
 # nonzero value, and the sign of a zero free, as for `md_turned_equal` (a
 # parity of −1 turns `+0` into `−0`, and `0 − 0` is `+0` whichever side it was
-# computed on). Also returns whether the state itself holds what the fill
-# holds on the owned points — that the prescribed low walls persist in it.
+# computed on). Until TreeAMR 0.3 it also returned whether the state itself
+# held what the fill holds — that the prescribed low walls persisted in it;
+# the wall is evolved in the state now and only a fill writes the
+# condition's (`refinement_tests.jl`, "The potentials' walls").
 function md_mirror_equal(p, u, t, axes, c)
     update_primitives!(p, u, t)
     pol(j) = prod(k -> k == j ? -1 : 1, axes; init=1)
@@ -180,12 +182,7 @@ function md_mirror_equal(p, u, t, axes, c)
             q[g..., v] == parity(i, v) * q[gm..., v]
         end
     end
-    persisted = all(1:5) do i
-        q = md_closed_global(p, i)
-        a = md_global(p, u, i)
-        all(I -> isequal(a[I], q[I]), CartesianIndices(a))
-    end
-    return (; mirrored, persisted)
+    return (; mirrored)
 end
 
 # Every total but `𝔈`'s constant to rounding: TreeHydro's 8 ulp of its scale per

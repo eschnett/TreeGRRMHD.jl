@@ -4946,6 +4946,28 @@ static_potential = true)`, decided by Erik 2026-11-03).
 **2026-11-03, step 9.** *(Added in step 9, decided by Erik 2026-11-03:)* step 10's plan decides
 the potentials' outer boundary.
 
+**2026-11-26, TreeAMR 0.3 (closed blocks, its M22; the review's port in
+its step 10).** A block owns both face planes of a vertex-like dimension,
+so the potentials' low *and* high walls are own points; the `walls`
+keyword and AMR-8's symmetric walls are gone. The potentials' hooks are
+built with `wall = :prescribed`, which writes both walls at every fill;
+`low_walls`, `on_low_wall`, the zeroed wall `du` and `walls_to_state!`
+(with the reset's fill of `Φ̃` that fed it) are removed, as TreeAMR's
+migration note says. The state's wall entries are now evolved and never
+read: one step from a state whose 408 (434 refined) wall entries are
+perturbed by 1 gives the same state off the walls bit for bit. Measured
+against TreeAMR 0.2.12 → 0.3: the closed 3D blast box's coarse-fine faces
+on an outer face miss their fine faces' flux by 7.5e−6 → 1.4e−16 (AMR-11
+resolved); the closed box with its middle refined is mirror-symmetric to
+1.1e−2 → 7.2e−15 in `U` and 1.3e−2 → 7.0e−15 in `A_z` (TreeAMR's open
+item closed); the uniform closed boxes stay bit for bit. Positions are
+formed by TreeAMR's `nodeposition` (`block_corners`), the fluxes and EMFs
+unified by `unify!` (`InterfaceSchedule` and `restrict_interfaces!` are
+gone), and `l1_errors` unifies the state first. The gauge-offset test now
+offsets every own edge, the closed box: offsetting `1:N` left the copies
+on the high face planes, which may be the primaries, without the offset,
+and the fill unified a non-gradient into `A` (0.31 of `max |𝔅|`).
+
 ## The interior
 
 **2026-11-02, step 9.** The rules for resets inside the hole (not counted

@@ -153,8 +153,7 @@ end
     # 7.1e−6 (`x → −x`) and 6.7e−5 (`y → −y`, fields reversed) of a variable's
     # scale apart before the fix (measured in step 8), and now the mirror image
     # of itself, every evolved set on the closed range, both walls included,
-    # bit for bit but the sign of a zero; and the state holds the prescribed
-    # low walls.
+    # bit for bit but the sign of a zero.
     run = md_run(cylindrical_explosion_case(Float64; L=2, roots=4), Val(2); N=8, t_end=1 // 4,
                  limiter=:minmod)
     ex = md_mirror_equal(run.r.p, run.r.u, run.r.t, (1,), 1)
@@ -162,7 +161,7 @@ end
     @info "Explosion in a closed box, 32², t = 1/4: mirror-symmetric x → −x $(ex.mirrored), " *
           "y → −y $(ey.mirrored); ∇·𝔅 $(run.divb); $(run.r.nsteps) steps"
     @test run.r.nsteps == 10
-    @test ex.mirrored && ey.mirrored && ex.persisted
+    @test ex.mirrored && ey.mirrored
     @test run.tally.policy == 0 && run.tally.resets == 0
     # The faces were reached: the cells along them changed.
     q, q0 = md_global(run.r.p, run.r.u, 1), md_global(run.r.p, run.u0, 1)
@@ -189,7 +188,7 @@ end
          md_mirror_equal(run.r.p, run.r.u, run.r.t, (3,), -1))
     @info "Spherical blast in a closed box, 16³, t = 1/4: mirror-symmetric " *
           "$(map(x -> x.mirrored, e)); ∇·𝔅 $(run.divb); $(run.r.nsteps) steps"
-    @test all(x -> x.mirrored, e) && e[1].persisted
+    @test all(x -> x.mirrored, e)
     @test all(isfinite, run.r.u)
     @test run.tally.policy == 0 && run.tally.resets == 0
 end

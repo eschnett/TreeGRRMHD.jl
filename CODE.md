@@ -296,7 +296,9 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   dimension by the rule of the high one — the hook, the reflecting
   derivation, the outflow clamp — so that a closed box is mirror-symmetric.
   *Landed in TreeAMR 0.2.2 as `FieldSet(…; walls = :symmetric)`;* the
-  workaround is gone.
+  workaround is gone. *Superseded in TreeAMR 0.3* (closed blocks): every
+  block owns both walls, the `walls` keyword is gone, and the potentials'
+  hooks prescribe both with `wall = :prescribed` ("Boundaries").
 - **AMR-9 (wanted, no step blocked) A flux-conservative transfer of edge
   sets**: conservative along an edge's own (cell-like) direction,
   point-value along the others, so that the magnetic flux through a coarse
@@ -319,7 +321,10 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   hook writes its own wall edges, so the magnetic flux through a coarse face
   touching an outer face is its fine faces' sum only to 1.2e−5 of the
   largest flux, where everywhere else it is to rounding ("Conservation at
-  coarse-fine faces"). No workaround needed.
+  coarse-fine faces"). No workaround needed. *Resolved by TreeAMR 0.3's
+  closed blocks*: a coarse wall edge on a coarse-fine face is a secondary
+  copy, given its fine primaries' value, and the closed box agrees to
+  1.4e−16 too.
 - **AMR-14 (wanted, no step blocked) The curve split by a weight per
   leaf**: the threads' chunks and the ranks' ranges are equal counts of
   leaves, and on a tabulated star a block's cost varies by four: the star's
@@ -334,7 +339,9 @@ This is a **physics package** in TreeAMR's sense (its `CODE.md`,
 "Companion interface"): it uses TreeAMR's exports and its `public`
 communicator verbs, with one exception — `tov_boxes!` reads `Forest`'s
 field `leaves` —, and bounds TreeAMR by a minor series,
-`TreeAMR = "0.2.11"`, the release the landed items are in (the public
+`TreeAMR = "0.3"`, the release of closed blocks (M22), taken until it is
+registered from the checkout beside this one through a `[sources]` path
+entry, as TreeIOHDF5 is; 0.2.11 had the landed items (the public
 communicator verbs, AMR-13, the last). The prerequisite tests check the
 names it calls against the exports and the public names, and `src/device.jl` uploads its own metadata with
 `KernelAbstractions.allocate` rather than reaching for TreeAMR's internal
@@ -1820,8 +1827,8 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `P` — primitives, EOS aux, flags, `E`, `B̄` at cells, `q`, cell metric | cell | 30 | 3 | `=> nothing` |
 | `W` — `ρ★, s, Yₑ, uⁱ = Wvⁱ, Eⁱ`, the matter's ghost fill | cell | 9 | 3 | Conservative width 3, bounded, centred on the parent / `=> nothing` |
 | `B_d` — `curl A` | face `d` | 1 each | 3 | `=> nothing`, recomputed every RHS |
-| `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
-| `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
+| `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `unify!` is the flux correction |
+| `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `unify!` is the CT correction |
 | `Mv` — the vertex metric `(α, β^i, γ_ij, K_ij)`, owned vertices from the producer's ADM adapter, in its own `VertexMetricSet`, not `MHDFields` | vertex | 16 | 4 (so `N ≥ 10`) | PointValue width 6 in its fill / `=> nothing` (`regrid_pairs(vm)`), refilled from the rebuilt adapter |
 | `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ` | cell | 34 | 0 | `=> nothing` |
 | step cache — the cell's latest recovery in the step: EntropyEOS's input and output; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
@@ -3404,7 +3411,7 @@ In the order the explicit part of each stage evaluates it:
    adapter ([The coupling contract](#the-coupling-contract)).
 6. Reconstruction and Riemann fluxes into `F_d` over the closed face
    ranges; the EMF into `EMF_d` over the closed edge ranges;
-   `restrict_interfaces!` on both.
+   `unify!` on both.
 7. Divergence of `F_d` plus the explicit sources into `du` for the matter
    set; `−EMF − ∂(αΦ − β·A)` into `du` for `A_d`; the gauge equation into
    `du` for `Φ̃`.
@@ -3465,10 +3472,10 @@ built, and the first 2D and 3D check, are in
 ## Conservation at coarse-fine faces
 
 No subcycling, so conservation is a spatial fixup inside each
-right-hand-side evaluation, exactly as in TreeHydro: `restrict_interfaces!`
+right-hand-side evaluation, exactly as in TreeHydro: `unify!`
 on `F_d` makes each coarse face's flux the average of its fine faces', so
 `D` (and the other nine cell variables) are conserved across levels to
-round-off. `restrict_interfaces!` on `EMF_d` is the constrained-transport
+round-off. `unify!` on `EMF_d` is the constrained-transport
 EMF correction: a coarse edge on a coarse-fine face receives the average
 of its fine edges' EMFs, so the coarse `A` there stays consistent with the
 fine `A`, and the magnetic flux through a coarse face equals the sum
@@ -3498,7 +3505,7 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   without it (rung 2b's claim, "the flux through a
   coarse face equals the sum through its fine faces", made as the rate it
   is made by).
-- **Which block's EMF.** `restrict_interfaces!` corrects the EMFs of a
+- **Which block's EMF.** `unify!` corrects the EMFs of a
   block across whose *face* the finer neighbour lies (TreeAMR's face
   directions only). An edge at the end of a coarse-fine face is also an
   edge of a coarse block that touches the fine region only along that edge,
@@ -3542,13 +3549,14 @@ faces"](HISTORY.md#conservation-at-coarse-fine-faces)):
   applies to the rate, where it is asserted (above), and the state's
   negative control is the PointValue family.
 
-  **Not at an outer face**. In the same
-  blast's closed box the 147 faces away from the walls agree to rounding,
-  but the 45 whose perimeter lies on an outer face miss by 1.2e−5 of the
-  largest flux (2.7e−5 after the regrid): there each level's relative hook
-  writes its own wall edges, the nearest evolved point of that level plus
-  the case's difference, so a coarse wall edge is not the sum of the fine
-  ones beside it. The flux through a face at a Dirichlet boundary is the
+  **At an outer face too, since TreeAMR 0.3**. In the same
+  blast's closed box every face agrees to rounding, 1.4e−16 of the largest
+  flux, the same after the regrid: a coarse wall edge on a coarse-fine face
+  is a secondary copy of a shared point (closed blocks), given its fine
+  primaries' value. Against TreeAMR 0.2 the 45 faces whose perimeter lay on
+  an outer face missed by 1.2e−5 (2.7e−5 after the regrid), each level's
+  relative hook writing its own wall edges; the rest of this paragraph is
+  that record. The flux through a face at a Dirichlet boundary is the
   boundary condition's, not conserved by anything, so nothing in this
   package relies on it; a relative hook that fills a point on both an outer
   face and a coarse-fine face from the level that owns it (a transfer, not
@@ -3599,66 +3607,44 @@ reset's — knows its time):
   hooks, matter and potentials, run as they do on the host ("Devices").
 
 **Both walls are prescribed.** At every outer face of a case with Dirichlet
-hooks, the owned low wall of each potential (`A_j`, `Φ̃`; a vertex-like
-dimension's first owned point `G+1`) is set by the mirror of the hook's
-high-wall rule — the nearest evolved point (`G+2`) plus the case's
-difference between the two points, at the time of the fill. And every point
-beyond an outer face takes its nearest evolved point across a block face
-from the block's own (filled) ghost along the dimensions it does not leave
-the domain through: TreeAMR's region form clamped along every outward
-direction, so a corner row where a wall meets another block came from the
-block's own last column and the point two blocks share held a different
-value in each (the cell next to it had a block-dependent `𝔅`, and the two
-blocks computed different fluxes at their common face next to the wall).
-Both are TreeAMR's:
-- the potentials' field sets are built with **`walls = :symmetric`** (AMR-8),
-  under which the fill writes the owned low wall of a vertex-like dimension
-  at a low domain face by the high wall's rule;
-- their hook is the **relative hook** (AMR-7), which reads `x_r` across a
-  block face from the block's own ghost and runs each region after the
-  stage that fills what it reads, so that **one fill applies the complete
-  condition** — `fill_ghosts!`, `regrid!`'s fill before its transfer and
-  `adapt_to_initial_data!`'s alike (an outer boundary condition needs to be
-  applied always). `fill_set!` is that one fill; `regrid_state!` hands
-  `regrid!` every set's own hook; the initial adaptation's criterion reads
-  what the cycle filled.
+hooks, both wall planes of each potential (`A_j`, `Φ̃`) along a vertex-like
+dimension are own points of their blocks (TreeAMR 0.3, "Closed blocks" in
+its `CODE.md`), and the hook writes them at every fill: the potentials'
+hooks are built with `wall = :prescribed` (`boundary_at`), so the wall is
+the nearest evolved point one plane in plus the case's difference between
+the two points (the relative hook), or the case's potential itself (the
+absolute one), at the time of the fill. And every point beyond an outer
+face takes its nearest evolved point across a block face from the block's
+own (filled) ghost along the dimensions it does not leave the domain
+through. The hook is the **relative hook** (AMR-7), which reads `x_r` across
+a block face from the block's own ghost and runs each region after the
+stage that fills what it reads, so that **one fill applies the complete
+condition** — `fill_ghosts!`, `regrid!`'s fill before its transfer and
+`adapt_to_initial_data!`'s alike (an outer boundary condition needs to be
+applied always). `fill_set!` is that one fill; `regrid_state!` hands
+`regrid!` every set's own hook; the initial adaptation's criterion reads
+what the cycle filled.
 
-Why the low wall is prescribed too — with the hook filling the high wall
-alone the potentials' boundaries were not mirror-symmetric — is in
-[HISTORY.md, "Boundaries"](HISTORY.md#boundaries).
+Why both walls are prescribed — with the hook filling the high wall alone
+the potentials' boundaries were not mirror-symmetric — is in
+[HISTORY.md, "Boundaries"](HISTORY.md#boundaries), with AMR-8's symmetric
+walls and `walls_to_state!`, which did it until TreeAMR 0.3.
 
 Measured (`test/refinement_tests.jl`, the closed `[−2, 2]²` explosion with a
 wall root refined, to `t = 1/4`): a second fill changes nothing bit for bit,
 and one fill of working arrays prefilled with `NaN` writes the same — every
 stored point, from the state alone; a hookless fill leaves it.
 
-**The low walls in the state**. The low wall is owned, so it is
-in the integrator's state vector, but TreeAMR writes it during the fill —
-into the set's working array after `scatter!`, not into `u`.
-`map_blocks!`'s owned range is unchanged by symmetric walls (the trimmed
-range `G+2 …` is the fill's regions' only), so the right-hand side would
-compute an evolved value there and `u`'s wall entries would drift from the
-condition. So:
-- the right-hand side writes **zero** into `du` at an owned low wall of
-  `A_j` and `Φ̃` (`on_low_wall`, a branch, never a multiplied mask): the wall
-  is algebraic, prescribed by the fill, and the implicit part never touches
-  the potentials;
-- the reset, in both its roles, after its own fill of the potentials,
-  copies the filled walls — those points and no other — into `u`
-  (`walls_to_state!`), so that after every step `u` holds the condition's
-  walls for everything that reads `u` without a fill: output, error norms,
-  `gather!`-based comparisons, a regrid's `gather!` (whose new state the
-  post-regrid reset then corrects where a new block's wall was
-  prolongated), a checkpoint and restart.
-
-Nothing in the scheme reads `u`'s walls without a fill first. Tested on the
-closed box, uniform and with a wall root refined: after every step `u`'s
-190 (214) wall entries are what a complete fill writes, bit for bit, and
-`du` is exactly zero there; and one step from a state whose wall entries are
-all perturbed by 1 gives the same state, bit for bit, as from the true one.
-`low_walls(forest, T)` lists, per block, the low domain faces (any
-non-periodic one, since TreeAMR fills the wall at outer, reflecting and
-outflow faces alike).
+**The walls in the state**. A wall is an own point, so it is in the
+integrator's state vector, and the right-hand side evolves it like any
+other; every fill then overwrites it from the hook, in the working array,
+not in `u`. So `u`'s wall entries are never read: one step from a state
+whose wall entries are all perturbed by 1 gives the same state off the
+walls, bit for bit, as from the true one (tested, uniform and with a wall
+root refined). Everything that reads `u` without a fill — output, error
+norms, a checkpoint — sees the evolved wall, not the condition's, as it
+sees a stale secondary copy of a shared point (TreeAMR's migration note,
+"Unify a state before measuring it"); `l1_errors` unifies `u` first.
 
 *Measured* (with TreeAMR's symmetric walls and relative hook): the explosion
 in a box its precursors reach — `[−2, 2]²` at 32², minmod, `t = 1/4` — and
@@ -4117,7 +4103,7 @@ In detail (`primitives_from_sets!`, `P_from_W`, `ghost_kernel!` in
   so that a copied ghost is its owner bit for bit (see "The right-hand
   side").
 - **Conservation does not depend on it**: at a coarse-fine face it is
-  `restrict_interfaces!` on the fluxes; the regrid's bounded transfer of the
+  `unify!` on the fluxes; the regrid's bounded transfer of the
   conserved variables is exactly conservative.
 
 **Three working fills, to revisit when the physics gets harder.** Each ran
@@ -4998,8 +4984,9 @@ it names has the reasons.
     filled like a ghost: by the exchange, or by the boundary hook at a
     physical boundary.
   - `coordinates` takes **stored** indices.
-  - `map_blocks!` adds `G` under the default and `closed = true` ranges,
-    and adds nothing under `stored = true`.
+  - `map_blocks!` adds `G` under the default range, a block's own points
+    (both face planes of a vertex-like dimension, TreeAMR 0.3), and adds
+    nothing under `stored = true`.
   - Each kernel receives one `Val(G)` per set it reads.
 - **`B` is never state.** `B_d` is recomputed from `A` (plus `𝔅̄`) in every
   RHS, on the stored range. It is not in the state vector, not in
@@ -5071,12 +5058,9 @@ it names has the reasons.
   drops out — hence the potentials' Dirichlet data in the field
   ("Boundaries").
 - **The RHS never mutates `u`.** The stage limiter writes only atmosphere
-  cells — and the potentials' owned low walls at the low domain faces,
-  which the fill writes under symmetric walls (AMR-8) and the reset, as
-  stage and step limiter, copies into `u` (`walls_to_state!`), so that `u`
-  holds the boundary condition's walls. The right-hand side writes zero
-  into `du` there: the wall is prescribed, not evolved ("The right-hand
-  side", "Boundaries").
+  cells. A potential's wall is an own point, evolved by the right-hand side
+  and overwritten by every fill from the hook (`wall = :prescribed`), so
+  `u`'s wall entries are never read ("Boundaries").
 - **Masks branch, never multiply**, because `0·NaN = NaN`.
 - **An adapter is a snapshot of its producer's prepared state.** The
   `(ρ, S_i, S_ij)` that TreeGH's RHS and ADM monitor read, and the metric
@@ -5727,7 +5711,7 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      coarse-fine face its fine faces' sum to 1.4e−16 of the largest flux
      after steps and after a regrid (1.5e−3 with PointValue), with or
      without the EMF correction (the transfer's property); at an outer face
-     only to 1.2e−5 (each level's hook, AMR-11).
+     too since TreeAMR 0.3 (1.2e−5 before, each level's hook, AMR-11).
    - **`∇·𝔅`**: at most 2.0e−16 of `max |𝔅|` after every step on every
      level and right after every regrid (the adaptive rotor), as in rung 2a.
    - **The field loop across a coarse-fine face** (`x ≥ 0` refined, the face

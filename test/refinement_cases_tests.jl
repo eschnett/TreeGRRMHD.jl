@@ -25,7 +25,8 @@ function rf_magnetic_energy(p, u, t)
     forest = p.f.U.forest
     D = length(forest.roots)
     return sum(d -> mesh_mapreduce(x -> x^2 / 2, +, 0.0, p.f.B[d]; vars=1,
-                                   weight=k -> spacing(Float64, forest, k)^D), 1:3)
+                                   weight=k -> spacing(Float64, forest, k)^D,
+                                   primaries=true), 1:3)
 end
 
 @testset "A field loop across a coarse-fine face keeps its energy and shape between the coarse and the fine control" begin
@@ -112,7 +113,8 @@ end
     # ghost fill in primitives: it was 0.18 and 1.2e−3 under the PointValue
     # operators and the conserved fill.)*
     gp = gauge_pulse_case(Float64; roots=2)
-    maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1), 1:3)
+    maxB(p) = maximum(d -> mesh_mapreduce(abs, max, 0.0, p.f.B[d]; vars=1, primaries=false),
+                      1:3)
     final(r) = (update_fields!(r.p, r.u, r.t); maxB(r.p))
     uniform = evolve!(gp, Val(2); N=8, t_end=2, limiter=:mc)
     undamped = evolve!(gp, Val(2); N=8, t_end=2, limiter=:mc, refine=rf_refine_first!, ξ=0)

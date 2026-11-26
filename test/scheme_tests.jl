@@ -85,8 +85,8 @@ end
         gather!(own, s)
         @test isequal(stateview(u, sets, i), own)
         @test staterange(sets, i) == (sum(statelength, sets[1:(i - 1)]; init=0) + 1):sum(statelength, sets[1:i])
-        @test block_mapreduce(abs, +, 0.0, s, stateview(u, sets, i)) ==
-              block_mapreduce(abs, +, 0.0, s, own)
+        @test block_mapreduce(abs, +, 0.0, s, stateview(u, sets, i); primaries=true) ==
+              block_mapreduce(abs, +, 0.0, s, own; primaries=true)
     end
 
     # The inverse: a second family of sets over the same forest, scattered

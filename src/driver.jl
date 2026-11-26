@@ -259,16 +259,16 @@ into the hook TreeAMR's `fill_ghosts!` takes.
   (AMR-7, landed in TreeAMR 0.2.2): a kernel on every backend, which takes
   `x_r` across a block face from the block's own (filled) ghost and runs each
   region after the stage that fills what it reads, so one fill applies the
-  complete condition. The potentials' sets have symmetric walls (AMR-8), so
-  the owned low wall of a vertex-like dimension at a low outer face is one of
-  the points it fills, from `G+2`, as the high wall is from `G+N`. Until step
+  complete condition. A potential's wall planes at an outer face are own
+  points (TreeAMR 0.3, closed blocks), which the hook prescribes too
+  (`wall = :prescribed`), from the point one plane in. Until step
   8 this was TreeAMR's region form, CPU-only, with this package's own
   `low_walls!` and `outer_points!` kernels around it.
 - **The potentials of a case whose potential does not depend on `t`**,
   `absolute = true` (decided by Erik 2026-11-03, "option 1"; the case's
   `static_potential`): the case's `A_j` and `Φ̃` themselves at every ghost
-  and on every prescribed wall, `CellBoundary(AllVariables(…))`, which under
-  symmetric walls writes the owned low wall too. The relative rule copies
+  and on every prescribed wall, `CellBoundary(AllVariables(…); wall =
+  :prescribed)`, which writes the wall planes too. The relative rule copies
   the evolved potential's offset from `x_r` to `x_g` unchanged along the
   normal; a gauge drift `∇χ` of the evolved `A` (truncation order, and a
   static `χ` the damped Lorenz gauge does not damp) is then no longer a
@@ -373,72 +373,13 @@ Adapt.@adapt_structure AbsolutePotentialAt
 
 boundary_at(hook::DirichletBoundary{:U}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
 boundary_at(hook::DirichletBoundary{:W}, t) = CellBoundary(AllVariables(DirichletAt(hook, t)))
+# A potential's wall plane at an outer face is an own point of its blocks
+# (TreeAMR 0.3, closed blocks); `wall = :prescribed` has every fill write it
+# from the hook too, a Dirichlet condition, as AMR-8's symmetric walls did.
 boundary_at(hook::DirichletBoundary, t) =
-    hook.absolute ? CellBoundary(AllVariables(AbsolutePotentialAt(DirichletAt(hook, t)))) :
-    CellBoundary(Relative(DirichletAt(hook, t)))
-
-# --- the owned low walls -------------------------------------------------------------
-
-"""
-    low_walls(forest, T) -> Vector{NTuple{D,Bool}}
-
-Per block this rank stores: along each dimension, whether the block lies on
-the domain's low face there and that face is not periodic — an outer,
-reflecting or outflow face, at each of which TreeAMR fills the owned low
-wall plane of a vertex-like dimension of a set with symmetric walls (AMR-8,
-landed in TreeAMR 0.2.2). From exported API only: the block's origin
-against the domain's extent (`block_origin` reproduces the extent's low end
-exactly for a block at the low face, `lo + 0 · w`) and the forest's
-`periodic` property. *(Added in step 8.)*
-"""
-function low_walls(forest::Forest{D}, ::Type{T}) where {D,T}
-    per = forest.periodic
-    return map(block_origins(forest, T)) do o
-        ntuple(e -> !per[e] && o[e] == T(forest.extents[e][1]), Val(D))
-    end
-end
-
-# Whether the owned local point `n` of a set with staggers `C` lies on a low
-# wall of its block (`lw`, from `low_walls`): `n = 1` along a vertex-like
-# dimension whose low face is a domain face.
-@inline on_low_wall(n::NTuple{D,Int}, lw::NTuple{D,Bool}, ::Val{C}) where {D,C} =
-    any(ntuple(e -> C[e] == 1 && lw[e] && n[e] == 1, Val(D)))
-
-# The owned low-wall points of one potential copied from its (filled) working
-# array `w` into its state-vector segment `u`: what the fill prescribed there
-# (AMR-8), and nothing else.
-@kernel function wall_to_state_kernel!(u, @Const(w), @Const(lowwall), ::Val{D}, ::Val{C},
-                                       ::Val{G}) where {D,C,G}
-    I = @index(Global, NTuple)                       # local, owned
-    b = I[D + 1]
-    n = ntuple(e -> I[e], Val(D))
-    if on_low_wall(n, @inbounds(lowwall[b]), Val(C))
-        @inbounds u[n..., 1, b] = w[stored(n, G)..., 1, b]
-    end
-end
-
-"""
-    walls_to_state!(p::MHDProblem, u)
-
-Copy the owned low walls of the potentials `A_j` and `Φ̃` from their working
-arrays, which a fill has just written by the outer boundary condition
-(TreeAMR's symmetric walls, AMR-8), into the state vector `u`, and touch no
-other point. The walls are prescribed, not evolved — the right-hand side
-writes zero there — so this is what keeps `u`'s wall entries the boundary
-condition's after every step, for everything that reads `u` without a fill
-(output, error norms, totals, a checkpoint). The reset calls it in both of
-its roles, after its own fill (decided in step 8; "Boundaries" in
-`CODE.md`). A `map_blocks!` kernel, on every backend.
-"""
-function walls_to_state!(p::MHDProblem{T,D}, u) where {T,D}
-    p.haswalls || return u
-    for i in SEG_A:SEG_Φ
-        s = p.sets[i]
-        map_blocks!(wall_to_state_kernel!, s, statearray(u, p.sets, i), s.work, p.lowwall,
-                    Val(D), Val(staggers(s)), Val(s.G))
-    end
-    return u
-end
+    hook.absolute ?
+    CellBoundary(AllVariables(AbsolutePotentialAt(DirichletAt(hook, t))); wall=:prescribed) :
+    CellBoundary(Relative(DirichletAt(hook, t)); wall=:prescribed)
 
 """
     case_boundary(case::MHDCase) -> NTuple{5,DirichletBoundary} or nothing
@@ -472,14 +413,19 @@ end
 
 The volume-weighted L1 norm of `u − uref`, per variable of every evolved
 set, each normalized by the domain volume: the mean absolute error of each
-of the ten cell variables, of each `A_j` and of `Φ̃`.
+of the ten cell variables, of each `A_j` and of `Φ̃`. Each point counts
+once, at its primary copy, and `u` is unified first (TreeAMR's `unify!`):
+a block holds both face planes of a vertex-like dimension (TreeAMR 0.3),
+and the integrator carries each copy with its own right-hand side, which
+only the next fill makes one number.
 """
 function l1_errors(p::MHDProblem{T,D}, u, uref) where {T,D}
-    diff = u .- uref
+    diff = unify!(copy(u), p.sets, p.schedules) .- uref
     forest = p.sets[SEG_U].forest
     vol = prod(e -> forest.extents[e][2] - forest.extents[e][1], 1:D)
     l1(i, v) = mesh_mapreduce(abs, +, zero(T), p.sets[i], stateview(diff, p.sets, i);
-                              vars=v, weight=key -> spacing(T, forest, key)^D) / T(vol)
+                              vars=v, weight=key -> spacing(T, forest, key)^D,
+                              primaries=true) / T(vol)
     return (; U=ntuple(v -> l1(SEG_U, v), Val(NU)), A=ntuple(j -> l1(SEG_A + j - 1, 1), 3),
             Φ=l1(SEG_Φ, 1))
 end
@@ -683,7 +629,7 @@ MP5 ([`default_cfl`](@ref), step 7).
   `ε`, `ε_g` the indicator's floors.
 - `ops_U`, `ops_A`, `ops_Φ` are the operators of the matter, of `A_j` and of
   `Φ̃`, and `ops_W` those of the primitives' ghost fill ([`MHDProblem`](@ref)),
-  `fixup = false` skips `restrict_interfaces!` (the
+  `fixup = false` skips `unify!` (the
   negative control).
 """
 function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chunk=t_end,

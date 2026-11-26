@@ -80,7 +80,7 @@ prereq_values(nvars, tag) =
                  :staterange, :stateview,
                  :map_blocks!, :block_mapreduce, :mesh_mapreduce, :volume_weighted_norm,
                  :RegridFlag, :Refine, :Coarsen, :Keep, :regrid!, :adapt_to_initial_data!,
-                 :total_mass, :firing_boxes, :InterfaceSchedule, :restrict_interfaces!,
+                 :total_mass, :firing_boxes, :UnifySchedule, :unify!,
                  :communicator, :blockrange)
         @test name in names(TreeAMR)
     end

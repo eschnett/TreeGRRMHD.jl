@@ -285,8 +285,9 @@ function rf_total_Bz(p, u, t)
     update_fields!(p, u, t)
     B = p.f.B[3]
     return mesh_mapreduce(identity, +, 0.0, B; vars=1,
-                          weight=k -> spacing(Float64, B.forest, k)^2),
-           mesh_mapreduce(abs, +, 0.0, B; vars=1, weight=k -> spacing(Float64, B.forest, k)^2)
+                          weight=k -> spacing(Float64, B.forest, k)^2, primaries=true),
+           mesh_mapreduce(abs, +, 0.0, B; vars=1, weight=k -> spacing(Float64, B.forest, k)^2,
+                          primaries=true)
 end
 
 const RF_PV = Operators(; prolongation=4, restriction=4)   # the potentials before AMR-9
@@ -413,10 +414,13 @@ end
     # regrid; with the PointValue operators of step 8's first form, 1.5e−3.
     # In the closed box the 147 faces away from the walls agree to rounding,
     # but the 45 whose perimeter lies on an outer face miss by 1.2e−5
-    # (2.7e−5 after the regrid): there each level's relative hook
-    # writes its own wall edges from its own nearest evolved point, so a
-    # coarse wall edge is not the sum of the fine ones (recorded, `CODE.md`;
-    # AMR-11 in `CODE.md`, "Requests still waiting").
+    # (2.7e−5 after the regrid) until TreeAMR 0.3: there each level's
+    # relative hook wrote its own wall edges from its own nearest evolved
+    # point, so a coarse wall edge was not the sum of the fine ones (AMR-11
+    # in `CODE.md`, "Requests still waiting"). Under closed blocks a coarse
+    # wall edge on a coarse-fine face is a secondary copy, given the fine
+    # primaries' value, and the closed box agrees to rounding too: 1.4e−16,
+    # the same after the regrid.
     function measure(periodic; kw...)
         case = cylindrical_explosion_case(Float64, Val(3); L=2, roots=2, spherical=true,
                                           periodic=periodic)
@@ -446,7 +450,7 @@ end
     @test rel(with.before) ≤ 1e-14 && rel(with.after) ≤ 1e-14
     @test rel(without.before) ≤ 1e-14 && rel(without.after) ≤ 1e-14
     @test rel(pv.before) ≥ 1e-4 && rel(pv.after) ≥ 1e-4
-    @test 1e-10 ≤ rel(closed.before) ≤ 1e-4
+    @test rel(closed.before) ≤ 1e-14 && rel(closed.after) ≤ 1e-14
 end
 
 # The explosion in its closed box, `[−2, 2]²` on 4 × 4 roots of 8², and the
@@ -523,78 +527,65 @@ rf_refine_wall!(forest) =
     @test isequal(new.u, uold)
 end
 
-# The owned low-wall points of the potentials of a state: per set, the state's
-# value and the value a complete fill writes there, and `du`'s.
-function rf_walls(p, u, du, t)
-    scatter!(p.sets, u)
-    D = length(p.f.U.forest.roots)
-    N = p.f.U.forest.N
-    state, filled, rate = Float64[], Float64[], Float64[]
-    for i in RF.SEG_A:RF.SEG_Φ
-        s = p.sets[i]
-        RF.fill_set!(p, i, t)
-        lw = RF.low_walls(s.forest, Float64)
-        a, d = statearray(u, p.sets, i), statearray(du, p.sets, i)
-        for b in 1:nblocks(s), I in CartesianIndices(ntuple(_ -> N, D))
+# The wall points of the potentials of a state: per set, the own points on
+# a plane of a non-periodic domain face, low or high, as `(n, b)` pairs. A
+# block owns both face planes (TreeAMR 0.3), so every wall is in the state.
+function rf_walls(p, i)
+    s = p.sets[i]
+    forest = s.forest
+    D = length(forest.roots)
+    N = forest.N
+    st = staggers(s)
+    out = Tuple{NTuple{D,Int},Int}[]
+    for b in 1:nblocks(s)
+        ext = block_extent(forest, blockkey(s, b))
+        for I in CartesianIndices(ntuple(d -> N + st[d], D))
             n = Tuple(I)
-            RF.on_low_wall(n, lw[b], Val(staggers(s))) || continue
-            push!(state, a[n..., 1, b])
-            push!(filled, s.work[(n .+ s.G)..., 1, b])
-            push!(rate, d[n..., 1, b])
+            onwall = any(d -> st[d] == 1 && !forest.periodic[d] &&
+                              ((n[d] == 1 && ext[d][1] == forest.extents[d][1]) ||
+                               (n[d] == N + 1 && ext[d][2] == forest.extents[d][2])), 1:D)
+            onwall && push!(out, (n, b))
         end
     end
-    return (; state, filled, rate)
+    return out
 end
 
-@testset "The potentials' low walls are prescribed: the state holds them after every step, and nothing reads them unfilled: $(refined ? "refined" : "uniform")" for refined in (false, true)
-    # Guards the switch from `low_walls!` to TreeAMR's symmetric walls
-    # (AMR-8; decided in step 8, "Boundaries" in `CODE.md`). The low wall
-    # plane of a vertex-like dimension at a low outer face is owned, so it is
-    # in the state vector, but the fill writes it — into the working array,
-    # not into `u`. So the right-hand side writes zero there (the wall is
-    # prescribed, not evolved; a branch, not a mask), and the reset, as
-    # stage and step limiter, copies the filled walls into `u`
-    # (`walls_to_state!`). Claims, on the closed box (uniform, and with the
-    # wall root refined), after every step to `t = 1/4`: `u`'s wall entries
-    # are what a complete fill prescribes there, bit for bit, and `du` is
-    # exactly zero there; and one more step from a state whose wall entries
-    # are perturbed by 1 gives the same state as from the true one, bit for
-    # bit — they are never read without a fill.
-    nwalls, held, still = 0, true, true
-    function monitor(p, u, t)
-        du = zero(u)
-        mhd_rhs!(du, u, p, t)
-        w = rf_walls(p, u, du, t)
-        nwalls = length(w.state)
-        held &= isequal(w.state, w.filled)
-        still &= all(iszero, w.rate)
-    end
+@testset "The potentials' walls are prescribed: nothing reads the state's wall entries unfilled: $(refined ? "refined" : "uniform")" for refined in (false, true)
+    # Guards the prescribed walls (TreeAMR 0.3's `wall = :prescribed`; until
+    # then AMR-8's symmetric walls and `walls_to_state!`, "Boundaries" in
+    # `CODE.md`). A wall plane of a vertex-like dimension at an outer face is
+    # an own point of its blocks, low and high alike, so it is in the state
+    # vector and the right-hand side evolves it; but every fill writes it
+    # from the hook. Claim, on the closed box (uniform, and with the wall
+    # root refined), at `t = 1/4`: one more step from a state whose wall
+    # entries are perturbed by 1 gives the same state as from the true one
+    # everywhere off the walls, bit for bit — they are never read without a
+    # fill.
     r = evolve!(RF_BOX, Val(2); N=8, t_end=1 // 4, limiter=:minmod,
-                refine=refined ? rf_refine_wall! : nothing, after_step=monitor)
+                refine=refined ? rf_refine_wall! : nothing)
     p, u, t = r.p, r.u, r.t
     dt = r.chunks[end].dt
     step(u0) = (integ = RF.mhd_integrator(p, u0, t, t + dt, 1); RF.IRK.solve!(integ); integ.u)
-    w = rf_walls(p, u, zero(u), t)
     bumped = copy(u)
+    onwall = falses(length(u))
+    nwalls = 0
     for i in RF.SEG_A:RF.SEG_Φ
-        s = p.sets[i]
-        lw = RF.low_walls(s.forest, Float64)
         a = statearray(bumped, p.sets, i)
-        for b in 1:nblocks(s), I in CartesianIndices(ntuple(_ -> 8, 2))
-            RF.on_low_wall(Tuple(I), lw[b], Val(staggers(s))) && (a[I, 1, b] += 1)
+        m = statearray(onwall, p.sets, i)
+        for (n, b) in rf_walls(p, i)
+            a[n..., 1, b] += 1
+            m[n..., 1, b] = true
+            nwalls += 1
         end
     end
     a, b = step(copy(u)), step(bumped)
-    @info "Low walls, $(refined ? "refined" : "uniform") closed box: $nwalls wall points, held " *
-          "in the state after every step $held, du zero there $still; a perturbed wall " *
-          "changes the next state by $(maximum(abs.(a .- b)))"
-    # 190 on the uniform mesh: `A_x` and `A_y` 8 on each of the four roots
-    # along their wall, `A_z` and `Φ̃` 8 + 8 − 1 on the corner root and 8 on
-    # each of the six others; 24 more with the wall root refined.
-    @test nwalls == (refined ? 214 : 190)
-    @test r.nsteps ≥ 10 && held && still
+    @info "Walls, $(refined ? "refined" : "uniform") closed box: $nwalls wall points; a " *
+          "perturbed wall changes the next state off the walls by " *
+          "$(maximum(abs.(a[.!onwall] .- b[.!onwall])))"
+    @test nwalls > 0
+    @test r.nsteps ≥ 10
     @test count(!=(0.0), bumped .- u) == nwalls
-    @test isequal(a, b)
+    @test isequal(a[.!onwall], b[.!onwall])
 end
 
 # The largest violation of the mirror symmetry along `axis` of a state on a
@@ -640,21 +631,22 @@ function rf_mirror_error(p, u, t, axis, c)
     end
 end
 
-@testset "A closed box refined symmetrically is mirror-symmetric only to the half-open asymmetry at coarse-fine faces (TreeAMR's open item)" begin
-    # Records TreeAMR's open item (AMR-8 as landed, its `CODE.md`,
-    # "Centerings"): on a refined mesh a vertex-like set is not
-    # mirror-symmetric under either kind of wall, because a plane on a
-    # coarse-fine face is the fine block's owned plane when the face is its
-    # low face and the coarse block's, interpolated at the fine points between
-    # the coarse ones, when it is its high face (4.7e−5 upstream, on smooth
-    # data, one fill). The explosion in its closed box with the middle 2 × 2
-    # roots refined — a mesh symmetric under both reflections, whose
-    # coarse-fine faces `|x|, |y| = 1` cut the blast's transition region
-    # (`0.8 ≤ r ≤ 1`) — to `t = 1/4`: measured 1.1e−2 (`x → −x`) and 8.5e−3
-    # (`y → −y`) of a variable's scale in `U`, 9.8e−3 and 1.3e−2 in `A_z`
-    # (6.3e−4 and 7.2e−3 in `A_z` after the first step), against exactly zero
-    # on the uniform mesh (`multid_cases_tests.jl`). Asserted as present and
-    # bounded, so that the day upstream closes it this testset says so.
+@testset "A closed box refined symmetrically is mirror-symmetric to rounding" begin
+    # Guards TreeAMR 0.3's closed blocks (its M22), which closed its open
+    # item: under half-open ownership a vertex-like set was not
+    # mirror-symmetric on a refined mesh, because a plane on a coarse-fine
+    # face was the fine block's owned plane when the face was its low face
+    # and the coarse block's, interpolated at the fine points between the
+    # coarse ones, when it was its high face. The explosion in its closed box
+    # with the middle 2 × 2 roots refined — a mesh symmetric under both
+    # reflections, whose coarse-fine faces `|x|, |y| = 1` cut the blast's
+    # transition region (`0.8 ≤ r ≤ 1`) — to `t = 1/4`: measured 1.1e−2
+    # (`x → −x`) and 8.5e−3 (`y → −y`) of a variable's scale in `U` against
+    # TreeAMR 0.2.12, 9.8e−3 and 1.3e−2 in `A_z`; against 0.3 6.4e−15 and
+    # 7.2e−15 in `U`, 6.9e−15 and 7.0e−15 in `A_z`, exactly zero in the rest.
+    # Rounding, not bit for bit as on the uniform mesh
+    # (`multid_cases_tests.jl`): a coarse copy is restricted from the fine
+    # points in one order on either side.
     refine_middle!(forest) =
         (refine!(forest, [k for k in forest.leaves
                           if all(x -> -1 ≤ x < 1, block_origin(forest, k))]);
@@ -665,5 +657,5 @@ end
     @info "Explosion in a closed box, middle refined, t = 1/4: mirror asymmetry per set " *
           "(U, A₁, A₂, A₃, Φ̃) x → −x $ex, y → −y $ey; $(r.nsteps) steps, $(r.nblocks) blocks"
     @test r.nblocks == 16 + 12 && r.nsteps == 20
-    @test 1e-4 ≤ maximum(ex) ≤ 5e-2 && 1e-4 ≤ maximum(ey) ≤ 5e-2
+    @test maximum(ex) ≤ 1e-13 && maximum(ey) ≤ 1e-13
 end
