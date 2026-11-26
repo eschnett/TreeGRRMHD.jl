@@ -159,3 +159,101 @@ end
     @test_throws "MPI ranks" evolve!(m0_ball(; dim=2), Val(2); N=8, t_end=0.05, limiter=:mc,
                                      neutrinos=NS_NU, comm=TreeAMR.SerialCommunicator())
 end
+
+@testset "The shell's luminosity of a uniform emitting medium is the radial solution's" begin
+    # Guards `neutrino_luminosity`: the window's average over the shell of the radial flux,
+    # in coordinates and densitized, against `∫ W(r) 4π r² n(r) dr` of the radial solution
+    # in the medium's steady state (`m0_tests.jl`'s run on 32³ to t = 0.7, steady for
+    # r ≤ 0.7), for an absorbing and a free-streaming species; and `L_𝓔/L_N` the emitted
+    # energy, since at rest in flat space every neutrino keeps it. A wrong sign, a missing
+    # area or volume factor, or a window not normalized to `∫ W dr = 1` is off by far more.
+    r = m0_ball_run(4, 0.7)
+    r_L, width = 0.4, 0.15
+    W(ρ) = NS.shell_window(ρ, r_L, width)
+    L = neutrino_luminosity(r.p, r.u; r_L, width)
+    errs = map(1:3) do i
+        η, κ = M0_GRAY.η[i], M0_GRAY.κa[i]
+        n = 4000
+        q = range(r_L - width, r_L + width; length=n + 1)
+        exact = sum(W(ρ) * 4π * ρ^2 * m0_exact(η, κ, ρ) for ρ in q[2:(end - 1)]) * step(q)
+        @test L[2i] / L[2i - 1] ≈ M0_GRAY.E[i] rtol = 1e-12
+        abs(L[2i - 1] - exact) / exact
+    end
+    @info "Shell luminosity on 32³ against the radial solution, relative error per species" errs
+    @test all(<(2e-3), errs)          # 0.009%, 0.04%, 0.08% (step 20)
+end
+
+# DD2's 1.4 M☉ star with neutrinos (rung 8g), cold and hot (`s = 1`), on its Cowling metric
+# at `h = 1` (the suite's tabulated star, `tabulated_tov_tests.jl`), to `t = 2M` in two
+# chunks, so that a chunk boundary prepares `P`. Read only where DD2 is (`tables.jl`).
+const NS_STAR = (; ρ_c=9.4e-4, ρ_min=1e-10, L=16, roots=2, t_end=2.0, chunk=1.0)
+
+ns_dd2() = computed_once(:ns_dd2) do
+    d = dd2_table()
+    cv = NS_E.CompositionView(NS_E.CompositionTable(d.table, d.eos))
+    units = EOSUnits(NS_E.EOSTableView(d.eos); density=MSUN_DENSITY_CGS)
+    (; d.table, d.eos, cv, rates=RJS96Rates(units, d.eos, cv))
+end
+
+ns_star_run(s) = computed_once((:ns_star_run, s)) do
+    d = ns_dd2()
+    case = tabulated_tov_case(Float64; d.table, d.eos, NS_STAR.ρ_c, NS_STAR.ρ_min, s,
+                              NS_STAR.L, NS_STAR.roots)
+    nu = M0Leakage(d.rates; composition=d.cv, center=(0.0, 0.0, 0.0), r_core=1.0)
+    r = evolve!(case, Val(3); N=8, t_end=NS_STAR.t_end, chunk=NS_STAR.chunk, limiter=:mc,
+                refine=f -> tov_boxes!(f, case; levels=1), neutrinos=nu)
+    (; r, case)
+end
+
+# The lepton number's change net of the reset, its scale, the neutrino totals, the
+# matter's `√γ D Yₑ` change, and the temperature at the cell nearest the centre.
+function ns_star_numbers(r)
+    tot = conserved_totals(r.p, r.u)
+    nt = neutrino_totals(r.p, r.u)
+    injY = sum(c -> c.tally.injected_DYₑ, r.chunks)
+    dDYe = tot[NS.U_DYE] - r.totals0[NS.U_DYE]
+    P = NS.hostcopy(NS.update_primitives!(r.p, r.u, r.t))
+    best, Tc = Inf, NaN
+    for b in 1:size(P.work)[end], idx in CartesianIndices((8, 8, 8))
+        s = Tuple(idx) .+ 3
+        x = coordinates(P, b, s)
+        ρ = sum(abs2, x)
+        ρ < best && ((best, Tc) = (ρ, exp10(P.work[s..., NS.P_UEOS, b])))
+    end
+    return (; net=dDYe + nt[1] - nt[3] - injY, scale=r.totals0[NS.U_DYE], nt, dDYe, Tc,
+            E=nt[2] + nt[4] + nt[6], floors=sum(c -> c.tally.s_floors, r.chunks))
+end
+
+@dd2_gated @testset "DD2's cold star with neutrinos conserves lepton number, and emits only what the mesh heats" begin
+    # Guards the tabulated rates in the scheme on the star: lepton number, matter plus
+    # neutrinos, conserved to round-off net of the reset (nothing reaches the outer
+    # faces by 2M); and the cold star's emission, which on the mesh is the
+    # discretization's: the slice is at 0.01 MeV, but the recovered cell averages of the
+    # initial data are 4.4 MeV at the centre and 6.4 MeV where the density falls (step
+    # 20), and the rates go as T⁶ to T⁹ there. Measured in step 20 at t = 2M: Σ𝓔 =
+    # 5.2e−8, the centre 4.4 MeV; held to 10%, so that a change of the rates or of the
+    # matter's heating is seen. The bound over 1000 M and its fall with h are
+    # `bin/neutrino_star.jl`'s.
+    n = ns_star_numbers(ns_star_run(nothing).r)
+    @info "DD2 cold star with neutrinos, h = 1, t = 2M" n
+    @test abs(n.net) < 1e-14 * n.scale
+    @test isapprox(n.E, 5.2e-8; rtol=0.1)
+    @test isapprox(n.Tc, 4.4; rtol=0.1)
+    @test n.floors == 0
+end
+
+@dd2_gated @testset "DD2's hot star with neutrinos conserves lepton number, cools and gains electrons" begin
+    # Guards the hot star (`hot_barotrope`, s = 1: 26.3 MeV at the centre, 1.51 M☉ at the
+    # cold star's central density) with the tabulated rates: lepton number conserved to
+    # round-off net of the reset; its matter, which holds the cold slice's Yₑ, out of
+    # β-equilibrium at its temperature, emits more ν̄_e than ν_e, so its `√γ D Yₑ` rises;
+    # its neutrinos' energy at 2M as measured in step 20 (1.33e−7, 2.6 times the cold
+    # star's), held to 10%.
+    n = ns_star_numbers(ns_star_run(1.0).r)
+    @info "DD2 hot star (s = 1) with neutrinos, h = 1, t = 2M" n
+    @test abs(n.net) < 1e-14 * n.scale
+    @test n.nt[3] > n.nt[1] && n.dDYe > 0
+    @test isapprox(n.E, 1.33e-7; rtol=0.1)
+    @test isapprox(n.Tc, 26.3; rtol=0.02)
+    @test n.floors == 0
+end

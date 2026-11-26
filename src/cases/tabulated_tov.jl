@@ -52,8 +52,8 @@ end
 star_metric(w::TabulatedTOVStar) = w.metric
 
 """
-    tabulated_tov_case([T]; table, eos, ρ_c, ρ_min, L = 24, roots = 4, NK = 129,
-                       NC = 129, steps = 4000, samples = 8001)
+    tabulated_tov_case([T]; table, eos, ρ_c, ρ_min, s = nothing, L = 24, roots = 4,
+                       NK = 129, NC = 129, steps = 4000, samples = 8001)
 
 The TOV star of a tabulated EOS in the Cowling approximation ("Validation
 ladder" 7 in `CODE.md`) as a three-dimensional [`MHDCase`](@ref), as
@@ -66,16 +66,19 @@ its metric (`NK` knots), its composition at `NC` knots, in the closed box
 state there, no field. Densities are geometric (`ρ★` per
 [`MSUN_DENSITY_CGS`](@ref)); `ρ_c` and `ρ_min` have no default. The case's
 data is `case.fields.w`, a [`TabulatedTOVStar`](@ref); [`tov_boxes!`](@ref)
-refines around it as around rung 4's.
+refines around it as around rung 4's. With `s` (per baryon), the hot star of rung 8g
+instead: the barotrope at constant `s` with the slice's `Yₑ` ([`hot_barotrope`](@ref)),
+in hydrostatic equilibrium; the atmosphere is the cold slice's state at `ρ_min` either way.
 """
-function tabulated_tov_case(::Type{T}=Float64; table, eos, ρ_c, ρ_min, L=24, roots=4,
-                            NK::Integer=129, NC::Integer=129, steps::Integer=4000,
+function tabulated_tov_case(::Type{T}=Float64; table, eos, ρ_c, ρ_min, s=nothing, L=24,
+                            roots=4, NK::Integer=129, NC::Integer=129, steps::Integer=4000,
                             samples::Integer=8001) where {T}
     0 < ρ_min < ρ_c || throw(ArgumentError(
         "the atmosphere's density must lie below the star's central density, got " *
         "ρ_min = $ρ_min, ρ_c = $ρ_c."))
     slice = EntropyEOS.cold_beta_slice(table, eos)
-    b = cold_barotrope(slice; ρ_surface=ρ_min, samples)
+    b = s === nothing ? cold_barotrope(slice; ρ_surface=ρ_min, samples) :
+        hot_barotrope(slice, eos; s, ρ_surface=ρ_min, samples)
     sol = tov_solve(T, b; ρ_c, steps)
     T(L) > sol.R̄ || throw(ArgumentError(
         "the box [−L, L]³ must hold the star, whose isotropic radius is $(sol.R̄); got L = $L."))
@@ -84,7 +87,12 @@ function tabulated_tov_case(::Type{T}=Float64; table, eos, ρ_c, ρ_min, L=24, r
     m = TOVMetric(sol; NK)
     prov = Analytic(m)
     comp = TOVComposition(sol; NC)
-    atm = barotrope_state(b, 0.0)
+    atm = if s === nothing
+        barotrope_state(b, 0.0)
+    else
+        st = EntropyEOS.beta_equilibrium(slice; ρ★=Float64(ρ_min) * MSUN_DENSITY_CGS)
+        (; s=st.s, Yₑ=st.yₑ)
+    end
     proj = EntropyEOS.default_projection(geos_T, T(ρ_min))
     pol = EntropyEOS.PolicyOptions{T}()                 # cold, the state's own Yₑ
     w = TabulatedTOVStar(m, prov, comp, T(ρ_min), T(atm.s), T(atm.Yₑ))

@@ -553,3 +553,69 @@ function neutrino_totals(p, u)
     return ntuple(v -> mesh_mapreduce(identity, +, zero(T), s.Nν, uN; vars=v,
                                       weight=key -> spacing(T, forest, key)^D), Val(NNU))
 end
+
+# The window of the shell luminosity, `∫ W dr = 1` over `|r − r_L| < width`.
+@inline function shell_window(r::T, r_L::T, width::T) where {T}
+    d = r - r_L
+    abs(d) < width || return zero(T)
+    return (1 + cospi(d / width)) / (2 * width)
+end
+
+# `W(r) Fⁱ r̂_i` of N and 𝓔 of each species at an owned cell, the flux `q vⁱ`
+# at the closure's velocity from the cell's own `uⁱ`, `r̂` the coordinate radial
+# unit vector about the centre.
+@kernel function luminosity_kernel!(Lw, @Const(Nw), @Const(Pw), @Const(origins),
+                                    @Const(spacings), center, r_core, r_L, width, ::Val{D},
+                                    ::Val{GP}) where {D,GP}
+    I = @index(Global, NTuple)
+    b = I[D + 1]
+    n = ntuple(e -> I[e], Val(D))
+    h = @inbounds spacings[b]
+    T = typeof(h)
+    x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+    d = x - center
+    r = sqrt(sum(d .* d))
+    w = shell_window(r, r_L, width)
+    if iszero(w)
+        for v in 1:NNU
+            @inbounds Lw[n..., v, b] = zero(T)
+        end
+    else
+        Pc = read_vars(Pw, stored(n, GP), b, Val(NP))
+        m = aux_metric(Pc)
+        vr = sum(m0_closure(m, cell_u(Pc, m), x, center, r_core).v .* d) / r
+        for v in 1:NNU
+            @inbounds Lw[n..., v, b] = w * vr * Nw[n..., v, b]
+        end
+    end
+end
+
+"""
+    neutrino_luminosity(p::MHDProblem, u; r_L, width) -> NTuple{6}
+
+The number and energy luminosities `(L_N, L_𝓔)` of ν_e, ν̄_e and ν_x (the `N, 𝓔` order of
+`Nν`) through the spherical shell of radius `r_L` about the neutrinos' centre: the
+coordinate-volume integral of `W(r) Fⁱ r̂_i` with the window `W` of half-width `width`
+(both with no default), `Fⁱ = N vⁱ` and `𝓔 vⁱ` at the closure's velocity ("Neutrinos",
+"M0" in `CODE.md`). `𝓔` is the energy at infinity, so `L_𝓔` is the luminosity at infinity
+and `L_𝓔/L_N` the mean energy at infinity, in units of `m★c²`. Reads `P` as the run left
+it, so it changes nothing; the shell must lie outside the matter and inside the domain.
+"""
+function neutrino_luminosity(p, u; r_L, width)
+    s = p.neutrinos
+    s === nothing && throw(ArgumentError("neutrino_luminosity: the problem has no neutrinos."))
+    T = eltype(s.Nν.work)
+    (width > 0 && r_L > width) || throw(ArgumentError(
+        "neutrino_luminosity needs 0 < width < r_L, got r_L = $r_L, width = $width: the " *
+        "shell is the window |r − r_L| < width."))
+    forest = s.Nν.forest
+    D = length(s.Fν)
+    L = FieldSet{T}(forest, NNU; G=0, centering=cellcentered(D),
+                    backend=get_backend(s.Nν.work))
+    c = s.config
+    map_blocks!(luminosity_kernel!, L, L.work, statearray(u, p.sets, SEG_NU), p.f.P.work,
+                p.origins, p.spacings, c.center, c.r_core, T(r_L), T(width), Val(D),
+                Val(p.f.P.G); workgroupsize=p.workgroupsize)
+    return ntuple(v -> mesh_mapreduce(identity, +, zero(T), L; vars=v,
+                                      weight=key -> spacing(T, forest, key)^D), Val(NNU))
+end

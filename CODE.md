@@ -5639,6 +5639,12 @@ the magnetized star's convergence studies); `threaded` also the
   in a right-hand side, an implicit stage and a regrid, in 2D and 3D across
   coarse-fine faces, with no cell repaired; the coupled exchange against its
   closed form, and its rates to 32³ (`@full_tier`) (step 19).
+- `test/neutrino_star_tests.jl`: the tabulated rates in a kernel against the
+  pointwise rates, on the synthetic table, and `M0Leakage`'s refusals; a run
+  with neutrinos restarted from its checkpoint, bit for bit, on a static and
+  an adaptive mesh; the refusal of MPI ranks; the shell luminosity of the
+  uniform medium against the radial solution; DD2's cold and hot stars with
+  neutrinos at `h = 1` to 2M (DD2-gated) (step 20).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -5716,11 +5722,14 @@ bit-identically to the host; "Precision and devices"):
   from another table), `neutrino_rates`, and `CompositionPoint`, from EOS-12's
   `Composition`; `src/neutrinos/leakage.jl`: `effective_rates`,
   `absorption_opacity` ("Neutrinos", "Leakage"); `src/neutrinos/optical_depth.jl`:
-  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
+  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`,
+  and `TabulatedRates` with the rates at a cell from `P`, `cell_rates`
   ("Neutrinos", "The optical depth"); `src/neutrinos/m0.jl`: the closure
   `m0_closure`, the upwind flux, the absorption, `M0Leakage`, `NuEscape`, the
-  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`,
-  `neutrino_tally` ("Neutrinos", "M0", "Coupling to the matter").
+  kernels and the scheme's hooks, `initial_depth!`, `resume_neutrinos!`,
+  `neutrino_totals`, `neutrino_luminosity`, `neutrino_tally` ("Neutrinos",
+  "M0", "Coupling to the matter"); the neutrinos' checkpoint is
+  `src/checkpoint.jl`'s.
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -5754,7 +5763,8 @@ bit-identically to the host; "Precision and devices"):
   over the barotrope (`barotrope_state`), `TOVMetric` ("Gauge for the TOV
   milestones").
 - `src/tov_table.jl`: `cold_barotrope`, a table's cold
-  β-equilibrium slice as the solve's barotrope, `tov_solve(T, b; ρ_c)`,
+  β-equilibrium slice as the solve's barotrope, `hot_barotrope`, the hot
+  star's at constant entropy (rung 8g), `tov_solve(T, b; ρ_c)`,
   and `TOVComposition`, the star's matter at knots in `r̄²`
   ("Thermodynamics", "The cold barotrope").
 - `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
@@ -7736,7 +7746,14 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      `(ρ★, s, Yₑ(ρ★))`, `Yₑ` the slice's, evaluated by EntropyEOS: the
      solve needs only `p(e)`, and `dp/dη = e + p` holds by the definition of
      `η` for any barotrope; nothing is asked upstream. `s` is the case's,
-     with no default.
+     with no default; at `s = 1` DD2's star at the cold star's central
+     density is 26.3 MeV at the centre and 1.51 M☉ (cold: 1.404). On the
+     mesh the cold star is not cold: the slice is at 0.01 MeV, but the
+     recovered cell averages of the initial data are 4.4 MeV at the centre
+     and 6.4 MeV where the density falls at `h = 1` (step 20), since a small
+     error in the energy of degenerate matter is a large temperature; its
+     emission is the discretization's, and its bound over 1000 M is measured
+     with its fall in `h`.
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
