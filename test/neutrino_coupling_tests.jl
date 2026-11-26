@@ -203,3 +203,15 @@ end
     @info "Coupled exchange, rates 16³ → 32³ (N₁ N₂ N₃ ΔDYₑ Δτ)" rates
     @test all(rates[1:3] .≥ 1.9) && rates[5] ≥ 2.0 && rates[4] ≥ 1.3
 end
+
+@testset "evolve! refuses neutrinos with a checkpoint or a restart" begin
+    # Guards a run that could not be continued faithfully: the optical depth
+    # lives outside the state vector, so a checkpoint would not hold it and a
+    # restart would not be the uninterrupted run (PLAN.md, "Neutrinos with
+    # checkpoints and MPI ranks").
+    case = nc_medium()
+    @test_throws ArgumentError evolve!(Float64, case, Val(3); N=8, t_end=0.1, limiter=:mc,
+                                       neutrinos=NC_NU, checkpoint=tempname())
+    @test_throws ArgumentError evolve!(Float64, case, Val(3); N=8, t_end=0.1, limiter=:mc,
+                                       neutrinos=NC_NU, restart=tempname())
+end
