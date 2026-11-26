@@ -10,10 +10,10 @@ const NR = TreeGRRMHD
 const NR_UNITS = EOSUnits{Float64}(density=MSUN_DENSITY_CGS, κ=1.0)
 const NR_MODEL = RJS96Rates(NR_UNITS; baryon_mass=NR.AMU_G)
 
-nr_comp(::Type{T}=Float64; μ_e, μ̂, μ_n=-30.0, μ_p=-30.0, X_n=0.5, X_p=0.1, X_α=0.0,
-        X_h=0.0, X_l=0.0, Ā=1.0, Z̄=0.0) where {T} =
-    CompositionPoint{T}(; μ_e=T(μ_e), μ̂=T(μ̂), μ_n=T(μ_n), μ_p=T(μ_p), X_n=T(X_n), X_p=T(X_p),
-                        X_α=T(X_α), X_h=T(X_h), X_l=T(X_l), Ā=T(Ā), Z̄=T(Z̄))
+nr_comp(::Type{T}=Float64; μ_e, μ̂, X_n=0.5, X_p=0.1, X_α=0.0, X_h=0.0, X_l=0.0, Ā=1.0,
+        Z̄=0.0) where {T} =
+    CompositionPoint{T}(; μ_e=T(μ_e), μ̂=T(μ̂), X_n=T(X_n), X_p=T(X_p), X_α=T(X_α),
+                        X_h=T(X_h), X_l=T(X_l), Ā=T(Ā), Z̄=T(Z̄))
 
 # ∫₀^∞ xᵏ/(exp(x − η) + 1) dx in BigFloat: tanh-sinh on [0, max(η, 0)] and
 # exp-sinh above it, so that the step at x = η is a node of neither.
@@ -126,6 +126,40 @@ end
     @test NR.nucleon_blocking(0.6, 0.4, 0.0) == (0.6, 0.4)
 end
 
+@testset "The scattering blocking is a free gas's to 5%, from its density" begin
+    # Guards Bruenn's blocking (RJS96 A7, A8) as the free nucleons' phase
+    # space: `X/√(1 + (⅔ E_F/T)²)` against the exact non-relativistic
+    # `F₋½/(2F½)` at the degeneracy that gives the density, and Bruenn's two
+    # limits. A blocking read from the table's potentials, which hold the
+    # mean field, has the wrong sign at saturation (EOS-13 withdrawn).
+    # F_k(η) for k = ±½ in u = √x, where both integrands are smooth and even:
+    # the trapezoid rule from 0, far below the tolerance at h = 1/256.
+    function F(k, η)
+        h = 1 / 256
+        s = 0.0
+        for i in 1:ceil(Int, sqrt(max(η, 0) + 80) / h)
+            u = i * h
+            s += 2u^(2k + 1) / (exp(u^2 - η) + 1)
+        end
+        return h * (s + (k < 0 ? 1 / (exp(-η) + 1) : 0.0))
+    end
+    @test F(1 / 2, 0.0) ≈ 0.678093895153101 rtol = 1e-12      # √π (1 − 2^{−½}) ζ(3/2)/2
+    worst = 0.0
+    for η in -8:0.5:40
+        F½ = F(1 / 2, η)
+        ξ = F(-1 / 2, η) / (2F½)
+        y = 2 / 3 * (3F½ / 2)^(2 / 3)          # ⅔ E_F/T
+        # c_F = t = X = 1, so that y = cbrt(ρ★)²
+        worst = max(worst, abs(NR.scattering_blocking(1.0, y^(3 / 2), 1.0, 1.0) / ξ - 1))
+    end
+    @info "Scattering blocking, worst error against the free gas" worst
+    @test worst ≤ 0.05     # 0.049, at η = 0
+    @test NR.scattering_blocking(0.3, 0.0, 1.0, 5.0) == 0.3
+    @test NR.scattering_blocking(0.3, 1e-30, 1.0, 5.0) ≈ 0.3 rtol = 1e-15
+    y = NR.scattering_blocking(0.3, 1e6, 1.0, 5.0)      # ⅔ E_F/T = 0.3^⅔ 10⁴/5
+    @test y ≈ 0.3 * 5 / (cbrt(0.3e6)^2) rtol = 1e-5
+end
+
 @testset "Coherent scattering on α is BRT06's Eq. 32" begin
     # Guards the coherent term's weak charge and its transport weighting: one
     # α scatters with σ_tr = (2/3) 4 σ₀ sin⁴θ_W (ε/mₑc²)².
@@ -173,8 +207,11 @@ function nr_cgs_rates(ρ, t, c)
          (Rβa * F(5, -ηe) / F(4, -ηe) + Ree * ϵee + Rγ * ϵγ) * t + Qbr / 2,
          (Reex * ϵee + Rγx * ϵγ) * t + 2Qbr)
     W = 1 - 2 * c.Z̄ / c.Ā * (1 - 2sin2)
-    scat = (1 + 5α^2) / 24 * c.X_n / (1 + 2max(c.μ_n / t, 0) / 3) +
-           (4(CV - 1)^2 + 5α^2) / 24 * c.X_p / (1 + 2max(c.μ_p / t, 0) / 3) +
+    # Bruenn's blocking from the free gas's Fermi energy, (ħc)²(3π² n_N)^⅔/(2 m_N c²).
+    EF(X, mN) = (hc / 2π)^2 * (3π^2 * X * nb)^(2 / 3) / (2mN)
+    Y(X, mN) = X / sqrt(1 + (2EF(X, mN) / (3t))^2)
+    scat = (1 + 5α^2) / 24 * Y(c.X_n, NR.MN_MEV) +
+           (4(CV - 1)^2 + 5α^2) / 24 * Y(c.X_p, NR.MP_MEV) +
            (c.X_h * c.Ā * W^2 + 4 * c.X_α * (2sin2)^2) / 24
     ηs = (ην, -ην, 0.0)
     ab = ((1 + 3α^2) / 4 * Ynp * B(ηe, F(5, ην) / F(4, ην)),
@@ -192,10 +229,8 @@ end
     # Guards the folding of every constant and unit conversion into the
     # prefactors: the model against the formulas written out in cgs, at hot,
     # degenerate and nucleus-rich states, all processes and species.
-    states = ((1e-4, 8.0, nr_comp(; μ_e=20.0, μ̂=5.0, μ_n=2.0, μ_p=-1.0, X_n=0.5, X_p=0.1,
-                                   X_α=0.1, X_h=0.3, Ā=60.0, Z̄=26.0)),
-              (1e-3, 30.0, nr_comp(; μ_e=200.0, μ̂=100.0, μ_n=50.0, μ_p=-10.0, X_n=0.5,
-                                   X_p=0.05, X_α=0.1, X_h=0.3, X_l=0.05, Ā=90.0, Z̄=35.0)),
+    states = ((1e-4, 8.0, nr_comp(; μ_e=20.0, μ̂=5.0, X_n=0.5, X_p=0.1, X_α=0.1, X_h=0.3, Ā=60.0, Z̄=26.0)),
+              (1e-3, 30.0, nr_comp(; μ_e=200.0, μ̂=100.0, X_n=0.5, X_p=0.05, X_α=0.1, X_h=0.3, X_l=0.05, Ā=90.0, Z̄=35.0)),
               (1e-7, 2.0, nr_comp(; μ_e=1.0, μ̂=1.5, X_n=0.2, X_p=0.3, X_α=0.4, X_h=0.1,
                                   Ā=56.0, Z̄=26.0)))
     νb = MSUN_DENSITY_CGS / NR.AMU_G
@@ -228,7 +263,7 @@ end
     worst = 0.0
     for ρ★ in (1e-12, 1e-8, 1e-5, 1e-3), t in (0.1, 1.0, 10.0, 80.0),
         μ_e in (-5.0, 0.5, 30.0, 300.0), μ̂ in (-20.0, 1.3, 60.0)
-        kw = (; μ_e, μ̂, μ_n=μ̂ / 2, μ_p=-μ̂ / 2, X_n=0.4, X_p=0.2, X_α=0.1, X_h=0.25,
+        kw = (; μ_e, μ̂, X_n=0.4, X_p=0.2, X_α=0.1, X_h=0.25,
               X_l=0.05, Ā=70.0, Z̄=30.0)
         r64 = neutrino_rates(NR_MODEL, ρ★, t, 0.3, nr_comp(; kw...))
         r32 = neutrino_rates(m32, Float32(ρ★), Float32(t), 0.3f0, nr_comp(Float32; kw...))
@@ -251,8 +286,7 @@ end
     # τ = 0, n^β κ/(𝒟 τ²) deep inside, zero without emission, and zero where
     # a cell that does not interact inherits an optical depth.
     r = neutrino_rates(NR_MODEL, 1e-4, 8.0, 0.3,
-                       nr_comp(; μ_e=20.0, μ̂=5.0, μ_n=2.0, μ_p=-1.0, X_h=0.3, Ā=60.0,
-                               Z̄=26.0))[1]
+                       nr_comp(; μ_e=20.0, μ̂=5.0, X_h=0.3, Ā=60.0, Z̄=26.0))[1]
     @test effective_rates(r, 0.0, 0.0) == (r.R, r.Q)
     τ = 1e5
     R, Q = effective_rates(r, τ, τ)
@@ -303,7 +337,7 @@ end
     for (logρ, t, yₑ) in ((12.0, 5.0, 0.3), (8.0, 1.0, 0.45), (14.5, 30.0, 0.1))
         ρ★ = E.κ(eos) * exp10(logρ)              # the EOS's units, g/cm³
         c = E.composition(cv, ρ★, t, yₑ)
-        p = CompositionPoint(c; μ_n=0.0, μ_p=0.0)
+        p = CompositionPoint(c)
         @test NR.neutrino_potential(p) == c.μ_ν
         r = neutrino_rates(m, ρ★ / MSUN_DENSITY_CGS, t, yₑ, p)
         @test all(s -> all(x -> isfinite(x) && x ≥ 0, (getfield(s, f) for f in
@@ -332,7 +366,7 @@ end
     # nothing throws, allocates or fails to infer, and a Float64 constant
     # would widen the Float32 result.
     m = RJS96Rates(T, EOSUnits{T}(density=MSUN_DENSITY_CGS, κ=1); baryon_mass=NR.AMU_G)
-    c = nr_comp(T; μ_e=20.0, μ̂=5.0, μ_n=2.0, μ_p=-1.0, X_α=0.1, X_h=0.3, Ā=60.0, Z̄=26.0)
+    c = nr_comp(T; μ_e=20.0, μ̂=5.0, X_α=0.1, X_h=0.3, Ā=60.0, Z̄=26.0)
     @test isbits(m) && isbits(c)
     ρs = T.(exp10.(range(-8, -3; length=16)))
     ts = T.(range(1, 40; length=16))

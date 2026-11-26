@@ -48,16 +48,14 @@ the tests, [`RJS96Rates`](@ref) on a tabulated EOS. Each answers
 abstract type NeutrinoRates end
 
 # ---------------------------------------------------------------------------
-# The composition (EOS-12, with EOS-13's nucleon potentials)
+# The composition (EOS-12)
 
 """
-    CompositionPoint{T}(; μ_e, μ̂, μ_n, μ_p, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)
+    CompositionPoint{T}(; μ_e, μ̂, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)
 
 The table's composition at one state, as [`RJS96Rates`](@ref) reads it:
-EntropyEOS's `Composition` (EOS-12; built from one by the method below) and
-the nucleons' own chemical potentials `μ_n`, `μ_p`, without rest masses,
-which RJS96's scattering blocking reads and which EOS-12 does not carry
-(EOS-13; `CODE.md`, "Requests still waiting"). EOS-12's conventions:
+EntropyEOS's `Composition` (EOS-12; built from one by the method below)
+without `μ_ν`, which is `μ_e − μ̂`. EOS-12's conventions:
 chemical potentials in MeV, `μ_e` with the electron's rest mass, `μ̂` with
 the neutron–proton mass difference `Q`, so that `μ_ν = μ_e − μ̂`; mass
 fractions; `Ā`, `Z̄` of the heavy nuclei. `isbits`.
@@ -65,8 +63,6 @@ fractions; `Ā`, `Z̄` of the heavy nuclei. `isbits`.
 struct CompositionPoint{T}
     μ_e::T
     μ̂::T
-    μ_n::T
-    μ_p::T
     X_n::T
     X_p::T
     X_α::T
@@ -75,19 +71,16 @@ struct CompositionPoint{T}
     Ā::T
     Z̄::T
 end
-CompositionPoint{T}(; μ_e, μ̂, μ_n, μ_p, X_n, X_p, X_α, X_h, X_l, Ā, Z̄) where {T} =
-    CompositionPoint{T}(μ_e, μ̂, μ_n, μ_p, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)
+CompositionPoint{T}(; μ_e, μ̂, X_n, X_p, X_α, X_h, X_l, Ā, Z̄) where {T} =
+    CompositionPoint{T}(μ_e, μ̂, X_n, X_p, X_α, X_h, X_l, Ā, Z̄)
 
 """
-    CompositionPoint(c::EntropyEOS.Composition; μ_n, μ_p)
+    CompositionPoint(c::EntropyEOS.Composition)
 
-The point the rates read from EntropyEOS's composition (EOS-12) and the
-nucleons' own chemical potentials, which it does not carry until EOS-13
-(`CODE.md`, "Requests still waiting").
+The point the rates read from EntropyEOS's composition (EOS-12).
 """
-CompositionPoint(c::EntropyEOS.Composition{T}; μ_n, μ_p) where {T} =
-    CompositionPoint{T}(c.μ_e, c.μ̂, T(μ_n), T(μ_p), c.X_n, c.X_p, c.X_α, c.X_h, c.X_l, c.Ā,
-                        c.Z̄)
+CompositionPoint(c::EntropyEOS.Composition{T}) where {T} =
+    CompositionPoint{T}(c.μ_e, c.μ̂, c.X_n, c.X_p, c.X_α, c.X_h, c.X_l, c.Ā, c.Z̄)
 
 """The equilibrium ν_e chemical potential `μ_ν = μ_e − μ̂`, MeV (EOS-12)."""
 @inline neutrino_potential(c::CompositionPoint) = c.μ_e - c.μ̂
@@ -145,6 +138,8 @@ const RJS_HC = 1.23984198e-10        # hc in MeV cm, CODATA 2018
 const MEV_ERG = 1.602176634e-6       # erg per MeV, exact
 const AMU_MEV = 931.49410242         # m_u c² in MeV, CODATA 2018
 const AMU_G = 1.66053906660e-24      # m_u in g, CODATA 2018
+const MN_MEV = 939.56542052          # m_n c² in MeV, CODATA 2018
+const MP_MEV = 938.27208816          # m_p c² in MeV, CODATA 2018
 const Q_NP_MEV = 1.29333236          # m_n c² − m_p c² in MeV, CODATA 2018
 
 """
@@ -182,6 +177,8 @@ struct RJS96Rates{T} <: NeutrinoRates
     C_coh::T      # coherent scattering, transport: 1/24
     W_fac::T      # 1 − 2 sin²θ_W
     c_n::T        # equilibrium densities: 4π/(hc)³ in geometric units
+    c_Fn::T       # scattering blocking: ⅔ E_F/T = c_F (X ρ★)^⅔ / T, neutrons
+    c_Fp::T       # … and protons
     inv_m★::T     # 1/(m★c²) in 1/MeV
     q_np::T
 end
@@ -217,9 +214,13 @@ function RJS96Rates(::Type{T}, units::EOSUnits; baryon_mass, q_np=Q_NP_MEV) wher
     C_sp = (4 * (RJS_CV - 1)^2 + 5 * RJS_α^2) / 24
     C_a = (1 + 3 * RJS_α^2) / 4
     c_n = 4π / RJS_HC^3 / νb
+    # The free gas's Fermi energy, E_F = (ħc)² (3π² n_N)^⅔ / (2 m_N c²), with
+    # n_N = X_N ρ★ νb; times ⅔, the factor the scattering blocking reads.
+    ħc = RJS_HC / 2π
+    c_F = ħc^2 * (3π^2 * νb)^(2 / 3) / 3
     return RJS96Rates{T}(c_β, c_ee, C_ee_e, C_ee_x, c_γ * RJS_CV^2, 4 * c_γ * (RJS_CV - 1)^2,
                          γ0, c_br, c_κ, C_sn, C_sp, C_a, 1 / 24, 1 - 2 * RJS_SIN2W, c_n,
-                         1 / m★, q_np)
+                         c_F / MN_MEV, c_F / MP_MEV, 1 / m★, q_np)
 end
 RJS96Rates(units::EOSUnits; kwargs...) = RJS96Rates(Float64, units; kwargs...)
 
@@ -269,8 +270,16 @@ RJS96Rates(units::EOSUnits, table::EntropyEOS.EOSTable, cv::EntropyEOS.Compositi
     return clamp(Y_np, zero(T), X_n), clamp(Y_pn, zero(T), X_p)
 end
 
-# The scattering targets' blocking, RJS96 (A8): Y_N/(1 + (2/3) max(η_N, 0)).
-@inline scattering_blocking(X::T, η::T) where {T} = X / (1 + 2 * max(η, zero(T)) / 3)
+# The scattering targets' blocking (RJS96 A7, A8, Bruenn 1985): the free
+# nucleons' phase space, a free non-relativistic gas's, read from its density
+# rather than from the table's potentials, which hold the mean field (EOS-13
+# withdrawn; "Leakage" in `CODE.md`). `y = ⅔ E_F/T`; `X/√(1 + y²)` has
+# Bruenn's two limits, `X` and `(3T/2E_F) X`, and is within 5% of the exact
+# `F₋½/(2F½)` between them, where his `1/(1 + ⅔ max(η, 0))` is 26% off.
+@inline function scattering_blocking(X::T, ρ★::T, c_F::T, t::T) where {T}
+    y = c_F * cbrt(X * ρ★)^2 / t
+    return X / sqrt(1 + y * y)
+end
 
 """
     neutrino_rates(model, ρ★, T_MeV, yₑ, comp) -> (ν_e, ν̄_e, ν_x)
@@ -329,10 +338,8 @@ Allocation-free.
     E_x = (Ree_x * ϵee + Rγ_x * ϵγ) * t + 2 * q_br
 
     # Opacities, A6–A16, and coherent scattering (BRT06 Eqs. 25–32, transport).
-    η_n = comp.μ_n / t
-    η_p = comp.μ_p / t
-    Ynn = scattering_blocking(comp.X_n, η_n)
-    Ypp = scattering_blocking(comp.X_p, η_p)
+    Ynn = scattering_blocking(comp.X_n, ρ★, m.c_Fn, t)
+    Ypp = scattering_blocking(comp.X_p, ρ★, m.c_Fp, t)
     W_h = 1 - 2 * comp.Z̄ / comp.Ā * m.W_fac
     W_α = 1 - m.W_fac                       # Z/A = 1/2
     coh = m.C_coh * (comp.X_h * comp.Ā * W_h^2 + 4 * comp.X_α * W_α^2)
