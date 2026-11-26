@@ -127,7 +127,8 @@ positivity under the light-speed CFL ("Neutrinos", "M0" in `CODE.md`).
 # --- on the forest ---------------------------------------------------------------
 
 """
-    M0Leakage(rates; center, r_core, feedback = true, optical_depth = true)
+    M0Leakage(rates; center, r_core, composition = nothing, feedback = true,
+              optical_depth = true)
 
 The neutrino scheme of `CODE.md`'s "Neutrinos", for `MHDProblem`'s
 `neutrinos` keyword: leakage with the rate model `rates` ([`GrayRates`](@ref),
@@ -137,26 +138,69 @@ The neutrino scheme of `CODE.md`'s "Neutrinos", for `MHDProblem`'s
 transport's tests and for a run that switches the heating on later.
 `optical_depth = false` takes `τ ≡ 0`, the optically thin limit, in which
 the effective rates are the free ones: for the transport's tests, whose
-analytic solutions it makes exact. `isbits` where `rates` is.
+analytic solutions it makes exact. `composition` is the table's
+(EntropyEOS's `CompositionView`), required with `RJS96Rates` and refused with
+`GrayRates`; `MHDProblem` refuses one that does not `match` its EOS and moves
+it to the run's device ("Field sets and interface" in `CODE.md`).
 """
-struct M0Leakage{R,T}
+struct M0Leakage{R,T,C}
     rates::R
     center::SVector{3,T}
     r_core::T
     feedback::Bool
     optical_depth::Bool
+    composition::C
 end
-function M0Leakage(rates::NeutrinoRates; center, r_core, feedback::Bool=true,
-                   optical_depth::Bool=true)
+function M0Leakage(rates::NeutrinoRates; center, r_core, composition=nothing,
+                   feedback::Bool=true, optical_depth::Bool=true)
     T = typeof(float(r_core))
+    if rates isa RJS96Rates
+        composition isa EntropyEOS.CompositionView || throw(ArgumentError(
+            "M0Leakage with RJS96Rates needs the table's composition, an EntropyEOS " *
+            "CompositionView (`composition = cv`), got $(typeof(composition)): the rates " *
+            "read the chemical potentials and mass fractions at each cell."))
+    else
+        composition === nothing || throw(ArgumentError(
+            "M0Leakage with $(nameof(typeof(rates))) takes no composition: those rates " *
+            "read none, and a composition here would suggest they do."))
+    end
     (isfinite(r_core) && r_core > 0) || throw(ArgumentError(
         "M0Leakage needs a positive r_core, got $r_core: inside it the radial direction " *
         "is scaled down to the fluid's, since at the centre it is undefined."))
     length(center) == 3 || throw(ArgumentError(
         "M0Leakage's center is a point in three dimensions, got $center; a missing " *
         "dimension's coordinate is zero."))
-    return M0Leakage{typeof(rates),T}(rates, SVector{3,T}(center), T(r_core), feedback,
-                                      optical_depth)
+    return M0Leakage{typeof(rates),T,typeof(composition)}(rates, SVector{3,T}(center),
+                                                          T(r_core), feedback, optical_depth,
+                                                          composition)
+end
+
+# The `M0Leakage` as a checkpoint's recipe holds it: everything that decides the
+# numbers, the composition by its table's fingerprint.
+neutrino_recipe(c::M0Leakage) =
+    (; rates=repr(c.rates), center=Tuple(c.center), r_core=c.r_core, feedback=c.feedback,
+     optical_depth=c.optical_depth,
+     composition=c.composition === nothing ? "none" : string(c.composition.fingerprint))
+
+# What the kernels receive: the rates alone, or with the composition.
+rate_model(c::M0Leakage{R,T,Nothing}) where {R,T} = c.rates
+rate_model(c::M0Leakage) = TabulatedRates(c.rates, c.composition)
+
+# The problem's EOS as EntropyEOS's `matches` reads it: the table's view
+# under the geometric units.
+eos_view(e::GeometricEOS) = e.eos
+eos_view(e) = e
+
+# The composition checked against the problem's EOS and moved to its device.
+function placed(c::M0Leakage, eos, backend)
+    c.composition === nothing && return c
+    EntropyEOS.matches(c.composition, eos_view(eos)) || throw(ArgumentError(
+        "M0Leakage's composition was not built from the problem's EOS table " *
+        "(EntropyEOS.matches is false): its densities and fractions belong to another " *
+        "table."))
+    cv = Adapt.adapt(backend, c.composition)
+    return M0Leakage{typeof(c.rates),eltype(c.center),typeof(cv)}(
+        c.rates, c.center, c.r_core, c.feedback, c.optical_depth, cv)
 end
 
 """
@@ -183,8 +227,9 @@ end
 
 const SEG_NU = 6
 
-m0_state(::Nothing, f, ops, backend) = nothing
-function m0_state(c::M0Leakage, f::MHDFields{D}, ops, backend) where {D}
+m0_state(::Nothing, f, ops, backend, eos) = nothing
+function m0_state(c0::M0Leakage, f::MHDFields{D}, ops, backend, eos) where {D}
+    c = placed(c0, eos, backend)
     T = eltype(f.U.work)
     forest = f.U.forest
     any(forest.periodic) && throw(ArgumentError(
@@ -201,7 +246,7 @@ function m0_state(c::M0Leakage, f::MHDFields{D}, ops, backend) where {D}
 end
 # After a regrid the sets are the same, resized; the schedules and the
 # buffer are new.
-m0_state(s::M0State, f::MHDFields{D}, ops, backend) where {D} =
+m0_state(s::M0State, f::MHDFields{D}, ops, backend, eos) where {D} =
     M0State(s.config, s.Nν, s.Fν, ntuple(d -> InterfaceSchedule(s.Fν[d]), D),
             s.od === nothing ? nothing : rebuild(s.od), s.hook,
             shifted_buffer(s.config, f, backend))
@@ -216,11 +261,6 @@ function shifted_buffer(c::M0Leakage, f::MHDFields{D}, backend) where {D}
     dims = ntuple(e -> size(w, e) - 2 * f.U.G[e], Val(D))
     return allocate(backend, eltype(w), (dims..., NU, size(w, ndims(w))))
 end
-
-# The rates at one cell from its row of `P`. `GrayRates` read only `ρ★`; the
-# tabulated rates read the composition too, which step 20 adds.
-@inline cell_rates(model::GrayRates{T}, Pc::NTuple) where {T} =
-    neutrino_rates(model, Pc[P_RHO], T(NaN), T(NaN), nothing)
 
 # τ⁰, τ¹ of species i at a cell, or zero without an optical depth.
 @inline cell_depth(::Nothing, t, b, i, ::Type{T}) where {T} = (zero(T), zero(T))
@@ -410,7 +450,7 @@ function m0_rhs!(s::M0State, du, p, t; metric=p.provider)
     end
     duU = c.feedback ? statearray(du, p.sets, SEG_U) : nothing
     map_blocks!(m0_rhs_kernel!, s.Nν, statearray(du, p.sets, SEG_NU), duU, f.X.work, f.P.work,
-                depth_work(s), map(F -> F.work, s.Fν), p.origins, p.spacings, c.rates,
+                depth_work(s), map(F -> F.work, s.Fν), p.origins, p.spacings, rate_model(c),
                 c.center, c.r_core, Val(D), Val(f.P.G), depth_G(s), Val(first(s.Fν).G);
                 workgroupsize=p.workgroupsize)
     return nothing
@@ -432,7 +472,7 @@ function m0_stage!(s::M0State, U, ustar, γΔt, p, t)
     end
     map_blocks!(m0_absorb_kernel!, s.Nν, statearray(U, p.sets, SEG_NU),
                 statearray(ustar, p.sets, SEG_NU), UU, Sh, f.P.work, depth_work(s),
-                p.origins, p.spacings, c.rates, c.center, c.r_core, γΔt, Val(D), Val(f.P.G),
+                p.origins, p.spacings, rate_model(c), c.center, c.r_core, γΔt, Val(D), Val(f.P.G),
                 depth_G(s); workgroupsize=p.workgroupsize)
     return c.feedback ? s.shifted : us
 end
@@ -455,7 +495,7 @@ end
 m0_step!(::Nothing, p, t) = nothing
 function m0_step!(s::M0State, p, t)
     s.od === nothing && return nothing
-    opacities!(s.od, s.config.rates, p.f.P)
+    opacities!(s.od, rate_model(s.config), p.f.P)
     sweep!(s.od, p.f.P)
     return nothing
 end
@@ -482,9 +522,20 @@ function m0_initial_depth!(s::M0State, p, u, t)
     prepare!(p, u, t)
     s.od === nothing && return 0
     reset_depth!(s.od)
-    opacities!(s.od, s.config.rates, p.f.P)
+    opacities!(s.od, rate_model(s.config), p.f.P)
     return converge!(s.od, p.f.P)
 end
+
+"""
+    resume_neutrinos!(p::MHDProblem, u, t)
+
+`P` prepared from the state `u`, as [`initial_depth!`](@ref) prepares it, so that the next
+implicit stage, which reads the cell's latest recovery, reads the state's: what `evolve!`
+does at every chunk boundary, so that a restart, which has no `P` of its own and whose
+optical depth the checkpoint restored (`restore_run!`), is the run that never stopped. A
+script that owns the loop and checkpoints does likewise. Nothing without neutrinos.
+"""
+resume_neutrinos!(p, u, t) = (p.neutrinos === nothing || prepare!(p, u, t); nothing)
 
 """
     neutrino_totals(p::MHDProblem, u) -> NTuple{6}

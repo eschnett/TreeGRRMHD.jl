@@ -120,7 +120,7 @@ export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B,
        with_step_cache
 # The neutrinos (step 16): the Fermi integrals, the rates, the leakage
-export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint,
+export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint, TabulatedRates,
        neutrino_rates, effective_rates, absorption_opacity
 # The optical depth (step 17)
 export OpticalDepth, OpacityEscape, opacities!, sweep!, converge!, depth_regrid_pairs,

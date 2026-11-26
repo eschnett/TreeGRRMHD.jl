@@ -279,7 +279,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     # The neutrinos (step 18): `Nν` is the state vector's last segment,
     # `SEG_NU`, and its zero hook follows the case's five, so that a run
     # without them is today's, segment for segment.
-    nu = m0_state(neutrinos, f, ops_U, get_backend(f.U.work))
+    nu = m0_state(neutrinos, f, ops_U, get_backend(f.U.work), eos)
     sets = nu === nothing ? evolved_sets(f) : (evolved_sets(f)..., nu.Nν)
     if nu !== nothing && boundary !== nothing && length(boundary) == SEG_Φ
         boundary = (boundary..., nu.hook)

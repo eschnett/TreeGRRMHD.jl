@@ -8,7 +8,9 @@
 #
 #   * which sets are state: the five evolved sets `U`, `A₁`, `A₂`, `A₃` and `Φ̃` —
 #     never `B`, `P`, `W` or the scratch sets, which a restart rebuilds from the state
-#     ("Sharp edges": `B` is never state);
+#     ("Sharp edges": `B` is never state) — and, with neutrinos, `Nν`'s segment and the
+#     optical depth `Nτ`, which is carried from step to step outside the state vector
+#     ("Neutrinos", "Field sets and interface");
 #   * the run state behind a result (`evolve!`'s `totals0`, chunk count and history, or a
 #     study's accumulators), which the caller hands in as plain data;
 #   * the recipe, every parameter that decides the numbers, so that a restart with another
@@ -24,6 +26,10 @@ const CHECKPOINT_VERSION = 1
 
 # The names of the five evolved sets in a checkpoint, in `evolved_sets` order.
 const CHECKPOINT_SETS = ("U", "A1", "A2", "A3", "Phi")
+# The neutrinos' (step 20): `Nν`'s segment of the state vector, and `Nτ`, whose working
+# array is current at a chunk boundary (the step limiter's sweep left it).
+const CHECKPOINT_NU = "Nu"
+const CHECKPOINT_TAU = "Tau"
 
 """
     checkpoint_sets(p::MHDProblem, u) -> NTuple{5,Pair}
@@ -34,7 +40,12 @@ checkpoints other sets beside them (TreeGH's, coupled) passes them as `extra` to
 [`save_run`](@ref).
 """
 checkpoint_sets(p::MHDProblem, u) =
-    ntuple(i -> CHECKPOINT_SETS[i] => (p.sets[i], stateview(u, p.sets, i)), 5)
+    (ntuple(i -> CHECKPOINT_SETS[i] => (p.sets[i], stateview(u, p.sets, i)), 5)...,
+     neutrino_checkpoint_sets(p.neutrinos, p, u)...)
+neutrino_checkpoint_sets(::Nothing, p, u) = ()
+neutrino_checkpoint_sets(s, p, u) =
+    (CHECKPOINT_NU => (s.Nν, stateview(u, p.sets, SEG_NU)),
+     (s.od === nothing ? () : (CHECKPOINT_TAU => s.od.Nτ,))...)
 
 """
     save_run(path, p::MHDProblem, u; run, recipe, extra = (), io = :node, sync = true) -> path
@@ -100,7 +111,10 @@ end
 
 Copy the five evolved sets' states of the checkpoint `ck` ([`load_run`](@ref)) into the
 state vector `u` of `p`, which must have been built on `ck.forest` (refused otherwise: a
-state vector is laid out by its forest's blocks).
+state vector is laid out by its forest's blocks). With neutrinos, `Nν`'s segment too, and
+the optical depth into its set, not reconverged, so that the restart is the run that never
+stopped; a checkpoint with neutrinos for a problem without them, or the other way round,
+is refused.
 """
 function restore_run!(u, p::MHDProblem, ck)
     first(p.sets).forest === ck.forest || throw(ArgumentError(
@@ -109,6 +123,27 @@ function restore_run!(u, p::MHDProblem, ck)
         "states are laid out by."))
     for i in 1:5
         copyto!(stateview(u, p.sets, i), ck.states[CHECKPOINT_SETS[i]])
+    end
+    restore_neutrinos!(u, p.neutrinos, p, ck)
+    return u
+end
+
+function restore_neutrinos!(u, ::Nothing, p, ck)
+    haskey(ck.states, CHECKPOINT_NU) && throw(ArgumentError(
+        "the checkpoint holds neutrinos and the problem has none: restarting it without " *
+        "them would drop their state and their feedback on the matter."))
+    return u
+end
+function restore_neutrinos!(u, s, p, ck)
+    haskey(ck.states, CHECKPOINT_NU) || throw(ArgumentError(
+        "the problem has neutrinos and the checkpoint holds none: it was written by a run " *
+        "without them."))
+    copyto!(stateview(u, p.sets, SEG_NU), ck.states[CHECKPOINT_NU])
+    if s.od !== nothing
+        haskey(ck.states, CHECKPOINT_TAU) || throw(ArgumentError(
+            "the problem's neutrinos have an optical depth and the checkpoint holds none: " *
+            "it was written with `optical_depth = false`."))
+        scatter!(s.od.Nτ, ck.states[CHECKPOINT_TAU])
     end
     return u
 end

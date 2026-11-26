@@ -181,6 +181,7 @@ struct RJS96Rates{T} <: NeutrinoRates
     c_Fp::T       # … and protons
     inv_m★::T     # 1/(m★c²) in 1/MeV
     q_np::T
+    ρ_unit::T     # the EOS's density per geometric ρ★ (g/cm³), for the composition
 end
 
 function RJS96Rates(::Type{T}, units::EOSUnits; baryon_mass, q_np=Q_NP_MEV) where {T}
@@ -220,7 +221,7 @@ function RJS96Rates(::Type{T}, units::EOSUnits; baryon_mass, q_np=Q_NP_MEV) wher
     c_F = ħc^2 * (3π^2 * νb)^(2 / 3) / 3
     return RJS96Rates{T}(c_β, c_ee, C_ee_e, C_ee_x, c_γ * RJS_CV^2, 4 * c_γ * (RJS_CV - 1)^2,
                          γ0, c_br, c_κ, C_sn, C_sp, C_a, 1 / 24, 1 - 2 * RJS_SIN2W, c_n,
-                         c_F / MN_MEV, c_F / MP_MEV, 1 / m★, q_np)
+                         c_F / MN_MEV, c_F / MP_MEV, 1 / m★, q_np, ud)
 end
 RJS96Rates(units::EOSUnits; kwargs...) = RJS96Rates(Float64, units; kwargs...)
 

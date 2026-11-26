@@ -1,0 +1,161 @@
+# Step 20: the star with neutrinos (rung 8g; "Neutrinos" in `CODE.md`). First the
+# composition's way into the kernels, on the synthetic table (no DD2): the rates a kernel
+# evaluates at a cell are the pointwise rates at the cell's state, and the refusals. Uses
+# `optical_depth_tests.jl`'s `od_forest` and `m0_tests.jl`'s `m0_ball`.
+
+const NS = TreeGRRMHD
+const NS_E = TreeGRRMHD.EntropyEOS
+
+# The synthetic table with its composition, the EOS built from it, the view, the units
+# and the rates on them, read once.
+ns_synthetic() = computed_once(:ns_synthetic) do
+    raw = NS_E.make_synthetic_table(NS_E.SyntheticOptions(; with_composition=true))
+    eos = NS_E.build_eos(raw, NS_E.BuildOptions(; m_B_table_g=NS_E.M_AMU_G))
+    cv = NS_E.CompositionView(NS_E.CompositionTable(raw, eos))
+    units = EOSUnits(NS_E.EOSTableView(eos); density=MSUN_DENSITY_CGS)
+    (; raw, eos, cv, units, rates=RJS96Rates(units, eos, cv))
+end
+
+# A primitive set holding, at the cell centre `x`, the state `state(x) = (ρ★, u, Yₑ)`
+# (geometric `ρ★`, `u = log₁₀ T_MeV`) in a flat metric at rest, ghosts included.
+function ns_primitives(forest, state)
+    D = length(forest.periodic)
+    P = FieldSet{Float64}(forest, NS.NP; G=3, centering=cellcentered(D))
+    fill!(P.work, 0)
+    for b in 1:size(P.work)[end], idx in CartesianIndices(size(P.work)[1:D])
+        s = Tuple(idx)
+        ρ, u, Y = state(coordinates(P, b, s))
+        P.work[s..., NS.P_RHO, b] = ρ
+        P.work[s..., NS.P_UEOS, b] = u
+        P.work[s..., NS.P_YE, b] = Y
+        P.work[s..., NS.P_GAMMA, b] = 1
+        P.work[s..., NS.P_GAMMA + 3, b] = 1
+        P.work[s..., NS.P_GAMMA + 5, b] = 1
+        P.work[s..., NS.P_ALPHA, b] = 1
+        P.work[s..., NS.P_SQRTG, b] = 1
+    end
+    return P
+end
+
+@testset "A kernel's tabulated rates are the pointwise rates at its cell's state" begin
+    # Guards the composition's way into the kernels (`TabulatedRates`, `cell_rates`): the
+    # opacity kernel's κ at every owned cell equals `neutrino_rates` at the cell's `ρ★`,
+    # `T = 10^u` and `Yₑ` with the composition there, bit for bit, across the synthetic
+    # table's densities and temperatures; a cell with `ρ★ = 0` or a warm start that is
+    # not finite has none, as `P` is before the first fill.
+    d = ns_synthetic()
+    m, cv = d.rates, d.cv
+    f = d.units.density
+    # log₁₀ ρ from 6 to 14 (g/cm³) along x, log₁₀ T from −1 to 1.5 along y; the corner
+    # cells hold the two empty states.
+    function state(x)
+        x[1] < -0.9 && x[2] < -0.9 && return (0.0, 0.5, 0.3)
+        x[1] > 0.9 && x[2] > 0.9 && return (1e-6, NaN, 0.3)
+        return (exp10(10 + 4x[1]) / f, 0.25 + 1.25x[2], 0.2 + 0.1x[1] * x[2])
+    end
+    forest = od_forest(Val(2), 2)
+    P = ns_primitives(forest, state)
+    od = OpticalDepth(forest)
+    model = TabulatedRates(m, cv)
+    opacities!(od, model, P)
+    worst, nzero, n = 0.0, 0, 0
+    for b in 1:size(P.work)[end], idx in CartesianIndices((8, 8))
+        s = Tuple(idx) .+ 3
+        ρ, u, Y = P.work[s..., NS.P_RHO, b], P.work[s..., NS.P_UEOS, b],
+                  P.work[s..., NS.P_YE, b]
+        κ = ntuple(k -> od.Nτ.work[(Tuple(idx) .+ 1)..., NS.TAU_K + k, b], 6)
+        n += 1
+        if ρ > 0 && isfinite(u)
+            t = exp10(u)
+            c = CompositionPoint(NS_E.composition(cv, ρ * m.ρ_unit, t, Y))
+            r = neutrino_rates(m, ρ, t, Y, c)
+            ref = (r[1].κa0 + r[1].κs0, r[1].κa1 + r[1].κs1, r[2].κa0 + r[2].κs0,
+                   r[2].κa1 + r[2].κs1, r[3].κa0 + r[3].κs0, r[3].κa1 + r[3].κs1)
+            worst = max(worst, maximum(abs.(κ .- ref) ./ ref))
+            @test all(>(0), κ)
+        else
+            nzero += 1
+            @test all(iszero, κ)
+        end
+    end
+    @info "Tabulated rates in the opacity kernel against pointwise, worst relative " *
+          "difference" worst n nzero
+    @test worst == 0
+    @test nzero == 2
+    # Allocation-free and inferred, as a kernel needs.
+    Pc = ntuple(v -> v == NS.P_RHO ? 1e-6 : v == NS.P_UEOS ? 0.5 : v == NS.P_YE ? 0.3 : 0.0,
+                NS.NP)
+    @inferred NS.cell_rates(model, Pc)
+    NS.cell_rates(model, Pc)
+    @test (@allocated NS.cell_rates(model, Pc)) == 0
+end
+
+@testset "M0Leakage refuses rates without their composition, and a composition of another table" begin
+    # Guards the composition's pairing: `RJS96Rates` read the table at every cell, so
+    # without the composition they are refused, and `GrayRates` read none, so one with
+    # them is refused; a composition that does not `match` the problem's EOS (here the
+    # ideal gas of `m0_ball`) is refused when the problem is built, rather than
+    # evaluated at densities of another table.
+    d = ns_synthetic()
+    gray = GrayRates{Float64}(; κa=(1.0, 1.0, 0.0), κs=(0.0, 0.0, 0.0), η=(1.0, 1.0, 1.0),
+                              E=(0.01, 0.01, 0.01))
+    kw = (; center=(0.0, 0.0, 0.0), r_core=0.01)
+    @test_throws ArgumentError M0Leakage(d.rates; kw...)
+    @test_throws ArgumentError M0Leakage(gray; composition=d.cv, kw...)
+    nu = M0Leakage(d.rates; composition=d.cv, kw...)
+    @test NS.rate_model(nu) isa TabulatedRates
+    @test NS.rate_model(M0Leakage(gray; kw...)) === gray
+    case = m0_ball(; dim=2)
+    forest = Forest{Float64}(case.roots; N=8, periodic=case.periodic, extents=case.extents)
+    @test_throws ArgumentError MHDProblem(mhd_fields(Float64, forest), case; limiter=:mc,
+                                          neutrinos=nu)
+end
+
+# The ball of `m0_tests.jl` in 2D with gray rates, feedback and an optical depth, so that
+# a restart that lost `Nν`, `Nτ` or the `P` the first implicit stage reads would differ.
+const NS_GRAY = GrayRates{Float64}(; κa=(4.0, 1.0, 0.0), κs=(1.0, 1.0, 2.0),
+                                   η=(0.05, 0.02, 0.03), E=(1e-3, 1.2e-3, 1.5e-3))
+const NS_NU = M0Leakage(NS_GRAY; center=(0.0, 0.0, 0.0), r_core=0.05)
+
+@testset "A run with neutrinos restarted from its checkpoint is the run that never stopped, bit for bit" begin
+    # Guards what a checkpoint with neutrinos must hold: `Nν`'s segment, and the optical
+    # depth `Nτ` (τ and κ), carried from step to step outside the state vector and not
+    # reconverged by the restart; and the `P` the first implicit stage reads, which the
+    # restart prepares from the state, as every chunk boundary does. On a static mesh
+    # and on an adaptive one (refined from the initial data, and regridded, moving or
+    # not, at every chunk boundary, the restart's first included). A restart with
+    # another `M0Leakage`, or without neutrinos, is refused. Measured in step 20: before
+    # `P` was prepared at every chunk boundary, the static restart differed by 1e−12.
+    case = m0_ball(; dim=2)
+    kw = (; N=8, chunk=0.05, limiter=:mc, neutrinos=NS_NU)
+    for (name, akw) in (("static", (;)),
+                        ("adaptive", (; maxlevel=1, refine_tol=0.01, coarsen_tol=0.002,
+                                      buffer=2)))
+        path = joinpath(mktempdir(), "nu.h5")
+        whole = evolve!(case, Val(2); kw..., akw..., t_end=0.15)
+        evolve!(case, Val(2); kw..., akw..., t_end=0.05, checkpoint=path)
+        rest = evolve!(case, Val(2); kw..., akw..., t_end=0.15, restart=path)
+        τw, τr = whole.p.neutrinos.od.Nτ, rest.p.neutrinos.od.Nτ
+        own(s) = statevector(s) |> v -> gather!(v, s)
+        @info "Neutrino restart, $name mesh: $(whole.nsteps) steps, $(whole.nregrids) " *
+              "regrids, Σ|u| $(sum(abs, whole.u))"
+        @test rest.u == whole.u
+        @test own(τr) == own(τw)
+        @test rest.nsteps == whole.nsteps && rest.nregrids == whole.nregrids
+        name == "adaptive" && @test whole.passes > 0
+    end
+    path = joinpath(mktempdir(), "nu.h5")
+    evolve!(case, Val(2); kw..., t_end=0.05, checkpoint=path)
+    other = M0Leakage(NS_GRAY; center=(0.0, 0.0, 0.0), r_core=0.1)
+    @test_throws "neutrinos" evolve!(case, Val(2); kw..., neutrinos=other, t_end=0.1,
+                                     restart=path)
+    @test_throws "neutrinos" evolve!(case, Val(2); kw..., neutrinos=nothing, t_end=0.1,
+                                     restart=path)
+end
+
+@testset "evolve! refuses neutrinos on MPI ranks" begin
+    # Guards a run nothing has tested yet (PLAN.md, step 21): the neutrinos' fills,
+    # reductions and regrid across ranks.
+    @test_throws "MPI ranks" evolve!(m0_ball(; dim=2), Val(2); N=8, t_end=0.05, limiter=:mc,
+                                     neutrinos=NS_NU, comm=TreeAMR.SerialCommunicator())
+end

@@ -220,7 +220,7 @@ end
     pforest = Forest{Float64}((2, 2, 2); N=8, periodic=(true, true, true),
                               extents=ntuple(_ -> (-0.8, 0.8), 3))
     @test_throws ArgumentError M0.m0_state(none, mhd_fields(Float64, pforest), M0.default_ops_U(),
-                                           M0.CPU())
+                                           M0.CPU(), nothing)
 end
 
 @testset "On the Cowling star 𝓔/N outside is the emission's mean redshifted energy" begin

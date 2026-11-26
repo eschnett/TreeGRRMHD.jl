@@ -727,18 +727,14 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                                maxlevel, refine_tol, coarsen_tol, buffer, ε, ε_g, interior,
                                case=nameof(typeof(case.fields)), extents=case.extents,
                                periodic=case.periodic)
-    # The neutrinos (steps 18, 19) are not yet checkpointed or run across ranks:
-    # the optical depth is carried from step to step outside the state vector,
-    # so a checkpoint would not hold it and a restart would not be the
-    # uninterrupted run; and nothing of theirs has run on MPI ranks yet.
+    # The neutrinos: their recipe, a key only where they are, so that a checkpoint
+    # without them keeps its recipe; they are checkpointed (step 20), but nothing of
+    # theirs has run on MPI ranks yet (PLAN.md, step 21).
     if neutrinos !== nothing
-        (checkpoint === nothing && restart === nothing) || throw(ArgumentError(
-            "evolve!: neutrinos with checkpoints or a restart are not built: the optical " *
-            "depth lives outside the state vector, so a checkpoint would not hold it and a " *
-            "restart would not reproduce the run (PLAN.md)."))
+        recipe = merge(recipe, checkpoint_recipe(; neutrinos=neutrino_recipe(neutrinos)))
         comm === nothing || throw(ArgumentError(
-            "evolve!: neutrinos on MPI ranks are not built or tested yet (PLAN.md); run " *
-            "without `comm`."))
+            "evolve!: neutrinos on MPI ranks are not built or tested yet (PLAN.md, step " *
+            "21); run without `comm`."))
     end
     build(f) = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
                           ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
@@ -794,6 +790,10 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                 after_regrid === nothing || after_regrid(p, u, t)
             end
         end
+        # The neutrinos' first implicit stage reads `P`: from the state at every chunk
+        # boundary, so that a restart, which has no `P` of its own, is the run that
+        # never stopped (step 20).
+        resume_neutrinos!(p, u, t)
         rate = max_rate(p, u, t)
         nsteps = chunk_count((t1 - t) * D * rate, cfl)
         integ = mhd_integrator(p, u, t, t1, nsteps; tableau=tableau, alias_u0=true,

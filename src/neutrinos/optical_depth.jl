@@ -34,12 +34,48 @@ depth" in `CODE.md`). `isbits`, for TreeAMR's `CellBoundary(AllVariables(·))`.
 struct OpacityEscape end
 (::OpacityEscape)(x, δ) = ntuple(_ -> zero(x[1]), Val(NTAU))
 
+"""
+    TabulatedRates(rates::RJS96Rates, composition::EntropyEOS.CompositionView)
+
+The rates and the table's composition together, as the kernels receive them
+from an [`M0Leakage`](@ref) with a composition ("Neutrinos", "Field sets and
+interface" in `CODE.md`): the composition is evaluated at each cell's state.
+`isbits` once adapted to a device, as EntropyEOS's views are.
+"""
+struct TabulatedRates{R,CV}
+    rates::R
+    composition::CV
+end
+Adapt.@adapt_structure TabulatedRates
+
+# The rates at one cell from its row of `P` ("Neutrinos", "Leakage",
+# "Where the rates are evaluated" in `CODE.md`). `GrayRates` read only `ρ★`;
+# the tabulated rates read `ρ★`, `Yₑ` and `T = 10^u_solved`, and the
+# composition there, at the EOS's density. A cell with `ρ★ ≤ 0` or a warm
+# start that is not finite, as `P` is before the first fill, has none, by a
+# branch.
+@inline cell_rates(model::GrayRates{T}, Pc::NTuple) where {T} =
+    neutrino_rates(model, Pc[P_RHO], T(NaN), T(NaN), nothing)
+@inline function cell_rates(model::TabulatedRates, Pc::NTuple{M,T}) where {M,T}
+    ρ★ = Pc[P_RHO]
+    u = Pc[P_UEOS]
+    (ρ★ > 0 && isfinite(u)) || return no_rates(T)
+    t = exp10(u)
+    yₑ = Pc[P_YE]
+    m = model.rates
+    c = EntropyEOS.composition(model.composition, ρ★ * m.ρ_unit, t, yₑ)
+    return neutrino_rates(m, ρ★, t, yₑ, CompositionPoint(c))
+end
+@inline function no_rates(::Type{T}) where {T}
+    z = zero(T)
+    r = SpeciesRates{T}(z, z, z, z, z, z, z, z, z)
+    return (r, r, r)
+end
+
 # The opacities `κ⁰ = κ⁰_a + κ⁰_s`, `κ¹ = κ¹_a + κ¹_s` of the three species at
-# one cell, from its row of `P`. `GrayRates` read only `ρ★`; the tabulated
-# rates read the composition too, which step 20 adds.
-@inline function cell_opacities(model::GrayRates{T}, Pw, s::NTuple, b::Int) where {T}
-    ρ★ = @inbounds Pw[s..., P_RHO, b]
-    r = neutrino_rates(model, ρ★, T(NaN), T(NaN), nothing)
+# one cell, from its row of `P`.
+@inline function cell_opacities(model, Pw, s::NTuple, b::Int)
+    r = cell_rates(model, read_vars(Pw, s, b, Val(NP)))
     return (r[1].κa0 + r[1].κs0, r[1].κa1 + r[1].κs1,
             r[2].κa0 + r[2].κs0, r[2].κa1 + r[2].κs1,
             r[3].κa0 + r[3].κs0, r[3].κa1 + r[3].κs1)
@@ -210,7 +246,7 @@ reset_depth!(od::OpticalDepth) = (fill!(od.Nτ.work, 0); od)
 κ⁰ and κ¹ of the three species at every owned cell, from the primitive set
 `P` (a `FieldSet` laid out as `MHDFields`' `P`, filled at the owned cells).
 """
-function opacities!(od::OpticalDepth, model::NeutrinoRates, P::FieldSet)
+function opacities!(od::OpticalDepth, model, P::FieldSet)
     D = length(od.Nτ.G)
     map_blocks!(opacity_kernel!, od.Nτ, od.Nτ.work, P.work, model, Val(D),
                 Val(first(od.Nτ.G)), Val(first(P.G)); workgroupsize=od.workgroupsize)

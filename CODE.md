@@ -3156,8 +3156,13 @@ segment of the state vector, and `Nτ` (`τ` and `κ`), which is carried from
 step to step outside the state vector and is current in its working array
 at a chunk boundary; the recipe holds the `M0Leakage` (its rates, centre,
 `r_core`, switches and the composition's fingerprint). A restart reads both
-back and does not reconverge `τ`, so that it is the uninterrupted run bit
-for bit (step 20). `evolve!` still refuses neutrinos on MPI ranks (`comm`):
+back and does not reconverge `τ`. The first implicit stage of a step reads
+the cell's latest recovery in `P`, which a restart does not have, so
+`evolve!` prepares `P` from the state at every chunk boundary
+(`resume_neutrinos!`), the restart's first included: the restart is then the
+uninterrupted run bit for bit (step 20; without it the static restart
+differed by 1e−12), and a script that owns the loop and checkpoints does
+the same. `evolve!` still refuses neutrinos on MPI ranks (`comm`):
 nothing of theirs has run across ranks yet (`PLAN.md`, step 21).
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
