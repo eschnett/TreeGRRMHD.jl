@@ -33,29 +33,36 @@ sk_cells(r) = nblocks(r.p.f.U) * r.p.f.U.forest.N^length(r.p.f.U.forest.roots)
     # `CODE.md`): a warm-seeded or reused recovery answers to EntropyEOS's
     # tolerance what the cold one answers, so the run with the cache is the
     # run without it but for that tolerance, carried through the steps: no
-    # stage takes another branch, the reset writes the same cells and injects
-    # the same mass. A seed taken from the wrong cell or the wrong step, or a
+    # stage takes another branch, the reset writes the same cells (but for a
+    # few at its threshold) and injects the same mass. A seed taken from the wrong cell or the wrong step, or a
     # cached output reused for another input, moves the state far beyond it.
-    # Measured on the laptop and on Symmetry's EPYC 7532 (2026-10-24, the same
+    # Measured on the laptop and on Symmetry's EPYC 7532 (2026-11-25, the same
     # digits) at the end, `max |Δu|/max |u|` and
     # the relative `ρ`, `s` and absolute `w` of the recovered final state: the
-    # EM wave 1.2e-12 (ρ 7.0e-13), Alfvén 1.0e-14, the resistive tube 2.5e-12
-    # (ρ 3.0e-12, w 2.3e-12), the magnetized atmosphere tube 7.7e-13 (s
-    # 6.3e-12, w 9.9e-12), the rotor 7.8e-13; the bounds hold a margin of 4
-    # and 5.
+    # EM wave 1.1e-12 (ρ 6.7e-13), Alfvén 7.6e-15, the resistive tube 1.7e-12
+    # (ρ 3.0e-12, w 2.3e-12), the magnetized atmosphere tube 1.6e-12 (ρ
+    # 4.9e-11, w 1.4e-11), the rotor 1.5e-13 (w 8.2e-13); `Δu` is bounded by
+    # 1e-11, the recovered state by 5e-11, margins of 6 and 17. The magnetized
+    # atmosphere tube is the exception, since the zero-pressure rapidity seed:
+    # a cell at the atmosphere's threshold in the tube's front may fall on
+    # either side of it within the tolerance, so its reset counts are 3 of
+    # 36163 apart and its recovered `ρ` 4.9e-11 (2.4e-12 before; Erik accepted
+    # both, 2026-11-25), bounded by 12 resets and 2e-10, margins of 4. Every
+    # other case's reset counts are equal.
     cases = [("EM wave", em_wave_case(Float64; roots=10), Val(1),
-              (; N=10, t_end=1 // 4, limiter=:mc)),
+              (; N=10, t_end=1 // 4, limiter=:mc), 0, 5e-11),
              ("Alfvén wave", alfven_wave_case(Float64; roots=10), Val(1),
-              (; N=10, t_end=alfven_period(alfven_wave_case(Float64)) / 4, limiter=:mc)),
+              (; N=10, t_end=alfven_period(alfven_wave_case(Float64)) / 4, limiter=:mc), 0,
+              5e-11),
              ("resistive tube", resistive_tube_case(Float64, Constant(100.0); roots=20), Val(1),
-              (; N=10, t_end=2 // 5, limiter=:mc)),
+              (; N=10, t_end=2 // 5, limiter=:mc), 0, 5e-11),
              ("magnetized atmosphere tube",
               atmosphere_tube_case(Float64; By=1e-3, model=MagnetizationCutoff(Constant(1e3), 10),
                                    roots=20), Val(1),
-              (; N=10, t_end=2 // 5, chunk=1 // 10, limiter=:mc)),
+              (; N=10, t_end=2 // 5, chunk=1 // 10, limiter=:mc), 12, 2e-10),
              ("rotor", magnetic_rotor_case(Float64; roots=2), Val(2),
-              (; N=8, t_end=1 // 20, limiter=:mc))]
-    for (name, case, vD, kw) in cases
+              (; N=8, t_end=1 // 20, limiter=:mc), 0, 5e-11)]
+    for (name, case, vD, kw, dresets, dprims) in cases
         cold = evolve!(case, vD; kw..., step_cache=false)
         warm = evolve!(case, vD; kw...)
         du = maximum(abs.(warm.u .- cold.u)) / maximum(abs, cold.u)
@@ -68,10 +75,10 @@ sk_cells(r) = nblocks(r.p.f.U) * r.p.f.U.forest.N^length(r.p.f.U.forest.roots)
               "ρ $(r2(dρ)), s $(r2(ds)), w $(r2(dw))"
         @test warm.nsteps == cold.nsteps
         @test du ≤ 1e-11
-        @test max(dρ, ds, dw) ≤ 5e-11
+        @test max(dρ, ds, dw) ≤ dprims
         @test sum(c -> collect(c.tally.bits), warm.chunks) ==
               sum(c -> collect(c.tally.bits), cold.chunks)
-        @test sk_sum(warm, :resets) == sk_sum(cold, :resets)
+        @test abs(sk_sum(warm, :resets) - sk_sum(cold, :resets)) ≤ dresets
         @test sk_sum(warm, :step_resets) == sk_sum(cold, :step_resets)
         @test sk_sum(warm, :recoveries) == sk_sum(cold, :recoveries)
         @test isapprox(sk_sum(warm, :injected_D), sk_sum(cold, :injected_D); rtol=1e-6, atol=0)

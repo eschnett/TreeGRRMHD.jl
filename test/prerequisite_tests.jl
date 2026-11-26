@@ -36,13 +36,13 @@
 
 using KernelAbstractions: CPU, @kernel, @index
 using StaticArrays: SVector
-import Pkg
 import SpacetimeMetrics
 
 # Reached through the package rather than added to the test environment a
-# second time: neither is in the General registry, so the test environment
-# would need `[sources]` entries of its own, which could then disagree with
-# the package's.
+# second time: IMEXRungeKutta is not in the General registry, so the test
+# environment would need a `[sources]` entry of its own, which could then
+# disagree with the package's; EntropyEOS, registered, follows it so that
+# both are the package's own.
 const EOS = TreeGRRMHD.EntropyEOS
 const IRK = TreeGRRMHD.IRK
 
@@ -325,19 +325,6 @@ function prereq_report(id, landed::Bool, what)
     return landed
 end
 
-@testset "EOS-0: EntropyEOS is registered (reported, never required)" begin
-    # Guards nothing the suite needs — `[sources]` finds EntropyEOS either
-    # way — but says whether the URL workaround can go. Read from the
-    # registries this depot reaches, which may be stale, so this is a
-    # report and not an assertion.
-    uuid = Base.PkgId(EOS).uuid
-    landed = any(reg -> haskey(reg.pkgs, uuid), Pkg.Registry.reachable_registries())
-    prereq_report("EOS-0", landed,
-                  landed ? "EntropyEOS is in a reachable registry; the `[sources]` " *
-                  "entry can go" :
-                  "EntropyEOS is in no reachable registry; `[sources]` adds it by URL")
-end
-
 @testset "EOS-3: the fixed-entropy inversion is public (when landed)" begin
     # Guards the entropy fallback of step 12 and the entropy-from-energy
     # solve for initial data.
@@ -345,6 +332,31 @@ end
     prereq_report("EOS-3", landed,
                   landed ? "`con2prim_entropy`, `entropy_from_energy`" :
                   "no public fixed-entropy inversion; wanted by step 12")
+end
+
+@testset "AMR-14: the curve split by a weight per leaf (when landed)" begin
+    # Guards nothing yet: with it, the DD2 star's threads and ranks could be balanced by
+    # the measured cost of their blocks ("The tabulated star's cost" in `CODE.md`).
+    landed = isdefined(TreeAMR, :set_leaf_weights!)
+    prereq_report("AMR-14", landed,
+                  landed ? "`set_leaf_weights!`" :
+                  "the curve is split by leaf counts only; wanted for the tabulated star")
+end
+
+@testset "EOS-15: the atmosphere's decision without level 1 is public (when landed)" begin
+    # Guards the workaround in `policy_decides` (`src/con2prim.jl`), which reads
+    # EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and `nan_safe_out`.
+    landed = isdefined(EOS, :policy_decides) && Base.isexported(EOS, :policy_decides)
+    prereq_report("EOS-15", landed,
+                  landed ? "`policy_decides`" :
+                  "no public `policy_decides`; the workaround reads three internals")
+end
+
+@testset "EOS-$n: performance only, no probe" for n in (14, 16)
+    # Guards nothing by `hasmethod`: each is a faster EntropyEOS on the same
+    # API, measured by `bin/benchmark.jl case=dd2`. Named here so that a grep
+    # of the log for `waiting:` lists every upstream item.
+    prereq_report("EOS-$n", false, "a performance request; measured by bin/benchmark.jl")
 end
 
 @testset "GH-$n: still open, detected by the coupled suite" for n in (2, 6, 7)

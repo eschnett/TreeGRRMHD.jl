@@ -159,13 +159,37 @@ The units `g` converts with.
 """
 EOSUnits(g::GeometricEOS{T}) where {T} = EOSUnits{T}(g.density, EntropyEOS.κ(g.eos))
 
+# The inner EOS's point at the scaled density `ρ★ · f`, in geometric units.
+@inline geometric_point(pt::EntropyEOS.EOSPoint{T}, f::T) where {T} =
+    EntropyEOS.EOSPoint{T}(pt.U, pt.U_ρ * f, pt.U_s, pt.U_ρρ * f * f, pt.U_ρs * f, pt.T̂,
+                           pt.p / f, pt.h, pt.cs², pt.T_MeV, pt.μ̃, pt.u_solved, pt.iters,
+                           pt.flags)
+
 @inline function EntropyEOS.evaluate(g::GeometricEOS, ρ★::T, s::T, yₑ::T,
                                      u_guess::T) where {T<:Real}
     f = T(g.density)
-    pt = EntropyEOS.evaluate(g.eos, ρ★ * f, s, yₑ, u_guess)
-    return EntropyEOS.EOSPoint{T}(pt.U, pt.U_ρ * f, pt.U_s, pt.U_ρρ * f * f, pt.U_ρs * f,
-                                  pt.T̂, pt.p / f, pt.h, pt.cs², pt.T_MeV, pt.μ̃,
-                                  pt.u_solved, pt.iters, pt.flags)
+    return geometric_point(EntropyEOS.evaluate(g.eos, ρ★ * f, s, yₑ, u_guess), f)
+end
+
+# EntropyEOS's two optional methods ("an EOS overrides them only when it can do the same
+# work more cheaply"), forwarded so that the inner EOS's own are reached: a table's
+# `evaluate_windowed` takes the entropy window from its temperature solve's bracket instead
+# of two more samples, and its `entropy_from_energy` is one temperature solve where the
+# default bisects in `s` over the whole extended window with an evaluation a step. Without
+# them every Newton residual paid the two samples and a cold seed on DD2 cost 58–75 µs
+# ("Warm starts" in `CODE.md`).
+@inline function EntropyEOS.evaluate_windowed(g::GeometricEOS, ρ★::T, s::T, yₑ::T,
+                                              u_guess::T) where {T<:Real}
+    f = T(g.density)
+    pt, sr = EntropyEOS.evaluate_windowed(g.eos, ρ★ * f, s, yₑ, u_guess)
+    return geometric_point(pt, f), sr
+end
+
+@inline function EntropyEOS.entropy_from_energy(g::GeometricEOS, ρ★::T, yₑ::T, U::T,
+                                                u_guess::T, n_iter::Integer) where {T<:Real}
+    f = T(g.density)
+    s, pt = EntropyEOS.entropy_from_energy(g.eos, ρ★ * f, yₑ, U, u_guess, n_iter)
+    return s, geometric_point(pt, f)
 end
 
 @inline EntropyEOS.srange(g::GeometricEOS, ρ★::T, yₑ::T) where {T<:Real} =

@@ -92,9 +92,9 @@ suite", has the measurements). The log names every upstream ID still probed as w
 grep it for `waiting:` (a landed item guaranteed by `[compat]` has no
 probe, so `landed:` should not appear).
 
-The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR
-and SpacetimeMetrics from the General registry and EntropyEOS and
-IMEXRungeKutta from their remotes through `[sources]` — never from a
+The clean-checkout check: a tree with no `Manifest.toml` resolves TreeAMR,
+SpacetimeMetrics and EntropyEOS from the General registry and
+IMEXRungeKutta from its remote through `[sources]` — never from a
 sibling checkout. This is what CI does; run it under the floor too:
 
 ```bash
@@ -197,6 +197,15 @@ header), on the package environment; `jobs/benchmark-cpu.toml` and
 julia --project=. -t 4 bin/benchmark.jl N=8
 ```
 
+`case=dd2` is the tabulated star (it reads `ENTROPYEOS_TABLE_DIR`). Where the
+time goes is `bin/profile.jl`, the same problem under the sampling profiler
+(per-thread waiting, allocations, GC; on `backend=cuda` CUDA.jl's kernel
+profile); `jobs/perf-*.toml` run both on Symmetry:
+
+```bash
+ENTROPYEOS_TABLE_DIR=~/src/EntropyEOS/tables julia --project=. -t 4 bin/profile.jl case=dd2 N=8 roots=2
+```
+
 A `Manifest.toml` resolved by one Julia version breaks loading under
 another (1.13 refused a 1.11 manifest's `MbedTLS_jll`), so delete it, or
 use a clean tree, when switching versions.
@@ -255,7 +264,10 @@ The sharp edges, each explained in `CODE.md`, "Sharp edges":
   checkpoint.
 - EntropyEOS's inputs are undensitized; its warm starts are positional;
   take `|v|` from the returned rapidity; call the two levels only through
-  `two_levels`; test flag words with `& … != 0`.
+  `two_levels`; test flag words with `& … != 0`; an EOS wrapper forwards
+  every interface method, the optional ones too.
+- A table reaches a device through `eos_on`; a struct that carries it into a
+  kernel needs an `Adapt` rule; a kernel's arguments stay under 32 KiB.
 - A new recovery site computes `B`, `E` and the undensitized variables as
   `· inv(√γ)`, and a test that steps an integrator itself wraps the
   stepping in `with_step_cache` to use the step cache.

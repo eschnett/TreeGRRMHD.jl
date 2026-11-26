@@ -1,0 +1,48 @@
+# Performance before production on several H200s, one rank each (`bin/benchmark.jl
+# case=dd2 mpi=true`; each rank picks its device by its place on the node): the DD2 star
+# at `Float64` on 960 blocks (3.9·10⁶ cells) and on 6056 (2.5·10⁷), on 1, 2 and 4 devices
+# of one node.
+name = "perf-gpu-mpi"
+env = "cuda"
+mode = "sequential"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+resources = { gpus = 4 }
+time = "2:00:00"
+
+[[run]]
+label = "m2-g1"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 1
+threads = 4
+
+[[run]]
+label = "m2-g2"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 2
+threads = 4
+
+[[run]]
+label = "m2-g4"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 4
+threads = 4
+
+[[run]]
+label = "m3-g1"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 1
+threads = 4
+
+[[run]]
+label = "m3-g2"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 2
+threads = 4
+
+[[run]]
+label = "m3-g4"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=48 roots=8 levels=3 reps=3 mpi=true"
+ranks = 4
+threads = 4

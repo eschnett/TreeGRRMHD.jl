@@ -1,0 +1,42 @@
+# Performance before production (the tabulated star; `bin/benchmark.jl`, `bin/profile.jl`):
+# the per-phase table of the DD2 star in the Cowling approximation at `Float64`, on the
+# Cowling study's finest mesh (`[−24, 24]³`, 4³ roots of 16³, one box level: 120 blocks,
+# 4.9·10⁵ cells, `h = 0.375` in the box), one pinned Zen 3 node (EPYC 7543, 64 cores in 8
+# NUMA domains), the runs one after another so that they compare: the thread scan; the same
+# at 8 and 64 threads on PR 16's code (`variant = "base"`; with the table's upload to a
+# device, which the CPU does not use); the larger mesh (960 blocks, 3.9·10⁶ cells) at 64;
+# and the profile of four steps at 64 threads and at one.
+name = "perf-cpu"
+pin = true
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+node = "cn095"
+time = "3:00:00"
+
+[[run]]
+label = "scan"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=1 reps=3"
+threads = [1, 2, 4, 8, 16, 32, 64]
+
+[[run]]
+label = "base"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=1 reps=3"
+variant = "base"
+threads = [8, 64]
+
+[[run]]
+label = "large"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3"
+threads = 64
+
+[[run]]
+label = "profile"
+cmd = "bin/profile.jl case=dd2 L=24 roots=4 levels=1 steps=4"
+threads = [1, 64]
+
+[[run]]
+label = "profile-base"
+cmd = "bin/profile.jl case=dd2 L=24 roots=4 levels=1 steps=4"
+variant = "base"
+threads = 64
