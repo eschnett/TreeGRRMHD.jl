@@ -2690,6 +2690,29 @@ its own density, `n_b = ρ★/m_B★ = ρ_table/m_B_table`, which `RJS96Rates` a
 `m_B_table_g` is what the EOS is built with, so SRO LS220 needs `M_NEUTRON_G`. Both went
 into `CODE.md`'s "Leakage".
 
+**2026-11-26, EntropyEOS 2.4.1.** EntropyEOS 2.4.1 (its PR 17, 63f4374) fixes `μ̂` and `μ_ν`
+on O'Connor–Ott LS220, which 2.4.0 had off by `Q = 1.293 MeV`: `μ̂` too high (`muhat + Q`)
+and `μ_ν` too low (`mu_e − muhat − Q`). 2.4.0 had read the table's `muhat` convention off its
+`munu`, which differs from `mu_e − muhat` by `−Q` above 10⁸ g/cm³ and not below, and taken
+the larger region to be right. Reviewing this package's EOS-13 draft (entry above) showed the opposite:
+every table's raw `muhat` includes `Q`, O'Connor–Ott LS220's as well (in the hot, dilute
+region its `muhat` is `Q + T ln[(X_n/X_p)(m_p/m_n)^{3/2}]` to 10 keV on both sides of
+10⁸ g/cm³, and in uniform matter SRO LS220's to 0.05–0.2 MeV), and that table's `munu`
+subtracts a further `Q` above 10⁸ g/cm³. So `μ_ν` is the table's `munu` below 10⁸ g/cm³
+and `munu + Q` above. The Hempel tables (DD2, SFHo) and SRO LS220 are unchanged. EntropyEOS
+now reads the convention off the free nucleons, for the composition and for the cold
+β-equilibrium slice alike; O'Connor–Ott LS220's slice moved with it, `Yₑ` at 10¹² g/cm³
+from 0.211 to 0.193 (SRO LS220: 0.194).
+
+This corrects three statements above: the EOS-12 request's premise that this table's
+`munu` "lacks `−Q` below 10⁸ g/cm³" (it has an extra `−Q` above), and, among 2.4.0's
+differences, "`μ_ν` is the table's `munu` − Q" below 10⁸ g/cm³ and "the measured
+O'Connor–Ott offset is −Q" (both 0). The rates were right throughout: they take
+`η_ν = μ_ν/T` and `(μ̂ − Q)/T` from the composition as it is, so only their input changes.
+`[compat]` moved to `"2.4.1"` in the package and in `coupled/`, so that no resolution
+admits 2.4.0's values. Nothing in the suite reads O'Connor–Ott LS220 (the table tests read
+DD2; the rates' tests the synthetic table), so no test or reference value changed.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of

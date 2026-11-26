@@ -19,7 +19,8 @@ TreeIOHDF5 = "49af10b2-b28a-4989-bafa-527ac30d3246"
 # 1.11 feature, below the Julia floor (1.13; see "Julia version" in
 # `CODE.md`). IMEXRungeKutta 1.4 is the release the plan's steps 4a–4c ended
 # at. EntropyEOS is registered (EOS-0) and resolves from General by `[compat]`
-# alone since step 16; `"2.4"` for the composition on the device (EOS-12).
+# alone since step 16; `"2.4.1"` for the composition on the device (EOS-12),
+# with O'Connor–Ott LS220's `μ̂` and `μ_ν` right (2.4.0 had them off by Q).
 # Until then it was pinned here by URL to a tag, last `v2.3.0` (step 13);
 # HISTORY.md, "Upstream prerequisites", has the tags.
 [sources]
@@ -27,7 +28,7 @@ IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutt
 
 [compat]
 Adapt = "4"
-EntropyEOS = "2.4"
+EntropyEOS = "2.4.1"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
 SpacetimeMetrics = "1.7"

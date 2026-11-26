@@ -122,7 +122,8 @@ end
     # reader and the cold β-equilibrium slice the tabulated star's initial
     # data reads (EOS-4, in 2.3.0; `[compat]` "2.3", so its probe is retired).
     # Since step 16 the composition on the device the neutrino rates read
-    # (EOS-12, in 2.4.0; `[compat]` "2.4", so its probe is retired), and
+    # (EOS-12, in 2.4.0; `[compat]` "2.4.1", for O'Connor–Ott LS220's μ̂, so its
+    # probe is retired), and
     # `SyntheticOptions`, whose `with_composition` gives the synthetic table
     # its composition datasets.
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
