@@ -7025,3 +7025,9 @@ side; the bounds-checked run now takes three quarters of `amddebugq`'s hour on Z
 restart): **38423 tests, every run passing whole** with the tables (Symmetry job 612323 on
 cn101, EPYC 7543, `amddebugq`; study `pr18-merged-suite`, not posted) — 38m10s at one
 thread, 27m13s at four, 46m42s with `--check-bounds=yes`, side by side.
+
+**2026-11-26, EOS-13 withdrawn.** At 6c45220 (the scattering blocking from the free gas's
+density, the EOS-13 probe removed, its new testset): **38428 tests, every run passing
+whole** with the tables (Symmetry job 613620 on cn096, EPYC 7543, `amddebugq`; study
+`full-suite-6c4522075c1f`, not posted) — 38m04s at one thread, 26m39s at four, 46m47s with
+`--check-bounds=yes`, side by side.
