@@ -21,7 +21,8 @@
 # AMR-6 (TreeAMR 0.2.1), EOS-1 and EOS-2 (EntropyEOS 1.0.0), SM-1
 # (SpacetimeMetrics 1.7.0), AMR-7 to AMR-10 (TreeAMR 0.2.2, in step 8), and
 # EOS-8, EOS-9 and EOS-11 (EntropyEOS 1.1.0, 2.0.0 and 2.1.0, which had no
-# probe), and EOS-4 (EntropyEOS 2.3.0, in step 13);
+# probe), EOS-4 (EntropyEOS 2.3.0, in step 13), and AMR-13 (TreeAMR 0.2.11, the
+# public communicator verbs, which had no probe);
 # the behaviour this package relies on from them is tested where it is used
 # (`test/refinement_tests.jl` for the bounded prolongations, the relative
 # hook's fixed point and the conservative transfer of the potentials,
@@ -79,8 +80,24 @@ prereq_values(nvars, tag) =
                  :staterange, :stateview,
                  :map_blocks!, :block_mapreduce, :mesh_mapreduce, :volume_weighted_norm,
                  :RegridFlag, :Refine, :Coarsen, :Keep, :regrid!, :adapt_to_initial_data!,
-                 :total_mass, :firing_boxes, :InterfaceSchedule, :restrict_interfaces!)
+                 :total_mass, :firing_boxes, :InterfaceSchedule, :restrict_interfaces!,
+                 :communicator, :blockrange)
         @test name in names(TreeAMR)
+    end
+    # The communicator verbs a distributed run combines its own host values with
+    # (`src/distributed.jl`; AMR-13, landed in TreeAMR 0.2.11): public, not exported.
+    for name in (:Communicator, :SerialCommunicator, :commrank, :commsize, :allgather,
+                 :allgatherv)
+        @test Base.ispublic(TreeAMR, name) && !Base.isexported(TreeAMR, name)
+    end
+end
+
+@testset "The resolved TreeIOHDF5 exports the checkpoints this package writes" begin
+    # Guards an upstream rename of what `src/checkpoint.jl` calls ("Running distributed",
+    # "Checkpoints" in `CODE.md`).
+    for name in (:save_checkpoint, :load_checkpoint, :write_plain, :read_plain,
+                 :checkpoint_environment)
+        @test name in names(TreeGRRMHD.TreeIOHDF5)
     end
 end
 

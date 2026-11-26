@@ -24,6 +24,9 @@
 #     every threaded path; a 1D study at four threads adds the wait, not a
 #     path. The 1D runs that hold a 2D or 3D run to the 1D run bit for bit
 #     (`multid_tests.jl`) stay.
+#   * `mpi` — the MPI comparison alone (`mpi_tests.jl`), which CI runs as a job of
+#     its own; every other tier runs it too, where the machine has room for its
+#     ranks (`mpi_jobs.jl`).
 #
 # A testset left out is still a testset, holding one skipped test (per
 # iteration of a `for` testset), so the summary counts it as "Broken" and
@@ -31,9 +34,10 @@
 # ran.
 
 const TEST_TIER = let tier = get(ENV, "TREEGRRMHD_TEST_TIER", "full")
-    tier in ("full", "quick", "threaded") ||
+    tier in ("full", "quick", "threaded", "mpi") ||
         error("TREEGRRMHD_TEST_TIER=$tier: the tiers are full (the default), quick " *
-              "(GitHub CI at one thread) and threaded (GitHub CI at four)")
+              "(GitHub CI at one thread), threaded (GitHub CI at four) and mpi (the MPI " *
+              "comparison alone)")
     Symbol(tier)
 end
 

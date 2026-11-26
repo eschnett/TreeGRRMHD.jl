@@ -13,12 +13,14 @@
 # recovery" in `CODE.md`), `workgroupsize` (`auto`; an `Int`, which KernelAbstractions pads
 # with ones, so a 1D workgroup along the block's first axis; or a shape, `16x4`, padded the
 # same way; AMR-5, ignored on the CPU), `reps` (the best of, 5), `steps` (steps in the timed
-# step phase, 2).
+# step phase, 2), `mpi` (`false`; `true` over `MPI.COMM_WORLD` under `mpiexec`, each rank on
+# its own threads or device, `bin/mpi.jl`: a phase's time is then the slowest rank's best,
+# and `blocks` and `cells` are the whole mesh's).
 #
 # Prints a header row, then one tab-separated row per phase:
 #
-#     threads backend type case N roots levels blocks cells two_phase workgroupsize phase
-#     seconds ns_per_cell
+#     ranks threads backend type case N roots levels blocks cells two_phase workgroupsize
+#     phase seconds ns_per_cell
 #
 # Each phase is a function the step itself calls (`src/evolution.jl`), timed as the best of
 # `reps` calls with the backend synchronized: `scatter`, `fill_potentials`, `curl`,
@@ -38,7 +40,7 @@ using TreeGRRMHD
 const MHD = TreeGRRMHD
 const IRK = MHD.IRK
 
-include(joinpath(@__DIR__, "backend.jl"))
+include(joinpath(@__DIR__, "mpi.jl"))
 
 const FLOATTYPES = Dict("f32" => Float32, "f64" => Float64)
 const TYPENAMES = Dict(Float32 => "f32", Float64 => "f64")
@@ -81,9 +83,10 @@ function benchmark_case(::Type{T}, case::Symbol, L) where {T}
 end
 
 function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_phase,
-                          workgroupsize, reps, steps) where {T}
+                          workgroupsize, reps, steps, comm=nothing) where {T}
     c = benchmark_case(T, case, L)
-    forest = Forest{T}(ntuple(_ -> roots, 3); N, periodic=c.periodic, extents=c.extents)
+    forest = Forest{T}(ntuple(_ -> roots, 3); N, periodic=c.periodic, extents=c.extents,
+                       comm)
     levels > 0 && tov_boxes!(forest, c; levels)
     p = MHD.MHDProblem(mhd_fields(T, forest; backend), c; limiter=:mc, two_phase,
                        workgroupsize)
@@ -94,7 +97,8 @@ function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_pha
     dt = T(MHD.default_cfl(:mc)) / (3 * MHD.max_rate(p, u, t))
     γΔt = dt / 4                                      # a stage's, near SSP3(4,3,3)'s γ
     MHD.prepare!(p, u, t)
-    best(f) = bestof(f, reps, backend)
+    # Over MPI ranks a phase takes as long as its slowest rank.
+    best(f) = MHD.rank_reduce(max, comm, bestof(f, reps, backend))
     timings = Pair{String,Float64}[]
     push!(timings, "scatter" => best(() -> scatter!(p.sets, u)))
     push!(timings, "fill_potentials" => best(() -> MHD.fill_potentials!(p, t)))
@@ -128,15 +132,15 @@ function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_pha
         push!(timings, "step_broadcast" => best(stepper(nothing)) / steps)
         push!(timings, "step_owner" => best(stepper(owner_partition(p.sets))) / steps)
     end
-    cells = nblocks(p.f.U) * N^3
-    return (; timings, blocks=nblocks(p.f.U), cells, two_phase=p.handoff !== nothing)
+    cells = nleaves(forest) * N^3
+    return (; timings, blocks=nleaves(forest), cells, two_phase=p.handoff !== nothing)
 end
 
 function main(args)
     kw = Dict{Symbol,Any}(:case => :star, :N => 16, :roots => 3, :levels => 1, :L => 12,
                           :two_phase => nothing, :workgroupsize => nothing, :reps => 5,
                           :steps => 2)
-    backendname, T = "cpu", Float64
+    backendname, T, mpi = "cpu", Float64, false
     for a in args
         k, val = split(a, '='; limit=2)
         if k in ("N", "roots", "levels", "reps", "steps")
@@ -157,18 +161,22 @@ function main(args)
             T = FLOATTYPES[val]
         elseif k == "backend"
             backendname = val
+        elseif k == "mpi"
+            mpi = parse(Bool, val)
         else
             error("benchmark.jl: unknown key `$k` (case, N, roots, levels, L, type, " *
-                  "backend, two_phase, workgroupsize, reps, steps)")
+                  "backend, two_phase, workgroupsize, reps, steps, mpi)")
         end
     end
-    println(join(("threads", "backend", "type", "case", "N", "roots", "levels", "blocks",
-                  "cells", "two_phase", "workgroupsize", "phase", "seconds", "ns_per_cell"),
-                 '\t'))
-    return withbackend(backendname, T) do backend
-        r = benchmark_phases(T; kw..., backend)
+    return withrun(backendname, T, mpi) do backend, comm
+        r = benchmark_phases(T; kw..., backend, comm)
+        MHD.isroot(comm) || return nothing
+        println(join(("ranks", "threads", "backend", "type", "case", "N", "roots", "levels",
+                      "blocks", "cells", "two_phase", "workgroupsize", "phase", "seconds",
+                      "ns_per_cell"), '\t'))
+        ranks = TreeAMR.commsize(TreeAMR.communicator(comm))
         wgs = kw[:workgroupsize] === nothing ? "auto" : join(kw[:workgroupsize], 'x')
-        prefix = join((Threads.nthreads(), backendname, TYPENAMES[T], kw[:case], kw[:N],
+        prefix = join((ranks, Threads.nthreads(), backendname, TYPENAMES[T], kw[:case], kw[:N],
                        kw[:roots], kw[:levels], r.blocks, r.cells, r.two_phase, wgs),
                       '\t')
         for (phase, s) in r.timings

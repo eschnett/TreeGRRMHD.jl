@@ -82,6 +82,7 @@ import Adapt
 import EntropyEOS
 import IMEXRungeKutta as IRK
 import SpacetimeMetrics
+import TreeIOHDF5
 
 # Devices
 export hostcopy
@@ -136,7 +137,7 @@ export ColdBarotrope, cold_barotrope, barotrope_state, TOVComposition, compositi
 export StellarDipole, stellar_dipole, exterior_dipole, dipole_potential, dipole_curl,
        ConfinedField, confined_field, MagnetizedTOVStar, magnetized_tov_case, cell_profile,
        field_diagnostics, field_drift,
-       ohm_map
+       ohm_map, gather_profile
 export em_wave_case, alfven_wave_case, alfven_period, alfven_speed
 export YeWave, ye_advection_case
 export shock_gas, shock_tube_case, balsara_case, BALSARA, BALSARA_EXACT, BALSARA_PLATEAUS,
@@ -147,6 +148,11 @@ export turned_case, extruded_case, oblique_case, TurnedFields, TurnedPotential, 
        ObliquePotential
 export cylindrical_explosion_case, magnetic_rotor_case, orszag_tang_case, field_loop_case,
        explosion_gas, gauge_pulse_case
+
+# Running over MPI ranks ("Running distributed" in `CODE.md`)
+export rank_reduce, rank_sum!, agree_any, agree_refusal, isroot, gather_cells
+# Checkpoints
+export save_run, load_run, restore_run!, checkpoint_recipe, check_recipe
 
 # The verbs a script that owns the time loop calls (step 10; "The coupling contract" in
 # `CODE.md`): public, not exported, so that loading TreeGH beside this package, whose verbs
@@ -177,7 +183,9 @@ include("fieldsets.jl")
 include("curl.jl")
 include("reconstruction.jl")
 include("evolution.jl")
+include("distributed.jl")
 include("driver.jl")
+include("checkpoint.jl")
 include("refinement.jl")
 include("vertex_metric.jl")
 include("adm_matter.jl")

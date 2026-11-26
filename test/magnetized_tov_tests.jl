@@ -216,10 +216,13 @@ const MT_R̄ = MT_CASE.fields.w.star.metric.R̄
 @testset "The magnetized star keeps ∇·B at round-off, E·B small inside and its rest mass" begin
     # Guards the case on the scheme: `B` from the curl of `A` is divergence-free on every
     # cell whatever `A` holds; inside the conductor the field is frozen into a star at rest,
-    # so `E·B` is the truncation error of a poloidal field (zero in the continuum); the
-    # rest mass changes by exactly what the reset injects. Measured at `h = 1`, `t = 2M`:
-    # `∇·B` 1.9e−16; `Σ|E·B|/ΣB²` inside 9.3e−5, `|E|/|B|` 1.1e−2 (the star's own truncation
-    # velocity times `B`); the field outside `R̄` within 1.2% of the initial one.
+    # so `E·B` is the scheme's error (zero in the continuum); the rest mass changes by
+    # exactly what the reset injects. Measured at `h = 1`, `t = 2M`: `∇·B` 1.9e−16;
+    # `Σ|E·B|/ΣB²` inside 9.3e−5, `|E|/|B|` 1.1e−2; the field outside `R̄` within 1.2% of
+    # the initial one. Both inside numbers are the default tableau's: SSP3(4,3,3) ends
+    # each step with `𝔈` `−0.2844 Δt f` off the stage equilibrium ("The partition" in
+    # `CODE.md`), and under ARS(4,4,3) they are 2.9e−9 and 1.9e−3 (this file's last
+    # testset; the review of 2026-11-24). They do not measure the star's spatial truncation.
     run = mt_run(8)
     r = run.r
     fd = field_diagnostics(run.prof; radius=MT_R̄)
@@ -237,10 +240,13 @@ const MT_R̄ = MT_CASE.fields.w.star.metric.R̄
           "rest mass change $(ΔM), injected $(injected); $(r.nsteps) steps"
     @test run.divB0 < 1e-14 && run.divB < 1e-14
     @test fd0.EB_in == 0 && fd0.E_in == 0
-    @test 0 < fd.EB_in < 2e-4
-    @test fd.E_in < 2e-2
-    @test dr.inside < 3e-2 && dr.outside < 2e-2
-    @test abs(fd.energy_out - fd0.energy_out) < 2e-2 * fd0.energy_out
+    # Held to the measured values (1.684e−2 and 1.209e−2 for the drift, +0.46% for the
+    # energy outside) rather than below loose bounds, so that a wrong force or field
+    # update shows (the review of 2026-11-24).
+    @test isapprox(fd.EB_in, 9.27e-5; rtol=0.1)
+    @test isapprox(fd.E_in, 1.103e-2; rtol=0.1)
+    @test isapprox(dr.inside, 1.684e-2; rtol=0.1) && isapprox(dr.outside, 1.209e-2; rtol=0.1)
+    @test abs((fd.energy_out - fd0.energy_out) / fd0.energy_out - 4.58e-3) < 1e-3
     @test abs(ΔM - injected) < 1e-14 * M0
     # Inside the star no recovery is repaired and none is where the fields' energy
     # exceeds the fluid's.
@@ -277,8 +283,9 @@ end
     # `h = 1` and `1/2` to `t = 2M`; measured on the laptop: the drift outside `R̄` 1.21e−2,
     # 3.54e−3 (rate 1.77), in the shell `R̄ + 1 … 11` 1.43e−2, 4.35e−3 (1.72), inside
     # 1.68e−2, 4.17e−3 (2.01); `E·B` inside 9.3e−5, 1.7e−5 (2.45); `|E|/|B|` inside 1.1e−2,
-    # 5.7e−3 (0.95, the star's own velocity, whose surface error is first order). The
-    # studies' box to 50 M is `CODE.md`'s ("Validation ladder" 6).
+    # 5.7e−3 (0.95). The last two are the tableau's offset of `𝔈`, which is `O(Δt)` with
+    # `Δt ∝ h` (the next testset), not the star's velocity. The studies' box to 50 M is
+    # `CODE.md`'s ("Validation ladder" 6).
     runs = (mt_run(8), mt_run(16))
     drift = [field_drift(x.prof, x.prof0; radius=MT_R̄) for x in runs]
     shell = [field_drift(x.prof, x.prof0; radius=MT_R̄ + 1, outer=11) for x in runs]
@@ -295,4 +302,24 @@ end
     @test rates.outside ≥ 1.7 && rates.shell ≥ 1.7 && rates.inside ≥ 1.8
     @test rates.EB ≥ 2.0
     @test runs[2].divB < 1e-14
+end
+
+@full_tier @testset "Under ARS(4,4,3) the star's E is ideal inside: the default's E·B and |E|/|B| are SSP3(4,3,3)'s offset" begin
+    # Guards the attribution of the two inside numbers above: SSP3(4,3,3) is not stiffly
+    # accurate, so each step leaves `𝔈` `−0.2844 Δt f` off the stage's equilibrium, where
+    # `f` is mostly `∇ × (αB)` ("The partition" in `CODE.md`); ARS(4,4,3) is, and lands on
+    # it. The same run (`h = 1`, `t = 2M`) under both: if the inside `E·B` were the star's
+    # spatial truncation, the tableau would not change it. Measured: `Σ|E·B|/ΣB²` inside
+    # 2.92e−9 under ARS(4,4,3) against 9.27e−5, `|E|/|B|` 1.92e−3 against 1.10e−2, while the
+    # field's drift inside is the same to three digits (1.684e−2): that one is spatial
+    # (found by the review of 2026-11-24).
+    ssp = mt_run(8)
+    r = evolve!(MT_CASE, Val(3); N=8, t_end=2, chunk=2, limiter=:mc, tableau=IRK.ARS443())
+    fd = field_diagnostics(cell_profile(r.p, r.u, r.t); radius=MT_R̄)
+    fds = field_diagnostics(ssp.prof; radius=MT_R̄)
+    @info "Magnetized star, h = 1, t = 2M: E·B inside $(mt3(fds.EB_in)) (SSP3(4,3,3)), " *
+          "$(mt3(fd.EB_in)) (ARS(4,4,3)); |E|/|B| inside $(mt3(fds.E_in)), $(mt3(fd.E_in))"
+    @test r.nsteps == ssp.r.nsteps
+    @test fd.EB_in < 3.5e-9 && fd.E_in < 2.2e-3
+    @test fd.EB_in < 1e-3 * fds.EB_in && fd.E_in < fds.E_in / 4
 end

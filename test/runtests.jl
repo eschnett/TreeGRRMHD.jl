@@ -10,6 +10,19 @@ using TreeGRRMHD
 include("tiers.jl")
 @info "Running the $TEST_TIER tier of the tests on $(Threads.nthreads()) thread(s)"
 
+# The MPI test's `mpiexec` job ("Running distributed" in `CODE.md`), started now where the
+# machine has room for it beside the suite, so that its compilation overlaps the files
+# below, and run to its end now where it has not; `mpi_tests.jl` collects it. See
+# `mpi_jobs.jl`.
+include("mpi_jobs.jl")
+TEST_TIER === :mpi || start_mpi_job!()
+
+if TEST_TIER === :mpi
+    # CI's MPI job: the comparison alone, on a runner of its own.
+    @testset "TreeGRRMHD.jl" begin
+        include("mpi_tests.jl")
+    end
+else
 @testset "TreeGRRMHD.jl" begin
     # Every test file below is `include`d into this one module, so a top-level
     # name defined in two of them is one name. Julia 1.12 and later — every
@@ -99,9 +112,15 @@ include("tiers.jl")
     # itself, which is how a device job runs it).
     include("threading_tests.jl")
     include("device_tests.jl")
+    # Running distributed: checkpoints and their restarts serially, and the MPI comparison
+    # of the job `mpi_jobs.jl` started at the top.
+    include("checkpoint_tests.jl")
+    include("mpi_tests.jl")
+end
 end
 
-isempty(TABLE_SKIPPED) ||
+# The `mpi` tier includes no table file, so it has no list.
+(!@isdefined(TABLE_SKIPPED) || isempty(TABLE_SKIPPED)) ||
     @info "without DD2 under ENTROPYEOS_TABLE_DIR, $(length(TABLE_SKIPPED)) testsets were " *
           "left out:\n  " * join(first.(TABLE_SKIPPED), "\n  ")
 isempty(TIER_SKIPPED) ||
