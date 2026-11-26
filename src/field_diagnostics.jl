@@ -4,7 +4,11 @@
 # and where the recovery's energy is a small difference of large numbers (the entropy
 # fallback's trigger, "Primitive recovery" in `CODE.md`). Host-side reductions over the owned
 # cells, from one recovery of the state ([`update_primitives!`](@ref)) or from the
-# diagnostics set `X`, like [`charge_norms`](@ref): diagnostics, called outside a step.
+# diagnostics set `X`, like [`charge_norms`](@ref): diagnostics, called outside a step. Over
+# MPI ranks a profile holds the rank's own cells, and every reduction sums its numerators
+# and denominators per rank and combines them over the ranks before it forms a ratio
+# (`src/distributed.jl`; "Running distributed" in `CODE.md`), so the value is the same on
+# every rank. They are collective then: every rank calls them.
 
 """
     cell_profile(p::MHDProblem, u, t; metric = p.provider) -> NamedTuple
@@ -13,7 +17,9 @@ The owned cells of a three-dimensional state as host vectors, from one recovery 
 `t` ([`update_primitives!`](@ref)): the cell centres `x` and spacings `h`; from `P`, the
 metric `m` (a [`Metric3`](@ref)), `ρ`, the contravariant `E` and `B` (the cell average of
 `curl A`), the charge `q` and the policy flags; and the undensitized total energy `τ`
-(`𝓔 − D`, the fields' included) from the state itself.
+(`𝓔 − D`, the fields' included) from the state itself. Over MPI ranks the cells are the
+rank's own and `comm` the communicator the reductions combine over;
+[`gather_profile`](@ref) makes every rank's profile the whole mesh's.
 """
 function cell_profile(p::MHDProblem{T,3}, u, t; metric=p.provider) where {T}
     P = update_primitives!(p, u, T(t); metric)
@@ -38,7 +44,23 @@ function cell_profile(p::MHDProblem{T,3}, u, t; metric=p.provider) where {T}
         push!(flags, unsafe_trunc(UInt32, P_at[P_FLAGS]))
         push!(τ, uU[n..., U_TAU, b] / m.sqrtγ)          # `u` holds the owned cells
     end
-    return (; x, h, m=ms, ρ, E, B, q, flags, τ)
+    return (; x, h, m=ms, ρ, E, B, q, flags, τ, comm=communicator(P))
+end
+
+"""
+    gather_profile(prof) -> NamedTuple
+
+The [`cell_profile`](@ref) of every rank, concatenated in rank order on every rank: the
+serial run's profile, cell for cell, whatever the rank count, with a serial `comm`, so that
+a reduction of it is not combined over the ranks a second time. Collective. Serially `prof`
+itself. For test-sized meshes and figures; a production run records reductions.
+"""
+function gather_profile(prof)
+    TreeAMR.commsize(prof.comm) == 1 && return prof
+    g(v) = gather_cells(prof.comm, v)
+    return (; x=g(prof.x), h=g(prof.h), m=g(prof.m), ρ=g(prof.ρ), E=g(prof.E), B=g(prof.B),
+            q=g(prof.q), flags=g(prof.flags), τ=g(prof.τ),
+            comm=TreeAMR.SerialCommunicator())
 end
 
 """
@@ -62,6 +84,8 @@ sphere, each sum over cells weighted by the proper volume `√γ h³`:
 - `B_max`, the largest `|B|` (the metric's norm) on any cell, and `B_center`, the
   volume-weighted mean `|B|` over the cells within `center_radius` of `center`: the
   central field whose decay a resistive star measures (added in step 12, after review).
+
+Over MPI ranks every sum and maximum is combined over `prof.comm` before a ratio is formed.
 """
 function field_diagnostics(prof; radius, center=zero(eltype(prof.x)), center_radius=1)
     T = eltype(prof.h)
@@ -96,6 +120,14 @@ function field_diagnostics(prof; radius, center=zero(eltype(prof.x)), center_rad
         fl & EntropyEOS.FLAG_POL_ANY != 0 && (rep[k] += 1)
         (EE + BB) / 2 > prof.τ[i] - (EE + BB) / 2 && (trig[k] += 1)
     end
+    comm = get(prof, :comm, nothing)
+    e1, e2, eb1, eb2, b1, b2, ee1, ee2, q1, q2, Bc, wc = rank_sum(comm,
+        (e[1], e[2], eb[1], eb[2], b²[1], b²[2], e²[1], e²[2], qa[1], qa[2], Bc, wc))
+    e, eb, b², e², qa = (e1, e2), (eb1, eb2), (b1, b2), (ee1, ee2), (q1, q2)
+    t1, t2, r1, r2, c1, c2 = rank_sum(comm, (trig[1], trig[2], rep[1], rep[2], cells[1],
+                                             cells[2]))
+    trig, rep, cells = (t1, t2), (r1, r2), (c1, c2)
+    ebmax, bmax, qmax, Bmax = rank_max(comm, (ebmax, bmax, qmax, Bmax))
     ratio(a, b) = b > 0 ? a / b : zero(T)
     return (; energy_in=e[1], energy_out=e[2], EB_in=ratio(eb[1], b²[1]),
             EB_out=ratio(eb[2], b²[2]), EB_max_in=ratio(ebmax, bmax),
@@ -109,7 +141,8 @@ end
 
 How far the field `B` of the [`cell_profile`](@ref) `prof` has moved from `prof0`'s on the
 same mesh: `Σ √γ h³ |B − B₀| / Σ √γ h³ |B₀|`, with `|·|` the metric's norm, inside the
-sphere `|x − center| < radius` and in the shell `radius ≤ |x − center| < outer`.
+sphere `|x − center| < radius` and in the shell `radius ≤ |x − center| < outer`. Over MPI
+ranks the two profiles are the same rank's, and the sums are combined over `prof.comm`.
 """
 function field_drift(prof, prof0; radius, outer=Inf, center=zero(eltype(prof.x)))
     T = eltype(prof.h)
@@ -126,7 +159,8 @@ function field_drift(prof, prof0; radius, outer=Inf, center=zero(eltype(prof.x))
         num[k] += w * sqrt(dot_up(m, δ, δ))
         den[k] += w * sqrt(dot_up(m, prof0.B[i], prof0.B[i]))
     end
-    return (; inside=num[1] / den[1], outside=num[2] / den[2])
+    n1, n2, d1, d2 = rank_sum(get(prof, :comm, nothing), (num[1], num[2], den[1], den[2]))
+    return (; inside=n1 / d1, outside=n2 / d2)
 end
 
 """
@@ -136,7 +170,8 @@ The diagnostics set's tallies since the last [`clear_tally!`](@ref) ([`ohm_tally
 counts), summed per region instead of over the mesh: `region(x)` maps an owned cell's
 centre to `1 … nregions`. Each entry has `cells`, `bits` (the nine `OhmStageResult` flag
 bits, in bit order), `policy` (stages whose returned state the policy repaired), `resets`,
-`step_resets` and `recoveries`: the stage solve's outcome map (rung 6).
+`step_resets` and `recoveries`: the stage solve's outcome map (rung 6). Over MPI ranks the
+tallies are summed over the ranks (collective).
 """
 function ohm_map(p::MHDProblem{T,D}, region, nregions::Integer) where {T,D}
     X = Array(p.f.X.work)
@@ -155,6 +190,8 @@ function ohm_map(p::MHDProblem{T,D}, region, nregions::Integer) where {T,D}
             acc[r, j] += X[k..., s, b]
         end
     end
+    rank_sum!(cells, p)
+    acc = reshape(rank_sum!(vec(acc), p), size(acc))
     c(r, j) = roundint(acc[r, j])
     return [(; cells=cells[r], bits=ntuple(j -> c(r, j), N_OHM_BITS),
              policy=c(r, N_OHM_BITS + 1), resets=c(r, N_OHM_BITS + 2),

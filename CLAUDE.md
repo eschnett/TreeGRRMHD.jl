@@ -119,6 +119,19 @@ TREEGRRMHD_TEST_TIER=quick julia --project=. -e 'using Pkg; Pkg.test(; julia_arg
 TREEGRRMHD_TEST_TIER=threaded julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4", "--check-bounds=yes"])'
 ```
 
+The MPI comparison (`test/mpi_tests.jl`; `CODE.md`, "Running distributed") is one
+`mpiexec -n 3` launch of two threads per rank that the suite starts itself where the
+machine has 16 GB (`TREEGRRMHD_TEST_MPI=1` or `0` decides); the `mpi` tier runs it alone,
+as CI's MPI job does:
+
+```bash
+TREEGRRMHD_TEST_TIER=mpi julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+The scripts in `bin/` and `coupled/` take `mpi=true` under `mpiexec`, in an environment
+that has MPI beside the package (`bin/mpi.jl`); `jobs/device-mpi.toml` runs the device
+tests at two ranks of one H200 each.
+
 The testsets that read a real table (`test/tables.jl`) run only
 where `ENTROPYEOS_TABLE_DIR` names a directory holding DD2: on the laptop
 `~/src/EntropyEOS/tables`, on Symmetry `/mnt/beegfs/eschnetter/EOS`, which
@@ -266,6 +279,8 @@ The sharp edges, each explained in `CODE.md`, "Sharp edges":
 - An adapter is a snapshot of its producer's prepared state.
 - A kernel's sum over directions is written out, not `sum(ntuple(… Val(j) …))`.
 - A script picks the integrator's partition from the state's array type.
+- A collective call is gated by the replicated forest or an agreed value, never by the
+  rank's own blocks; a host diagnostic combines its sums over the ranks before a ratio.
 
 Style, matching TreeAMR's, TreeHydro's and TreeGeneralizedHarmonic's,
 since the packages are read together:

@@ -24,6 +24,10 @@ include(joinpath(@__DIR__, "tov_coupled.jl"))
     # `ENTROPYEOS_TABLE_DIR` holds the table (`test/tables.jl`).
     include(joinpath(@__DIR__, "..", "test", "tables.jl"))
     include("tabulated_tests.jl")
+    # Running distributed: the coupled star on a device (the CPU standing in unless
+    # `TREEGRRMHD_TEST_BACKEND` names one), and at two MPI ranks against one.
+    include("device_tests.jl")
+    include("mpi_tests.jl")
 end
 
 isempty(TABLE_SKIPPED) ||

@@ -89,6 +89,8 @@ jobs:
       # otherwise `threaded` on the four-thread cell and `quick` on the others.
       TREEGRRMHD_TEST_TIER: ${{ (github.event.inputs.tier == 'full' || github.event_name == 'schedule') && 'full' || (matrix.threads == 4 && 'threaded' || 'quick') }}
       COVERAGE: ${{ matrix.os == 'macOS-latest' && matrix.threads == 1 && github.event_name != 'pull_request' }}
+      # The MPI comparison is the `mpi` job below, on a runner of its own.
+      TREEGRRMHD_TEST_MPI: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -127,6 +129,32 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           # A Codecov outage should not turn a green test run red.
           fail_ci_if_error: false
+
+  # The MPI comparison ("Running distributed" in `CODE.md`): `mpiexec -n 3` of
+  # `test/mpi_workload.jl`, three ranks of two threads, which runs every case over three
+  # ranks, two, one and none and compares the four (`test/mpi_tests.jl`). A job of its own,
+  # as TreeGeneralizedHarmonic's: beside the suite a 16 GB runner went down under three
+  # ranks there. `TREEGRRMHD_TEST_TIER=mpi` runs `test/mpi_tests.jl` alone, and
+  # `TREEGRRMHD_TEST_MPI=1` forces the job on a machine with less memory than
+  # `test/mpi_jobs.jl` asks for.
+  mpi:
+    name: Julia 1.13 - ubuntu-latest - MPI, 3 ranks of 2 threads
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13"
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: false
+          check_bounds: 'yes'
+        env:
+          TREEGRRMHD_TEST_TIER: mpi
+          TREEGRRMHD_TEST_MPI: "1"
 
   # The coupled suite of step 11 (`coupled/`, an environment of its own that loads
   # TreeGeneralizedHarmonic beside this checkout; `CODE.md`, "The coupling contract"): one

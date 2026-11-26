@@ -18,9 +18,12 @@
 # `sfho`: the star on that table in cold β-equilibrium instead of the polytrope,
 # `tabulated_tov_case`, read from `ENTROPYEOS_TABLE_DIR`; added in step 13) with `ρ_c` (its
 # central density, geometric; no default), `out` (a file for the record, `t ρ_c ‖ℋ‖₂ ‖ℳ‖₂`
-# per chunk; default the terminal).
+# per chunk; default the terminal), `backend` (`cpu`, `cuda`, `metal`; `bin/backend.jl`) and
+# `mpi` (`false`; `true` over `MPI.COMM_WORLD` under `mpiexec`, one rank per device on a
+# device, rank 0 writing the record; `bin/mpi.jl`, "Running distributed" in `CODE.md`).
 
 using TreeAMR
+using KernelAbstractions: CPU
 import TreeGRRMHD
 import TreeGeneralizedHarmonic
 const MHD = TreeGRRMHD
@@ -52,7 +55,9 @@ end
 FillKey(u, s) = FillKey(similar(view(u, s)), Ref(zero(eltype(u))), Ref(false), Ref(0))
 forget_fill!(p) = (p.key === nothing || (p.key.valid[] = false); p)
 
-# Bitwise equality and a copy, threaded: the segment is 20 variables at every owned vertex.
+# Bitwise equality and a copy, threaded on the host and broadcast on a device: the segment
+# is 20 variables at every owned vertex. `isequal` is `===` on floats but for NaN payloads,
+# which no fill tells apart.
 function chunked(f, n)
     nt = Threads.nthreads()
     r = fill(true, nt)
@@ -61,13 +66,16 @@ function chunked(f, n)
     end
     return all(r)
 end
-same_bits(a, b) = chunked(length(a)) do lo, hi
+host_array(a) = parent(a) isa Array
+same_bits(a, b) = !host_array(a) ? mapreduce(isequal, &, a, b; init=true) :
+                  chunked(length(a)) do lo, hi
     for i in lo:hi
         @inbounds a[i] === b[i] || return false
     end
     return true
 end
-threaded_copy!(a, b) = chunked(length(a)) do lo, hi
+threaded_copy!(a, b) = !host_array(a) ? (copyto!(a, b); true) :
+                       chunked(length(a)) do lo, hi
     @inbounds copyto!(a, lo, b, lo, hi - lo + 1)
     return true
 end
@@ -77,7 +85,10 @@ metric_at(p, u, t) = metric_at(p.key, p, u, t)
 metric_at(::Nothing, p, u, t) = fill_metric(p, u, t)
 function metric_at(k::FillKey, p, u, t)
     ug = view(u, p.s[1])
-    k.valid[] && k.t[] == t && same_bits(ug, k.seg) && return MHD.VertexMetric(p.vm)
+    # Over MPI ranks the fill is collective, so the skip is agreed: it repeats on every rank
+    # or no rank skips ("Running distributed" in `CODE.md`).
+    repeats = k.valid[] && k.t[] == t && same_bits(ug, k.seg)
+    MHD.rank_reduce(&, p.vm.M, repeats) && return MHD.VertexMetric(p.vm)
     k.valid[] = false                                # until the fill has finished
     m = fill_metric(p, u, t)
     threaded_copy!(k.seg, ug)
@@ -130,24 +141,31 @@ end
 # `ρ_min` the atmosphere's density (1e−12, decided in step 11). `case` replaces the star by
 # another case on the same `Analytic(TOVMetric)`, the magnetized star of rung 6
 # (`magnetized_tov_study.jl`), which then holds its own `L`, `roots`, `ρ_min` and velocity.
+#
+# `backend` is where every set lives, `comm` the communicator the forest is distributed over
+# (`nothing`, serial), and `forest` a forest to build on instead of the star's boxes: a
+# checkpoint's (`MHD.load_run`), already distributed.
 function problems(T=Float64; N=16, levels=1, L=24, roots=4, limiter=:ppm, q=4,
                   refinement=nothing, reuse_fill=true, γ0M=1 // 10, γ2=0, δv=(0, 0, 0),
-                  order=4, ρ_min=1e-12, case=nothing)
+                  order=4, ρ_min=1e-12, case=nothing, backend=CPU(), comm=nothing,
+                  forest=nothing)
     order in (2, 4) || throw(ArgumentError("the transfer order is 2 or 4, got $order"))
     case === nothing || all(iszero, δv) || throw(ArgumentError(
         "δv perturbs `tov_case`'s star; a `case` holds its own velocity."))
     star = case !== nothing ? case :
            MHD.tov_case(T; K=100, Γ=2, ρ_c=1.28e-3, L, roots, ρ_min, δv, δv_modes=:coupled)
-    forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents)
-    MHD.tov_boxes!(forest, star; levels)             # the static boxes around the star
+    if forest === nothing
+        forest = Forest{T}(star.roots; N, periodic=star.periodic, extents=star.extents, comm)
+        MHD.tov_boxes!(forest, star; levels)         # the static boxes around the star
+    end
     tov = star.provider.metric
     ghcase = GH.GHCase(T, tov; box=star.extents, periodic=star.periodic, ε_KO=T(1 // 2),
                        γ0=T(γ0M) / tov.M, γ2=T(γ2), refinement)
-    U = FieldSet{T}(forest, 20; G=q ÷ 2 + 1, centering=vertexcentered(3))
+    U = FieldSet{T}(forest, 20; G=q ÷ 2 + 1, centering=vertexcentered(3), backend)
     ops = Operators(; prolongation=q + 2, restriction=q + 2)
     gh = GH.GHProblem(U, GhostSchedule(U, ops), ghcase; q)   # q ≥ 4: K at the contract's order
-    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest), star; limiter)
-    vm = MHD.VertexMetricSet(T, forest; boundary=star.provider)  # Mv: G = 4, N ≥ 10
+    mhd = MHD.MHDProblem(MHD.mhd_fields(T, forest; backend), star; limiter)
+    vm = MHD.VertexMetricSet(T, forest; boundary=star.provider, backend)  # Mv: G = 4, N ≥ 10
     sets = (GH.evolved_sets(gh)..., MHD.evolved_sets(mhd)...)
     u = statevector(sets)
     s = segments(sets)
@@ -199,9 +217,11 @@ end
 function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, limiter=:ppm,
               cfl_gh=T(1 // 2), refinement=nothing, mhd_flags=nothing, reuse_fill=true,
               γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12, case=nothing,
+              backend=CPU(), comm=nothing,
               record=(t, ρ_c, c) -> println(t, "  ", ρ_c, "  ", c.ham_l2, "  ", c.mom_l2))
     (; p, u, forest, sets) = problems(T; N, levels, L, roots, limiter, refinement,
-                                      reuse_fill, γ0M, γ2, δv, order, ρ_min, case)
+                                      reuse_fill, γ0M, γ2, δv, order, ρ_min, case, backend,
+                                      comm)
     cfl_mhd = T(MHD.default_cfl(limiter))
     t_end, chunk = T(t_end), T(chunk)
     nchunks = MHD.chunk_count(t_end, chunk)
@@ -212,7 +232,8 @@ function main(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=10, lim
         prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
         integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=(t1 - t) / nsteps,
                          stage_limiter=stage_limit!, step_limiter=step_limit!,
-                         partition=:even, alias_u0=true, reuse=integ)
+                         partition=u isa Array ? :even : nothing, alias_u0=true,
+                         reuse=integ)
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         t = t1
         metric = metric_at(p, u, t)

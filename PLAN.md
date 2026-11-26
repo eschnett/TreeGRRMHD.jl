@@ -23,6 +23,7 @@ update, and each is a brief that one agent with a fresh context can carry.
 - [Step 18 — M0 transport, without feedback (rungs 8c, 8d)](#step-18--m0-transport-without-feedback-rungs-8c-8d)
 - [Step 19 — Coupling to the matter (rungs 8e, 8f)](#step-19--coupling-to-the-matter-rungs-8e-8f)
 - [Step 20 — The star with neutrinos (rung 8g)](#step-20--the-star-with-neutrinos-rung-8g)
+- [Neutrinos with checkpoints and MPI ranks (not yet a step)](#neutrinos-with-checkpoints-and-mpi-ranks-not-yet-a-step)
 - [Step 21 — Review pass](#step-21--review-pass)
 
 ## Ground rules, every step
@@ -251,6 +252,16 @@ Accept:
 - The heated star: cooling and deleptonization, its luminosities and mean
   energies converging with `h` at a stated rate.
 - The CUDA run within a stated number of ulp of the CPU.
+
+## Neutrinos with checkpoints and MPI ranks (not yet a step)
+
+Since "Running distributed" (PR 16) `evolve!` writes checkpoints, restarts
+from them and runs on MPI ranks; with neutrinos it refuses all three. A
+checkpoint needs the optical depth `Nτ` (outside the state vector) and the
+recipe the `M0Leakage`, so that a restart is the uninterrupted run bit for
+bit; on ranks, the neutrinos' fills, reductions and regrid need the MPI
+comparison `test/mpi_tests.jl` makes for the matter. To be placed after
+step 20 or folded into it.
 
 ## Step 21 — Review pass
 

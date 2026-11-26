@@ -495,32 +495,29 @@ function profile_1d(p::MHDProblem{T,1}, u, t) where {T}
     N = U.forest.N
     G = P.G[1]
     nb = nblocks(U)
-    x = T[]
-    rows = Tuple{Int,Int}[]
-    for b in 1:nb, n in 1:N
-        push!(x, coordinates(T, U, b, (n + U.G[1],))[1])
-        push!(rows, (n, b))
-    end
-    order = sortperm(x)
-    x = x[order]
-    rows = rows[order]
-    nc = length(rows)
+    # This rank's cells in block order, then every rank's in rank order
+    # (`gather_cells`): the serial run's cells, whatever the rank count.
+    rows = [(n, b) for b in 1:nb for n in 1:N]
     Pv(n, b, v) = P.work[n + G, v, b]
-    vec3(slot) = [Pv(n, b, slot + k - 1) for (n, b) in rows, k in 1:3]
-    ρ = [Pv(n, b, P_RHO) for (n, b) in rows]
-    pr = [Pv(n, b, P_PRESS) for (n, b) in rows]
+    col(f) = gather_cells(p, T[f(n, b) for (n, b) in rows])
+    x = col((n, b) -> coordinates(T, U, b, (n + U.G[1],))[1])
+    vec3(slot) = reduce(hcat, [col((n, b) -> Pv(n, b, slot + k - 1)) for k in 1:3])
+    ρ = col((n, b) -> Pv(n, b, P_RHO))
+    pr = col((n, b) -> Pv(n, b, P_PRESS))
     v, E, B = vec3(P_V), vec3(P_E), vec3(P_B)
-    b2 = map(1:nc) do i
+    b2 = col() do n, b
         # Flat or not, the comoving field from the cell's own metric.
-        n, bk = rows[i]
-        m = aux_metric(ntuple(k -> Pv(n, bk, k), Val(NP)))
-        vv, BB = SVector{3,T}(v[i, :]), SVector{3,T}(B[i, :])
+        m = aux_metric(ntuple(k -> Pv(n, b, k), Val(NP)))
+        vv = SVector{3,T}(Pv(n, b, P_V), Pv(n, b, P_V + 1), Pv(n, b, P_V + 2))
+        BB = SVector{3,T}(Pv(n, b, P_B), Pv(n, b, P_B + 1), Pv(n, b, P_B + 2))
         W² = inv(one(T) - dot_up(m, vv, vv))
         dot_up(m, BB, BB) / W² + dot_up(m, BB, vv)^2
     end
-    flags = [unsafe_trunc(UInt32, Pv(n, b, P_FLAGS)) for (n, b) in rows]
-    Um = [uU[n, v, b] for (n, b) in rows, v in 1:NU]
-    return (; x, U=Um, ρ, p=pr, v, E, B, b2, flags)
+    flags = gather_cells(p, UInt32[unsafe_trunc(UInt32, Pv(n, b, P_FLAGS)) for (n, b) in rows])
+    Um = reduce(hcat, [col((n, b) -> uU[n, k, b]) for k in 1:NU])
+    order = sortperm(x)
+    return (; x=x[order], U=Um[order, :], ρ=ρ[order], p=pr[order], v=v[order, :],
+            E=E[order, :], B=B[order, :], b2=b2[order], flags=flags[order])
 end
 
 # --- the integrator and the run --------------------------------------------------------
@@ -589,7 +586,9 @@ default_cfl(limiter) = limiter === :mp5 ? 1 // 5 : 2 // 5
             fixup = true, refine = nothing, maxlevel = 0, refine_tol, coarsen_tol,
             buffer = 0, ε = 1//100, ε_g = 1//1000, maxpasses = 10,
             after_regrid = nothing, step_cache = true, two_phase = nothing,
-            interior = case.interior, workgroupsize = nothing) -> NamedTuple
+            interior = case.interior, workgroupsize = nothing, comm = nothing,
+            checkpoint = nothing, checkpoint_every = 1, restart = nothing,
+            checkpoint_io = :node) -> NamedTuple
 
 Run `case` from `t = 0` to `t_end` on a mesh of `roots` root blocks (the
 case's own by default) of `N` cells per dimension, in chunks of length
@@ -602,9 +601,24 @@ Returns `(; p, u, t, nsteps, chunks, nregrids, passes, nblocks, totals0)`:
 the problem, the final state vector over `p.sets`, the final time, the total
 step count, per chunk `(t, nsteps, dt, tally, nblocks)`, the number of
 regrids that moved the mesh, the initial adaptation's passes (0 without
-one), the final block count, and the [`conserved_totals`](@ref) of the
+one), the final block count (the forest's leaves, `nleaves`, whatever the
+rank count), and the [`conserved_totals`](@ref) of the
 initial state on the initial mesh (which a regridded run's own initial
 data on its final mesh does not reproduce to rounding).
+
+**Running distributed** ("Running distributed" in `CODE.md`): `comm` is the
+communicator the forest is built over — an `MPI.Comm` after the caller's
+`using MPI; MPI.Init()`, or `nothing` for a serial run — and the call is
+then collective, with the same arguments on every rank; the result is the
+serial run's, bit for bit but for its sums, which agree to rounding.
+`checkpoint` is a path the run writes ([`save_run`](@ref)) after every
+`checkpoint_every`-th chunk and after the last, at the chunk boundary
+before the next chunk's regrid, with `checkpoint_io` TreeIOHDF5's I/O
+groups; `restart` is a path it continues from ([`load_run`](@ref)), at any
+rank count, refusing a checkpoint whose recipe differs (every parameter
+that decides the numbers; `t_end` may change). The restarted run is the
+uninterrupted one bit for bit, its `totals0` to rounding where the
+checkpoint was written at another rank count.
 
 `after_step(p, u, t)`, if given, is called after every step with the
 problem, the state and its time — a monitor, such as the `∇·𝔅` check of
@@ -663,8 +677,9 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  coarsen_tol=nothing, buffer::Integer=0, ε=T(1 // 100), ε_g=T(1 // 1000),
                  maxpasses::Integer=10, after_regrid=nothing,
                  step_cache::Bool=true, two_phase::Union{Bool,Nothing}=nothing,
-                 interior=case.interior, workgroupsize=nothing,
-                 neutrinos=nothing) where {T,D}
+                 interior=case.interior, workgroupsize=nothing, comm=nothing,
+                 checkpoint=nothing, checkpoint_every::Integer=1, restart=nothing,
+                 checkpoint_io=:node, neutrinos=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -680,36 +695,73 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
             "pass either a static mesh (`refine`) or an adaptive one (`maxlevel > 0`), not " *
             "both: the first regrid would undo the static refinement."))
     end
+    checkpoint_every ≥ 1 || throw(ArgumentError(
+        "checkpoint_every must be at least 1, got $checkpoint_every."))
     ξ = resolve_ξ(T, ξ, case)
     rs = roots isa Tuple ? ntuple(d -> Int(roots[d]), D) : ntuple(_ -> Int(roots), D)
-    forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents)
-    refine === nothing || refine(forest)
-    f = mhd_fields(T, forest; G=G, backend=backend)
-    build() = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
-                         ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
-                         two_phase=two_phase, interior=interior,
-                         workgroupsize=workgroupsize, neutrinos=neutrinos)
-    flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
-    passes = 0
-    if maxlevel > 0
-        passes = adapt_case!(f, case, build; ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ,
-                             buffer=buffer,
-                             maxpasses=maxpasses, flagkw...)
+    # What decides the numbers, which a restart must not change ("Checkpoints" in
+    # `CODE.md`); `t_end` may, which is how a run is continued.
+    recipe = checkpoint_recipe(; T, D, N, roots=rs, chunk, cfl, limiter, riemann, ξ, stage,
+                               tableau=tableau.name, G, ops_U, ops_A, ops_Φ, ops_W, fixup,
+                               maxlevel, refine_tol, coarsen_tol, buffer, ε, ε_g, interior,
+                               case=nameof(typeof(case.fields)), extents=case.extents,
+                               periodic=case.periodic)
+    # The neutrinos (steps 18, 19) are not yet checkpointed or run across ranks:
+    # the optical depth is carried from step to step outside the state vector,
+    # so a checkpoint would not hold it and a restart would not be the
+    # uninterrupted run; and nothing of theirs has run on MPI ranks yet.
+    if neutrinos !== nothing
+        (checkpoint === nothing && restart === nothing) || throw(ArgumentError(
+            "evolve!: neutrinos with checkpoints or a restart are not built: the optical " *
+            "depth lives outside the state vector, so a checkpoint would not hold it and a " *
+            "restart would not reproduce the run (PLAN.md)."))
+        comm === nothing || throw(ArgumentError(
+            "evolve!: neutrinos on MPI ranks are not built or tested yet (PLAN.md); run " *
+            "without `comm`."))
     end
-    p = build()
-    # The exact potentials satisfy the walls' condition already: the relative
-    # hook gives `f(x_w) + (f(x_r) − f(x_r)) = f(x_w)` bit for bit.
-    u = exact_state(p, case, zero(T))
-    initial_depth!(p, u, zero(T))          # the neutrinos' optical depth, converged
-    totals0 = conserved_totals(p, u)
-    maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
+    build(f) = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
+                          ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
+                          two_phase=two_phase, interior=interior,
+                          workgroupsize=workgroupsize, neutrinos=neutrinos)
+    flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
+    if restart === nothing
+        forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents, comm=comm)
+        refine === nothing || refine(forest)
+        f = mhd_fields(T, forest; G=G, backend=backend)
+        passes = 0
+        if maxlevel > 0
+            passes = adapt_case!(f, case, () -> build(f); ops_U=ops_U, ops_A=ops_A,
+                                 ops_Φ=ops_Φ, buffer=buffer, maxpasses=maxpasses, flagkw...)
+        end
+        p = build(f)
+        # The exact potentials satisfy the walls' condition already: the relative
+        # hook gives `f(x_w) + (f(x_r) − f(x_r)) = f(x_w)` bit for bit.
+        u = exact_state(p, case, zero(T))
+        initial_depth!(p, u, zero(T))      # the neutrinos' `P` and optical depth
+        totals0 = conserved_totals(p, u)
+        maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
+        c0, t, total, nregrids, chunks = 0, zero(T), 0, 0, Any[]
+    else
+        # A restart: the checkpoint's forest, distributed over `comm` whatever the rank
+        # count it was written at, and its state; `B`, `P`, `W` and the scratch sets are
+        # rebuilt by the first fill. The step cache is not stored: it holds nothing across
+        # a step, so the restarted run is the uninterrupted one bit for bit.
+        ck = load_run(restart; backend, comm, types=(T,))
+        check_recipe(ck.recipe, recipe)
+        p = build(mhd_fields(T, ck.forest; G=G, backend=backend))
+        u = restore_run!(statevector(p.sets), p, ck)
+        run = ck.run
+        c0, t, total, nregrids, passes = run.chunk, T(run.t), run.nsteps, run.nregrids,
+                                         run.passes
+        totals0 = ntuple(v -> T(run.totals0[v]), Val(NU))
+        chunks = Any[run.chunks...]
+    end
     nchunks = chunk_count(t_end, chunk)
-    t = zero(T)
-    total = 0
-    nregrids = 0
+    c0 < nchunks || throw(ArgumentError(
+        "the restart is at chunk $c0 (t = $t), and t_end = $t_end is $nchunks chunks: " *
+        "nothing is left to run."))
     integ = nothing
-    chunks = []
-    for c in 1:nchunks
+    for c in (c0 + 1):nchunks
         t1 = c == nchunks ? t_end : c * chunk
         clear_tally!(p)
         if maxlevel > 0 && c > 1
@@ -734,11 +786,19 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
             end
         end
         push!(chunks, (; t=t1, nsteps, dt=(t1 - t) / nsteps, tally=ohm_tally(p),
-                       nblocks=nblocks(p.f.U)))
+                       nblocks=nleaves(p.f.U.forest)))
         total += nsteps
         t = t1
+        # At the chunk boundary, before the next chunk's regrid, as TreeHydro and TreeGH
+        # write: a restart regrids first, through the loop's own code.
+        if checkpoint !== nothing && (c % checkpoint_every == 0 || c == nchunks)
+            save_run(checkpoint, p, u; recipe, io=checkpoint_io,
+                     run=(; chunk=c, t, nsteps=total, nregrids, passes, totals0,
+                          chunks=Tuple(chunks)))
+        end
     end
-    return (; p, u, t, nsteps=total, chunks, nregrids, passes, nblocks=nblocks(p.f.U), totals0)
+    return (; p, u, t, nsteps=total, chunks, nregrids, passes, nblocks=nleaves(p.f.U.forest),
+            totals0)
 end
 
 """

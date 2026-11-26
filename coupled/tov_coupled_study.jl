@@ -15,8 +15,11 @@
 # (the atmosphere's density; 1e−12), `out` (the series,
 # `t ρ_c ‖ℋ‖₂in ‖ℳ‖₂in ‖ℋ‖₂out ‖ℳ‖₂out injected_D steps ΔM resets injected_τ` per chunk:
 # the injections, the reset's writes and `steps` since `t = 0`, `ΔM` the rest mass's change),
-# `checkpoint` (a file, or a directory holding it as `state.jls`, as SimLaunch's restarts
-# give one, saved every `every` chunks, default 20, and resumed from if it exists), and *(added in step 13)* `table` (`dd2`, `sfho`: the star on that table in cold
+# `checkpoint` (a file, or a directory holding it as `state.h5`, as SimLaunch's restarts
+# give one, saved every `every` chunks, default 20, and resumed from if it exists; TreeIOHDF5's
+# checkpoint through `MHD.save_run` with TreeGH's set beside the matter's, readable at any
+# rank count), `mpi` (`false`; `true` over `MPI.COMM_WORLD` under `mpiexec`, rank 0
+# writing; `bin/mpi.jl`, "Running distributed" in `CODE.md`), and *(added in step 13)* `table` (`dd2`, `sfho`: the star on that table in cold
 # β-equilibrium, read from `ENTROPYEOS_TABLE_DIR`) with `ρ_c` (its central density,
 # geometric). The series then gains four columns: `ΔDYₑ injected_DYₑ s_floors s_floor_τ`,
 # the change of the total `D Yₑ`, the reset's injection into it, and its entropy floors
@@ -24,7 +27,7 @@
 
 include(joinpath(@__DIR__, "tov_coupled.jl"))
 include(joinpath(@__DIR__, "..", "bin", "tables.jl"))
-using Serialization
+include(joinpath(@__DIR__, "..", "bin", "mpi.jl"))
 using StaticArrays: SVector
 
 function study_norms(p, u, t)
@@ -42,15 +45,25 @@ end
 
 function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, limiter=:ppm,
                cfl_gh=T(1 // 2), γ0M=1 // 10, γ2=0, δv=(0, 0, 0), order=4, ρ_min=1e-12,
-               out=nothing, checkpoint=nothing, every=20, table=nothing, ρ_c=nothing)
+               out=nothing, checkpoint=nothing, every=20, table=nothing, ρ_c=nothing,
+               comm=nothing)
     case = if table === nothing
         nothing
     else
         d = load_table(table)
         MHD.tabulated_tov_case(T; d.table, d.eos, ρ_c, ρ_min, L, roots)
     end
+    # A directory (SimLaunch's `ck/`, `mutable_restarts`) holds the checkpoint as a file;
+    # whether to resume is rank 0's view of it, the rank that reads its index.
+    checkpoint !== nothing && isdir(checkpoint) && (checkpoint = joinpath(checkpoint, "state.h5"))
+    resume = checkpoint !== nothing && MHD.rank_reduce((a, b) -> a, comm, isfile(checkpoint))
+    recipe = MHD.checkpoint_recipe(; T, N, levels, L, roots, chunk=T(chunk), limiter,
+                                   cfl_gh=T(cfl_gh), γ0M, γ2, δv, order, ρ_min, table, ρ_c)
+    ck = resume ? MHD.load_run(checkpoint; comm) : nothing
+    ck === nothing || MHD.check_recipe(ck.recipe, recipe)
     (; p, u, forest) = problems(T; N, levels, L, roots, limiter, γ0M, γ2, δv, order, ρ_min,
-                                case)
+                                case, comm, forest=ck === nothing ? nothing : ck.forest)
+    root = MHD.isroot(comm)
     tot0 = MHD.conserved_totals(p.mhd, view(u, p.s[2]))
     M0, Y0 = tot0[MHD.U_D], tot0[MHD.U_DYE]
     cfl_mhd = T(MHD.default_cfl(limiter))
@@ -60,16 +73,17 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
     resets, injected_τ = 0, zero(T)
     injY, floors, floorτ = zero(T), 0, zero(T)
     rows = Any[]
-    # A directory (SimLaunch's `ck/`, `mutable_restarts`) holds the checkpoint as a file.
-    checkpoint !== nothing && isdir(checkpoint) && (checkpoint = joinpath(checkpoint, "state.jls"))
-    if checkpoint !== nothing && isfile(checkpoint)
-        s = deserialize(checkpoint)
-        copyto!(u, s.u)
-        c0, t, steps, injected, rows = s.c, s.t, s.steps, s.injected, s.rows
-        # Checkpoints from before the reset's counts have none (they start at the resume).
-        resets, injected_τ = get(s, :resets, 0), get(s, :injected_τ, zero(T))
-        injY, floors, floorτ = get(s, :injY, zero(T)), get(s, :floors, 0), get(s, :floorτ, zero(T))
-        @info "resumed from $checkpoint at chunk $c0, t = $t"
+    if ck !== nothing
+        # The matter's five sets and TreeGH's, on the checkpoint's forest.
+        MHD.restore_run!(view(u, p.s[2]), p.mhd, ck)
+        copyto!(view(u, p.s[1]), ck.states["TreeGH.U"])
+        s = ck.run
+        c0, t, steps, injected = s.c, T(s.t), s.steps, T(s.injected)
+        resets, injected_τ = s.resets, T(s.injected_τ)
+        injY, floors, floorτ = T(s.injY), s.floors, T(s.floorτ)
+        rows = Any[NamedTuple{keys(s.rows)}(map(v -> v[i], values(s.rows)))
+                   for i in eachindex(s.rows.t)]
+        root && @info "resumed from $checkpoint at chunk $c0, t = $t"
     else
         push!(rows, (; t, study_norms(p, u, t)..., injected=zero(T), steps=0,
                      ΔM=zero(T), resets=0, injected_τ=zero(T), ΔY=zero(T), injY=zero(T),
@@ -77,7 +91,7 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
     end
     # The series is rewritten from the rows the checkpoint holds, so that a resumed run's
     # file has no row twice (a pre-emption after a row and before its checkpoint).
-    io = out === nothing ? nothing : open(out, "w")
+    io = out === nothing ? nothing : root ? open(out, "w") : devnull
     put(r) = io === nothing ? nothing :
              (println(io, join((r.t, r.ρ_c, r.ham_in, r.mom_in, r.ham_out, r.mom_out,
                                 r.injected, r.steps, get(r, :ΔM, NaN), get(r, :resets, -1),
@@ -92,7 +106,8 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
         prob = IRK.IMEXProblem(f_exp!, solve_imp!, u, (t, t1), p)
         integ = IRK.init(prob, IRK.IMEXSSP3433(); dt=(t1 - t) / nsteps,
                          stage_limiter=stage_limit!, step_limiter=step_limit!,
-                         partition=:even, alias_u0=true, reuse=integ)
+                         partition=u isa Array ? :even : nothing, alias_u0=true,
+                         reuse=integ)
         MHD.with_step_cache(() -> IRK.solve!(integ), p.mhd)
         steps += nsteps
         t = t1
@@ -110,22 +125,26 @@ function study(T=Float64; N=16, levels=1, L=24, roots=4, t_end=200, chunk=1, lim
         push!(rows, r)
         put(r)
         if checkpoint !== nothing && (c % every == 0 || c == nchunks)
-            serialize(checkpoint * ".tmp",
-                      (; c, t, steps, injected, resets, injected_τ, injY, floors, floorτ, rows,
-                       u=Array(u)))
-            mv(checkpoint * ".tmp", checkpoint; force=true)
+            # The rows as columns (plain data); a row from before a resume has them all.
+            cols = NamedTuple{keys(first(rows))}(Tuple([getfield(r, k) for r in rows]
+                                                       for k in keys(first(rows))))
+            MHD.save_run(checkpoint, p.mhd, view(u, p.s[2]); recipe,
+                         extra=("TreeGH.U" => (p.gh.U, view(u, p.s[1])),),
+                         run=(; c, t, steps, injected, resets, injected_τ, injY, floors,
+                              floorτ, rows=cols))
         end
     end
-    io === nothing || close(io)
+    io === nothing || io === devnull || close(io)
     tot = MHD.conserved_totals(p.mhd, view(u, p.s[2]))
     ΔM, ΔY = tot[MHD.U_D] - M0, tot[MHD.U_DYE] - Y0
     return (; rows, M0, ΔM, Y0, ΔY, injY, floors, floorτ, injected, resets, injected_τ, steps,
             h=minimum_spacing(forest),
-            nblocks=nblocks(p.gh.U), wall=time() - wall0)
+            nblocks=nleaves(forest), wall=time() - wall0)
 end
 
 function study_main(args)
     kw = Dict{Symbol,Any}()
+    mpi = false
     for a in args
         k, v = split(a, '='; limit=2)
         if k in ("N", "levels", "roots", "every", "order")
@@ -140,11 +159,16 @@ function study_main(args)
             kw[:limiter] = Symbol(v)
         elseif k in ("out", "checkpoint")
             kw[Symbol(k)] = String(v)
+        elseif k == "mpi"
+            mpi = parse(Bool, v)
         else
             error("tov_coupled_study.jl: unknown key `$k`")
         end
     end
-    r = study(; kw...)
+    r, root = withcomm(mpi) do comm
+        (study(; kw..., comm), MHD.isroot(comm))
+    end
+    root || return nothing
     first_row, last_row = r.rows[1], r.rows[end]
     println("h = $(r.h), $(r.nblocks) blocks, $(r.steps) steps, wall $(round(r.wall; digits=1)) s")
     println("ρ_c: $(first_row.ρ_c) → $(last_row.ρ_c) (drift $((last_row.ρ_c - first_row.ρ_c) / first_row.ρ_c))")

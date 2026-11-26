@@ -42,6 +42,10 @@ the plan"](HISTORY.md#the-steps-of-the-plan).
   outside the star around 100 M.
 - **Devices**: a CUDA run matches the CPU to 26 ulp in `ρ_c` over 200 M;
   `Float32` runs on CUDA and Metal; one and four threads agree bit for bit.
+- **MPI** ([Running distributed](#running-distributed)): a run over one,
+  two or three ranks of two threads is the serial run bit for bit, its sums
+  to rounding, and a checkpoint written at one rank count restarts at
+  another into the uninterrupted run.
 
 What is not built, or measured short, is under [Known risks](#known-risks)
 and [Possible extensions](#possible-extensions); the neutrinos (leakage
@@ -111,6 +115,12 @@ rather than diverging silently.
   - [Threads](#threads)
   - [Devices](#devices)
   - [The per-phase table](#the-per-phase-table)
+- [Running distributed](#running-distributed)
+  - [The communicator](#the-communicator)
+  - [What this package makes global](#what-this-package-makes-global)
+  - [Checkpoints](#checkpoints)
+  - [Threads and devices under MPI](#threads-and-devices-under-mpi)
+  - [Distributed tests](#distributed-tests)
 - [Sharp edges](#sharp-edges)
 - [Tests](#tests)
 - [Code layout](#code-layout)
@@ -167,10 +177,11 @@ rather than diverging silently.
   precisely under [Upstream prerequisites](#upstream-prerequisites); the
   plan sequences the steps that need them to wait. Do not edit the sibling
   checkouts from here.
-- **Not yet a production code.** Single node, threads or one device.
-  TreeAMR has MPI since its M7 (as an extension) and checkpoints since its
-  M9, which moved into the companion package TreeIOHDF5 with TreeAMR 0.2;
-  this package uses neither yet.
+- **Not yet a production code.** It runs on threads, devices and MPI ranks
+  in any combination and checkpoints through TreeIOHDF5 ([Running
+  distributed](#running-distributed)), but no production-size run has been
+  made distributed yet, and how many ranks a node should hold is not
+  measured.
 
 ## Upstream prerequisites
 
@@ -316,16 +327,18 @@ with their GitHub remotes; nothing resolves from a sibling checkout.
   touching an outer face is its fine faces' sum only to 1.2e−5 of the
   largest flux, where everywhere else it is to rounding ("Conservation at
   coarse-fine faces"). No workaround needed.
-- *(later)* The use of MPI (M7) and of checkpoints (M9, now TreeIOHDF5's)
-  and point interpolation (M11), all three of which TreeAMR has; none is
-  an upstream item any more.
+- MPI (M7) and checkpoints (M9, now TreeIOHDF5's) are used
+  ([Running distributed](#running-distributed)), with TreeAMR's public
+  communicator verbs (AMR-13, landed in TreeAMR 0.2.11; `HISTORY.md`,
+  "Upstream prerequisites"); point interpolation (M11) is not used yet.
 
 This is a **physics package** in TreeAMR's sense (its `CODE.md`,
-"Companion interface"): it uses TreeAMR's exports, with one exception —
-`tov_boxes!` reads `Forest`'s field `leaves` —, and
-bounds TreeAMR by a minor series, `TreeAMR = "0.2.2"`, the release the
-landed items are in. The prerequisite tests check the names it calls
-against the exports, and `src/device.jl` uploads its own metadata with
+"Companion interface"): it uses TreeAMR's exports and its `public`
+communicator verbs, with one exception — `tov_boxes!` reads `Forest`'s
+field `leaves` —, and bounds TreeAMR by a minor series,
+`TreeAMR = "0.2.11"`, the release the landed items are in (the public
+communicator verbs, AMR-13, the last). The prerequisite tests check the
+names it calls against the exports and the public names, and `src/device.jl` uploads its own metadata with
 `KernelAbstractions.allocate` rather than reaching for TreeAMR's internal
 `todevice`.
 
@@ -2917,6 +2930,11 @@ step limiter one optical-depth sweep (from `P` as the step's last stage left
 it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
 the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
 takes `τ ≡ 0`, the optically thin limit, for the transport's tests.
+`evolve!` refuses neutrinos with a checkpoint, a restart or MPI ranks
+(`comm`): the optical depth is carried from step to step outside the state
+vector, so a checkpoint would not hold it and a restart would not be the
+uninterrupted run, and nothing of the neutrinos' has run across ranks yet
+(`PLAN.md`).
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
 three would triple the fill of twelve variables (step 17, **(proposed)**).
@@ -4591,7 +4609,11 @@ and the 1D runs held bit for bit to 2D and 3D runs stay. A testset left out
 is one skipped test ("Broken") per testset (per iteration, in a loop) and
 is named at the end of the run. The runs several testsets read are made on first
 use (`computed_once`) rather than by top-level constants, and the helpers
-shared between files live in files of their own.
+shared between files live in files of their own. A fourth tier, `mpi`, runs
+the MPI comparison alone, as CI's job of its own does; every other tier
+runs it too where the machine has room for three ranks (16 GB;
+`test/mpi_jobs.jl`), and CI's other cells skip it
+(`TREEGRRMHD_TEST_MPI=0`; "Running distributed").
 
 1.12 and later redefine a `const` silently, where 1.11 refused, so the
 duplicate-constant check at the top of `test/runtests.jl` is the only thing
@@ -4836,6 +4858,201 @@ ns per cell, the best of five, the workgroup size the backend's):
 - **`Float32` is 1.6–1.9× faster a step**, the right-hand side 2.4–2.6×, but the reset is
   2.4–2.9× slower than at `Float64`, with the same counts of resets (not examined).
 
+## Running distributed
+
+A run is one process on its threads or on one device ("Precision and devices"), or it is
+distributed over MPI ranks, each rank on its own threads or its own device, in any
+combination, through TreeAMR's M7 (its `CODE.md`, "Distributed meshes"), as TreeHydro and
+TreeGeneralizedHarmonic run (TreeGH's `CODE.md`, "Running distributed").
+
+**What TreeAMR does, and what is left here.** TreeAMR keeps the whole forest on every rank
+and gives each a contiguous range of the Morton curve's leaves. It does everything that
+crosses ranks: the ghost exchange (bit-identical to a serial fill), the interface
+restriction, the regrid with its repartition and buffered flags, `mesh_mapreduce` (one
+partial per rank, folded in rank order), the initial adaptation's cycle, and point
+interpolation; TreeIOHDF5 writes the checkpoints. A field set's blocks are the rank's own
+(`nblocks` is local), and every kernel, every state vector and the integrator see only
+those. What is left for this package is what TreeAMR cannot know:
+
+- a value this package combines on the host from per-block or per-cell values, which is a
+  per-rank value until it is combined;
+- a decision that gates a collective call — a fill, a reduction, a regrid, a checkpoint —
+  which every rank must take alike: from the replicated forest, or agreed;
+- output, which one rank writes.
+
+**The claim.** A distributed run is the serial run: its state (gathered in curve order),
+mesh, steps, `Δt` of every chunk, regrids, every maximum, minimum and flag, the stage
+solve's and the reset's counts and every per-cell profile, bit for bit at any rank count
+and any thread count under it; its sums — the conserved totals, the reset's injections, the
+diagnostics' norms and ratios of sums — to rounding, and exactly at one rank. On a device
+the claim is "Devices"' against the host, at every rank count. `test/mpi_tests.jl` holds it
+at one, two and three ranks of two threads ([Distributed tests](#distributed-tests)).
+
+### The communicator
+
+- **`evolve!(…; comm = nothing)`** builds its forest over `comm` —
+  `Forest{T}(rs; N, periodic, extents, comm)`, anything TreeAMR's `communicator` takes,
+  normally an `MPI.Comm` after the caller's `using MPI; MPI.Init()` — and is called on
+  every rank with the same arguments. `nothing` is TreeAMR's serial communicator. Its
+  `nblocks`, and each chunk's, are the forest's leaves (`nleaves`), the mesh's count, not
+  the rank's.
+- **This package never loads MPI.** MPI.jl is a test dependency only (TreeAMR's extension
+  holds the MPI methods), so a serial user's environment does not grow it.
+- **The verbs need no keyword.** `mhd_fields`, `MHDProblem`, `VertexMetricSet`,
+  `tov_boxes!`, `adapt_case!` and the rest take the forest, and the communicator lives on
+  it (`communicator(forest)`). A script that owns the loop builds its forest over `comm`
+  and changes nothing else.
+- **Every forest mutation is collective.** `tov_boxes!` refines from the replicated
+  `forest.leaves` by a deterministic function of the case, so every rank makes the same
+  calls; that is why its one non-exported read is safe here. `mhd_flags` returns the
+  rank's own blocks' flags, which is what `regrid!` takes; its scales are
+  `mesh_mapreduce`s, the same on every rank.
+- **A collective call is gated by the forest, never by the rank's blocks.** The reset fills
+  `Φ̃` where the domain has walls (`MHDProblem`'s `haswalls`): `!all(forest.periodic)`,
+  which a non-periodic dimension makes true on every rank, and not `any` over the rank's
+  `low_walls`, which held only on the rank owning the low face and left the others out of
+  the fill (found by the first distributed tube: `Invalid MPI_Request` in the next
+  exchange). The coupled script's fill key skips a fill (collective) only where every
+  rank's segment repeats (`rank_reduce(&, …)`).
+- **The scripts** in `bin/` that run studies (`tov_cowling.jl`, `tov_study.jl`,
+  `benchmark.jl`) and `coupled/tov_coupled.jl` and `coupled/tov_coupled_study.jl` take
+  `mpi=true` (`bin/mpi.jl`), which loads MPI by `Core.eval`, as `bin/backend.jl` loads a
+  device package, initializes it, builds over `MPI.COMM_WORLD`, and has rank 0 write
+  (below). They run under `mpiexec` in an environment that has MPI. Every rank computes
+  the record, which may be collective (`central_density`, the diagnostics); rank 0 writes
+  it. `benchmark.jl` reports each phase at the slowest rank's best and gains a `ranks`
+  column; `tov_study.jl`'s `state` (a serialized state vector) is serial only.
+
+### What this package makes global
+
+**Already global.** Every number the driver acts on is a `mesh_mapreduce`: the light-speed
+rate that sets `Δt` (`max_rate`), the conserved totals, the reset's tallies and the stage
+solve's counts (`ohm_tally`), `∇·B`, the refinement scales (`indicator_scales`),
+`central_density` and `l1_errors`. A count summed as a float is exact while below `2⁵³`
+(`2²⁴` in `Float32`), the rank-order fold included.
+
+**`src/distributed.jl`** carries TreeHydro's helpers (copied, as `src/device.jl` is: the
+packages share patterns, not code), on TreeAMR's public communicator verbs `commrank`,
+`commsize`, `allgather` and `allgatherv` (AMR-13, landed in TreeAMR 0.2.11; called
+qualified, since they are public, not exported):
+
+- `rank_reduce(op, over, value; present)`: an `isbits` value combined over the ranks in
+  rank order, the same bits on every rank; serially `value` itself, nothing gathered.
+  `over` is a problem, a forest, a field set, a communicator, or what `communicator` takes
+  (an `MPI.Comm`, `nothing`). `rank_sum` and `rank_max` are its element-wise forms on a
+  tuple;
+- `rank_sum!(v, over)`: a vector summed element by element over the ranks;
+- `agree_any`, `agree_refusal`: a decision or an `ArgumentError` from rank-dependent inputs
+  (the file system, the wall clock) made the same on every rank, so that no rank is left
+  waiting in a collective another skipped;
+- `isroot`: the rank that prints and writes;
+- `gather_cells(over, v)`: every rank's per-cell vector concatenated in rank order, on every
+  rank — the serial run's vector, since each rank holds a contiguous run of the curve.
+
+**The host diagnostics** read the rank's own blocks and combine over the ranks, so each is
+collective and the same on every rank:
+
+- **Reductions.** `field_diagnostics` (the field energies, `Σ|E·B|/ΣB²`, `|E|/|B|`, the
+  charge's L1, the trigger and repair counts, the maxima), `field_drift`, `ohm_map`'s
+  per-region tallies, `metric_fallbacks`, and `src/interior.jl`'s `outside_l1`,
+  `field_l1` and `charge_norms` each sum numerators and denominators per rank and form the
+  ratio after the combination. `cell_profile` is the rank's own cells and carries the
+  communicator (`comm`) its reductions combine over.
+- **Profiles.** `profile_1d` gathers its columns to every rank in curve order before it
+  sorts by `x`; `gather_profile` makes a `cell_profile` the whole mesh's, with a serial
+  `comm`, so that a reduction of it is not combined a second time. Both are for test-sized
+  meshes and figures; a production run records reductions.
+
+**Output** — a study's table, a figure, a checkpoint's rotation, `@info` — is rank 0's
+(`isroot`). The coupled study's constraint norms are TreeGH's, global already.
+
+### Checkpoints
+
+TreeIOHDF5's `save_checkpoint` and `load_checkpoint` (TreeHydro's `src/checkpoint.jl` is
+the model; here `src/checkpoint.jl`) replace the studies' `serialize` of one `state.jls`,
+which no other rank count could read and which carried no device array:
+
+- **`save_run(path, p, u; run, recipe, extra, io)`** writes the forest and the five evolved
+  sets (`"U"`, `"A1"`, `"A2"`, `"A3"`, `"Phi"`, each its segment of `u`), one part file
+  per I/O group, atomically. `B`, `P`, `W` and the scratch sets are not in it ("Sharp
+  edges": `B` is never state); the first fill of a restart rebuilds them. `extra` are
+  further sets over the same forest: the coupled study stores TreeGH's (`"TreeGH.U"`).
+- **`load_run(path; backend, comm)`** reads it at any rank count, or serially, the forest
+  distributed over `comm`; a file of another application or format version is refused.
+  A restart builds its sets on the checkpoint's forest and copies the states in
+  (`restore_run!`, which refuses a problem on another forest).
+- **What only this package knows**: when — at a chunk boundary, before the next chunk's
+  regrid, as TreeHydro and TreeGH write, so that a restart regrids first through the loop's
+  own code; the run state behind a result (`evolve!`'s `totals0`, chunk count, steps,
+  regrids, passes and every chunk's tally; a study's accumulators and rows), as plain data;
+  and the recipe a restart must not change (`checkpoint_recipe`: for `evolve!` the type,
+  `N`, roots, chunk, `cfl`, limiter, Riemann solver, `ξ`, stage options, tableau, `G`,
+  operators, `fixup`, the refinement parameters, the interior and the case's fields, box
+  and periodicity), refused by name when it differs (`check_recipe`). `t_end` may change:
+  that is how a run is continued.
+- **`evolve!(…; checkpoint, checkpoint_every, restart, checkpoint_io)`** writes after every
+  `checkpoint_every`-th chunk and the last, and continues from `restart`. The scripts take
+  `checkpoint` (a file, or a directory holding `state.h5`, as SimLaunch's restarts give
+  one) and resume from it when rank 0 sees it.
+- **The step cache is not stored.** It holds nothing across a step (it is invalidated at
+  the end of every one), so a restart at a chunk boundary is the uninterrupted run bit for
+  bit: the adaptive rotor, restarted after its first chunk, serially and from a
+  three-rank checkpoint at three, two and one ranks; the Cowling star's `tov_study.jl`
+  resumed serially and at two ranks from a serial checkpoint, its series byte for byte.
+  Only `totals0` differs, at rounding, when the checkpoint was written at another rank
+  count: it is a sum.
+- **TreeIOHDF5** (registered, 0.1.10) is in `[deps]`.
+
+### Threads and devices under MPI
+
+- **Threads.** Each rank runs its kernels on its own Julia threads, as a serial run does;
+  TreeAMR calls MPI from the calling task only and needs `MPI_THREAD_SERIALIZED`,
+  `MPI.Init()`'s default. The distributed tests run two threads per rank. How many ranks a
+  node should hold is measured, not assumed: TreeAMR found one pinned process of 64 threads
+  1.5–1.6 times as fast at the right-hand side as 8 ranks of 8 threads on one Symmetry
+  node, and `bin/benchmark.jl mpi=true` gives this scheme's table (not yet measured).
+- **One rank per device.** Each rank's field sets live on its own device, chosen by the
+  caller from the rank's place on its node (`MPI.Comm_split_type(…, COMM_TYPE_SHARED)`;
+  `bin/mpi.jl`'s `select_device!`, and `test/device_tests.jl` under MPI), and the EOS table
+  is uploaded to each rank's device as it is to one. TreeAMR stages device buffers through
+  page-locked host memory, or hands them to a CUDA-aware MPI with
+  `communicator(comm; deviceaware = true)`; nothing here branches on which.
+- **The coupled run on a device.** `coupled/tov_coupled.jl`'s `problems` takes `backend`
+  and passes it to `mhd_fields`, `VertexMetricSet`, TreeGH's 20-variable set and through
+  them to the adapters' sets; the fill key compares and copies by broadcast on a device,
+  and the integrator's partition follows the state ("Sharp edges"). `problems` also takes
+  `comm`, and a `forest` (a checkpoint's) to build on.
+- **Other backends.** CUDA is the target and Metal the laptop's `Float32` smoke test.
+  AMD's ROCm (Nibi's MI300A) and Intel's oneAPI are KernelAbstractions backends nothing
+  here excludes; they are not claimed until a job runs them.
+
+### Distributed tests
+
+- **`test/mpi_tests.jl`** collects `test/mpi_workload.jl`, run by `test/mpi_jobs.jl` as one
+  `mpiexec -n 3` launch of two threads per rank (TreeGH's pattern): every case over three
+  ranks, then two, then one, and serially, each group writing its lines, compared line by
+  line with the serial run — bit for bit, or for a line of sums (`~`) to `rtol = 10⁻¹²`,
+  and exactly at one rank (`test/mpi_lines.jl`). The cases: the 1D Alfvén wave and its
+  gathered `profile_1d`; the wave on two blocks, so that at three ranks one rank holds none;
+  the magnetized atmosphere tube, whose reset injects; the 2D adaptive rotor, adapted and
+  regridded, and restarted after one chunk from the three-rank group's checkpoint; the 3D
+  magnetized star on its boxes with every host diagnostic; and a restart from a missing
+  file, refused on every rank. 202 checks; the launch takes 140 s on the laptop.
+- **`test/checkpoint_tests.jl`**: the serial restart bit for bit, and the refusals.
+- **The coupled suite** gains `coupled/mpi_tests.jl` (`coupled/mpi_workload.jl` under
+  `mpiexec -n 2`: the coupled star, the coupled regrid, and the coupled study resumed from
+  a two-rank checkpoint holding TreeGH's set, at two ranks, one and serially; 52 checks) and
+  `coupled/device_tests.jl` (the coupled star on a device against the host; the CPU stands
+  in unless `TREEGRRMHD_TEST_BACKEND=cuda`; no coupled run has been made on a device yet,
+  so its device tolerances are unmeasured).
+- **MPI with devices**: `jobs/device-mpi.toml`, `test/device_tests.jl` with
+  `TREEGRRMHD_TEST_DEVICE_MPI=1` at two ranks of one H200 each on Symmetry: the device
+  tests' four runs at both types and both recoveries, distributed on the devices against
+  the same distributed on the hosts, under the single-device tolerances; 306 of 306 on
+  each rank in 19 minutes.
+- **CI** runs the MPI comparison as a job of its own (`TREEGRRMHD_TEST_TIER=mpi`); the
+  other cells skip it (`TREEGRRMHD_TEST_MPI=0`), and the device runs stay on Symmetry.
+
 ## Sharp edges
 
 What to know before changing the code. Each is a short rule; the section
@@ -4932,6 +5149,13 @@ it names has the reasons.
   closure's argument: that crashed Metal's compiler in the gauge kernel
   while every term compiled alone (`gauge_divergence`; "Precision and
   devices").
+- **A collective call is gated by the forest, or by an agreed value.** A
+  fill, a reduction, a regrid or a checkpoint that one rank skips leaves
+  the others waiting (or worse, matched against another call): decide it
+  from the replicated forest (`forest.periodic`, `forest.leaves`) or combine
+  it first (`rank_reduce`), never from the rank's own blocks; a host
+  diagnostic combines its sums before it forms a ratio ("Running
+  distributed").
 - **A script picks the integrator's partition from the state**:
   `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
   `:even` on a device array is refused ("Precision and devices").
@@ -4953,7 +5177,7 @@ chosen by `TREEGRRMHD_TEST_TIER`; see "Julia version"): `full`, the
 default, runs everything; `quick` leaves out the `@full_tier` testsets (the
 finest curved runs, the 1000-step uniform flows, the vertex metric's and
 the magnetized star's convergence studies); `threaded` also the
-`@serial_tier` ones (the 1D studies). The rules for a new testset are in
+`@serial_tier` ones (the 1D studies); `mpi` runs `test/mpi_tests.jl` alone. The rules for a new testset are in
 `CLAUDE.md`, "Conventions".
 
 - `test/prerequisite_tests.jl`: the names the scheme calls, the IMEX
@@ -5033,7 +5257,13 @@ the magnetized star's convergence studies); `threaded` also the
 - `test/device_tests.jl`: the same four kinds of run on a device and on the host, compared
   ("Precision and devices"); in the suite the CPU stands in for the device. It also runs by
   itself, `TREEGRRMHD_TEST_BACKEND=cuda` or `metal` in an environment with the device
-  package (`jobs/device-tests.toml`).
+  package (`jobs/device-tests.toml`), and under MPI with `TREEGRRMHD_TEST_DEVICE_MPI=1`
+  (`jobs/device-mpi.toml`).
+- `test/checkpoint_tests.jl`: a restart bit for bit, and the refusals; and
+  `test/mpi_tests.jl`, the distributed runs against the serial ones
+  (`test/mpi_workload.jl`, launched by `test/mpi_jobs.jl`, compared by
+  `test/mpi_lines.jl`; "Running distributed"). The `mpi` tier runs only the latter, as
+  CI's MPI job does.
 
 **The coupled suite** is `coupled/runtests.jl`, in `coupled/`'s own
 environment, which loads TreeGeneralizedHarmonic beside this checkout
@@ -5053,6 +5283,10 @@ a job of its own at one thread with bounds checks (`CLAUDE.md`,
   tabulated star on TreeGH's frozen metric against its Cowling run, its
   `ℋ − 16πρ` with either transfer, and `main` to `t = 1` (rest mass and
   `D Yₑ` net of the reset).
+- `coupled/device_tests.jl` and `coupled/mpi_tests.jl` (with
+  `coupled/mpi_workload.jl`): the coupled star on a device against the host,
+  and at two ranks and one against the serial run, its study resumed from a
+  two-rank checkpoint ("Running distributed").
 
 ## Code layout
 
@@ -5177,8 +5411,18 @@ bit-identically to the host; "Precision and devices"):
   profile on a uniform flow.
 
 **The field diagnostics** (`src/field_diagnostics.jl`, host-side, outside a
-step): `cell_profile`, `field_diagnostics`, `field_drift`, `ohm_map`
-("Validation ladder" 6, "Primitive recovery").
+step): `cell_profile`, `field_diagnostics`, `field_drift`, `ohm_map`,
+`gather_profile` ("Validation ladder" 6, "Primitive recovery").
+
+**Running distributed** ("Running distributed"):
+- `src/distributed.jl`: `rank_reduce`, `rank_sum!`, `agree_any`,
+  `agree_refusal`, `isroot`, `gather_cells`, on TreeAMR's public
+  communicator verbs;
+- `src/checkpoint.jl`: `save_run`, `load_run`, `restore_run!`,
+  `checkpoint_recipe`, `check_recipe`, on TreeIOHDF5; `evolve!`'s
+  `checkpoint`, `checkpoint_every` and `restart` in `src/driver.jl`;
+- `bin/mpi.jl`: the scripts' `mpi=true` (`withcomm`, `withrun`,
+  `select_device!`).
 
 **Scripts** (`bin/`), the measurements and studies behind this
 document's tables:
@@ -5220,7 +5464,8 @@ document's tables:
   `bin/ghost_robustness.jl` (the matter's ghost fills; "Refinement");
 - `bin/benchmark.jl`: the per-phase table, ns per cell of each phase of a step on the
   magnetized star, on any backend and type; `bin/backend.jl`, TreeHydro's, resolves its
-  and `bin/tov_cowling.jl`'s `backend=` and `type=` ("Precision and devices").
+  and `bin/tov_cowling.jl`'s `backend=` and `type=` ("Precision and devices"), and
+  `bin/mpi.jl` their `mpi=true` and every rank's device ("Running distributed").
 
 **The coupled runs** (`coupled/`, its own environment; "The coupling
 contract"):
@@ -5247,6 +5492,7 @@ cluster, through SimLaunch) run the full suite as a commit status, and
 kind of cluster job: `full-suite.toml`, the suite at the floor at one
 thread, at four and with bounds checks, side by side on one node;
 `device-tests.toml`, `test/device_tests.jl` on one H200 (or the laptop's GPU);
+`device-mpi.toml`, the same under MPI on two H200s ("Running distributed");
 `tov-cowling-device.toml`, the Cowling star on an H200 at both types and on the node's
 CPU; `benchmark-gpu.toml` and `benchmark-cpu.toml`, the per-phase table on an H200 and
 over thread counts on a pinned Zen 3 node, and `benchmark-partition.toml`, the stage
@@ -6415,7 +6661,9 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      the current falls to zero at the surface, where σ does. Poloidal and
      axisymmetric, so the current and the resistive `E` are toroidal, and so
      is `−v × B` of a radial flow: `E·B = 0` in the continuum at any σ,
-     which makes `E·B` inside a measure of the scheme's error alone. The
+     which makes `E·B` inside a measure of the scheme's error alone —
+     under the default tableau mostly the time integrator's, not the
+     spatial truncation (measured below). The
      central field sets `μ`: `B_c` is the contravariant `Bᶻ` at the centre
      (default `10⁻⁴`; the norm there is `ψ_c² B_c = 1.43 B_c`, and
      `B²/(2p) = 6·10⁻⁵`, Heaviside–Lorentz geometric units; the
@@ -6582,10 +6830,18 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      not the cause.
    - **Inside the star**, `Σ|E·B|/ΣB²` converges: 5.26e−5, 1.90e−5,
      1.07e−5 at 2 M (rates 2.51, 2.00) and 1.76e−4, 8.73e−5, 5.11e−5 at
-     50 M (1.73, 1.86): `E·B → 0` at truncation error. `|E|/|B|` inside is
-     9.3e−3, 5.8e−3, 4.5e−3 at 50 M (0.93–1.16): `E` is `−v × B` of the
-     star's own truncation velocity, whose error at the surface is first
-     order.
+     50 M (1.73, 1.86). `|E|/|B|` inside is 9.3e−3, 5.8e−3, 4.5e−3 at
+     50 M (0.93–1.16). **Both are SSP3(4,3,3)'s offset, not the star's
+     spatial truncation**: the tableau is not stiffly accurate, and each
+     step leaves `𝔈` `−0.2844 Δt f` off the stage's ideal equilibrium,
+     `f` mostly `∇ × (αB)` ([The partition](#the-partition)), an error of
+     order `Δt ∝ h`. The suite's run (`h = 1`, `2 M`) gives `Σ|E·B|/ΣB²`
+     9.27e−5 and `|E|/|B|` 1.10e−2 under SSP3(4,3,3) and 2.92e−9 and
+     1.92e−3 under ARS(4,4,3), which is stiffly accurate, while the field's
+     drift inside is 1.684e−2 under both (`test/magnetized_tov_tests.jl`).
+     So the stored `E` inside a magnetized star is about 1% of `B` off ideal
+     at `h = 1` under the default tableau, and so is everything read from it
+     at a step's end: `E·B`, the field energy's electric part, the charge.
    - **Rest mass**: its change equals what the reset injects to at most
      7.7e−15 of 1.506 at every chunk (−9.4e−8 to −1.2e−7 injected by
      50 M).
@@ -7172,7 +7428,11 @@ short is under [Known risks](#known-risks), and what is not built under
   - The potentials need a boundary where no exact `A` exists.
 
   See "Validation ladder" 3 and "The interior".
-- No MPI yet: single node, although TreeAMR now has its M7.
+- Distributed runs are tested at test size only (three ranks of two
+  threads on one machine; two H200s by `jobs/device-mpi.toml`); no study has
+  run on more than one node, the coupled run has not run on a device, and
+  the ranks-per-node choice is unmeasured
+  ([Running distributed](#running-distributed)).
 - Light-cone fluxes are diffusive in a star's interior. They smear
   contacts and slow waves: Balsara 2's contact converges as
   `h^{2/3}`, and Balsara 3's dense shell (ρ = 10.1 between a contact and a
@@ -7228,6 +7488,30 @@ short is under [Known risks](#known-risks), and what is not built under
   matter is optically thick there, so the effect on the luminosities is
   probably small; unmeasured. Production runs with LS220 physics take SRO's
   LS220.
+- Under the default SSP3(4,3,3), which is not stiffly accurate, the
+  stored `𝔈` of a stiff conductor ends each step `O(Δt)` off its ideal
+  value: inside the magnetized star about 1% of `B` at `h = 1`, against
+  0.2% under ARS(4,4,3) ("Validation ladder" 6). Everything read from the
+  state at a step's end inherits it — `E·B`, the field energy's electric
+  part, the charge, a Poynting flux. ARS(4,4,3) is the remedy where it
+  matters.
+- Step 11's coupled study missed two of its acceptance numbers, and they
+  stand as measured ("Validation ladder" 5): `ℋ` outside the star
+  converges at 1.76 over 490–510 M on the finer pair, against 1.8, and the
+  H2 mode is about 10% off at every `h`. The suite does not guard coupled
+  convergence at all: `coupled/coupled_tests.jl` checks the constraints at
+  `t = 0` and runs to `t = 1` at one resolution, so a regression there is
+  found only by rerunning the studies.
+- In a coupled run the vertex metric `Mv` is built with TreeAMR's default
+  `walls = :half_open`, so its low wall vertices are TreeGH's evolved ones
+  and its high wall and every ghost beyond an outer face are the case's
+  analytic metric (`src/vertex_metric.jl`). The matter's interpolation
+  next to an outer face then mixes the two, asymmetrically between the
+  low and the high faces, by as much as TreeGH's solution has left the
+  analytic star there. Not measured; it is a candidate for the `L = 96`
+  rest-mass gain above (not for the Cowling `D Yₑ` drift, which has no
+  `Mv`), which a budget of the fluxes through the outer faces would
+  settle.
 - MC floors the entropy of a few cells behind
   the cylindrical explosion's front (the reset writes them; minmod, GRaM-X's
   choice there, writes none), and MP5 is unstable above `cfl = 1/5`. A

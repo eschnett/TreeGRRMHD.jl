@@ -962,6 +962,99 @@ step 15". It was the plan's last step. Two things it noted stay as they are: `to
 reads TreeAMR's unexported `forest.leaves`, and rung 2b's tables stand as measured with the
 old ghost fill, not rerun.
 
+**2026-11-24, an independent review after the plan.** At Erik's request a reviewer with no
+part in building the package read the design, the code and the retired `PLAN.md`. It found
+no error in the equations, the fluxes, the EMF, the stage solve or the recovery, and a 2D
+oblique Alfvén wave with one root refined converged as the uniform mesh does (L∞ 2.08–2.26
+against 2.12–2.27, N = 8 to 32). It found claims and tests that were weaker than they read,
+and Erik had them fixed ("Yes, fix them"):
+- **Rung 6's inside numbers were the tableau's.** `Σ|E·B|/ΣB²` 9.27e−5 and `|E|/|B|`
+  1.10e−2 inside the magnetized star (`h = 1`, 2 M) were attributed to the truncation of a
+  poloidal field and to the star's velocity; under ARS(4,4,3) they are 2.92e−9 and 1.92e−3,
+  with the field's drift unchanged (1.684e−2). They are SSP3(4,3,3)'s per-step offset of `𝔈`.
+  `CODE.md` (rung 6, "Known risks") and the test say so now, and a `@full_tier` testset runs
+  both tableaux.
+- **Three stars' stationarity was a loose bound.** The Cowling polytrope's `|Δρ_c/ρ_c| < 5%`
+  against a measured −3.33% passed the covariant momentum source scaled by 0.8, 0.9 and 1.1
+  (−4.55%, −3.93%, −2.68%). The drift is now held to its measured value within 0.1%, which
+  catches 2% in the source; DD2's (−0.824%, a bound of 2% before) likewise; the magnetized
+  star's `E·B`, `|E|/|B|`, drifts and exterior energy within 10% of their measured values,
+  where bounds of two to four times them stood.
+- **Two assertions said less than their names.** The interior's "outside is the evolution's"
+  was `!=` on two vectors, true if one entry differed; it now counts the points outside equal
+  to the solution (2103 of 56808). "Approaches the ideal answer at the rate 1/(σΔt)" asserted
+  a ratio below 10; measured, the ratio runs 0.0107 … 0.995, bounded above but not below, so
+  the name now claims "at least as fast" and the bound is 1.1.
+- **"Known risks" gained** the tableau's offset, step 11's two misses (`ℋ` outside at 1.76,
+  H2 about 10% off) with the suite's lack of any coupled convergence test, and the vertex
+  metric's analytic outer ghosts beside TreeGH's evolved low walls, a candidate (not
+  measured) for the `L = 96` rest-mass gain.
+
+One finding did not hold: that finite σ is checked in an evolution only up to a constant
+factor. The current sheet's distance to the erf profile of `η = 1/σ` (9.56e−4 of `B₀`,
+asserted ≤ 2e−3) fixes σ itself. Not acted on: an evolution on a `Yₑ`-dependent EOS on
+GitHub's CI (EntropyEOS's synthetic table, used pointwise only), a coupled convergence test,
+and the design critiques — one global `ξ` for the gauge leak at refinement boundaries,
+Dirichlet-only outer boundaries, no subcycling.
+
+**2026-11-24, threads, devices and MPI together: a design.** Erik asked for the package to
+run on threads, devices and MPI in any combination, and for the design first. Threads and
+one device already worked; MPI was unused ("Not yet a production code"), and the coupled
+script built its matter sets on the host only. An audit found the driver's numbers already
+global (every one a `mesh_mapreduce`), no refusal that depends on a rank's data, and
+`tov_boxes!`'s read of the replicated `forest.leaves` safe under MPI; what is missing is the
+communicator keyword, the host diagnostics (per-rank sums today), output from one rank,
+distributed checkpoints in place of `serialize`, the coupled run on a device, and tests.
+`CODE.md`'s "Running distributed" was the design, **(proposed)**, after TreeHydro's and
+TreeGH's, with one upstream request, AMR-13 (the communicator verbs public), proposed.
+
+**2026-11-25, running distributed: built.** Erik implemented AMR-13 in TreeAMR 0.2.11
+("AMR-13 has been implemented in the newest version of TreeAMR. with this, implement the
+design as written"). Built as designed, with these changes and findings:
+
+- **A collective call gated by the rank's blocks.** The first distributed run of a
+  non-periodic case (the magnetized atmosphere tube at two ranks) failed in TreeAMR's
+  exchange with `Invalid MPI_Request`: `MHDProblem`'s `haswalls`, which gates the reset's
+  fill of `Φ̃`, was `any(any, low_walls)` over the rank's own blocks, so only the rank
+  holding the low face filled. It is now `!all(forest.periodic)`, the same value serially,
+  and `CODE.md` has the rule as a sharp edge. The audit of 2026-11-24 had missed it: it
+  looked for refusals and host sums, not for a collective call behind a per-rank condition.
+  The coupled script's fill key had the same shape (a skip of a collective fill decided
+  from the rank's segment) and now agrees it over the ranks.
+- **`evolve!`'s block counts** (`nblocks`, and each chunk's) are `nleaves`, the mesh's, so
+  that they compare across rank counts; serially the same numbers.
+- **The tests follow TreeGH's pattern** rather than the design's separate runs at 1, 2 and
+  3 ranks: one `mpiexec -n 3` launch of two threads per rank runs every case over three
+  ranks, two, one and none, and the checkpoint is written at three ranks and restarted at
+  three, two, one and serially (the design said written at 2, restarted at 3). The "2 ranks
+  of 2 threads" run is every group's, since every rank has two threads. CI runs it at three
+  ranks in a job of its own (the design said a cell at 2), as TreeGH does.
+- **`profile_1d`** gathers to every rank, not to rank 0 only (`allgatherv`); so does
+  `gather_profile`.
+- **A restart is bit for bit**, as the design left to measure: the step cache holds nothing
+  across a step. Only `totals0`, a sum, differs at rounding when the checkpoint was written
+  at another rank count.
+- **Measured** on the laptop (M-series, 12 cores): the MPI workload, 63 lines per group and
+  202 checks, all equal (bit for bit, sums to `10⁻¹²`), in 140 s; the serial checkpoint
+  tests 16 of 16; `bin/tov_study.jl` (`N = 8`, two roots, three chunks) gave the same
+  series byte for byte serially, at two ranks of two threads, and resumed at two ranks from
+  a serial checkpoint; `test/device_tests.jl` under `mpiexec -n 2` with the CPU standing in,
+  77 of 77 on each rank; the coupled workload (`coupled/mpi_workload.jl`, two ranks of two
+  threads, 23 lines per group), 52 of 52, the study resumed from a two-rank checkpoint that
+  holds TreeGH's set beside the matter's. The coupled workload's first run failed with a
+  bug of the workload itself: each rank resumed from a path of its own (`mktempdir`), which
+  TreeIOHDF5's collective load refuses on every rank, as it should.
+- **On two H200s** (`jobs/device-mpi.toml`, study `device-mpi-20261125a` of the uncommitted
+  tree, Symmetry job 611159, two ranks of four threads on cn111 or cn113 through HPC-X):
+  `test/device_tests.jl` under MPI, 306 of 306 on each rank in 18 min 41 s, every run
+  distributed over both devices against the same distributed over both hosts. The
+  distributed host runs' counts are the serial ones (the magnetized star's resets 1905184
+  and 1890680 at `Float64`, as in the serial device job). The site's MPI recipe loads the
+  `nvhpc-hpcx-cuda12` module, whose `libcudart` and `libcusparse` CUDA.jl then finds on
+  the library path and warns about; harmless here, and SimLaunch's site profile's to
+  settle, not this package's. Not run: the coupled run on a real device, and anything on
+  more than one node.
+
 **2026-11-25, step 16 — Rates and opacities, pointwise (rung 8a).** The neutrinos' plan
 (`PLAN.md`, steps 16–21), on `claude/step-16-neutrino-rates`, cut from the design commits
 rather than `main`, which does not have them yet. Built: `src/neutrinos/fermi.jl`,
@@ -1123,6 +1216,15 @@ atmosphere cells by a branch; Ohm's stage solve on a shifted copy of u★'s matt
 - **The conservation tests' scales**: first normalized by the neutrinos' terms alone, the
   balances read `10⁻¹¹` — the matter's τ, `10⁻²` against deposits of `10⁻⁶`, rounds at
   `ε·τ`; normalized by every magnitude that cancels they read `10⁻¹⁶`.
+
+**2026-11-25, the neutrinos merged with "Running distributed".** PR 18 (steps 16–19)
+conflicted with `main` after PR 16: `CODE.md`'s known risks and `HISTORY.md`'s entries were
+additions on both sides, kept both; `evolve!` had gained `comm`, `checkpoint`, `restart` and
+a restart path. `evolve!` now takes both sets of keywords, builds the problem with
+`neutrinos`, converges the initial optical depth on the fresh path, and refuses neutrinos
+with a checkpoint, a restart or `comm`: the optical depth is outside the state vector, so a
+checkpoint would not hold it, and nothing of the neutrinos' had run across ranks
+(`PLAN.md`, "Neutrinos with checkpoints and MPI ranks").
 
 ## Goals
 
@@ -1705,6 +1807,28 @@ the PointValue interpolation of AMR-10 — decided by Erik; "Refinement".
 **2026-10-23.** AMR-10 amended, decided by Erik: the fill now takes the bounded conservative
 operator centred on the parent (AMR-4) on `W`; the PointValue operator stays the suite's width-4
 control (`CODE.md`, "Refinement").
+
+**2026-11-24.** AMR-13 proposed, with the design of "Running distributed":
+
+*AMR-13 — The communicator verbs public (proposed).* **Why.** A distributed run combines
+some host values over the ranks itself: the diagnostics' sums, a decision from the file
+system or the clock. TreeAMR's own verbs do that (`commrank`, `commsize`, `allgather`,
+`allgatherv`, with serial methods), but they were internal, so TreeHydro and TreeGH each
+called them qualified and carried the same `rank_reduce`, `agree_any`, `agree_refusal` and
+`isroot`. **API.** Either the four verbs exported, or TreeHydro's `rank_reduce` and
+`agree_refusal` exported beside `mesh_mapreduce`. **Semantics.** Collective, the same result
+on every rank, the serial method returning its argument and gathering nothing. **Upstream
+acceptance.** The serial methods return their inputs; at 2 and 3 ranks the results are in
+rank order, identical on every rank, and a rank with no blocks takes part. **Downstream
+check.** The names in `test/prerequisite_tests.jl`. **Workaround:** the qualified calls.
+
+**2026-11-25.** AMR-13 landed in TreeAMR 0.2.11 (TreeAMR's ef797d8, Erik): the four verbs,
+`Communicator` and `SerialCommunicator` are `public`, not exported (their names are
+generic); `communicator(forest)` and `communicator(fs)` return the forest's; `allgatherv`
+refuses a non-`isbits` element type serially too. `rank_reduce` and `agree_refusal` stay the
+applications' (TreeAMR records them as open). `[compat]` is `TreeAMR = "0.2.11"`;
+`test/prerequisite_tests.jl` checks the six names are public and not exported, so the item
+never had a probe. `src/distributed.jl` calls them qualified through `communicator`.
 
 ### TreeGeneralizedHarmonic
 
@@ -6792,6 +6916,19 @@ and one log string changed in the code): **26785 tests, every run passing whole*
 tables (Symmetry job 610236 on cn101, EPYC 7543, `amddebugq`; `ci/full-suite-cluster.sh`,
 study `full-suite-dae70977cb7d`, not posted) — 30m00s at one thread, 21m51s at four, 37m04s
 with `--check-bounds=yes`, side by side, the job 37m11s.
+
+**2026-11-25, running distributed.** The review fixes (7c0c5ca) and "Running distributed",
+uncommitted, on the M3 Pro (1.13.4, the tables): `test/checkpoint_tests.jl` and
+`test/mpi_tests.jl` (the MPI comparison, 202 tests) are new, and the prerequisite tests
+check TreeIOHDF5's names and the public communicator verbs. **27019 tests at one thread**
+(the MPI workload started beside the suite and beside the bounds-checked run: 1813 s,
+against 140 s alone), 30m29s; **26818 with `--check-bounds=yes`** (34m06s) and **at four
+threads** (15m38s), each with the MPI comparison skipped (`TREEGRRMHD_TEST_MPI=0`) as
+one broken test. The first two runs failed 6 checks of a new prerequisite test, which
+asked that the public verbs not be in `names(TreeAMR)` — they are, since 1.11 `names`
+lists public names — and the four-thread run passed with the test fixed to
+`Base.isexported`. The coupled suite, 96 of 96 in 8m18s (its device testset with the CPU
+standing in, and its two-rank comparison, 52 tests). Not yet run on Symmetry.
 
 **2026-11-25, step 16.** The neutrino rates (`test/neutrino_rates_tests.jl`, 11 305 tests,
 pointwise, no tier; 10.4 s alone on the M3 Pro): **38090 tests, every run passing whole**

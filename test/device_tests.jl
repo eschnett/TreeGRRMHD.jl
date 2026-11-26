@@ -15,6 +15,11 @@
 # claims are then trivially exact, and what is exercised is the plumbing — the backend
 # reaching every field set and every array a kernel reads, and the state coming back on the
 # backend it was asked for. See "Precision and devices" in `CODE.md`.
+#
+# Under MPI (`TREEGRRMHD_TEST_DEVICE_MPI=1`, standalone, launched by `mpiexec`; added with
+# "Running distributed" in `CODE.md`) every run is distributed over `MPI.COMM_WORLD`, each
+# rank on its own device — the one its place on its node picks — and the host runs it is
+# compared with are distributed alike: `jobs/device-mpi.toml`, two ranks of one H200 each.
 
 const DEVICE_STANDALONE = !isdefined(@__MODULE__, :TEST_TIER)
 if DEVICE_STANDALONE
@@ -26,10 +31,27 @@ end
 using KernelAbstractions: CPU, Backend, get_backend
 
 const DEVICE_NAME = lowercase(get(ENV, "TREEGRRMHD_TEST_BACKEND", ""))
+const DEVICE_MPI = get(ENV, "TREEGRRMHD_TEST_DEVICE_MPI", "") == "1"
+DEVICE_MPI && !DEVICE_STANDALONE &&
+    error("TREEGRRMHD_TEST_DEVICE_MPI=1 runs this file by itself under mpiexec")
+if DEVICE_MPI
+    using MPI
+    MPI.Init()
+end
+# Every run's communicator: `MPI.COMM_WORLD` under MPI, else the serial run.
+const DEVICE_COMM = DEVICE_MPI ? MPI.COMM_WORLD : nothing
 
 if DEVICE_NAME == "cuda"
     using CUDA
     CUDA.allowscalar(false)
+    if DEVICE_MPI && CUDA.functional()
+        # One rank per device, by the rank's place on its node, before anything is
+        # allocated (`bin/mpi.jl`'s `select_device!`).
+        let node = MPI.Comm_split_type(MPI.COMM_WORLD, MPI.COMM_TYPE_SHARED,
+                                       MPI.Comm_rank(MPI.COMM_WORLD))
+            CUDA.device!(MPI.Comm_rank(node) % length(CUDA.devices()))
+        end
+    end
 elseif DEVICE_NAME == "metal"
     using Metal
     Metal.allowscalar(false)
@@ -92,7 +114,7 @@ function device_runs(::Type{T}) where {T}
 end
 
 function device_run(::Type{T}, case, vD, kw, backend, two_phase) where {T}
-    r = evolve!(T, case, vD; kw..., backend, two_phase)
+    r = evolve!(T, case, vD; kw..., backend, two_phase, comm=DEVICE_COMM)
     u0 = exact_state(r.p, case, zero(T))
     return (; r, drift=conserved_totals(r.p, r.u) .- r.totals0,
             scales=max.(conserved_scales(r.p, r.u), conserved_scales(r.p, u0)),
@@ -221,7 +243,9 @@ function device_testsets()
 end
 
 if DEVICE_STANDALONE
-    @info "Device tests on $DEVICE_LABEL at $DEVICE_TYPES, $(Threads.nthreads()) thread(s)"
+    ranks = DEVICE_MPI ? " on $(MPI.Comm_size(DEVICE_COMM)) MPI ranks" : ""
+    @info "Device tests on $DEVICE_LABEL at $DEVICE_TYPES, $(Threads.nthreads()) " *
+          "thread(s)$ranks"
     @testset "TreeGRRMHD.jl" begin
         device_testsets()
     end

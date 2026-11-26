@@ -226,7 +226,7 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     origins::OR                  # per block, on the sets' backend
     spacings::SP
     lowwall::OF                  # per block, its low domain faces (`low_walls`, AMR-8)
-    haswalls::Bool               # whether any block has one
+    haswalls::Bool               # whether any block of the forest has one
     eos::EOS
     opts::OPT
     proj::PRJ
@@ -321,7 +321,11 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     origins = to_backend(backend, block_origins(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
     lw_host = low_walls(forest, T)
-    haswalls = any(any, lw_host)
+    # From the replicated forest, not this rank's blocks: it gates the reset's fill of `Φ̃`,
+    # a collective call every rank must make or skip alike ("Running distributed" in
+    # `CODE.md`). A dimension that is not periodic has a block on its low face, so this is
+    # `any(any, low_walls)` over the whole forest.
+    haswalls = !all(forest.periodic)
     lowwall = to_backend(backend, lw_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage

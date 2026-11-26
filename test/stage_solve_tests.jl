@@ -241,7 +241,7 @@ end
     @test worst < 1e-10
 end
 
-@testset "A large σΔt approaches the ideal answer at the rate 1/(σΔt)" begin
+@testset "A large σΔt approaches the ideal answer at least as fast as 1/(σΔt)" begin
     # Guards the two branches against each other: `Constant(σ)` at large
     # `σΔt` solves the same stage that `IdealConductor` solves in the limit,
     # so the two answers must part only by the predictor's share
@@ -250,7 +250,7 @@ end
     opts = REC_EOS.Con2PrimOptions{Float64}()
     (; proj, pol) = recovery_options(eos, REC_ρ_ATM)
     rng = Xoshiro(55)
-    worst = 0.0
+    best, worst = Inf, 0.0
     for _ in 1:100, σΔt in (1e4, 1e6, 1e8)
         m = rec_metric(rng)
         prim, _, _, B, _, _, γΔt = st_problem(rng, eos, m, 1.0, exp10(-4 + 6 * rand(rng)),
@@ -266,11 +266,16 @@ end
         # `M⁻¹`'s largest eigenvalue, `1/(1 + c/W)`, as in `ohm_E`'s test;
         # the fluid's response to the departure moves `v` too.
         c_W = σΔt * m.α / ST.prim_W(q)
-        worst = max(worst, st_norm(m, E - Ei) * (1 + c_W) / st_norm(m, E★ - Eid))
+        ratio = st_norm(m, E - Ei) * (1 + c_W) / st_norm(m, E★ - Eid)
+        best, worst = min(best, ratio), max(worst, ratio)
     end
-    @info "|E(σΔt) − E(∞)| · (1 + c/W) / |E★ + v×B|" worst
-    # Measured 1.0.
-    @test worst < 10
+    @info "|E(σΔt) − E(∞)| · (1 + c/W) / |E★ + v×B|, over σΔt = 1e4 … 1e8" best worst
+    # The ratio is the rate's constant, bounded above over four decades of σΔt: no state
+    # approaches more slowly than `1/(σΔt)`. It is not bounded below — some approach
+    # faster, where the fluid's response cancels part of the departure — so the name
+    # claims the bound, not the rate (it claimed the rate, and allowed 10, until the
+    # review of 2026-11-24). Measured 0.0107 … 0.995.
+    @test worst < 1.1
 end
 
 # The σΔt × b²/ρ × W sweep, over every Γ: the branch each point takes, the
