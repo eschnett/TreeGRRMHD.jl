@@ -213,10 +213,11 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS **2.4.0**, registered (EOS-0), from General by `[compat]`
-  `"2.4"` alone: **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0**,
+- EntropyEOS **2.4.1**, registered (EOS-0), from General by `[compat]`
+  `"2.4.1"` alone: **EOS-1 and EOS-2 have landed in EntropyEOS 1.0.0**,
   EOS-8 to EOS-11 since, **EOS-4 in 2.3.0** and **EOS-12 in 2.4.0**
-  (below); EOS-3 and EOS-13 have not.
+  (below), with O'Connor–Ott LS220's `μ̂` and `μ_ν` right since 2.4.1;
+  EOS-3 and EOS-13 have not.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -528,7 +529,10 @@ their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
 - **EOS-12.** `CompositionTable(raw, eos)`, `CompositionView`, `composition(cv, ρ★,
   T_MeV, yₑ) -> Composition` (`μ_e`, `μ̂`, `μ_ν`, `X_n`, `X_p`, `X_α`, `X_h`, `X_l`, `Ā`,
   `Z̄`), `q_np`, `matches`, `fingerprint`; `ρ★` in the EOS's units and `T_MeV` the
-  recovery's `EOSPoint.T_MeV`; `μ_ν = μ_e − μ̂` exactly, `μ̂` including `Q`; `X_h Ā`
+  recovery's `EOSPoint.T_MeV`; `μ_ν = μ_e − μ̂` exactly, `μ̂` including `Q` on every table
+  (2.4.1): each table's raw `muhat` includes `Q`, and O'Connor–Ott LS220's `munu` subtracts
+  a further `Q` above 10⁸ g/cm³, so that there `μ_ν` is its `munu + Q`, and below its `munu`
+  ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-26); `X_h Ā`
   and `X_h Z̄` exact to `floatmin(T) Ā`, so that on a device that flushes subnormals
   only products are compared, not `Ā`; the synthetic table's composition with
   `SyntheticOptions(; with_composition = true)`, multilinear. Exercised in
