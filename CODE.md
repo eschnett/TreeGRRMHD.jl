@@ -48,9 +48,11 @@ the plan"](HISTORY.md#the-steps-of-the-plan).
   another into the uninterrupted run.
 
 What is not built, or measured short, is under [Known risks](#known-risks)
-and [Possible extensions](#possible-extensions); the upstream items still
-waiting (TreeGH's registration and regrid verbs, each with a workaround,
-and EntropyEOS's registration and fixed-entropy inversion) are under
+and [Possible extensions](#possible-extensions); the neutrinos (leakage
+plus M0) are built through their feedback on the matter, and the star with
+neutrinos is not ([Neutrinos](#neutrinos), `PLAN.md`). The
+upstream items still waiting (TreeGH's registration and regrid verbs, each
+with a workaround; EntropyEOS's fixed-entropy inversion) are under
 [Requests still waiting](#requests-still-waiting). The numbers below about
 the scheme are measured where they say so and unmeasured otherwise.*
 
@@ -90,6 +92,13 @@ rather than diverging silently.
   - [The partition](#the-partition)
   - [The implicit stage solve](#the-implicit-stage-solve)
   - [The IMEX package](#the-imex-package)
+- [Neutrinos](#neutrinos)
+  - [Leakage](#leakage)
+  - [The optical depth](#the-optical-depth)
+  - [M0: the free-streaming neutrinos](#m0-the-free-streaming-neutrinos)
+  - [Coupling to the matter](#coupling-to-the-matter)
+  - [In the time integrator](#in-the-time-integrator)
+  - [Field sets and interface](#field-sets-and-interface)
 - [Spacetime coupling](#spacetime-coupling)
   - [The coupling contract](#the-coupling-contract)
   - [Metric providers](#metric-providers)
@@ -146,8 +155,9 @@ rather than diverging silently.
 
 ## Scope and non-goals
 
-- **No neutrinos.** No leakage, no M1, no source-term hooks for
-  them yet. `Yₑ` is advected passively when the EOS is tabulated.
+- **Neutrinos: leakage plus M0 only** ([Neutrinos](#neutrinos)); no M1.
+  Without `neutrinos`, `Yₑ` is advected passively when the EOS is
+  tabulated.
 - **No mesh machinery.** Anything about trees, ghosts, operators,
   reductions or interpolation between levels belongs upstream in TreeAMR.
   Interpolation *within a block* between centerings is application code
@@ -191,8 +201,8 @@ The state, as `[compat]` guarantees it for what has landed, as
 `test/prerequisite_tests.jl` reports it for what is waiting, and, for
 TreeGH, as its `main` reads. A landed item whose release the compat floor
 requires has no probe any more (the rule is under [Requests still
-waiting](#requests-still-waiting)): AMR-1 to AMR-10, EOS-1, EOS-2, EOS-4
-and EOS-8 to EOS-11, and SM-1. Their names are in
+waiting](#requests-still-waiting)): AMR-1 to AMR-10, EOS-0 to EOS-2,
+EOS-4, EOS-8 to EOS-12, and SM-1. Their names are in
 the prerequisite test's name lists; what this package relies on from them
 and does not yet exercise through its own code goes in
 `test/upstream_behaviour_tests.jl`, which is removed while it is empty (the
@@ -205,11 +215,12 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS, registered (EOS-0 landed): **EOS-1
+- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.5"`: **EOS-1
   and EOS-2 have landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since,
-  **EOS-4 in 2.3.0** and **EOS-14 in 2.4.2** (below), and 2.4.3 bounds the
+  **EOS-4 in 2.3.0**, **EOS-12 in 2.4.0** (with O'Connor–Ott LS220's `μ̂`
+  and `μ_ν` right since 2.4.1), **EOS-14 in 2.4.2** (below), 2.4.3 bounds the
   entropy window's width (`s_width_bound`, EntropyEOS's own proposal), and
-  **EOS-15 in 2.5.0**, with `[compat]` `"2.5"`; EOS-3 and EOS-16 have not.
+  **EOS-15 in 2.5.0**; EOS-3 and EOS-16 have not, and EOS-13 was withdrawn.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -492,6 +503,19 @@ TreeGRRMHD"; the request and its record:
   decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
   and how `μ_ν` follows from a table's chemical potentials, is the EOS's
   knowledge; the fitted `μ̃` is off by MeV on the cold edge.
+- **EOS-12 (landed, EntropyEOS 2.4.0) The composition on the device**:
+  the table's chemical potentials, mass fractions and mean nucleus at
+  `(ρ★, T, Yₑ)`, evaluated in a kernel, for the leakage rates
+  ([Neutrinos](#neutrinos), "Leakage"), opt-in and separate from the EOS's
+  view, with a fingerprint that ties it to the table its EOS was built
+  from. Upstream for the reason EOS-4 is: the tables differ in their `μ̂`
+  convention, their light clusters and their fill values for `Ā` and `Z̄`,
+  and which is which is the EOS's knowledge.
+- **EOS-13 (withdrawn) The nucleons' own chemical potentials**: Bruenn's
+  scattering blocking reads the free gas's degeneracy, which follows from
+  the density, not the tables' potentials, which hold the mean field
+  ([Neutrinos](#neutrinos), "Leakage"; [HISTORY.md,
+  "EntropyEOS"](HISTORY.md#entropyeos)).
 - **EOS-14 (landed, EntropyEOS 2.4.2)** A warm evaluation samples its
   temperature bracket's ends only when its solve heads for one: the face
   states' evaluations 21–27% cheaper ([Where a device's step
@@ -525,6 +549,17 @@ What this package relies on from the landed items, beyond the summaries above (t
 their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
 - **EOS-1.** The prerequisite test's EntropyEOS name list asserts that `κ` is unexported, so an
   export later is noticed.
+- **EOS-12.** `CompositionTable(raw, eos)`, `CompositionView`, `composition(cv, ρ★,
+  T_MeV, yₑ) -> Composition` (`μ_e`, `μ̂`, `μ_ν`, `X_n`, `X_p`, `X_α`, `X_h`, `X_l`, `Ā`,
+  `Z̄`), `q_np`, `matches`, `fingerprint`; `ρ★` in the EOS's units and `T_MeV` the
+  recovery's `EOSPoint.T_MeV`; `μ_ν = μ_e − μ̂` exactly, `μ̂` including `Q` on every table
+  (2.4.1): each table's raw `muhat` includes `Q`, and O'Connor–Ott LS220's `munu` subtracts
+  a further `Q` above 10⁸ g/cm³, so that there `μ_ν` is its `munu + Q`, and below its `munu`
+  ([HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos), 2026-11-26); `X_h Ā`
+  and `X_h Z̄` exact to `floatmin(T) Ā`, so that on a device that flushes subnormals
+  only products are compared, not `Ā`; the synthetic table's composition with
+  `SyntheticOptions(; with_composition = true)`, multilinear. Exercised in
+  `test/neutrino_rates_tests.jl`.
 - **EOS-11.** `inside_window(eos, ρ, s, yₑ) -> Bool`, exported — `Yₑ` within one ulp of the
   table's range and `s` within `srange(eos, ρ, yₑ)` widened by `face_slack` of its width; `ρ` not
   tested against a range; non-finite input or `ρ ≤ 0` gives `false`. Every state `con2prim_safe`
@@ -1823,7 +1858,7 @@ vertex-centered), and `𝔅̄` supplies what no translation-invariant `A` can.
 | `F_d` — matter fluxes | face `d` | 10 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
 | `EMF_d` | edge `d` | 1 each | 0 | `=> nothing`; `restrict_interfaces!` is the CT correction |
 | `Mv` — the vertex metric `(α, β^i, γ_ij, K_ij)`, owned vertices from the producer's ADM adapter, in its own `VertexMetricSet`, not `MHDFields` | vertex | 16 | 4 (so `N ≥ 10`) | PointValue width 6 in its fill / `=> nothing` (`regrid_pairs(vm)`), refilled from the rebuilt adapter |
-| `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ` | cell | 34 | 0 | `=> nothing` |
+| `X` — per-cell tallies, light speed, the reset's injection (`D`, `τ`, `D Yₑ`), `h∇·𝔅`, the recoveries' seeds per site, the entropy floor's count and `τ`, the neutrinos' emission rate | cell | 35 | 0 | `=> nothing` |
 | step cache — the cell's latest recovery in the step: EntropyEOS's input and output; `MHDProblem`'s, not `MHDFields`' | cell | 27 | 0 | not passed: a `rebuild` makes a new one, invalid |
 
 `P`'s 30 slots are laid out in `src/variables.jl`: the eleven the recovery
@@ -2647,6 +2682,452 @@ Per SSP3(4,3,3) step, IMEXRungeKutta 1.4.0 makes 3 explicit evaluations,
 explicit stage is trivial) and 1 step-limiter call; the prerequisite tests
 pin all four counts. It is a dependency through `[sources]`, so that the
 contract is checked before the scheme builds on it.
+
+## Neutrinos
+
+*Designed and not built: the design was decided by Erik on 2026-11-25
+([HISTORY.md, "Neutrinos"](HISTORY.md#neutrinos)); what it leaves open is
+marked **(open)**. The work is broken down in `PLAN.md`, steps 16–21.*
+
+The scheme is **leakage plus M0**, Radice et al.'s (2016, arXiv:1601.02426,
+§2.2 and Appendices A–B; as revised in Radice et al. 2018, arXiv:1809.11161,
+§II.3): the simplest treatment that both cools and heats. A leakage scheme
+gives each cell's effective emission, interpolating between the free rates
+where the matter is transparent and the diffusion rates where it is opaque;
+what is emitted is carried outward by M0, which evolves the number density and
+the mean energy of the free-streaming neutrinos along radial null rays and
+lets the matter reabsorb them. GRaM-X itself has no neutrinos (its paper
+names M1 as future work); M0 is THC's, where it was built for the ejecta of
+binary mergers. Three species: `ν_e`, `ν̄_e`, and `ν_x`, the four heavy-lepton
+flavours lumped (degeneracy `g = 4`).
+
+What it is for: the cooling and deleptonization of a hot star or remnant,
+the `Yₑ` that absorption sets in its outflows, and the luminosities and mean
+energies leaving the box. What it leaves out, as Radice et al.'s does:
+
+- the trapped neutrinos, which are in equilibrium with the matter and carry
+  no pressure, energy or lepton number of their own;
+- scattering of the free-streaming neutrinos, and any transport that is not
+  radial from one centre;
+- the neutrinos' stress-energy in the spacetime's source: the free-streaming
+  neutrinos do not gravitate, and the matter's `(ρ, S_i, S_ij)` for TreeGH is
+  unchanged;
+- energy dependence beyond one mean energy per species, and oscillations.
+
+M1 would replace M0 on the same field set ("Possible extensions").
+
+### Leakage
+
+Per species `ν` and per owned cell, from the recovered `(ρ★, T, Yₑ)` and the
+table's composition (EOS-12), all in the fluid frame. The formulas are
+RJS96's own (Ruffert, Janka & Schäfer 1996, A&A 311, 532, Appendices A and
+B), read from the paper: the later restatements (Rosswog & Liebendörfer
+2003, Galeazzi et al. 2013) differ from it and from each other in labels,
+signs and constants, and where they do, RJS96 is followed. Two processes
+that RJS96 leaves out and Radice et al. (2018)'s Table 1 includes come from
+Burrows, Reddy & Thompson (2006, "BRT06"). `src/neutrinos/rates.jl` writes
+each out with its equation number.
+
+- **Free rates** `R_ν`, `Q_ν` (number and energy per volume per time):
+  - electron capture on protons (`ν_e`) and positron capture on neutrons
+    (`ν̄_e`), RJS96 B1–B4, B14, energy `T F₅/F₄` per neutrino;
+  - pair annihilation, B8–B10, B15, and plasmon decay, B11–B13, B16, for
+    all three species, each neutrino carrying half the pair's energy;
+  - nucleon–nucleon bremsstrahlung, BRT06 Eq. 142 with `ζ = 1/2` and
+    `X_n² + X_p² + (28/3) X_n X_p`, per νν̄ pair (`ν_e` and `ν̄_e` half a
+    pair each, `ν_x` two pairs), and as many neutrinos as the spectrum of
+    their Eq. 145 gives: mean energy `(2.4/1.1) T` each, half the pair's
+    4.364 T **(proposed)**.
+- **Opacities**, number-weighted (`α = 0`, `⟨ε²⟩ = T² F₄/F₂`) and
+  energy-weighted (`α = 1`, `T² F₅/F₃`), RJS96 A6–A16, all transport
+  (momentum-transfer) cross sections:
+  - scattering on free nucleons, `C_{s,n} = (1 + 5g_A²)/24`,
+    `C_{s,p} = (4(C_V − 1)² + 5g_A²)/24`, with Bruenn's blocking (A7,
+    A8) as the free nucleons' phase space: `X_N/√(1 + y²)`,
+    `y = ⅔ E_F/T`, from the free non-relativistic gas's Fermi energy
+    `E_F = (ħc)² (3π² n_N)^⅔/(2 m_N c²)` at `n_N = X_N n_b`, with the
+    vacuum masses. Bruenn's formula comes from a free gas, so its `η_N` is
+    the kinetic degeneracy; a table's `μ_N − m_N` holds the mean field too,
+    which shifts the initial and final nucleon alike, and has the wrong
+    sign at saturation (−15 MeV against `E_F` = 37 MeV at `log ρ` 14.42,
+    `Yₑ` 0.5) and is 3–6 times too large above it (EntropyEOS's
+    measurement). This form has Bruenn's two limits, `X_N` and
+    `(3T/2E_F) X_N`, needs no inversion of `F_½`, and is within 4.9% of the
+    exact `F₋½/(2F_½)` at every degeneracy; RJS96's
+    `1/(1 + ⅔ max(η_N, 0))`, even with the exact `η_N`, is 26% off at
+    `η_N = 0` (`test/neutrino_rates_tests.jl`). The effective mass and the
+    relativistic correction are neglected: the blocking matters where
+    `E_F ≳ T`, in the hot remnant's core, where `τ` is large;
+  - coherent scattering on heavy nuclei and on α particles, which RJS96
+    neglects: BRT06's Eqs. 25–26 in the Freedman limit with the weak charge
+    `W = 1 − (2Z/A)(1 − 2 sin²θ_W)`, as a transport cross section,
+    `(σ₀/24)(ε/mₑc²)² A² W²` per nucleus **(proposed)** — for α, their
+    Eq. 32 times ⅔;
+  - absorption on neutrons (`ν_e`) and protons (`ν̄_e`),
+    `(1 + 3g_A²)/4`, with the final-state lepton's blocking (A11–A16).
+- **The nucleons' blocking** (A13, A14):
+  `Y_np = (X_p − X_n)/(exp(η_p − η_n) − 1)`, `Y_pn = exp(η_p − η_n) Y_np`,
+  with `η_n − η_p = (μ̂ − Q)/T` (EOS-12's `μ̂` includes `Q`; this is the
+  one place `Q` is subtracted). Unlike the scattering blocking, these
+  take the table's potentials: the mean-field difference `U_n − U_p`
+  shifts the reaction's Q-value, and only the difference enters. RJS96 writes `2Yₑ − 1` for `X_p − X_n`,
+  which is the same for dissociated matter; with nuclei and α holding much
+  of it, only `X_p − X_n` has the free fractions `X_n`, `X_p` as its
+  non-degenerate limit (decided in step 16). Within `√eps` of
+  `η_n = η_p` the free fractions are taken, and the results are clamped to
+  `[0, X_n]` and `[0, X_p]`, where a table's fractions and potentials
+  disagree.
+- **Neutrinos in equilibrium**: Fermi–Dirac at the matter's `T` with
+  `η_ν = μ_ν/T` (Rosswog & Liebendörfer 2003), `μ_{ν_e}` the composition's
+  `μ_ν = μ_e − μ̂`, `μ_{ν̄_e} = −μ_{ν_e}`, `μ_{ν_x} = 0`; so
+  `n^β_ν = 4π g (T/hc)³ F₂(η_ν)`, `e^β_ν = 4π g T (T/hc)³ F₃(η_ν)` and
+  `E^β_ν = T F₃/F₂` (B18, B19). RJS96 itself takes `η_ν` between the
+  equilibrium value at large optical depth and 0 where transparent (A3,
+  A4); the design keeps Radice et al.'s choice.
+- **The constants** are RJS96's: `σ₀ = 1.76·10⁻⁴⁴ cm²`, `g_A = 1.25`,
+  `sin²θ_W = 0.23`, `C_V = ½ + 2 sin²θ_W`, `C_A = ½`, `α = 1/137.036`,
+  `γ₀ = 2√(α/3π)`; `mₑc²`, `hc` and `Q = 1.29333 MeV` are CODATA 2018's.
+- **Effective rates** (Radice et al. 2018, Eqs. 4–6; RJS96 B20–B23):
+  ```
+  R^eff_ν = R_ν / (1 + t⁰_diff / t⁰_loss),   t⁰_diff = 𝒟 (τ⁰_ν)² / (κ⁰_{ν,a} + κ⁰_{ν,s}),   t⁰_loss = n^β_ν / R_ν
+  Q^eff_ν = Q_ν / (1 + t¹_diff / t¹_loss),   t¹_diff = 𝒟 (τ¹_ν)² / (κ¹_{ν,a} + κ¹_{ν,s}),   t¹_loss = e^β_ν / Q_ν
+  ```
+  with `𝒟 = 6` and the optical depths `τ^α_ν` below; computed as
+  `R y/(y + x)`, `x = 𝒟 τ² R`, `y = κ n^β`, so that `R = 0`, `τ = 0` and
+  `κ n^β = 0` are branches, not divisions (`src/neutrinos/leakage.jl`).
+
+**Units.** The number is counted in units of the baryon mass `m★ = κ m_B`
+that the EOS's `ρ★` counts baryons in, so that `R` is a density rate like
+`D`'s and `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` is conserved without a factor, and
+an energy per neutrino is in units of `m★c²`; `n_b = ρ★/m★`. Every
+constant and unit conversion is folded into a handful of prefactors when
+`RJS96Rates` is built, in `Float64`, so that a kernel multiplies numbers
+of order one: `Float32` stays finite where cgs numbers (`n_b ∼ 10³⁸ cm⁻³`,
+`R ∼ 10⁴⁰ cm⁻³ s⁻¹`) would overflow it. The baryon mass is a keyword with
+no default: it is a property of the table family that is not in the file.
+
+**The Fermi integrals** `F_k(η)`, `k = 0 … 5`, are exact to round-off, not
+fits (decided in step 16): for `η ≤ 0` the alternating series
+`k! Σ (−1)ʲ e^{(j+1)η}/(j+1)^{k+1}`, summed by Cohen, Rodriguez Villegas &
+Zagier's (2000) acceleration with weights computed in `BigFloat` when the
+method compiles (22 terms at `Float64`, 11 at `Float32`), and for `η > 0`
+the reflection formula for integer order. Measured in step 16: within 2.1
+ulp (`Float64`) and 3.1 ulp (`Float32`) of 128-bit quadrature over
+`η ∈ [−60, 120]`, 9 ns a call on the M3 Pro; the rates at one state,
+sixteen integrals, 0.35 μs. Ratios `F_a/F_b` take `e^η` out of both below
+zero, so that they stay finite where both integrals underflow.
+
+**Where the rates are evaluated.** In the source kernel, once per cell per
+right-hand side, from `P` (`ρ★`, `Yₑ`, and `T` from the EOS's own warm start,
+`log₁₀ T`). Cells the atmosphere policy flags are skipped: the
+neutrino–matter sources there are zero by a branch ("Masks branch, never
+multiply"). M0's transport runs everywhere.
+
+**The rates are a model**, as the conductivity is, answering
+`neutrino_rates(model, ρ★, T_MeV, yₑ, comp)` with one `SpeciesRates` per
+species (`R`, `Q`, `κa0`, `κa1`, `κs0`, `κs1`, `nβ`, `eβ`, and `Eβ`, carried
+rather than taken as `eβ/nβ`, which is 0/0 where `nβ` underflows). Both
+models are `isbits`. `GrayRates(κ_a, κ_s, η, E)`: per species an absorption
+and a scattering opacity and a number emissivity, each proportional to
+`ρ★`, one emitted energy, and Kirchhoff's `n^β = R/κ_a`; for the tests, on
+any EOS. `RJS96Rates(T, units; baryon_mass, q_np)` holds only constants and
+reads the composition at the state as an argument; the composition view
+itself goes with `M0Leakage`, which refuses it, with an `ArgumentError`
+saying why, unless `matches(cv, eos)` (steps 18 and 20) **(proposed)**;
+on a table the rates are built as `RJS96Rates(T, units, table, cv)`, which
+takes the baryon mass from the table's provenance (`m_B_table_g`) and `Q`
+from `q_np(cv)`, and refuses a composition that does not `match` the table
+or units whose `κ` is not the table's — `κ` does not tell tables apart
+(DD2's and SFHo's agree to 1e−10). Each mass goes with its own density:
+`n_b = ρ★/(κ m_B_table) = ρ_table/m_B_table`, so `ρ★` is divided by
+`m_B★ = κ m_B_table` (`m_B_star_g`), never by `m_B_table_g` alone, which
+would undercount `n_b` by `κ` (0.990 on the LS220 tables). `m_B_table_g` is
+not read from the file but is what the EOS was built with
+(`BuildOptions`): `m_u` for DD2, SFHo and O'Connor–Ott LS220, `m_n`
+(`EntropyEOS.M_NEUTRON_G`) for SRO LS220, as EntropyEOS measured them from
+the first law. The argument is `CompositionPoint`,
+EntropyEOS's `Composition` (EOS-12) without its `μ_ν = μ_e − μ̂`. The light clusters `X_l` enter no
+rate: RJS96 has no processes for them, and without them its four species
+miss up to 34% of the mass on DD2 and SFHo (30% at `log ρ` 11–13, `T`
+3–10 MeV, `Yₑ` 0.1–0.3) and 7% on SRO's tables (EntropyEOS's measurement)
+**(proposed)**.
+
+### The optical depth
+
+Neilsen et al. (2014)'s local estimate, geometry-free and so suited to the
+forest: per species and weighting (six fields),
+```
+τ_c ← min over neighbours n of ( τ_n + ½ (κ_c + κ_n) ℓ_cn ),   κ = κ_a + κ_s,
+```
+with `ℓ_cn` the proper distance between the two centres from the cell metric
+(the two cells' `√(γ_ij Δxⁱ Δxʲ)`, averaged). Over all `3^D − 1` neighbours,
+not only the `2D` across faces: the face neighbours alone measure distance in
+the L1 norm and overestimate `τ` by up to `√D` along a diagonal. The ghosts
+at the outer faces hold `τ = 0` and `κ = 0` (`OpacityEscape`), so neutrinos
+escape there; the first cell inside gets `κh/2`, its centre's distance to
+the face. Faces the forest declares reflecting or outflow are filled by the
+ghost schedule, not by that hook, so neutrinos escape only through the other
+outer faces, and a forest periodic in every direction, with no boundary for
+`τ` to be measured to, is refused.
+
+It is a Bellman–Ford relaxation: from `τ = 0` it rises one cell per sweep to
+the shortest optical path to the outer faces. Each sweep reads the previous
+`τ` and writes the new one into an owned-only work set (Jacobi), so that a
+sweep is the same at any thread count and on any backend.
+
+**Measured** (step 17, `test/optical_depth_tests.jl`): the kernel's fixed
+point is a plain Bellman–Ford's over the same stencil bit for bit, in the
+same number of sweeps (64² and 32³, many blocks); on planar boundaries
+oblique to the grid on 32³, `τ/κd` between 0.92 and 1.00 at depths `4h …
+0.35` — the staircase of the boundary takes up to 8% off, and the chamfer
+metric's overestimate does not show — against √3 for the face neighbours
+alone on the (1, 1, 1) plane; inside a uniform sphere `τ` within
+−0.76 … +0.30 `κh` of `κ (R − r)`.
+
+`τ` is frozen over a step, a parameter of the right-hand side. **One sweep
+per step**, after the step limiter: `κ` from the step's result into the
+`Nτ` set, a ghost fill, one sweep from the previous `τ`. Since `τ` travels
+one cell per sweep, `1/cfl` times the speed of light, it shows the matter as
+it was about `L h · cfl` earlier, `L` the optical path in cells: on a sphere
+of 13 cells' radius moving at `v = 0.1` (step 17), 0.69 `κh` behind the
+converged `τ`. At the initial data the sweeps repeat until no cell's `τ`
+changes by more than `10⁻¹⁰` of itself (`converge!`), as many as the longest
+path is cells long. **After a regrid** `τ` is transferred with the matter's
+bounded conservative operators and the sweeps go on one per step from it,
+without converging again: a Bellman–Ford fixed point is reached only once
+the boundary's information has crossed the whole path, whatever the start,
+so reconverging takes as many sweeps as from zero (20 against 20 in step
+17), while the transferred `τ` is already within the coarse mesh's
+resolution of the converged one (1.29 `κ h_fine`). Across a coarse-fine face
+the converged `τ` is within `κ h_fine` of the uniform fine mesh's.
+
+### M0: the free-streaming neutrinos
+
+**The closure.** The free-streaming neutrinos of each species move along a
+fiducial null vector `k^α` with `k^α u_α = −1`, radial from a centre `c`:
+```
+k^α = u^α + ℓ^α,   ℓ^α = P^α_β r̂^β / |P r̂|,   P^α_β = δ^α_β + u^α u_β,
+```
+with `r̂^α = (0, (xⁱ − cⁱ)/|x − c|_γ)` the unit radial vector of the normal
+observer. Their current is `J^α = n k^α`, and their momentum
+`p^α = E k^α`, with `E` their mean energy in the fluid frame. So
+`χ = −k_α ξ^α = −k_t` (`ξ = ∂_t`) is the redshift factor from the fluid frame
+to infinity, and the neutrinos' coordinate velocity is `vⁱ = kⁱ/k^t`, which
+carries the fluid's Doppler shift and the metric's redshift.
+
+**The conserved variables**, per species, densitized by `√−g = α√γ`:
+```
+N_ν = √−g m_B n k^t          (the number, in units of the baryon mass, like D)
+𝓔_ν = √−g n E χ k^t          (the energy at infinity)
+```
+and they obey
+```
+∂ₜ N_ν + ∂ᵢ (N_ν vⁱ) = √−g m_B R^eff_ν − (κ^eff_ν / k^t) N_ν
+∂ₜ 𝓔_ν + ∂ᵢ (𝓔_ν vⁱ) = √−g χ Q^eff_ν   − (κ^eff_ν / k^t) 𝓔_ν
+κ^eff_ν = e^{−τ⁰_ν} (E_ν / E^β_ν)² κ⁰_{ν,a}
+```
+The first is Radice et al. (2018)'s Eq. 7 and the third its Eq. 8. The
+second is its Eq. 9, `k^α ∂_α (E χ) = (χ/n)(Q^eff − E R^eff)`, multiplied by
+`n` and added to `E χ` times the first, so that it is a conservation law with
+the same flux: exact where `∂_t` is a Killing vector, and approximate
+otherwise, as Radice et al.'s is. Absorption leaves `E = m_B 𝓔/(χ N)`
+unchanged (the gray, number-weighted absorption of Eq. 9). The primitives
+are `n = N/(√−g m_B k^t)` and `E`. Where `N` or `𝓔` is not positive there
+is no mean energy, and absorption is off there, by a branch: `N_min` is zero
+(decided in step 18). `ν_x` has `κ_a = 0`: it is emitted and leaves.
+
+**The centre.** `c` is a case's parameter with no default, fixed in time;
+a moving centre (a binary's remnant) is **(open)**, for when a binary is
+built. At the centre `r̂` is undefined: inside `r_core`, also a case's
+parameter with no default, `ℓ` is scaled by `|x − c|/r_core`, so that `k`
+becomes timelike and the neutrinos are dragged with the fluid. This is only
+in an opaque core, where `R^eff` and `κ^eff` are small.
+
+**The fluxes.** `N/√γ` and `𝓔/√γ` reconstructed with MC (the monotonized
+central slope), whatever the matter's limiter is, and `vⁱ` on each side of
+the face from the fluid's `uⁱ = W vⁱ` reconstructed there by the same MC,
+with the face's metric and position; then upwind, positivity-preserving
+under the light-speed CFL (MC, like minmod, keeps a face value between its
+two cells' values). MC rather than minmod (decided by Erik in step 18):
+every grid line through the radial field crosses a smooth extremum of `N`,
+which minmod clips by a factor of two, and away from the centre minmod's
+rates from 32³ to 64³ were 1.70–1.96 against MC's 2.16–2.24:
+```
+F = max(v_L, 0) N_L + min(v_R, 0) N_R          (and the same for 𝓔).
+```
+The outer faces' ghosts hold `N = 𝓔 = 0` (`NuEscape`): the flux there is
+outflow only. The luminosity and number flux at the outer faces, summed per
+step with the integrator's weights, are step 20's, with the star whose
+luminosities they measure; until then `neutrino_totals(p, u)` sums `N` and
+`𝓔` over the owned cells (moved from step 18, decided by Erik 2026-11-25). A forest
+periodic in any direction is refused: the radial direction flips across a
+periodic face, so the blocks on either side would carry that face at
+different velocities, and step 18 measured the totals drifting there.
+
+**Measured** (step 18, `test/m0_tests.jl`, cold gas at rest in flat space
+with `GrayRates`, `optical_depth = false`; the steady state and the front in
+a uniform medium, the scheme's exact steady state, whose radial solution is
+closed-form):
+- the steady state inside `r ≤ 0.6` within 0.28–0.32% (L1, of the peak) of
+  the radial solution on 16³, converging at 1.99, 2.18 and 2.25 to 32³ and
+  at 2.16, 2.23 and 2.25 from 32³ to 64³ for κ = 4, 1 and 0
+  (`bin/m0_ball.jl`, Symmetry job 611581);
+- `𝓔/N` the emitted energy to `10⁻¹²` (χ = 1 at rest); `N`, `𝓔`
+  non-negative;
+- the light front: at `t = 0.3` the time-dependent radial solution, with its
+  kink at `r = t`, to 0.31%;
+- across the rays: on 16³ the error 2.7% along an axis and 0.55% along a
+  diagonal: the diffusion across rays, which would make the diagonal worse,
+  does not show; the axis's error is the limiter's, at the extremum `N` has
+  in both directions across an axis;
+- conservation: `Σ du` plus the outflow through the outer faces zero to
+  `6·10⁻¹⁷`, across coarse-fine faces; a regrid changes `Σ N`, `Σ 𝓔` by
+  `8·10⁻¹⁶`, its bounded prolongation leaving rounding-sized negatives
+  (`−7·10⁻²¹`), where absorption is off;
+- the redshift, on the Cowling TOV star rather than Kerr-Schild (whose
+  matter would fall; the TOV exterior is Schwarzschild's): outside the star
+  `𝓔/N` of ν_x spread by 3.7% over `9 ≤ r ≤ 15` and within 1.9% of the
+  emission-weighted mean of `αE`, 0.776, at `h = 2` (decided by Erik
+  2026-11-25);
+- with `feedback = false` the matter, the potentials and the gauge evolve bit
+  for bit as without neutrinos;
+- with the fluid moving (a ball carried by a jet, `v = 0.3 exp(−y²/0.09)`,
+  2D): on the jet's axis `𝓔/N` the Doppler factor `√((1 ± v)/(1 ∓ v))` times
+  `E` to 0.71% and 0.81% on 64²; `N` converging at 2.13–2.20 from 32² to
+  128² behind the light front (with minmod 2.07–2.09, and with minmod and
+  the face velocities from the two cells' `uⁱ` alone 1.90–2.00; [HISTORY.md,
+  "The steps of the plan"](HISTORY.md#the-steps-of-the-plan), step 18).
+
+**Why on the forest** rather than on Radice et al.'s spherical grid of rays:
+no second grid, no interpolation in either direction (from the forest to
+the rays would be TreeAMR's point interpolation, back to the cells ours),
+lepton number and energy conserved to round-off across coarse-fine faces by
+the flux correction that already exists, refinement that follows the
+matter, the same kernels on a device. And it costs no time step: the
+scheme's step is already the light-speed CFL, for Maxwell's equations. The
+price is numerical diffusion across the rays, since they are not aligned
+with the grid; rung 8c measures it.
+
+### Coupling to the matter
+
+The matter's sources, summed over the species:
+```
+∇_ν T^{μν} = G^μ,   G^μ = Σ_ν (κ^eff_ν n_ν E_ν − Q^eff_ν) k^μ
+∇_μ (n_e u^μ) = −(R^eff_{ν_e} − κ^eff_{ν_e} n_{ν_e}) + (R^eff_{ν̄_e} − κ^eff_{ν̄_e} n_{ν̄_e})
+```
+(Radice et al. 2018, Eqs. 10–11), entering the Valencia equations as
+`α²√γ G^t` in `√γ τ`, `α√γ G_j` in `√γ S_j` and `m_B √−g` times the second
+in `√γ D Yₑ`. Then **`√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` is conserved** to
+round-off, up to the outer faces' fluxes and the reset's injection, and,
+where `∂_t` is Killing, so is the matter's energy at infinity plus
+`Σ_ν 𝓔_ν`: `−ξ_μ G^μ = Σ_ν (κ^eff n E − Q^eff) χ` is exactly what the
+neutrinos lose. Radice et al. write `G^μ = Q u^μ` instead, isotropic in the
+fluid frame; that conserves energy only up to the difference between `−u_t`
+and `χ`, a Doppler term. `G^μ ∝ k^μ` is the radial recoil the closure
+implies.
+
+In a cell the atmosphere policy flagged, both sides' sources are zero, by a
+branch, so the balance holds there too. **Measured** (step 19,
+`test/neutrino_coupling_tests.jl`, a uniform medium at rest with `GrayRates`,
+feedback on, a refined corner block): in a right-hand side `Σ du` of the
+lepton number plus its outflow through the outer faces is zero to
+`3·10⁻¹⁶` of the magnitudes that cancel, the matter's included, and so is
+that of `√γ τ + Σ 𝓔`, in 2D and 3D; an implicit stage changes either total
+by less than `10⁻¹⁷` of the state; a regrid changes the lepton number by
+`2·10⁻¹⁶`. Against the coupled problem's closed form — while the gas stays
+at rest each ray's `r² n` is `η e^{−κr}(F(r) − F(a))`, `a = max(0, r − t)`,
+and `√γ D Yₑ` and `√γ τ` change by its time integrals at each cell — at
+`t = 0.4` on 16³ `N` is within 0.5–0.8%, the change of `√γ D Yₑ` within
+0.85% and of `√γ τ` within 0.25%, converging at 2.04–2.13, 1.37 and 2.38 to
+32³. `√γ D Yₑ`'s rate is the matter scheme's: the same at a quarter of the
+step, and its MC clips the extremum the deposited `Yₑ` has at the centre
+(rung 7 measured 1.69–1.86 for a smooth advected `Yₑ`). The medium is cold,
+`p = 10⁻⁴`: at `p = 10⁻²` the absorbed neutrinos' push moved the gas enough
+that the enthalpy flux `(τ + p) v` changed `τ` by 4% of the deposit, which
+the closed form leaves out.
+
+### In the time integrator
+
+- **Explicit**: the fluxes of `N` and `𝓔`; the emission `√−g m_B R^eff` and
+  `√−g χ Q^eff`; the matter's share of the emission.
+- **Implicit** (`stage_solve!`, before Ohm's solve): the absorption,
+  `−(κ^eff/k^t)` times `N` and `𝓔`, and the
+  matter's share of it. With `κ^eff`, `k^t` and `χ` frozen at the cell's latest
+  recovery (the step cache, or `P`) it is linear in `(N, 𝓔)` with one
+  coefficient, so the stage's solution is closed-form:
+  `N = N★/(1 + γΔt κ^eff/k^t)`, `𝓔` likewise; and `E`, which enters
+  `κ^eff`, is the same in `u★` and the solution. The matter's increments
+  follow from the solved `N` and `𝓔`, the same numbers subtracted from one
+  side and added to the other: `√γ D Yₑ` gains
+  `γΔt (κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/k^t`, `√γ τ` gains
+  `γΔt α Σ κ 𝓔/χ` and `√γ S_j` `γΔt Σ κ 𝓔 k_j/(χ k^t)`, written into `U`.
+  This runs first in each implicit stage, and Ohm's stage solve then
+  recovers from `u★` shifted by them: a copy (`M0State`'s `shifted`, the
+  matter segment's size), since the integrator forbids changing `u★` and
+  handing Ohm's kernel `U` itself would alias its input and output on a
+  device. The neutrino increments are closed-form sources, not a repair, so
+  "the solve writes only `E`" is unchanged in meaning. SSP3(4,3,3)'s first
+  stage is implicit, so a run's first stage solve can come before any
+  right-hand side has filled `P`: `initial_depth!` prepares it, and the
+  deposits are branches where `κ = 0` (step 19: `P`'s zeros gave a
+  non-finite closure, and `0·NaN` sent every cell to the atmosphere).
+
+Why the absorption is implicit: without the factor `(E/E^β)²`,
+`κ^eff ≤ 2/(e h)` wherever `τ` is at least the cell's own `κ h/2`, so
+`κ^eff Δt` stays below 1 at the light-speed CFL; but hot neutrinos reaching
+cold matter make `(E/E^β)²` large. Freezing the coefficients at the latest
+recovery is first order in the coefficients' change over a stage, as Radice
+et al.'s operator split is.
+
+The emission stays explicit: each cell's largest `|d ln(√γ D Yₑ)/dt|` from
+it goes into `X` (`X_NU_RATE`), reduced per chunk by `neutrino_tally(p)`;
+times the step it is the change in `Yₑ` per step, expected to be small (in
+step 19's medium 0.061 per unit time).
+
+### Field sets and interface
+
+| set | centering | nvars | `G` | operators / at `regrid!` |
+|---|---|---|---|---|
+| `Nν` — `N_ν`, `𝓔_ν` per species, in the state vector | cell | 6 | 3 | Conservative width 3, bounded / `=> schedule` |
+| `Fν_d` — their fluxes | face `d` | 6 | 0 | `=> nothing`; `restrict_interfaces!` is the flux correction |
+| `Nτ` — `τ^α_ν` (6), and `κ^α_ν = κ_a + κ_s` (6) for the sweep | cell | 12 | 1 | Conservative width 3, bounded / `=> schedule`, `κ` recomputed before the next sweep |
+| `Nτ`'s work set — the new `τ` (6) and each cell's relative change | cell | 7 | 0 | `=> nothing`; the convergence measure is its max-reduction |
+
+`Nν` is the state vector's last segment, `SEG_NU = 6`, after the matter, the
+potentials and the gauge, so that their segments keep their offsets; it and
+its fluxes, their schedules and the `OpticalDepth` are built by
+`MHDProblem` from the `M0Leakage` and handed back by `rebuild` after a
+regrid, so the regrid's resized sets are the ones the new problem holds.
+`NuEscape`'s hook follows the case's five. `prepare!` fills `Nν`'s ghosts,
+`rhs!` adds its fluxes and tendencies, `stage_solve!` its absorption, the
+step limiter one optical-depth sweep (from `P` as the step's last stage left
+it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
+the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
+takes `τ ≡ 0`, the optically thin limit, for the transport's tests.
+`evolve!` refuses neutrinos with a checkpoint, a restart or MPI ranks
+(`comm`): the optical depth is carried from step to step outside the state
+vector, so a checkpoint would not hold it and a restart would not be the
+uninterrupted run, and nothing of the neutrinos' has run across ranks yet
+(`PLAN.md`).
+
+`Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
+three would triple the fill of twelve variables (step 17, **(proposed)**).
+It is held, with its work set, schedule and hook, by `OpticalDepth`
+(`src/neutrinos/optical_depth.jl`): `opacities!(od, model, P)`,
+`sweep!(od, P)`, `converge!(od, P)`; `depth_regrid_pairs(od)` are its
+entries for `regrid!` and `rebuild(od)` its schedule after one. `M0Leakage`
+holds it (step 18).
+
+`Nν` is a separate set, not slots in the matter's `U`, so that a run without
+neutrinos is today's, bit for bit, and the matter's kernels do not change.
+`MHDProblem(…; neutrinos = nothing)` is that run; with
+`neutrinos = M0Leakage(rates; center, r_core, feedback = true)` (`center`
+and `r_core` with no default) the sets are added; `feedback = false` keeps
+the matter's sources off, for the transport's tests (rungs 8c, 8d) and for
+a run that switches the heating on later, as Radice et al.'s binaries do. The code is `src/neutrinos/`: `fermi.jl`,
+`rates.jl`, `leakage.jl`, `optical_depth.jl`, `m0.jl`; the rates touch
+nothing of the mesh, so that they can move to a package of their own when
+M1 needs them too.
 
 ## Spacetime coupling
 
@@ -4314,11 +4795,13 @@ duplicate-constant check at the top of `test/runtests.jl` is the only thing
 that finds a top-level name two test files share.
 
 `Project.toml` names IMEXRungeKutta there, by its GitHub URL at
-`rev = "main"`, and CI adds nothing by hand: `julia-buildpkg`, a clean
-`git archive` and a developer's `Pkg.instantiate()` all resolve it the same
-way; EntropyEOS comes from General like TreeAMR. The test environment reaches them through the
-package (`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing
-them again, so that a second `[sources]` cannot disagree with the first.
+`rev = "main"`; EntropyEOS, registered since EOS-0, resolves from General
+by `[compat]`. CI adds nothing by hand: `julia-buildpkg`, a clean
+`git archive` and a developer's `Pkg.instantiate()` all resolve them the
+same way. The test environment reaches both through the package
+(`TreeGRRMHD.EntropyEOS`, `TreeGRRMHD.IRK`) rather than listing them
+again, so that a second `[sources]` cannot disagree with the first and the
+suite reads the one release the package resolved.
 
 The history of the floor (1.10, 1.11, 1.12), of the CI cells and of what
 1.11 needed is in [HISTORY.md, "Julia version"](HISTORY.md#julia-version).
@@ -5175,6 +5658,29 @@ the magnetized star's convergence studies); `threaded` also the
   (`@dd2_gated`): where `ENTROPYEOS_TABLE_DIR` does not hold the table, as
   on GitHub, it is one skipped test, named at the end of the run. Symmetry's
   suite sets the variable (`jobs/full-suite.toml`).
+- `test/neutrino_rates_tests.jl`: the Fermi integrals against 128-bit
+  quadrature; RJS96's β-processes in detailed balance; the pair emission
+  against BRT06's fit; the nucleons' blocking; the rates in geometric units
+  against the formulas written out in cgs in the test; Float32 against
+  Float64; the effective rates' limits; `GrayRates`; a CPU kernel at both
+  precisions, allocation-free (step 16; pointwise, no tier).
+- `test/optical_depth_tests.jl`: the sweep against a plain Bellman–Ford, bit
+  for bit, in 2D and 3D; oblique planar boundaries against the face
+  neighbours' √3; a uniform sphere; one sweep a step following a moving
+  sphere; coarse-fine faces and a regrid against the uniform mesh (step 17;
+  2D and 3D, no tier).
+- `test/m0_tests.jl`: the static ball's steady state against the radial
+  solution, and its rate to 32³ (`@full_tier`); the light front; the error
+  along an axis and a diagonal; conservation across coarse-fine faces and a
+  regrid; the redshift outside the Cowling star; the matter bit for bit
+  without feedback; a ball carried by a jet, the Doppler factor on its axis
+  and its rate behind the front to 128² (`@full_tier`) (step 18; 3D, 16³ and
+  32³; 2D, 32² to 128²). `bin/m0_ball.jl` runs 64³
+  (`jobs/m0-ball.toml`).
+- `test/neutrino_coupling_tests.jl`: the feedback's lepton and energy balance
+  in a right-hand side, an implicit stage and a regrid, in 2D and 3D across
+  coarse-fine faces, with no cell repaired; the coupled exchange against its
+  closed form, and its rates to 32³ (`@full_tier`) (step 19).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -5245,7 +5751,18 @@ bit-identically to the host; "Precision and devices"):
   `:hlle_split`, measured, not the default; "Riemann solver"),
   `src/emf.jl` and `src/sources.jl`;
 - `src/stage_solve.jl`: `solve_ohm_stage`, Newton on the fluid's share of
-  the energy and momentum, `OhmStageResult` ("The implicit stage solve").
+  the energy and momentum, `OhmStageResult` ("The implicit stage solve");
+- `src/neutrinos/fermi.jl`: `fermi`, the Fermi integrals of order 0 … 5 to
+  round-off, and `fermi_ratio`; `src/neutrinos/rates.jl`: `SpeciesRates`,
+  `GrayRates`, `RJS96Rates` (with its table form, refusing a composition
+  from another table), `neutrino_rates`, and `CompositionPoint`, from EOS-12's
+  `Composition`; `src/neutrinos/leakage.jl`: `effective_rates`,
+  `absorption_opacity` ("Neutrinos", "Leakage"); `src/neutrinos/optical_depth.jl`:
+  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
+  ("Neutrinos", "The optical depth"); `src/neutrinos/m0.jl`: the closure
+  `m0_closure`, the upwind flux, the absorption, `M0Leakage`, `NuEscape`, the
+  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`,
+  `neutrino_tally` ("Neutrinos", "M0", "Coupling to the matter").
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -5430,8 +5947,10 @@ coarse star's matter goes and the Cowling star to 1000 M ("Validation ladder" 7)
 
 ## Validation ladder
 
-Each rung is a set of testsets named as claims, and every rung is done
+Each rung is a set of testsets named as claims. Rungs 1–7 are done
 *(Done.)*: built, tested in the suite, and measured in the studies below.
+Rung 8, the neutrinos, is built through 8f; 8g, the star, is `PLAN.md`'s
+step 20.
 What each rung's step asked for (its acceptance list) and how it went are
 in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
 
@@ -7215,6 +7734,45 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      reset replaced, so that the light-cone flux's dissipation carries
      `D Yₑ` across a face where `D` is the same on both sides.
 
+8. **Neutrinos** *(not built)* ([Neutrinos](#neutrinos)). The
+   tests in 1D and 3D at the suite's sizes; the studies in `bin/`.
+   - **8a, the rates pointwise**: the Fermi integrals against quadrature;
+     `RJS96Rates`' rates and opacities at a handful of `(ρ, T, Yₑ)` on DD2
+     against reference values computed once by a script and kept in
+     `test/data/`, as the shock tubes' are; `R^eff → R` as `τ → 0` and
+     `→ n^β/t_diff` as `τ → ∞`.
+   - **8b, the optical depth** *(done, step 17)*: the sweep a plain
+     Bellman–Ford's bit for bit, in as many sweeps; oblique planes, 0.92 …
+     1.00 of the distance against the face neighbours' √3; a uniform sphere
+     within −0.76 … +0.30 `κh` of `κ (R − r)`; one sweep per step 0.69 `κh`
+     behind a moving sphere; across a coarse-fine face within `κ h_fine` of
+     the uniform mesh, and a regrid's transferred `τ` within 1.29 `κ h_fine`
+     ("Neutrinos", "The optical depth").
+   - **8c, M0 in flat space** *(done, step 18; "Neutrinos", "M0")*
+     (`GrayRates`, the matter at rest, its
+     feedback off): a uniform sphere's steady state, `r² n` solving
+     `(r² n)′ + κ r² n = η r²` inside and `n ∝ r⁻²` outside, converging at
+     2 away from the surface; the front at `r = t`; the spread across rays
+     stated as a number.
+   - **8d, the redshift** *(done, step 18, on the Cowling star)*: steady
+     emission from a static sphere on
+     Schwarzschild (the Kerr-Schild provider, `a = 0`), `𝓔/N` constant
+     along rays and the mean energy at infinity `χ` times the emitted one.
+   - **8e, conservation** *(done, step 19; "Neutrinos", "Coupling to the
+     matter")*: `√γ D Yₑ + N_{ν_e} − N_{ν̄_e}` and, in flat
+     space, the matter's energy plus `Σ 𝓔` to round-off net of the outer
+     faces and the reset, across coarse-fine faces and a regrid, in 2D and
+     3D.
+   - **8f, the coupled exchange** *(done, step 19)*: not a periodic box,
+     which M0 refuses (step 18), but a uniform medium whose coupled problem
+     has a closed form: `N` and the changes of `√γ D Yₑ` and `√γ τ` at
+     every cell, through the approach to `R^eff = κ^eff n`; the emission's
+     rate recorded (`neutrino_tally`).
+   - **8g, the star**: DD2's cold star in β-equilibrium stays as it is
+     (luminosity below a stated bound over 1000 M); the same star heated
+     (its entropy raised) cools and deleptonizes, the luminosities and
+     mean energies converging with `h`.
+
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
 
@@ -7280,11 +7838,15 @@ far say about it.
   not the default ("Riemann solver").
 - A mean-field dynamo in Ohm's law; force-free currents in the
   magnetosphere; subgrid (LES) models for unresolved amplification;
-  neutrino leakage and M1 as a separate package on the same forest.
+  M1 in place of M0, on the same field set ([Neutrinos](#neutrinos)).
 
 ## Open questions
 
-None is open. The questions decided, and when, are in [HISTORY.md, "Open
+One is open, in the [Neutrinos](#neutrinos) section (the Fermi integrals'
+fits and `Y_np`'s fractions were decided in step 16, `N_min` in step 18):
+- **A moving centre** for M0's closure, for when a binary is built.
+
+The questions decided, and when, are in [HISTORY.md, "Open
 questions"](HISTORY.md#open-questions); those the Cowling star settled are
 under "Validation ladder" 4, "What the star decides". What is measured
 short is under [Known risks](#known-risks), and what is not built under
@@ -7359,6 +7921,15 @@ short is under [Known risks](#known-risks), and what is not built under
   only 1.0–1.4 on the finer pair around 100 M, perhaps the start's
   transient crossing the coarse levels; neither is separated ("Validation
   ladder" 7).
+- **O'Connor–Ott LS220's composition is noisy where its nuclei dissolve**
+  (`log ρ` 12.8–14.3, every `Yₑ`, up to `T = 13.5 MeV`): single nodes off
+  both neighbours in `mu_e`, `muhat`, `Xh`, `Xn` and the pressure at once,
+  which the composition's trilinear interpolation spreads over the
+  neighbouring cells, changing the heavy-nucleus opacity locally by up to
+  about 3× (EntropyEOS's measurement, its `CODE.md`, "Composition"). The
+  matter is optically thick there, so the effect on the luminosities is
+  probably small; unmeasured. Production runs with LS220 physics take SRO's
+  LS220.
 - Under the default SSP3(4,3,3), which is not stiffly accurate, the
   stored `𝔈` of a stiff conductor ends each step `O(Δt)` off its ideal
   value: inside the magnetized star about 1% of `B` at `h = 1`, against

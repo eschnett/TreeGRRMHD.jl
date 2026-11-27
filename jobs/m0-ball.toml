@@ -1,0 +1,12 @@
+# M0's steady state on the static ball at 16³, 32³ and 64³ (step 18;
+# `bin/m0_ball.jl`): the L1 errors against the radial solution and the rates
+# between them, per species. The suite runs the first two.
+name = "m0-ball"
+
+[site.symmetry]                     # amddebugq: the three resolutions in under an hour
+time = "1:00:00"
+
+[[run]]
+label = "ball"
+cmd = "bin/m0_ball.jl"
+threads = 16

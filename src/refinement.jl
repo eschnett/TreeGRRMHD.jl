@@ -167,7 +167,7 @@ function regrid_pairs(p::MHDProblem, t)
     scratch = (f.P => nothing, f.W => nothing, map(s -> s => nothing, f.B)...,
                map(s -> s => nothing, f.F)...,
                map(s -> s => nothing, f.EMF)..., f.X => nothing)
-    return (evolved..., scratch...)
+    return (evolved..., scratch..., m0_regrid_pairs(p.neutrinos)...)
 end
 
 """

@@ -121,6 +121,10 @@ end
     # bits the tests keep apart from the policy's. Since step 13 the table
     # reader and the cold β-equilibrium slice the tabulated star's initial
     # data reads (EOS-4, in 2.3.0; `[compat]` "2.3", so its probe is retired).
+    # Since step 16 the composition on the device the neutrino rates read
+    # (EOS-12, in 2.4.0, O'Connor–Ott LS220's μ̂ right in 2.4.1; `[compat]` now
+    # "2.5", so its probe is retired), and `SyntheticOptions`, whose
+    # `with_composition` gives the synthetic table its composition datasets.
     # Since 2026-11-27 the atmosphere decided without level 1, `policy_decides`
     # and `policy_atmosphere` (EOS-15, in 2.5.0; `[compat]` "2.5", so its probe
     # is retired; 1.x's `policy_atmosphere` was another function).
@@ -137,7 +141,9 @@ end
                  :FLAG_POL_W_CEILED, :FLAG_POL_ANY, :FLAG_CS2_OUT_OF_RANGE,
                  :make_synthetic_table, :build_eos,
                  :RawTable, :read_stellarcollapse, :cold_beta_slice, :ColdBetaSlice,
-                 :beta_equilibrium, :BetaEquilibrium, :policy_decides, :policy_atmosphere)
+                 :beta_equilibrium, :BetaEquilibrium, :policy_decides, :policy_atmosphere,
+                 :CompositionTable, :CompositionView, :Composition, :composition, :q_np,
+                 :matches, :fingerprint, :SyntheticOptions)
         @test name in names(EOS)
     end
     @test isdefined(EOS, :κ) && :κ ∉ names(EOS)

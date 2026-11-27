@@ -200,6 +200,7 @@ function case_state!(u, p::MHDProblem{T,D}, case::MHDCase, t) where {T,D}
     end
     map_blocks!(potential_kernel!, sets[SEG_Φ], statearray(u, sets, SEG_Φ), case.potential,
                 T(t), p.origins, p.spacings, Val(D), Val(staggers(sets[SEG_Φ])), Val(4))
+    p.neutrinos === nothing || fill!(statearray(u, sets, SEG_NU), 0)   # no neutrinos yet
     return u
 end
 
@@ -699,7 +700,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                  step_cache::Bool=true, two_phase::Union{Bool,Nothing}=nothing,
                  interior=case.interior, workgroupsize=nothing, comm=nothing,
                  checkpoint=nothing, checkpoint_every::Integer=1, restart=nothing,
-                 checkpoint_io=:node) where {T,D}
+                 checkpoint_io=:node, neutrinos=nothing) where {T,D}
     t_end, chunk = T(t_end), T(chunk)
     cfl = T(cfl === nothing ? default_cfl(limiter) : cfl)
     t_end > 0 || throw(ArgumentError("t_end must be positive, got $t_end."))
@@ -726,10 +727,23 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
                                maxlevel, refine_tol, coarsen_tol, buffer, ε, ε_g, interior,
                                case=nameof(typeof(case.fields)), extents=case.extents,
                                periodic=case.periodic)
+    # The neutrinos (steps 18, 19) are not yet checkpointed or run across ranks:
+    # the optical depth is carried from step to step outside the state vector,
+    # so a checkpoint would not hold it and a restart would not be the
+    # uninterrupted run; and nothing of theirs has run on MPI ranks yet.
+    if neutrinos !== nothing
+        (checkpoint === nothing && restart === nothing) || throw(ArgumentError(
+            "evolve!: neutrinos with checkpoints or a restart are not built: the optical " *
+            "depth lives outside the state vector, so a checkpoint would not hold it and a " *
+            "restart would not reproduce the run (PLAN.md)."))
+        comm === nothing || throw(ArgumentError(
+            "evolve!: neutrinos on MPI ranks are not built or tested yet (PLAN.md); run " *
+            "without `comm`."))
+    end
     build(f) = MHDProblem(f, case; ξ=ξ, stage=stage, limiter=limiter, riemann=riemann,
                           ops_U=ops_U, ops_A=ops_A, ops_Φ=ops_Φ, ops_W=ops_W, fixup=fixup,
                           two_phase=two_phase, interior=interior,
-                          workgroupsize=workgroupsize)
+                          workgroupsize=workgroupsize, neutrinos=neutrinos)
     flagkw = (; refine_tol, coarsen_tol, maxlevel, ε, ε_g)
     if restart === nothing
         forest = Forest{T}(rs; N=N, periodic=case.periodic, extents=case.extents, comm=comm)
@@ -744,6 +758,7 @@ function evolve!(::Type{T}, case::MHDCase{T,D}, ::Val{D}; N::Integer, t_end, chu
         # The exact potentials satisfy the walls' condition already: the relative
         # hook gives `f(x_w) + (f(x_r) − f(x_r)) = f(x_w)` bit for bit.
         u = exact_state(p, case, zero(T))
+        initial_depth!(p, u, zero(T))      # the neutrinos' `P` and optical depth
         totals0 = conserved_totals(p, u)
         maxlevel > 0 && after_regrid !== nothing && after_regrid(p, u, zero(T))
         c0, t, total, nregrids, chunks = 0, zero(T), 0, 0, Any[]

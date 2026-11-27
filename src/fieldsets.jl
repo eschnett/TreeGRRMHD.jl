@@ -52,7 +52,7 @@ are cell-centered).
 face_centering(::Val{D}, d::Integer) where {D} = ntuple(e -> e == d ? :vertex : :cell, D)
 
 """Number of slots of the diagnostics set `X`: see [`MHDFields`](@ref)."""
-const NX = 34
+const NX = 35
 # The diagnostics set's slots. 1–9 count the implicit stages that set each of
 # the nine `OhmStageResult` flag bits, in bit order; then the stages whose
 # returned state the policy had repaired, the `|` of their policy flags (a
@@ -105,6 +105,9 @@ const X_INJECTED_DYE = X_SEEDS + 3 * N_SITES
 # the window's minimum ("Validation ladder" 7 in `CODE.md`).
 const X_S_FLOORS = X_INJECTED_DYE + 1
 const X_S_FLOOR_TAU = X_INJECTED_DYE + 2
+# *(Added in step 19:)* the largest `|d ln(√γ D Yₑ)/dt|` the neutrinos' emission
+# gave the cell in the chunk (`neutrino_tally`).
+const X_NU_RATE = X_INJECTED_DYE + 3
 const N_OHM_BITS = 9
 
 """Number of slots of the primitive set `W` the matter's ghost fill prolongates."""
