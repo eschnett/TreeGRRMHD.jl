@@ -17,13 +17,16 @@
 # same way; AMR-5, ignored on the CPU), `reps` (the best of, 5), `steps` (steps in the timed
 # step phase, 2), `mpi` (`false`; `true` over `MPI.COMM_WORLD` under `mpiexec`, each rank on
 # its own threads or device, `bin/mpi.jl`: a phase's time is then the slowest rank's best,
-# and `blocks` and `cells` are the whole mesh's), `neutrinos` (`false`; `true` for a
-# tabulated case: the star with `RJS96Rates` on the table's composition, step 20, its case
-# column `dd2+nu`, every phase that calls the neutrinos' hooks with them, and three phases
-# of their own: `nu_rhs` (`m0_rhs!`, the fluxes and the tendencies), `nu_absorb`
-# (`m0_stage!`, the implicit absorption after a copy of the state), `nu_opacities`
-# (`opacities!`) and `nu_sweep` (`sweep!`, one sweep of the optical depth): the step
-# limiter's `m0_step!` is the last two).
+# and `blocks` and `cells` are the whole mesh's), `explicit` (`false`; `true` adds the row
+# `step_explicit`, below; only for a case under `IdealConductor`), `NK` (129; the knots of
+# the stars' `TOVMetric` and, for `dd2` and `sfho`, of their `TOVComposition`: tables a
+# kernel takes by value, for measuring what their size costs),
+# `neutrinos` (`false`; `true` for a tabulated case: the star with `RJS96Rates` on the
+# table's composition, step 20, its case column `dd2+nu`, every phase that calls the
+# neutrinos' hooks with them, and four phases of their own: `nu_rhs` (`m0_rhs!`, the
+# fluxes and the tendencies), `nu_absorb` (`m0_stage!`, the implicit absorption after
+# a copy of the state), `nu_opacities` (`opacities!`) and `nu_sweep` (`sweep!`, one
+# sweep of the optical depth): the step limiter's `m0_step!` is the last two).
 #
 # Prints a header row, then one tab-separated row per phase:
 #
@@ -41,7 +44,12 @@
 # `step` (a whole IMEX step, per step, under the step cache, as `evolve!` takes it), and on
 # the CPU `step_broadcast` (the same with the stage arithmetic broadcast, as on a device,
 # rather than threaded by IMEXRungeKutta's `:even` partition) and `step_owner` (threaded by
-# block owner, `owner_partition`).
+# block owner, `owner_partition`). With `explicit=true`, `step_explicit` is the same step
+# under IMEXRungeKutta's purely explicit `SSPRK33()` at the same `Δt`, with the same stage
+# and step limiters and step cache: three right-hand sides and two stage resets, no stage
+# solve. That is what an ideal-MHD scheme on this right-hand side would take, but it still
+# carries `E` in the state and its fluxes; it leaves `E` as it was, which is `IdealConductor`'s
+# `−v × B` only where `B = 0`, as on the tabulated stars, so it is a timing, not a scheme.
 # `cell_updates_per_second` is a row of its own, from `step`. Rows go to stdout, which a
 # SimLaunch run keeps as its `output.log`; the thread scan is a spec in `jobs/`.
 
@@ -91,15 +99,15 @@ end
 # The tabulated stars' 1.4 M☉ central densities (`jobs/tabulated-tov-cowling.toml`).
 const TABLE_RHO_C = Dict(:dd2 => 9.4e-4, :sfho => 1.37e-3)
 
-function benchmark_case(::Type{T}, case::Symbol, L; neutrinos=false) where {T}
+function benchmark_case(::Type{T}, case::Symbol, L, NK=129; neutrinos=false) where {T}
     neutrinos && !haskey(TABLE_RHO_C, case) &&
         error("neutrinos=true needs a tabulated case (dd2, sfho), got case=$case")
     case === :star && return magnetized_tov_case(T; σ₀=1e6, μ_max=10, L, roots=1), nothing
-    case === :tov && return tov_case(T; L, roots=1), nothing
+    case === :tov && return tov_case(T; L, roots=1, NK), nothing
     if haskey(TABLE_RHO_C, case)
         d = load_table(String(case))
         c = tabulated_tov_case(T; d.table, d.eos, ρ_c=TABLE_RHO_C[case], ρ_min=1e-10, L,
-                               roots=1)
+                               roots=1, NK, NC=NK)
         neutrinos || return c, nothing
         E = MHD.EntropyEOS
         cv = E.CompositionView(E.CompositionTable(d.table, d.eos))
@@ -111,8 +119,9 @@ function benchmark_case(::Type{T}, case::Symbol, L; neutrinos=false) where {T}
 end
 
 function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_phase,
-                          workgroupsize, reps, steps, neutrinos=false, comm=nothing) where {T}
-    c, nu = benchmark_case(T, case, L; neutrinos)
+                          workgroupsize, reps, steps, explicit=false, NK=129,
+                          neutrinos=false, comm=nothing) where {T}
+    c, nu = benchmark_case(T, case, L, NK; neutrinos)
     forest = Forest{T}(ntuple(_ -> roots, 3); N, periodic=c.periodic, extents=c.extents,
                        comm)
     levels > 0 && tov_boxes!(forest, c; levels)
@@ -163,17 +172,25 @@ function benchmark_phases(::Type{T}; case, N, roots, levels, L, backend, two_pha
     end
     # The step: `steps` steps of one integrator, rebuilt for every repetition as `evolve!`
     # builds one a chunk, on the state stepped in place.
-    function stepper(partition)
+    function stepper(partition; tableau=IRK.IMEXSSP3433())
         prev = Ref{Any}(nothing)
         return () -> begin
             integ = MHD.mhd_integrator(p, u, t, t + steps * dt, steps; alias_u0=true,
-                                       reuse=prev[], partition)
+                                       reuse=prev[], partition, tableau)
             MHD.with_step_cache(() -> IRK.solve!(integ), p)
             prev[] = integ
             nothing
         end
     end
     push_timing!("step", best(stepper(u isa Array ? :even : nothing)), steps)
+    if explicit
+        p.model isa MHD.IdealConductor || throw(ArgumentError(
+            "explicit=true times SSPRK(3,3) without the stage solve, which is the scheme " *
+            "only under IdealConductor with B = 0; this case's model is $(p.model)."))
+        push_timing!("step_explicit",
+                     best(stepper(u isa Array ? :even : nothing; tableau=IRK.SSPRK33())),
+                     steps)
+    end
     # On the CPU the stage arithmetic broadcast, as on a device, and by block owner, against
     # `:even`.
     if u isa Array
@@ -187,12 +204,14 @@ end
 function main(args)
     kw = Dict{Symbol,Any}(:case => :star, :N => 16, :roots => 3, :levels => 1, :L => 12,
                           :two_phase => nothing, :workgroupsize => nothing, :reps => 5,
-                          :steps => 2, :neutrinos => false)
+                          :steps => 2, :explicit => false, :neutrinos => false)
     backendname, T, mpi = "cpu", Float64, false
     for a in args
         k, val = split(a, '='; limit=2)
-        if k in ("N", "roots", "levels", "reps", "steps")
+        if k in ("N", "roots", "levels", "reps", "steps", "NK")
             kw[Symbol(k)] = parse(Int, val)
+        elseif k == "explicit"
+            kw[:explicit] = parse(Bool, val)
         elseif k == "L"
             kw[:L] = parse(Float64, val)
         elseif k == "case"
@@ -215,7 +234,8 @@ function main(args)
             kw[:neutrinos] = parse(Bool, val)
         else
             error("benchmark.jl: unknown key `$k` (case, N, roots, levels, L, type, " *
-                  "backend, two_phase, workgroupsize, reps, steps, mpi, neutrinos)")
+                  "backend, two_phase, workgroupsize, reps, steps, explicit, NK, mpi, " *
+                  "neutrinos)")
         end
     end
     return withrun(backendname, T, mpi) do backend, comm

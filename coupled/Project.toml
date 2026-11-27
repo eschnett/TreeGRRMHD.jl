@@ -30,7 +30,7 @@ TreeGeneralizedHarmonic = {rev = "main", url = "https://github.com/eschnett/Tree
 
 [compat]
 ApparentHorizonFinder = "2.1"
-EntropyEOS = "2.4.1"
+EntropyEOS = "2.5"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
 MPI = "0.20"

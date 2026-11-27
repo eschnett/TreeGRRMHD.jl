@@ -41,8 +41,8 @@ coefficients in `2r̄²/R̄² − 1` of the initial velocity's `vⁱ/xⁱ` insid
 ([`tov_mode_velocity`](@ref)). See `src/cases/tov.jl`.
 """
 struct TOVStar{T,NK}
-    metric::TOVMetric{T,NK,Polytrope{T}}
-    provider::Analytic{TOVMetric{T,NK,Polytrope{T}}}
+    metric::StaticTOVMetric{T,NK,Polytrope{T}}
+    provider::Analytic{StaticTOVMetric{T,NK,Polytrope{T}}}
     s::T
     Yₑ::T
     ρ_atm::T

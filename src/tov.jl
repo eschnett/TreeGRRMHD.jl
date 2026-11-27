@@ -233,30 +233,47 @@ function tov_eta(sol::TOVSolution{T}, u::T) where {T}
 end
 
 """
-    TOVMetric{T,NK,E} <: SpacetimeMetrics.AbstractMetric
+    TOVMetric{T,V,E} <: SpacetimeMetrics.AbstractMetric
 
 The static metric of a TOV star in isotropic coordinates, `ds² = −α² dt² +
 ψ⁴ δ_ij dxⁱ dxʲ` centred at the origin: `ψ` and `α` tabulated in `u = r̄²`
 with their derivatives at `NK` uniform knots over `[0, R̄²]` and interpolated
 by cubic Hermite inside the surface, the isotropic Schwarzschild exterior
-outside (the top of `src/tov.jl`). `isbits` and generic over dual numbers, so
-an `Analytic` provider and SpacetimeMetrics' `dmetric` take it as they take
-`KerrSchild`. Built by [`TOVMetric(sol)`](@ref TOVMetric(::TOVSolution)); see
+outside (the top of `src/tov.jl`). Generic over dual numbers, so an
+`Analytic` provider and SpacetimeMetrics' `dmetric` take it as they take
+`KerrSchild`. The four tables are of type `V`: `SVector{NK,T}` as built, so
+`isbits`; on a device, arrays there ([`provider_on`](@ref) uploads them, and
+a kernel's adaptor makes them device views), since a table taken by value and
+indexed at run time is copied into every GPU thread's local memory ("Devices"
+in `CODE.md`). Built by [`TOVMetric(sol)`](@ref TOVMetric(::TOVSolution)); see
 "Gauge for the TOV milestones" in `CODE.md`. `eq` is the polytrope, from which
 [`tov_density`](@ref) recovers the density, or `nothing` for a tabulated star,
 whose composition is kept apart from the metric ([`TOVComposition`](@ref)).
 """
-struct TOVMetric{T,NK,E} <: SpacetimeMetrics.AbstractMetric
+struct TOVMetric{T,V<:AbstractVector{T},E} <: SpacetimeMetrics.AbstractMetric
     eq::E
     M::T
     R̄::T
     α_s::T
     Δu::T
-    ψ::SVector{NK,T}
-    dψ::SVector{NK,T}
-    α::SVector{NK,T}
-    dα::SVector{NK,T}
+    ψ::V
+    dψ::V
+    α::V
+    dα::V
 end
+
+# A metric as built, its tables `SVector{NK,T}`.
+const StaticTOVMetric{T,NK,E} = TOVMetric{T,SVector{NK,T},E}
+
+# Its tables where `to` puts them: a backend (`provider_on`) gets arrays of its own, copied
+# from the static tables; any other adaptor — a kernel's — adapts what is there, so a
+# device array becomes its device view and a static table stays as it is.
+upload_table(to::Backend, x::SVector) = Adapt.adapt(to, Vector(x))
+upload_table(to, x) = Adapt.adapt(to, x)
+
+Adapt.adapt_structure(to, m::TOVMetric) =
+    TOVMetric(m.eq, m.M, m.R̄, m.α_s, m.Δu, upload_table(to, m.ψ), upload_table(to, m.dψ),
+              upload_table(to, m.α), upload_table(to, m.dα))
 
 Base.nameof(m::TOVMetric) = "TOV star (isotropic), M = $(m.M), R̄ = $(m.R̄)"
 
@@ -284,8 +301,8 @@ function TOVMetric(sol::TOVSolution{T}; NK::Integer=129) where {T}
         dα[k] = -α[k] / du
     end
     eq = metric_eq(sol.eq)
-    return TOVMetric{T,NK,typeof(eq)}(eq, sol.M, sol.R̄, sol.α_s, Δu, SVector{NK}(ψ),
-                                      SVector{NK}(dψ), SVector{NK}(α), SVector{NK}(dα))
+    return TOVMetric(eq, sol.M, sol.R̄, sol.α_s, Δu, SVector{NK}(ψ), SVector{NK}(dψ),
+                     SVector{NK}(α), SVector{NK}(dα))
 end
 
 """
@@ -296,10 +313,10 @@ The conformal factor and the lapse at `u = r̄²`, generic over dual numbers.
 # What the metric keeps of the barotrope: the polytrope itself, nothing of a table.
 metric_eq(eq::Polytrope) = eq
 
-@inline function tov_potentials(m::TOVMetric{T,NK}, u) where {T,NK}
+@inline function tov_potentials(m::TOVMetric, u)
     if u < m.R̄^2
         ξ = u / m.Δu
-        k = clamp(floor(Int, ξ), 0, NK - 2)
+        k = clamp(floor(Int, ξ), 0, length(m.ψ) - 2)
         t = ξ - k
         Δ = m.Δu
         ψ = @inbounds hermite(t, m.ψ[k + 1], Δ * m.dψ[k + 1], m.ψ[k + 2], Δ * m.dψ[k + 2])
@@ -327,7 +344,7 @@ The star's rest-mass density at `u = r̄²`: the polytrope's `ρ(h)` at the
 enthalpy `h = α_s/α` of hydrostatic equilibrium (`h α` constant), zero
 outside the surface.
 """
-@inline function tov_density(m::TOVMetric{T,NK,<:Polytrope}, u) where {T,NK}
+@inline function tov_density(m::TOVMetric{T,V,<:Polytrope}, u) where {T,V}
     u < m.R̄^2 || return zero(u)
     _, α = tov_potentials(m, u)
     return polytrope_state(m.eq, m.α_s / α).ρ

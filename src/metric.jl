@@ -91,6 +91,28 @@ struct Analytic{M<:SpacetimeMetrics.AbstractMetric} <: MetricProvider
     metric::M
 end
 
+# A metric that holds arrays (`TOVMetric` after `provider_on`) reaches a kernel through its
+# own rule; an `isbits` one is unchanged.
+Adapt.adapt_structure(to, a::Analytic) = Analytic(Adapt.adapt(to, a.metric))
+
+"""
+    provider_on(backend, provider)
+
+`provider` where `backend`'s kernels read it: on the CPU the same provider; on a device a
+copy whose tables live there. A provider is a kernel argument, taken by value; a table in it
+that a kernel indexes at run time — an [`Analytic`](@ref) around a [`TOVMetric`](@ref), four
+`SVector`s of 129 knots — is copied by every GPU thread into its local memory, at every
+launch, which on an H100 made the TOV star's right-hand side 2.5 times slower. Uploaded,
+the table is read where it is needed. Called once, by [`MHDProblem`](@ref). Only an
+`Analytic` metric is copied, through its metric's `Adapt` rule, so an `isbits` one
+(`KerrSchild`) comes back as it was; `Flat` and the coupling's [`VertexMetric`](@ref), whose
+arrays are already the backend's, are returned themselves. See
+"Devices" in `CODE.md`.
+"""
+provider_on(::Backend, provider) = provider
+provider_on(::CPU, a::Analytic) = a
+provider_on(backend::Backend, a::Analytic) = Analytic(Adapt.adapt(backend, a.metric))
+
 """
     point_metric(provider, t, x::SVector{3}) -> Metric3
 

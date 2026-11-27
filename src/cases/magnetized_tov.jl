@@ -199,9 +199,9 @@ struct ConfinedField{T}
 end
 
 # `dα/du` of the tabulated metric inside the surface, from the Hermite interpolant.
-@inline function tov_dalpha_du(m::TOVMetric{T,NK}, u) where {T,NK}
+@inline function tov_dalpha_du(m::TOVMetric, u)
     ξ = u / m.Δu
-    k = clamp(floor(Int, ξ), 0, NK - 2)
+    k = clamp(floor(Int, ξ), 0, length(m.α) - 2)
     t = ξ - k
     Δ = m.Δu
     return @inbounds hermite_deriv(t, m.α[k + 1], Δ * m.dα[k + 1], m.α[k + 2],
