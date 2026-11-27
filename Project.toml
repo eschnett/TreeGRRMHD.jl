@@ -19,15 +19,16 @@ TreeIOHDF5 = "49af10b2-b28a-4989-bafa-527ac30d3246"
 # 1.11 feature, below the Julia floor (1.13; see "Julia version" in
 # `CODE.md`). IMEXRungeKutta 1.4 is the release the plan's steps 4a–4c ended
 # at. EntropyEOS 2.3 is the first release with the cold β-equilibrium slice
-# (EOS-4), which step 13 needs, and 2.4.2 the first whose warm `evaluate`
-# samples its bracket's ends only when needed (EOS-14), which the tabulated
-# star's cost assumes ("Upstream prerequisites" in `CODE.md`).
+# (EOS-4), which step 13 needs; 2.4.2 the first whose warm `evaluate`
+# samples its bracket's ends only when needed (EOS-14), and 2.4.3 the first
+# with `s_width_bound`, which `GeometricEOS` forwards; the tabulated star's
+# cost assumes both ("Upstream prerequisites" in `CODE.md`).
 [sources]
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
 Adapt = "4"
-EntropyEOS = "2.4.2"
+EntropyEOS = "2.4.3"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
 SpacetimeMetrics = "1.7"

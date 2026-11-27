@@ -2483,6 +2483,22 @@ average, at most about 550, about 0.8% of the star, while a cold recovery of `u�
 none, so the cells below the edge appear within a step, where every recovery but the first
 stage's predictor is warm; and each step's first recovery is cold, from `state_guesses`.
 
+**2026-11-27.** EntropyEOS 2.4.3 (EntropyEOS PR 20, its own proposal after the EOS-14
+measurement: `con2prim`'s residual called `evaluate_windowed` only to clamp the Newton's
+step in `s` to a quarter of the window): each table carries a lower bound on the window's
+width, a new optional interface method `s_width_bound` (default 0); a step within a
+quarter of it is taken without sampling the window, and the residual calls `evaluate`.
+Outputs are 2.4.2's bit for bit but for `iters` beyond the extended window. Measured
+before the release on its head (eb50ad1), with `GeometricEOS` forwarding the method,
+against 2.4.2 (study `window-bound-1`, `jobs/window-bound-*.toml`; DD2 star, M2, `Float64`,
+ns a cell, one run each): a step 269.3 → 257.9 on an H100 (job 1419867), 408.9 → 407.2 on a
+192-core Trillium node, 8 ranks of 24 threads (job 2943920), within the node's run-to-run
+variation of its phase rows (5–17%); the phase rows, cold recoveries outside a step, did not
+move on the H100. At Erik's request `[compat]` went to `"2.4.3"`, in the package and in
+`coupled/`, `GeometricEOS` forwards `s_width_bound`, and `test/units_tests.jl` checks the
+forward on the synthetic table (8.42 there; 0.545 on DD2), the only test that would notice
+it missing.
+
 ### SpacetimeMetrics
 
 **Step 2.** SM-1 was added in step 2; the 432 bytes per call of

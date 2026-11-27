@@ -205,10 +205,11 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.4.2"`: **EOS-1
+- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.4.3"`: **EOS-1
   and EOS-2 have landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since,
-  **EOS-4 in 2.3.0** and **EOS-14 in 2.4.2** (below); EOS-3, EOS-15 and
-  EOS-16 have not.
+  **EOS-4 in 2.3.0** and **EOS-14 in 2.4.2** (below), and 2.4.3 bounds the
+  entropy window's width (`s_width_bound`, EntropyEOS's own proposal); EOS-3,
+  EOS-15 and EOS-16 have not.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -494,8 +495,10 @@ TreeGRRMHD"; the request and its record:
 - **EOS-14 (landed, EntropyEOS 2.4.2)** A warm evaluation samples its
   temperature bracket's ends only when its solve heads for one: the face
   states' evaluations 21–27% cheaper ([Where a device's step
-  goes](#where-a-devices-step-goes)). `evaluate_windowed`, which the
-  recoveries call, still samples them.
+  goes](#where-a-devices-step-goes)). In 2.4.3 the recoveries' Newton reaches
+  it too: its residual calls `evaluate`, and it samples the entropy window
+  only for a step longer than a quarter of the table's `s_width_bound`, which
+  `GeometricEOS` forwards.
 - **EOS-15 (wanted; workaround)** The atmosphere decided without level 1:
   `apply_policy`'s decision for an input below the trigger, public, and its
   output without a level-1 output, for the skip of level 1 there
@@ -1186,10 +1189,14 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   the way in and `U_ρ`, `U_ρs` (once), `U_ρρ` (twice) and `p` (inversely)
   on the way out, the entropy windows are the inner EOS's at the scaled
   density, and the density bounds shift by its logarithm. It forwards
-  EntropyEOS's two optional methods too, `evaluate_windowed` and
-  `entropy_from_energy`, so that a table's own cheaper ones are reached ("Warm
-  starts" below has what their defaults cost), and `eos_on` uploads it to a
-  device ("Devices"). The recovery's
+  EntropyEOS's optional methods too, `evaluate_windowed`,
+  `entropy_from_energy` and `s_width_bound` (EntropyEOS 2.4.3; the window is
+  in `s`, which the density unit does not scale), so that a table's own
+  cheaper ones are reached ("Warm starts" below has what their defaults cost;
+  a missing `s_width_bound` gives the default 0, and the Newton samples the
+  window at every step with the same results, so only `test/units_tests.jl`'s
+  check of the method notices), and `eos_on` uploads it to a device
+  ("Devices"). The recovery's
   equations are homogeneous of degree one in the densities (`D`, `τ`, `S`,
   `B²`, `ρhW²` and `p` scale together), so `con2prim_safe`, `prim2con` and
   the atmosphere policy then run in geometric units unchanged, with no
@@ -1226,12 +1233,14 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   magnetized star's 0.70 and 1.08 µs. A seed with a rapidity (the step
   cache's, a stage iterate's) is a recovered state, inside the window, and is
   passed on unchanged. The cold seed is cheap on a table only because
-  `GeometricEOS` forwards EntropyEOS's two optional methods,
-  `entropy_from_energy` (one temperature solve) and `evaluate_windowed` (the
-  window from that solve's bracket): without them it took the generic
-  defaults, a bisection in `s` over the whole extended window with an
-  evaluation a step, 58–75 µs a cold seed on DD2 against 3.2–3.6, and two
-  more B-spline samples in every Newton residual. With a field the
+  `GeometricEOS` forwards EntropyEOS's optional methods: `entropy_from_energy`
+  (one temperature solve) and `evaluate_windowed` (the window from that
+  solve's bracket); without them it took the generic defaults, a bisection in
+  `s` over the whole extended window with an evaluation a step, 58–75 µs a
+  cold seed on DD2 against 3.2–3.6, and two more B-spline samples in every
+  Newton residual. Since EntropyEOS 2.4.3 the Newton calls `evaluate` and
+  samples the window only for a long step, by the table's `s_width_bound`,
+  also forwarded. With a field the
   zero-pressure velocity is a cubic's root, left to the cold seed, once a
   step for `IdealConductor`'s stage solve on a magnetized state.
   A warm start carried in `P` makes
@@ -4784,9 +4793,13 @@ jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `n
   `evaluate` but not `evaluate_windowed`: `face_fluxes` from 23.6 to 18.6 ns on the H100
   and from 52.8 to 38.4 on a 192-core node (8 ranks of 24 threads), a step from 281.2 to
   268.5 and from 447.3 to 406.8 (Trillium jobs 1419587, 2942609; M2, one job each, 2.4.1
-  then 2.4.2). The recoveries, the stage solve and the reset, which call
-  `evaluate_windowed`, are unchanged; a lower bound on a table's window width would let
-  them skip the ends too (proposed by EntropyEOS, open).
+  then 2.4.2); the recoveries, which then called `evaluate_windowed`, were unchanged.
+  EntropyEOS 2.4.3 gives a table a lower bound on its entropy window's width
+  (`s_width_bound`), so the recoveries' Newton calls `evaluate` and samples the window
+  only for a long step: a step from 269.3 to 257.9 ns on the H100, where a warm recovery
+  is most of a step, and on the 192-core node 408.9 against 407.2, within the node's
+  noise (jobs 1419867, 2943920; measured on the release's commit, eb50ad1, against 2.4.2).
+  The phase rows, cold recoveries outside a step, do not move, as EntropyEOS measured.
 
 Ideal MHD would gain little: the same DD2 step under the purely explicit SSPRK(3,3), with
 no stage solve and three resets — what an ideal scheme on this right-hand side would run —
@@ -5021,10 +5034,11 @@ it names has the reasons.
   - The warm-start guesses of `con2prim`/`con2prim_safe` are
     **positional**, although the docstrings show keywords.
   - An EOS wrapper forwards **every** method of EntropyEOS's interface,
-    the two optional ones included (`evaluate_windowed`,
-    `entropy_from_energy`): a missing one falls back to a generic default,
-    silently and many times slower for a table ("Thermodynamics", "Warm
-    starts").
+    the optional ones included (`evaluate_windowed`,
+    `entropy_from_energy`, `s_width_bound`): a missing one falls back to a
+    generic default, silently and many times slower for a table, with the
+    same results, so only a test of the method itself notices
+    ("Thermodynamics", "Warm starts").
   - EntropyEOS's two levels, `con2prim_safe` (the projection, onto
     `ProjectionOptions`) and `apply_policy` (the atmosphere, with
     `PolicyOptions`), are called in `src/con2prim.jl` only, the second
