@@ -7353,3 +7353,11 @@ density, the EOS-13 probe removed, its new testset): **38428 tests, every run pa
 whole** with the tables (Symmetry job 613620 on cn096, EPYC 7543, `amddebugq`; study
 `full-suite-6c4522075c1f`, not posted) — 38m04s at one thread, 26m39s at four, 46m47s with
 `--check-bounds=yes`, side by side.
+
+**2026-11-26, step 20.** At 8697f7b (the composition in the kernels, neutrino checkpoints,
+the hot star, the shell luminosity, the DD2 stars with neutrinos, the hot star in the device
+tests): **38754 tests, every run passing whole** with the tables (Symmetry job 614143 on
+cn103, EPYC 7543, `amddebugq`; study `full-suite-8697f7b07b08`, not posted) — 44m11s at one
+thread, 29m26s at four, 55m29s with `--check-bounds=yes`, side by side: the bounds-checked
+run is within five minutes of `amddebugq`'s hour on Zen 3. The step-20 testsets gave the
+laptop's numbers on x86 (the stars' totals and central temperatures to every printed digit).
