@@ -107,6 +107,7 @@ rather than diverging silently.
   - [Devices](#devices)
   - [The per-phase table](#the-per-phase-table)
   - [The tabulated star's cost](#the-tabulated-stars-cost)
+  - [Where a device's step goes](#where-a-devices-step-goes)
 - [Running distributed](#running-distributed)
   - [The communicator](#the-communicator)
   - [What this package makes global](#what-this-package-makes-global)
@@ -3053,7 +3054,8 @@ The kernels dispatch on a metric provider:
 - `Flat()` — Minkowski, all `D`, no storage.
 - `Analytic(m::SpacetimeMetrics.AbstractMetric)` — evaluated at the point
   (cell, face, edge or vertex), all `D`; the Kerr-Schild tests, and the
-  Cowling TOV star as `Analytic(TOVMetric)`.
+  Cowling TOV star as `Analytic(TOVMetric)`, whose tables `provider_on`
+  uploads to a device ("Devices").
 - `VertexMetric`, a producer's metric in [the coupling
   contract](#the-coupling-contract): this package's own 16-variable vertex
   set `Mv`, its owned vertices copied from a producer's ADM adapter —
@@ -4468,7 +4470,8 @@ recoveries, 304 of 304, in 15 minutes; the Cowling star at the default size to `
 (5.7·10⁻¹⁵ of it), in 1305 s against 13048 s on that node's 8 Xeon Gold 6442Y cores
 (`jobs/tov-cowling-device.toml`). At `Float32` the same run takes 771 s on the H200 and
 stays within 3.0·10⁻⁵ of `ρ_c` of the `Float64` run at every `10 M`, as Metal's does.
-`TOVMetric`'s 4176 bytes of kernel parameters pass on both.
+These runs took `TOVMetric`'s tables by value, 4176 bytes of kernel parameters, which both
+devices pass; the kernels now read them from device arrays (below).
 
 **The recovery on a device.** Both recoveries run on both devices: the fused kernels, which
 call EntropyEOS's two levels in one kernel, pass on CUDA.jl 6.4.2, the version of the fault
@@ -4499,6 +4502,34 @@ are equal, at `Float32` they differ by 7 and 1 of 2·10⁶ (a block's share is 1
 the same 386 on each rank of two H200s under MPI (`jobs/device-mpi.toml`, job 611272). On
 Apple's M3 Pro (Metal, `Float32`) 194 of 194, the central density within 5·10⁻⁸ of the
 host's and the reset counts equal.
+
+**A metric's tables on a device.** A provider is a kernel argument, taken by value, and a
+GPU thread that indexes an argument's array at run time first copies the whole argument
+into its own local memory. `Analytic(TOVMetric)` holds four tables of 129 knots (4.1 KB),
+indexed by the radius in every `point_metric`, so every thread of every kernel that
+evaluates the metric copied 4.1 KB, at every launch: Nsight Compute showed 600–1400 local
+stores a thread against 20–300 local loads in each of the right-hand side's kernels, and
+the EMF kernel's DRAM 82% busy with nothing else. So `TOVMetric{T,V,E}` is generic over its
+tables' storage, `SVector{NK,T}` as built (`StaticTOVMetric`), and `provider_on(backend,
+provider)` (`src/metric.jl`, beside `Analytic`) uploads an `Analytic` metric's tables once,
+in `MHDProblem`, as `eos_on` uploads a table: through `TOVMetric`'s `Adapt` rule, which
+copies static tables to a backend's arrays and adapts device arrays to their device views
+for a kernel. The CPU keeps the provider itself, so the host's bits are unchanged; `Flat`,
+`VertexMetric` and an `isbits` metric (`KerrSchild`) come back as they were. The hooks and
+the initial data still take the case's fields by value, the star's metric in them
+included: they run on the boundary or once. Measured on an H100 (Trillium, jobs 1418588
+and 1418794, `bin/benchmark.jl`, M2 of "The tabulated star's cost", `Float64`, ns a cell):
+
+| case | rhs, by value | rhs, uploaded | step, by value | step, uploaded |
+| --- | ---: | ---: | ---: | ---: |
+| Γ = 2 polytrope (`tov`) | 46.0 | 17.7 | 303.0 | 191.6 |
+| DD2 star (`dd2`) | 76.7 | 47.9 | 394.5 | 279.7 |
+
+The EMF kernel went from 7.4 to 1.0 ms and its local stores from 592 to 83 a thread, the
+flux kernels from 8.3 to 3.1 ms. The device tests pass on the H100, 386 of 386 (job
+1418802), and on Metal, 154 of 154. What is left of local memory (the recovery's two
+passes, the gauge kernel: 800–1700 operations a thread at 251–255 registers) is register
+pressure, not a copy ([Where a device's step goes](#where-a-devices-step-goes)).
 
 **One construct crashes Metal's compiler**: a kernel's sum over the present directions
 written `sum(ntuple(j -> f(…, Val(j)), Val(D)))`, with the `Val` built from the closure's
@@ -4692,7 +4723,9 @@ Trillium / Fir):
   on 8 nodes or more takes `mpi = "jll"`.
 
 **On an H200** (`jobs/perf-gpu.toml`, Symmetry job 611277, cn113; ns per cell, the best of
-three; "PR 16" with the device fixes alone, which it needs to run a table at all):
+three; "PR 16" with the device fixes alone, which it needs to run a table at all; measured
+with the metric's tables taken by value, which cost an H100 1.4 times a step of this star,
+"Devices"):
 
 | mesh | recovery | recover | face_fluxes | rhs | stage_solve | reset | step |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -4718,6 +4751,43 @@ three; "PR 16" with the device fixes alone, which it needs to run a table at all
   `bin/profile.jl backend=cuda`): the recovery's first pass is 24% of the device's time
   and its second 5%, the face fluxes 22%, the primitives' ghosts 8%; the ghost exchange's
   copies, some 30,000 launches of 2–8 µs, 3%.
+
+### Where a device's step goes
+
+Against GRaM-X, a step here is slow: one H100 takes 192 ns a cell for the polytrope and
+280 for the DD2 star (Cowling, `Float64`, M2; "Devices"), 5.2 and 3.6·10⁶ cell updates a
+second, where GRaM-X reports 4.7·10⁷ a second for an ideal gas under RK2 and 2.6·10⁷ for a
+table under RK4 on one V100 (Shankar et al. 2022, arXiv:2210.17509, Sec. V A), on a device
+with about a quarter of an H100's memory bandwidth. A right-hand side is not the gap: the
+polytrope's takes 17.7 ns a cell, GRaM-X's about 11 on the V100. What a step adds is, by
+Nsight Compute on one right-hand side and CUDA.jl's profile of a step (Trillium, H100,
+jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `ncu`):
+
+- **Registers.** Every kernel of a right-hand side holds 96–255 registers a thread (the
+  fluxes 166–170, the recovery's passes and the gauge kernel 251–255), so 2–4 warps of a
+  scheduler's 16 can be resident: 12.5–25% theoretical occupancy, 6–23% achieved, the
+  SMs 10–35% busy. The kernels at the limit spill, 800–1700 local operations a thread.
+  Smaller kernels or less state live at once are what is left to gain here (open).
+- **Recoveries.** A step recovers every cell about eleven times — three right-hand sides,
+  four stage solves (`IdealConductor`'s ideal recovery), four resets — where an explicit
+  RK4 recovers four times; on the polytrope the recovery's two passes were 43% of the
+  device's time in a step, measured with the metric's tables by value (they are more of
+  it now). The second pass (`finish_kernel!`) runs over every owned cell and is done by the
+  few that need it, 5 threads of a warp active: it was 21% of the step (uncompacted, "The
+  two-phase recovery").
+- **The step beyond its phases.** The polytrope's step is 192 ns where its three
+  right-hand sides, four stage solves and four resets, each timed alone, add to 101: the
+  recoveries inside a step, seeded from the step cache, are more of them second passes
+  than the phases' cold ones.
+- **The table.** On the DD2 star the face states' EOS evaluations make `face_fluxes`
+  11 times the polytrope's (23.5 against 2.1 ns), a step 1.46 times; on one CPU thread the
+  evaluations are 64% of a step, half of it the bracket's ends (EOS-14).
+
+Ideal MHD would gain little: the same DD2 step under the purely explicit SSPRK(3,3), with
+no stage solve and three resets — what an ideal scheme on this right-hand side would run —
+is 1.13–1.17 times faster on the H100 and on a 192-core node (`bin/benchmark.jl
+explicit=true`; `jobs/ideal-step-*.toml`; measured before the upload, 395 against 339 ns on
+the H100). The resistive formulation is not why a step is slow.
 
 ## Running distributed
 
@@ -5024,9 +5094,11 @@ it names has the reasons.
   distributed").
 - **A table on a device** ("Devices"). An EOS reaches a kernel through
   `eos_on` (uploaded once, at `MHDProblem` and the case's initial data, hooks
-  and interior); a struct that carries one into a kernel needs an `Adapt`
-  rule; and a kernel's arguments stay under CUDA's 32 KiB, so a hook carries
-  only what it reads.
+  and interior), and an analytic metric's tables through `provider_on` (at
+  `MHDProblem`); a struct that carries one into a kernel needs an `Adapt`
+  rule; a table a kernel indexes at run time is never a kernel argument by
+  value, or every GPU thread copies it; and a kernel's arguments stay under
+  CUDA's 32 KiB, so a hook carries only what it reads.
 - **A script picks the integrator's partition from the state**:
   `partition = u isa Array ? :even : nothing`, as `mhd_integrator` does;
   `:even` on a device array is refused ("Precision and devices").

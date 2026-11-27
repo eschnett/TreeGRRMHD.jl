@@ -5316,6 +5316,34 @@ found and changed:
   scales smoothly (`CODE.md`, "The tabulated star's cost"); the per-rank imbalance of the
   recovery is the same at both. `jobs/perf-mpi-nodes.toml` now runs 1, 2 and 4 nodes.
 
+- **The metric's tables uploaded** (2026-11-26). Asked how this package's speed compares
+  with GRaM-X's, Claude set the published numbers (Shankar et al. 2022, Sec. V: 2.6·10⁷
+  cell updates a second for a table under RK4 on one V100; AsterX, Kalinani et al. 2024,
+  Table 2, 2.7·10⁷ on one MI250X die) against the DD2 star's 352–376 ns a cell on an H200,
+  about 9 times slower a device and 40–50 times a unit of hardware. Erik asked first what
+  ideal MHD would gain: `bin/benchmark.jl explicit=true` times the same step under the
+  purely explicit SSPRK(3,3) (no stage solve, three resets), which on Trillium (study
+  `ideal-step-1`, Trillium was the least busy of Symmetry, Fir and Trillium that day) gave
+  454.5 against 402.3 ns a cell on a 192-core node (8 ranks of 24 threads, job 2941366) and
+  394.5 against 338.6 (split recovery) and 362.9 against 322.1 (fused) on an H100 (job
+  1418476), 1.13–1.17 times; M3 ran out of the H100's 80 GB. Then why a step is slow:
+  Nsight Compute on one right-hand side (studies `why-slow-2`, `why-slow-3`; `bin/profile.jl
+  external=true`) found every kernel register-bound (12.5–25% occupancy) and storing
+  600–1400 values a thread to local memory against 20–300 loads — the signature of an
+  argument copied to the stack — and the EMF kernel's DRAM 82% busy on it. Shrinking
+  `TOVMetric`'s tables from 129 knots to 9 (`NK=9`, a key `bin/benchmark.jl` and
+  `bin/profile.jl` gained for it) took the polytrope's right-hand side from 46.0 to 18.3 ns
+  a cell and its step from 303.0 to 193.4, the DD2 star's step from 394.5 to 276.8 (jobs
+  1418588, 1418650). So the tables are now uploaded once (`provider_on`, `CODE.md`,
+  "Devices"): at 129 knots the polytrope's right-hand side is 17.7 ns and its step 191.6,
+  the DD2 star's 47.9 and 279.7, the magnetized star's step 356.9 on 8.8·10⁵ cells (job
+  1418794); the device tests pass on the H100 (386 of 386, job 1418802) and on Metal (154
+  of 154), the quick tier at four threads on the laptop (26799 passed, 7 broken as
+  before). Also measured, at 129 knots by value: the polytrope's step 303.0 ns at
+  `Float64`, 147.7 at `Float32`; the DD2 star's 275.1 at `Float32`; on one laptop thread
+  (N = 8) the table makes a right-hand side 4.8 times the polytrope's. What remains is in
+  `CODE.md`, "Where a device's step goes".
+
 ## Validation ladder
 
 **2026-10-14, step 5 — The staggered scheme in 1D: smooth problems (rung 1a).**
