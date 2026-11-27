@@ -11,13 +11,6 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 TreeIOHDF5 = "49af10b2-b28a-4989-bafa-527ac30d3246"
 
-# TreeAMR 0.3 (M22, closed blocks) and the TreeIOHDF5 that takes it are on
-# branches of the checkouts beside this one, not yet released: take them
-# from there, and replace these two entries by the releases once there are.
-[sources]
-TreeAMR = {path = "../../TreeAMR"}
-TreeIOHDF5 = {path = "../../TreeIOHDF5"}
-
 [compat]
 ForwardDiff = "1"
 MPI = "0.20"
