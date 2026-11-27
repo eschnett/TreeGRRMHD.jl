@@ -1,0 +1,40 @@
+# The current step on one GPU, for the comparison with GRaM-X ("Where a device's step goes"
+# in `CODE.md`): `bin/benchmark.jl` on M2 (960 blocks, 3.9·10⁶ cells) for the DD2 star and
+# the Γ = 2 polytrope at `Float64` and `Float32`, the DD2 star with both recoveries, and the
+# magnetized star (rung 6) on its own mesh; `explicit=true` adds the ideal-MHD-like step.
+name = "perf-current-gpu"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.symmetry]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[[run]]
+label = "dd2-f64"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "dd2-f64-fused"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 two_phase=false"
+
+[[run]]
+label = "dd2-f32"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda type=f32 L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "tov-f64"
+cmd = "bin/benchmark.jl case=tov backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "tov-f32"
+cmd = "bin/benchmark.jl case=tov backend=cuda type=f32 L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "star-f64"
+cmd = "bin/benchmark.jl case=star backend=cuda L=12 roots=3 levels=1 reps=3"

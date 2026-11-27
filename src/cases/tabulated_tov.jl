@@ -28,8 +28,8 @@ atmosphere `(ρ_atm, s_atm, Yₑ_atm)`, the slice's state at `ρ_min`. See
 `src/cases/tabulated_tov.jl`.
 """
 struct TabulatedTOVStar{T,NK,NC}
-    metric::TOVMetric{T,NK,Nothing}
-    provider::Analytic{TOVMetric{T,NK,Nothing}}
+    metric::StaticTOVMetric{T,NK,Nothing}
+    provider::Analytic{StaticTOVMetric{T,NK,Nothing}}
     comp::TOVComposition{T,NC}
     ρ_atm::T
     s_atm::T

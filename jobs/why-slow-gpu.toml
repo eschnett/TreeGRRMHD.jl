@@ -1,0 +1,70 @@
+# Why a step is slower than GRaM-X's on a device: the DD2 star against the Γ = 2 polytrope
+# of rung 4 (`case=tov`, the same scheme, `IdealConductor` with `B = 0`, an analytic EOS)
+# on M2 (960 blocks, 3.9·10⁶ cells), at `Float64` and `Float32` (`bin/benchmark.jl`); and
+# Nsight Compute's view of one right-hand side's kernels in each (`bin/profile.jl
+# external=true`): registers, occupancy, throughput against the device's peaks, warp stalls
+# and local-memory traffic (spills). The ghost exchange's small kernels are left out.
+name = "why-slow-gpu"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "bench-tov-f64"
+cmd = "bin/benchmark.jl case=tov backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "bench-tov-f32"
+cmd = "bin/benchmark.jl case=tov backend=cuda type=f32 L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "bench-dd2-f32"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda type=f32 L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "ncu-dd2"
+cmd = "bin/profile.jl case=dd2 backend=cuda L=24 roots=4 levels=2 phase=rhs steps=1 external=true"
+prefix = ["/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v3/Core/cudacore/12.9.1/nsight-compute-2025.2.1/ncu",
+          "--profile-from-start", "off", "--target-processes", "all",
+          "--kernel-name", "regex:flux|start|finish|ghost|primitive|emf|rhs_kernel",
+          "--print-kernel-base", "function",
+          "--section", "LaunchStats", "--section", "Occupancy", "--section", "SpeedOfLight",
+          "--section", "ComputeWorkloadAnalysis", "--section", "WarpStateStats",
+          "--metrics", "smsp__sass_inst_executed_op_local_ld.sum,smsp__sass_inst_executed_op_local_st.sum,smsp__sass_thread_inst_executed_op_dfma_pred_on.sum,smsp__sass_thread_inst_executed_op_dadd_pred_on.sum,smsp__sass_thread_inst_executed_op_dmul_pred_on.sum,smsp__thread_inst_executed_per_inst_executed.ratio"]
+
+[[run]]
+label = "ncu-tov"
+cmd = "bin/profile.jl case=tov backend=cuda L=24 roots=4 levels=2 phase=rhs steps=1 external=true"
+prefix = ["/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v3/Core/cudacore/12.9.1/nsight-compute-2025.2.1/ncu",
+          "--profile-from-start", "off", "--target-processes", "all",
+          "--kernel-name", "regex:flux|start|finish|ghost|primitive|emf|rhs_kernel",
+          "--print-kernel-base", "function",
+          "--section", "LaunchStats", "--section", "Occupancy", "--section", "SpeedOfLight",
+          "--section", "ComputeWorkloadAnalysis", "--section", "WarpStateStats",
+          "--metrics", "smsp__sass_inst_executed_op_local_ld.sum,smsp__sass_inst_executed_op_local_st.sum,smsp__sass_thread_inst_executed_op_dfma_pred_on.sum,smsp__sass_thread_inst_executed_op_dadd_pred_on.sum,smsp__sass_thread_inst_executed_op_dmul_pred_on.sum,smsp__thread_inst_executed_per_inst_executed.ratio"]
+
+[[run]]
+label = "prof-tov-step"
+cmd = "bin/profile.jl case=tov backend=cuda L=24 roots=4 levels=2 steps=4"
+
+[[run]]
+label = "bench-tov-nk9"
+cmd = "bin/benchmark.jl case=tov backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true NK=9"
+
+[[run]]
+label = "bench-dd2-nk9"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true NK=9"
+
+[[run]]
+label = "ncu-tov-nk9"
+cmd = "bin/profile.jl case=tov backend=cuda L=24 roots=4 levels=2 phase=rhs steps=1 external=true NK=9"
+prefix = ["/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v3/Core/cudacore/12.9.1/nsight-compute-2025.2.1/ncu",
+          "--profile-from-start", "off", "--target-processes", "all",
+          "--kernel-name", "regex:flux|start|finish|ghost|primitive|emf|rhs_kernel",
+          "--print-kernel-base", "function",
+          "--section", "LaunchStats", "--section", "Occupancy", "--section", "SpeedOfLight",
+          "--section", "ComputeWorkloadAnalysis", "--section", "WarpStateStats",
+          "--metrics", "smsp__sass_inst_executed_op_local_ld.sum,smsp__sass_inst_executed_op_local_st.sum,smsp__sass_thread_inst_executed_op_dfma_pred_on.sum,smsp__sass_thread_inst_executed_op_dadd_pred_on.sum,smsp__sass_thread_inst_executed_op_dmul_pred_on.sum,smsp__thread_inst_executed_per_inst_executed.ratio"]

@@ -145,6 +145,10 @@ end
     @test κ < 1                                   # the synthetic table re-zeroes
     @test EOSUnits(g).κ == κ
     @test EOSUnits(g).density == f
+    # The optional `s_width_bound` (EntropyEOS 2.4.3) reaches the table's: a missing forward
+    # gives the default 0, the Newton then samples the window every step, and no result
+    # changes, so only this notices it.
+    @test UNITS_EOS.s_width_bound(g) == UNITS_EOS.s_width_bound(view) > 0
 
     opts = UNITS_EOS.Con2PrimOptions{Float64}()
     (; proj, pol) = recovery_options(g, 1e7 / f)

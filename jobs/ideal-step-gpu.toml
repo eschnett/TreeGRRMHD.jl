@@ -1,0 +1,30 @@
+# What ideal MHD would save a step, on one device: the DD2 star (`bin/benchmark.jl
+# case=dd2`, under `IdealConductor` with `B = 0`) timed as the IMEX step, SSP3(4,3,3) with
+# its four stage solves and four resets, and as `step_explicit`, the same right-hand side
+# under the purely explicit SSPRK(3,3) at the same `Δt` (`explicit=true`). At `Float64` on
+# 960 blocks (3.9·10⁶ cells, both recoveries) and on 6056 (`[−48, 48]³`, 8³ roots, three
+# box levels, 2.5·10⁷ cells), as `perf-gpu.toml`'s M2 and M3; the runs one after another.
+name = "ideal-step-gpu"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.symmetry]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[[run]]
+label = "m2"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "m2-fused"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 two_phase=false explicit=true"
+
+[[run]]
+label = "m3"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=48 roots=8 levels=3 reps=3 explicit=true"

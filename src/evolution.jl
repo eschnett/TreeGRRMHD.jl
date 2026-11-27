@@ -310,6 +310,7 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
                               nothing, 3)
     backend = get_backend(f.U.work)
     eos = eos_on(backend, eos)                       # a table's arrays where the kernels run
+    provider = provider_on(backend, provider)        # and the metric's
     two_phase = something(two_phase, !(backend isa CPU))
     forest = f.U.forest
     origins = to_backend(backend, block_origins(forest, T))

@@ -1176,8 +1176,8 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
-| EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | waiting |
-| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `apply_policy` without a level-1 output | waiting |
+| EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | landed in EntropyEOS 2.4.2; `[compat]` `"2.4.2"` |
+| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `policy_atmosphere` | landed in EntropyEOS 2.5.0; `[compat]` `"2.5"`, workaround dropped |
 | EOS-16 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
 | GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
@@ -2429,6 +2429,142 @@ cited so in EntropyEOS's `HISTORY.md`, and EOS-13 for the nucleons' own chemical
 potentials. At Erik's request the performance work's moved: the atmosphere decided
 without level 1 is EOS-15, the state below the cold edge EOS-16; EOS-14, the evaluation
 without its bracket's ends, kept its ID.
+
+**2026-11-26.** EOS-14 landed in EntropyEOS 2.4.2 (EntropyEOS PR 19, registered in
+General): a warm `evaluate` samples its bracket's ends only when the solve heads for one,
+its output 2.4.1's bit for bit but for `iters` where the entropy lies outside the extended
+window; `evaluate_windowed` is unchanged. Measured before the release, with EntropyEOS
+pinned to the merge commit (d2829e4) beside 2.4.1 in one job each (study `eos14-1`,
+`jobs/eos14-*.toml`; DD2 star, M2, `Float64`, ns a cell): `face_fluxes` 23.6 → 18.6 on an
+H100 and 52.8 → 38.4 on a 192-core Trillium node (8 ranks of 24 threads), the right-hand
+side 48.2 → 43.5 and 113.6 → 99.7, a step 281.2 → 268.5 and 447.3 → 406.8 (Trillium jobs
+1419587, 2942609); `recover`, `stage_solve` and `reset`, through `evaluate_windowed`,
+unchanged. At Erik's request `[compat]` went to `"2.4.2"`, in the package and in
+`coupled/`, and the EOS-14 entry left `test/prerequisite_tests.jl`'s performance-only list.
+The request as it was written:
+
+> **Why.** `evaluate(eos, ρ, s, yₑ, u_guess)` on a table solves `s(x, u, y) = s`
+> for the log-temperature `u` (`solve_u`), and samples both ends of the
+> extended bracket first, before its warm start is used: two of the five or so
+> B-spline samples of a warm evaluation, whose result (the entropy window)
+> only `evaluate_windowed`'s callers read. On the DD2 star the face states
+> and the ghosts' `P` are a little over half of a step and spend half of their
+> `solve_u` on those two samples (the profile of `bin/profile.jl`).
+>
+> **API.** None new: `evaluate` faster.
+>
+> **Semantics.** From a warm start, `solve_u` iterates first and samples an
+> end of the bracket only when an iterate leaves it or the iteration stalls;
+> the same converged `u` to the solver's tolerance, the same flags.
+> `evaluate_windowed` keeps its window.
+>
+> **Upstream acceptance.** `evaluate` on a real table at random states, from
+> cold and from warm starts at several distances, agrees with today's to the
+> solve's tolerance, with the samples counted.
+>
+> **Downstream check.** None by `hasmethod`; `bin/benchmark.jl case=dd2`'s
+> `face_fluxes` and `fill_primitives` rows.
+
+**2026-11-26, later.** EntropyEOS accepted EOS-15 with four changes, and Erik accepted them
+for this package: the lower bound is `ρ_min·(1 − face_slack)`, since between it and `ρ_min`
+level 1 still solves (the request and "The two levels" had said it decides by `D` alone
+below `ρ_min`); the atmosphere keeps the `YE_FLOORED`/`YE_CEILED` bit that
+`clamp_yₑ(D_Y/D)` sets without a solve; a named `policy_atmosphere(eos, in, proj, pol)`
+replaces `apply_policy(…, nothing, …)`; and its output reports `converged_newton`, no
+iterations, `solved = false`, as level 1's `ρ_FLOOR` and `ρ_CEIL` branches do, where the
+workaround's `nan_safe_out` said `failed_max_iter`. This package added to the request that
+both functions be kernel-safe at `Float32` and `Float64` and use only interface methods an
+EOS wrapper already forwards. Nothing here reads `base.result` or `solved`, and no test
+expects the atmosphere's flags to be `ATMOSPHERE` alone. EntropyEOS also restated EOS-16's
+mechanism (the Newton never clamps `s`; the temperature solve pins at `u_ext_lo`) and asked
+two questions: on the DD2 star over 50 M (`bin/s_floors.jl`, Trillium job 2942711, 873
+steps on M1) the step limiter floors the entropy on 362 non-atmosphere cells a step on
+average, at most about 550, about 0.8% of the star, while a cold recovery of `uⁿ⁺¹` finds
+none, so the cells below the edge appear within a step, where every recovery but the first
+stage's predictor is warm; and each step's first recovery is cold, from `state_guesses`.
+
+**2026-11-27.** EntropyEOS 2.4.3 (EntropyEOS PR 20, its own proposal after the EOS-14
+measurement: `con2prim`'s residual called `evaluate_windowed` only to clamp the Newton's
+step in `s` to a quarter of the window): each table carries a lower bound on the window's
+width, a new optional interface method `s_width_bound` (default 0); a step within a
+quarter of it is taken without sampling the window, and the residual calls `evaluate`.
+Outputs are 2.4.2's bit for bit but for `iters` beyond the extended window. Measured
+before the release on its head (eb50ad1), with `GeometricEOS` forwarding the method,
+against 2.4.2 (study `window-bound-1`, `jobs/window-bound-*.toml`; DD2 star, M2, `Float64`,
+ns a cell, one run each): a step 269.3 → 257.9 on an H100 (job 1419867), 408.9 → 407.2 on a
+192-core Trillium node, 8 ranks of 24 threads (job 2943920), within the node's run-to-run
+variation of its phase rows (5–17%); the phase rows, cold recoveries outside a step, did not
+move on the H100. At Erik's request `[compat]` went to `"2.4.3"`, in the package and in
+`coupled/`, `GeometricEOS` forwards `s_width_bound`, and `test/units_tests.jl` checks the
+forward on the synthetic table (8.42 there; 0.545 on DD2), the only test that would notice
+it missing.
+
+**2026-11-27, later.** EOS-15 landed in EntropyEOS 2.5.0 (EntropyEOS PR 21) as accepted,
+with one addition: `policy_decides` is also false above level 1's density ceiling,
+`ρ_max·cosh(w_cap)·(1 + face_slack)`, where level 1 decides by `D` alone, which matters only
+for an `atm_trigger` above `ρ_max·cosh(w_cap)/ρ_min`. At Erik's request the workaround went
+(this package's `policy_decides`, which read the unexported `proj_ρ_min` and
+`pol_atm_trigger`, and the `nan_safe_out` placeholder): `two_levels` asks
+`EntropyEOS.policy_decides` and takes `policy_atmosphere`, the two-phase recovery's first
+pass leaves those cells out of the second and the third asks again, and `[compat]` went to
+`"2.5"`, in the package and in `coupled/`. What changes downstream: the cells between
+`ρ_min·(1 − face_slack)` and `ρ_min` skip the solve too, and the skipped cells' flags carry
+the `YE` bit and their `base.result` reads `converged_newton`; the states are the same. The
+EOS-15 probe was retired and the two names joined `test/prerequisite_tests.jl`'s list.
+Measured after the switch (study `perf-current-1`, `jobs/perf-current-*.toml`; M2, H100,
+job 1425194): the polytrope's step from 191.6 to 84.9 ns a cell, the DD2 star's from 257.9
+(EntropyEOS 2.4.3's head) to 188.4. The cause is the lower bound: after one step 14% of the
+polytrope's cells (68160 of 491520 on M2's mesh at `N = 8`, all atmosphere) have `D` just below
+`ρ_min`, inside `[ρ_min·(1 − face_slack), ρ_min)`, which the workaround's bound `ρ_min` still
+sent to a solve and to the uncompacted second pass. A 192-core Trillium node (job 2951444):
+the DD2 star 399.5 ns, the polytrope 192.9. The request as it was last written
+(2026-11-26):
+
+> **Why.** `apply_policy` sends every finite input with `D < atm_trigger·ρ_min`
+> to the atmosphere whatever level 1 returned, and on a table such inputs are
+> most of a run's atmosphere and its dearest recoveries (EOS-16). A caller
+> that skips level 1 there needs the decision and the output EntropyEOS's own
+> call would give, without its unexported internals.
+>
+> **API** (exported; as EntropyEOS proposed it and Erik accepted, 2026-11-26).
+> ```julia
+> policy_decides(eos, in::Con2PrimIn, proj::ProjectionOptions, pol::PolicyOptions) -> Bool
+> policy_atmosphere(eos, in, proj, pol) -> Con2PrimSafeOut   # meaningful where policy_decides
+> ```
+>
+> **Semantics.**
+> - `policy_decides` is true exactly where `apply_policy` writes the atmosphere
+>   for every level-1 output, and level 1 would run a solve: a finite input,
+>   `B² ≥ 0`, `proj_ρ_min·(1 − face_slack) ≤ D < pol_atm_trigger·proj_ρ_min`
+>   (below that level 1 decides by `D` alone, without a solve).
+> - `policy_atmosphere` there returns the state `apply_policy` writes after
+>   `con2prim_safe`, bit for bit — the state, `cons` and the `EOSPoint` — with
+>   `policy_flags = ATMOSPHERE` plus the `YE_FLOORED` or `YE_CEILED` that
+>   `clamp_yₑ(D_Y/D)` sets (no solve needed), and, as level 1's own `ρ_FLOOR`
+>   and `ρ_CEIL` branches, `base.result = converged_newton`, no iterations,
+>   `solved = false`. Outside `policy_decides` it is unspecified but does not
+>   throw.
+> - Both are `@inline`, allocation-free and non-throwing, generic over `T`, and
+>   run in a GPU kernel on an `EOSTableView`; they call only interface methods
+>   an EOS wrapper already forwards (or the request names any new one).
+>
+> **Upstream acceptance.** On random inputs either side of both bounds, where
+> `policy_decides`, the state, `cons` and the `EOSPoint` equal
+> `apply_policy(con2prim_safe(…))`'s bit for bit and the flags are as above;
+> elsewhere it is false. Both evaluated in a kernel (or isbits-only) at
+> `Float32` and `Float64`.
+>
+> **Downstream check.** `policy_decides` and `policy_atmosphere` exported.
+>
+> **Workaround** (marked `EOS-15` in `src/con2prim.jl`, `policy_decides`
+> and its two callers): the bounds from the unexported `proj_ρ_min` and
+> `pol_atm_trigger`, and `apply_policy` on the unexported `nan_safe_out(T)`,
+> whose `policy_flags` are 0. Only for the skip of level 1 in "The two levels"
+> ("Primitive recovery"); without it, nothing. Its lower bound is `ρ_min`, not
+> `ρ_min·(1 − face_slack)`, so in that band (10⁻⁷ of `ρ_min` wide at `Float64`) level 1
+> still solves before the policy discards it; the state is the same either way. On
+> landing, the workaround goes; the hand-off's third pass then checks `policy_decides`
+> again and takes `policy_atmosphere`'s output without `apply_policy`.
 
 ### SpacetimeMetrics
 
@@ -5315,6 +5451,34 @@ found and changed:
   was measured again on Trillium and Fir, where 8 nodes run under Open MPI and a step
   scales smoothly (`CODE.md`, "The tabulated star's cost"); the per-rank imbalance of the
   recovery is the same at both. `jobs/perf-mpi-nodes.toml` now runs 1, 2 and 4 nodes.
+
+- **The metric's tables uploaded** (2026-11-26). Asked how this package's speed compares
+  with GRaM-X's, Claude set the published numbers (Shankar et al. 2022, Sec. V: 2.6·10⁷
+  cell updates a second for a table under RK4 on one V100; AsterX, Kalinani et al. 2024,
+  Table 2, 2.7·10⁷ on one MI250X die) against the DD2 star's 352–376 ns a cell on an H200,
+  about 9 times slower a device and 40–50 times a unit of hardware. Erik asked first what
+  ideal MHD would gain: `bin/benchmark.jl explicit=true` times the same step under the
+  purely explicit SSPRK(3,3) (no stage solve, three resets), which on Trillium (study
+  `ideal-step-1`, Trillium was the least busy of Symmetry, Fir and Trillium that day) gave
+  454.5 against 402.3 ns a cell on a 192-core node (8 ranks of 24 threads, job 2941366) and
+  394.5 against 338.6 (split recovery) and 362.9 against 322.1 (fused) on an H100 (job
+  1418476), 1.13–1.17 times; M3 ran out of the H100's 80 GB. Then why a step is slow:
+  Nsight Compute on one right-hand side (studies `why-slow-2`, `why-slow-3`; `bin/profile.jl
+  external=true`) found every kernel register-bound (12.5–25% occupancy) and storing
+  600–1400 values a thread to local memory against 20–300 loads — the signature of an
+  argument copied to the stack — and the EMF kernel's DRAM 82% busy on it. Shrinking
+  `TOVMetric`'s tables from 129 knots to 9 (`NK=9`, a key `bin/benchmark.jl` and
+  `bin/profile.jl` gained for it) took the polytrope's right-hand side from 46.0 to 18.3 ns
+  a cell and its step from 303.0 to 193.4, the DD2 star's step from 394.5 to 276.8 (jobs
+  1418588, 1418650). So the tables are now uploaded once (`provider_on`, `CODE.md`,
+  "Devices"): at 129 knots the polytrope's right-hand side is 17.7 ns and its step 191.6,
+  the DD2 star's 47.9 and 279.7, the magnetized star's step 356.9 on 8.8·10⁵ cells (job
+  1418794); the device tests pass on the H100 (386 of 386, job 1418802) and on Metal (154
+  of 154), the quick tier at four threads on the laptop (26799 passed, 7 broken as
+  before). Also measured, at 129 knots by value: the polytrope's step 303.0 ns at
+  `Float64`, 147.7 at `Float32`; the DD2 star's 275.1 at `Float32`; on one laptop thread
+  (N = 8) the table makes a right-hand side 4.8 times the polytrope's. What remains is in
+  `CODE.md`, "Where a device's step goes".
 
 ## Validation ladder
 

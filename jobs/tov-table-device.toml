@@ -1,0 +1,35 @@
+# The TOV metric's tables on the device (`provider_on`): the polytrope and the DD2 star on
+# M2 (960 blocks, 3.9·10⁶ cells) at `Float64` (`bin/benchmark.jl`), with the metric's 129
+# knots, against the same runs before the tables were uploaded (study `why-slow-2`), and
+# Nsight Compute's view of one right-hand side of the polytrope, whose kernels then no
+# longer copy the tables into local memory.
+name = "tov-table-device"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "bench-tov"
+cmd = "bin/benchmark.jl case=tov backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "bench-dd2"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3 explicit=true"
+
+[[run]]
+label = "bench-star"
+cmd = "bin/benchmark.jl case=star backend=cuda L=12 roots=3 levels=1 reps=3"
+
+[[run]]
+label = "ncu-tov"
+cmd = "bin/profile.jl case=tov backend=cuda L=24 roots=4 levels=2 phase=rhs steps=1 external=true"
+prefix = ["/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v3/Core/cudacore/12.9.1/nsight-compute-2025.2.1/ncu",
+          "--profile-from-start", "off", "--target-processes", "all",
+          "--kernel-name", "regex:flux|start|finish|ghost|primitive|emf|rhs_kernel",
+          "--print-kernel-base", "function",
+          "--section", "LaunchStats", "--section", "Occupancy", "--section", "SpeedOfLight",
+          "--section", "ComputeWorkloadAnalysis", "--section", "WarpStateStats",
+          "--metrics", "smsp__sass_inst_executed_op_local_ld.sum,smsp__sass_inst_executed_op_local_st.sum,smsp__sass_thread_inst_executed_op_dfma_pred_on.sum,smsp__sass_thread_inst_executed_op_dadd_pred_on.sum,smsp__sass_thread_inst_executed_op_dmul_pred_on.sum,smsp__thread_inst_executed_per_inst_executed.ratio"]

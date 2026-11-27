@@ -171,13 +171,16 @@ EOSUnits(g::GeometricEOS{T}) where {T} = EOSUnits{T}(g.density, EntropyEOS.κ(g.
     return geometric_point(EntropyEOS.evaluate(g.eos, ρ★ * f, s, yₑ, u_guess), f)
 end
 
-# EntropyEOS's two optional methods ("an EOS overrides them only when it can do the same
-# work more cheaply"), forwarded so that the inner EOS's own are reached: a table's
+# EntropyEOS's optional methods ("an EOS overrides them only when it can do the same work
+# more cheaply"), forwarded so that the inner EOS's own are reached: a table's
 # `evaluate_windowed` takes the entropy window from its temperature solve's bracket instead
-# of two more samples, and its `entropy_from_energy` is one temperature solve where the
-# default bisects in `s` over the whole extended window with an evaluation a step. Without
-# them every Newton residual paid the two samples and a cold seed on DD2 cost 58–75 µs
-# ("Warm starts" in `CODE.md`).
+# of two more samples (since EntropyEOS 2.4.3 `con2prim` no longer calls it), its
+# `entropy_from_energy` is one temperature solve where the default bisects in `s` over the
+# whole extended window with an evaluation a step, and its `s_width_bound` lets the Newton
+# skip sampling the window on a short step, where the default 0 samples it every step.
+# Without them a cold seed on DD2 cost 58–75 µs, and every Newton step paid two more
+# samples ("Warm starts" in `CODE.md`). Only a test of the method itself notices a missing
+# forward: the results are the same either way.
 @inline function EntropyEOS.evaluate_windowed(g::GeometricEOS, ρ★::T, s::T, yₑ::T,
                                               u_guess::T) where {T<:Real}
     f = T(g.density)
@@ -204,6 +207,8 @@ function EntropyEOS.logρ_bounds(g::GeometricEOS)
 end
 
 EntropyEOS.yₑ_bounds(g::GeometricEOS) = EntropyEOS.yₑ_bounds(g.eos)
+# The window is in `s`, which the density unit does not scale.
+EntropyEOS.s_width_bound(g::GeometricEOS) = EntropyEOS.s_width_bound(g.eos)
 EntropyEOS.κ(g::GeometricEOS) = EntropyEOS.κ(g.eos)
 
 function EntropyEOS.narrow(g::GeometricEOS, ::Type{S}) where {S<:AbstractFloat}
