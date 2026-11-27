@@ -1176,8 +1176,8 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | EOS-9 | EntropyEOS | proposed (experiment) | 12 | step 4's endpoint branches edge-consistent and guarded, the hot one onto the entropy ceiling (`S_CEILED`, density clamped and reported), atmosphere flags without the discarded state's, `check_con_state` sharing the diagnosis, step 1 on `D_max` only | landed in EntropyEOS 2.0.0 (tag `v2.0.0`, unregistered), as the two-level projection; the atmosphere's flags keep level 1's bits |
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
-| EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | waiting |
-| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `apply_policy` without a level-1 output | waiting |
+| EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | landed in EntropyEOS 2.4.2; `[compat]` `"2.4.2"` |
+| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `policy_atmosphere` | accepted upstream with four changes (2026-11-26); waiting |
 | EOS-16 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
 | GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
@@ -2429,6 +2429,59 @@ cited so in EntropyEOS's `HISTORY.md`, and EOS-13 for the nucleons' own chemical
 potentials. At Erik's request the performance work's moved: the atmosphere decided
 without level 1 is EOS-15, the state below the cold edge EOS-16; EOS-14, the evaluation
 without its bracket's ends, kept its ID.
+
+**2026-11-26.** EOS-14 landed in EntropyEOS 2.4.2 (EntropyEOS PR 19, registered in
+General): a warm `evaluate` samples its bracket's ends only when the solve heads for one,
+its output 2.4.1's bit for bit but for `iters` where the entropy lies outside the extended
+window; `evaluate_windowed` is unchanged. Measured before the release, with EntropyEOS
+pinned to the merge commit (d2829e4) beside 2.4.1 in one job each (study `eos14-1`,
+`jobs/eos14-*.toml`; DD2 star, M2, `Float64`, ns a cell): `face_fluxes` 23.6 → 18.6 on an
+H100 and 52.8 → 38.4 on a 192-core Trillium node (8 ranks of 24 threads), the right-hand
+side 48.2 → 43.5 and 113.6 → 99.7, a step 281.2 → 268.5 and 447.3 → 406.8 (Trillium jobs
+1419587, 2942609); `recover`, `stage_solve` and `reset`, through `evaluate_windowed`,
+unchanged. At Erik's request `[compat]` went to `"2.4.2"`, in the package and in
+`coupled/`, and the EOS-14 entry left `test/prerequisite_tests.jl`'s performance-only list.
+The request as it was written:
+
+> **Why.** `evaluate(eos, ρ, s, yₑ, u_guess)` on a table solves `s(x, u, y) = s`
+> for the log-temperature `u` (`solve_u`), and samples both ends of the
+> extended bracket first, before its warm start is used: two of the five or so
+> B-spline samples of a warm evaluation, whose result (the entropy window)
+> only `evaluate_windowed`'s callers read. On the DD2 star the face states
+> and the ghosts' `P` are a little over half of a step and spend half of their
+> `solve_u` on those two samples (the profile of `bin/profile.jl`).
+>
+> **API.** None new: `evaluate` faster.
+>
+> **Semantics.** From a warm start, `solve_u` iterates first and samples an
+> end of the bracket only when an iterate leaves it or the iteration stalls;
+> the same converged `u` to the solver's tolerance, the same flags.
+> `evaluate_windowed` keeps its window.
+>
+> **Upstream acceptance.** `evaluate` on a real table at random states, from
+> cold and from warm starts at several distances, agrees with today's to the
+> solve's tolerance, with the samples counted.
+>
+> **Downstream check.** None by `hasmethod`; `bin/benchmark.jl case=dd2`'s
+> `face_fluxes` and `fill_primitives` rows.
+
+**2026-11-26, later.** EntropyEOS accepted EOS-15 with four changes, and Erik accepted them
+for this package: the lower bound is `ρ_min·(1 − face_slack)`, since between it and `ρ_min`
+level 1 still solves (the request and "The two levels" had said it decides by `D` alone
+below `ρ_min`); the atmosphere keeps the `YE_FLOORED`/`YE_CEILED` bit that
+`clamp_yₑ(D_Y/D)` sets without a solve; a named `policy_atmosphere(eos, in, proj, pol)`
+replaces `apply_policy(…, nothing, …)`; and its output reports `converged_newton`, no
+iterations, `solved = false`, as level 1's `ρ_FLOOR` and `ρ_CEIL` branches do, where the
+workaround's `nan_safe_out` said `failed_max_iter`. This package added to the request that
+both functions be kernel-safe at `Float32` and `Float64` and use only interface methods an
+EOS wrapper already forwards. Nothing here reads `base.result` or `solved`, and no test
+expects the atmosphere's flags to be `ATMOSPHERE` alone. EntropyEOS also restated EOS-16's
+mechanism (the Newton never clamps `s`; the temperature solve pins at `u_ext_lo`) and asked
+two questions: on the DD2 star over 50 M (`bin/s_floors.jl`, Trillium job 2942711, 873
+steps on M1) the step limiter floors the entropy on 362 non-atmosphere cells a step on
+average, at most about 550, about 0.8% of the star, while a cold recovery of `uⁿ⁺¹` finds
+none, so the cells below the edge appear within a step, where every recovery but the first
+stage's predictor is warm; and each step's first recovery is cold, from `state_guesses`.
 
 ### SpacetimeMetrics
 

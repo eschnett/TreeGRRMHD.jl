@@ -250,9 +250,10 @@ same bit for bit without the solve; only level 1's bits, `result` and
 table almost every atmosphere cell is such an input: the gravitational
 source leaves it colder than the table's coldest row, and level 1 reports it
 `S_FLOORED` only after its whole Newton budget and the bracket scan, 32–41 µs
-a cell on DD2 against about 1 µs for the atmosphere's EOS point. Below `ρ_min`
-level 1 decides by `D` alone and is cheap, so those inputs keep its
-`ρ_FLOORED` bit. *(Proposed:* the bits it gives up are Erik's to weigh;
+a cell on DD2 against about 1 µs for the atmosphere's EOS point. Below
+`ρ_min·(1 − face_slack)` level 1 decides by `D` alone and is cheap, so those
+inputs keep its `ρ_FLOORED` bit; between that and `ρ_min` it still solves (the
+bound EOS-15 moves). *(Proposed:* the bits it gives up are Erik's to weigh;
 "Primitive recovery", "The two levels" in `CODE.md`.*)*
 
 EOS-15: reads EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and

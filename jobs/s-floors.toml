@@ -1,0 +1,13 @@
+# EOS-16's downstream count (`bin/s_floors.jl`): the DD2 star on the Cowling study's finest
+# mesh (`[−24, 24]³`, 4³ roots of 16³, one box level, 4.9·10⁵ cells) stepped for 50 M
+# (873 steps), the entropy floors outside the atmosphere per step, on one 192-core node.
+name = "s-floors"
+
+[site.trillium]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "dd2"
+cmd = "bin/s_floors.jl case=dd2 steps=873"
+threads = 192

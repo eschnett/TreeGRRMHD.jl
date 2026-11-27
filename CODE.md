@@ -205,9 +205,10 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.3"`: **EOS-1
-  and EOS-2 have landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since, and
-  **EOS-4 in 2.3.0** (below); EOS-3 has not.
+- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.4.2"`: **EOS-1
+  and EOS-2 have landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since,
+  **EOS-4 in 2.3.0** and **EOS-14 in 2.4.2** (below); EOS-3, EOS-15 and
+  EOS-16 have not.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -490,9 +491,11 @@ TreeGRRMHD"; the request and its record:
   decreases with `p`. Upstream because which zero of `μ_ν` a star takes,
   and how `μ_ν` follows from a table's chemical potentials, is the EOS's
   knowledge; the fitted `μ̃` is off by MeV on the cold edge.
-- **EOS-14 (wanted)** A warm evaluation without sampling its temperature
-  bracket's ends, two of its five or so samples, on the evaluations that are
-  a little over half of a tabulated step.
+- **EOS-14 (landed, EntropyEOS 2.4.2)** A warm evaluation samples its
+  temperature bracket's ends only when its solve heads for one: the face
+  states' evaluations 21–27% cheaper ([Where a device's step
+  goes](#where-a-devices-step-goes)). `evaluate_windowed`, which the
+  recoveries call, still samples them.
 - **EOS-15 (wanted; workaround)** The atmosphere decided without level 1:
   `apply_policy`'s decision for an input below the trigger, public, and its
   output without a level-1 output, for the skip of level 1 there
@@ -523,6 +526,9 @@ their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
   tested against a range; non-finite input or `ρ ≤ 0` gives `false`. Every state `con2prim_safe`
   or `project_prim_state` returns passes it. `inside_window` is in `test/prerequisite_tests.jl`'s
   name list.
+- **EOS-14.** Nothing by name: the same `evaluate`, faster from a warm start; its output is
+  2.4.1's bit for bit but for `iters` where the entropy lies outside the extended window.
+  `[compat]` `"2.4.2"` guarantees it, so it has no probe.
 
 ### SpacetimeMetrics
 
@@ -675,30 +681,6 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 
 **What waits for it**: the entropy fallback ("Primitive recovery").
 
-#### EOS-14 — An evaluation without its bracket's ends (wanted)
-
-**Why.** `evaluate(eos, ρ, s, yₑ, u_guess)` on a table solves `s(x, u, y) = s`
-for the log-temperature `u` (`solve_u`), and samples both ends of the
-extended bracket first, before its warm start is used: two of the five or so
-B-spline samples of a warm evaluation, whose result (the entropy window)
-only `evaluate_windowed`'s callers read. On the DD2 star the face states
-and the ghosts' `P` are a little over half of a step and spend half of their
-`solve_u` on those two samples (the profile of `bin/profile.jl`).
-
-**API.** None new: `evaluate` faster.
-
-**Semantics.** From a warm start, `solve_u` iterates first and samples an
-end of the bracket only when an iterate leaves it or the iteration stalls;
-the same converged `u` to the solver's tolerance, the same flags.
-`evaluate_windowed` keeps its window.
-
-**Upstream acceptance.** `evaluate` on a real table at random states, from
-cold and from warm starts at several distances, agrees with today's to the
-solve's tolerance, with the samples counted.
-
-**Downstream check.** None by `hasmethod`; `bin/benchmark.jl case=dd2`'s
-`face_fluxes` and `fill_primitives` rows.
-
 #### EOS-15 — The atmosphere decided without level 1 (wanted; workaround)
 
 **Why.** `apply_policy` sends every finite input with `D < atm_trigger·ρ_min`
@@ -707,32 +689,45 @@ most of a run's atmosphere and its dearest recoveries (EOS-16). A caller
 that skips level 1 there needs the decision and the output EntropyEOS's own
 call would give, without its unexported internals.
 
-**API** (exported).
+**API** (exported; as EntropyEOS proposed it and Erik accepted, 2026-11-26).
 ```julia
 policy_decides(eos, in::Con2PrimIn, proj::ProjectionOptions, pol::PolicyOptions) -> Bool
-apply_policy(eos, in, nothing, proj, pol) -> Con2PrimSafeOut   # where policy_decides
+policy_atmosphere(eos, in, proj, pol) -> Con2PrimSafeOut   # meaningful where policy_decides
 ```
 
 **Semantics.**
 - `policy_decides` is true exactly where `apply_policy` writes the atmosphere
   for every level-1 output, and level 1 would run a solve: a finite input,
-  `B² ≥ 0`, `proj_ρ_min ≤ D < pol_atm_trigger·proj_ρ_min`.
-- `apply_policy(…, nothing, …)` there returns the state `apply_policy` writes
-  after `con2prim_safe`, bit for bit, with `policy_flags = ATMOSPHERE`,
-  `solved = false`, and a documented `base.result`.
+  `B² ≥ 0`, `proj_ρ_min·(1 − face_slack) ≤ D < pol_atm_trigger·proj_ρ_min`
+  (below that level 1 decides by `D` alone, without a solve).
+- `policy_atmosphere` there returns the state `apply_policy` writes after
+  `con2prim_safe`, bit for bit — the state, `cons` and the `EOSPoint` — with
+  `policy_flags = ATMOSPHERE` plus the `YE_FLOORED` or `YE_CEILED` that
+  `clamp_yₑ(D_Y/D)` sets (no solve needed), and, as level 1's own `ρ_FLOOR`
+  and `ρ_CEIL` branches, `base.result = converged_newton`, no iterations,
+  `solved = false`. Outside `policy_decides` it is unspecified but does not
+  throw.
+- Both are `@inline`, allocation-free and non-throwing, generic over `T`, and
+  run in a GPU kernel on an `EOSTableView`; they call only interface methods
+  an EOS wrapper already forwards (or the request names any new one).
 
 **Upstream acceptance.** On random inputs either side of both bounds, where
 `policy_decides`, the state, `cons` and the `EOSPoint` equal
-`apply_policy(con2prim_safe(…))`'s bit for bit; elsewhere it is false.
+`apply_policy(con2prim_safe(…))`'s bit for bit and the flags are as above;
+elsewhere it is false. Both evaluated in a kernel (or isbits-only) at
+`Float32` and `Float64`.
 
-**Downstream check.** `policy_decides` and the three-argument form exist
-(`hasmethod`).
+**Downstream check.** `policy_decides` and `policy_atmosphere` exported.
 
 **Workaround** (marked `EOS-15` in `src/con2prim.jl`, `policy_decides`
 and its two callers): the bounds from the unexported `proj_ρ_min` and
 `pol_atm_trigger`, and `apply_policy` on the unexported `nan_safe_out(T)`,
 whose `policy_flags` are 0. Only for the skip of level 1 in "The two levels"
-("Primitive recovery"); without it, nothing.
+("Primitive recovery"); without it, nothing. Its lower bound is `ρ_min`, not
+`ρ_min·(1 − face_slack)`, so in that band (10⁻⁷ of `ρ_min` wide at `Float64`) level 1
+still solves before the policy discards it; the state is the same either way. On
+landing, the workaround goes; the hand-off's third pass then checks `policy_decides`
+again and takes `policy_atmosphere`'s output without `apply_policy`.
 
 #### EOS-16 — A state below the cold edge found without the Newton budget (wanted)
 
@@ -1246,11 +1241,11 @@ the entropy per baryon, and a single C² potential `U(ρ*, s, Yₑ)` from which
   holds no `P`, would not reproduce the run. The face states, reconstructed
   from `P` within one evaluation, still take their cell's EOS warm start.
   A table's `log₁₀ T` is the warm start the recovery then lacks, and it is
-  worth little: a forward evaluation of DD2 costs 0.6–0.9 µs warm and
-  0.95–1.2 µs cold (four iterations against one), since every evaluation
-  samples the ends of its temperature bracket and evaluates the result's
-  derivatives whatever its start (EOS-14); a recovery seeded fully warm
-  costs 0.52–0.58 µs. The right-hand side is pure in
+  worth little: a forward evaluation of DD2 cost 0.6–0.9 µs warm and
+  0.95–1.2 µs cold (four iterations against one; EntropyEOS 2.3), since
+  every evaluation evaluates the result's derivatives whatever its start,
+  and until 2.4.2 also sampled the ends of its temperature bracket (EOS-14);
+  a recovery seeded fully warm costs 0.52–0.58 µs. The right-hand side is pure in
   `(u, t)` **outside a step**;
   **a step is pure in `uⁿ`** (and `t`, `Δt`): inside a step of `evolve!`
   every recovery is seeded from the cell's latest recovery in that step,
@@ -1430,8 +1425,10 @@ recovery" below):
   `stage_solve` from 0.76 to 0.32. What the skip gives up is level 1's bits on
   those cells — `S_FLOORED`, sometimes `ρ_FLOORED` — so their flags are
   `ATMOSPHERE` alone, which then says "below the trigger", an exception to the
-  rule that the bits say why. Below `ρ_min` level 1 decides by `D` without a
-  solve and keeps its `ρ_FLOORED`. Until EntropyEOS answers this itself
+  rule that the bits say why (with EOS-15 they will keep the `YE` bits, which
+  need no solve). Below `ρ_min·(1 − face_slack)` level 1 decides by `D`
+  without a solve and keeps its `ρ_FLOORED`; between that and `ρ_min` it
+  still solves, since the check's bound is `ρ_min` (EOS-15). Until EntropyEOS answers this itself
   (EOS-15) the check reads its unexported `proj_ρ_min`, `pol_atm_trigger` and
   `nan_safe_out`. The alternative that keeps the bits is EOS-16, a cold edge
   found without the Newton budget, which also serves the star's own floored
@@ -4666,9 +4663,10 @@ ns per cell, the best of three; "PR 16" is the code before this section's change
   discards (32–41 µs; the skip of level 1).
 - **The EOS evaluations are now the step**: the face states (`face_fluxes`, six
   evaluations a cell) and the primitives' ghosts (`fill_primitives`) are 72% of a
-  right-hand side at one thread, and half of each evaluation samples the ends of its
-  temperature bracket (EOS-14). A table's evaluation is about 0.6–1 µs; the ideal gas's
-  is analytic.
+  right-hand side at one thread, and half of each evaluation sampled the ends of its
+  temperature bracket, which since EntropyEOS 2.4.2 a warm evaluation does only when
+  needed (EOS-14; the tables here were measured with 2.4.1). A table's evaluation is
+  about 0.6–1 µs; the ideal gas's is analytic.
 - **Threads: 35 times on 64 cores** (a right-hand side 41 times), where the
   magnetized polytrope's step scaled 27 times ("The per-phase table"). The fluxes
   scale 53 times, the recoveries 18–34 (`stage_solve` the least): a star cell's
@@ -4779,9 +4777,16 @@ jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `n
   right-hand sides, four stage solves and four resets, each timed alone, add to 101: the
   recoveries inside a step, seeded from the step cache, are more of them second passes
   than the phases' cold ones.
-- **The table.** On the DD2 star the face states' EOS evaluations make `face_fluxes`
+- **The table.** On the DD2 star the face states' EOS evaluations made `face_fluxes`
   11 times the polytrope's (23.5 against 2.1 ns), a step 1.46 times; on one CPU thread the
-  evaluations are 64% of a step, half of it the bracket's ends (EOS-14).
+  evaluations were 64% of a step, half of it the bracket's ends (EntropyEOS 2.4.1).
+  EntropyEOS 2.4.2 samples the ends only when a warm solve heads for one (EOS-14), in
+  `evaluate` but not `evaluate_windowed`: `face_fluxes` from 23.6 to 18.6 ns on the H100
+  and from 52.8 to 38.4 on a 192-core node (8 ranks of 24 threads), a step from 281.2 to
+  268.5 and from 447.3 to 406.8 (Trillium jobs 1419587, 2942609; M2, one job each, 2.4.1
+  then 2.4.2). The recoveries, the stage solve and the reset, which call
+  `evaluate_windowed`, are unchanged; a lower bound on a table's window width would let
+  them skip the ends too (proposed by EntropyEOS, open).
 
 Ideal MHD would gain little: the same DD2 step under the purely explicit SSPRK(3,3), with
 no stage solve and three resets — what an ideal scheme on this right-hand side would run —
@@ -5373,9 +5378,12 @@ document's tables:
   `bin/ghost_robustness.jl` (the matter's ghost fills; "Refinement");
 - `bin/benchmark.jl`: the per-phase table, ns per cell of each phase of a step on the
   magnetized star, the polytrope or a tabulated star (`case=dd2`, `sfho`, through
-  `bin/tables.jl`), on any backend and type; `bin/profile.jl`, the same problem's steps
+  `bin/tables.jl`), on any backend and type, with `explicit=true` the same step under
+  SSPRK(3,3) and `NK` the TOV tables' knots; `bin/profile.jl`, the same problem's steps
   (or one phase) under Julia's sampling profiler, with each thread's share asleep or
-  spinning, the allocations and the GC, or on a device CUDA.jl's kernel profile;
+  spinning, the allocations and the GC, or on a device CUDA.jl's kernel profile, or with
+  `external=true` for Nsight Compute; `bin/s_floors.jl`, the tabulated star stepped with
+  its entropy floors outside the atmosphere counted per step (EOS-16's count);
   `bin/backend.jl`, TreeHydro's, resolves their and `bin/tov_cowling.jl`'s `backend=` and
   `type=` ("Precision and devices"), and `bin/mpi.jl` their `mpi=true` and every rank's
   device ("Running distributed").

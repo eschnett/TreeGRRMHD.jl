@@ -352,7 +352,7 @@ end
                   "no public `policy_decides`; the workaround reads three internals")
 end
 
-@testset "EOS-$n: performance only, no probe" for n in (14, 16)
+@testset "EOS-$n: performance only, no probe" for n in (16,)
     # Guards nothing by `hasmethod`: each is a faster EntropyEOS on the same
     # API, measured by `bin/benchmark.jl case=dd2`. Named here so that a grep
     # of the log for `waiting:` lists every upstream item.
