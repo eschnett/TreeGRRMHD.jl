@@ -1,0 +1,25 @@
+# EntropyEOS PR 20 (2.4.3, `s_width_bound`) on the DD2 star on one 192-core node: the
+# per-phase table on M2 (960 blocks, 3.9·10⁶ cells) at `Float64`, 8 ranks of 24 threads, as
+# `perf-mpi-node192.toml`'s production layout, with EntropyEOS 2.4.2 and with `variant =
+# "pr20"` (EntropyEOS pinned to the pull request's head, `GeometricEOS` forwarding
+# `s_width_bound`), one after the other.
+name = "window-bound-cpu"
+placement = "numa"
+mode = "sequential"
+
+[site.trillium]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "base"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 8
+threads = 24
+
+[[run]]
+label = "pr20"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 mpi=true"
+ranks = 8
+threads = 24
+variant = "pr20"

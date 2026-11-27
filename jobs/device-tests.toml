@@ -14,6 +14,11 @@ time = "2:00:00"
 # the top level's
 vars = { TREEGRRMHD_TEST_BACKEND = "cuda", ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
 
+[site.trillium-gpu]                 # one H100 and its 24 cores
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { TREEGRRMHD_TEST_BACKEND = "cuda", ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
 [site.local]                        # the laptop's GPU
 env = "test+metal"
 vars = { TREEGRRMHD_TEST_BACKEND = "metal" }

@@ -1,0 +1,22 @@
+# What ideal MHD would save a step: the DD2 star (`bin/benchmark.jl case=dd2`, under
+# `IdealConductor` with `B = 0`) timed as the IMEX step, SSP3(4,3,3) with its four stage
+# solves and four resets, and as `step_explicit`, the same right-hand side under the purely
+# explicit SSPRK(3,3) at the same `Δt` (`explicit=true`). On 960 blocks (`[−24, 24]³`, 4³
+# roots of 16³, two box levels, 3.9·10⁶ cells), one 192-core node of 8 NUMA domains, 8 ranks
+# of 24 threads, as `perf-mpi-node192.toml`'s production layout.
+name = "ideal-step-cpu"
+placement = "numa"
+
+[site.trillium]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.fir]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/eos-tables" }
+
+[[run]]
+label = "m2"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 explicit=true mpi=true"
+ranks = 8
+threads = 24

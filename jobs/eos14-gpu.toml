@@ -1,0 +1,21 @@
+# EOS-14 (EntropyEOS 2.4.2: the T-solve's bracket ends sampled only when needed) on the DD2
+# star: the per-phase table on M2 (960 blocks, 3.9·10⁶ cells) at `Float64` on one GPU, with
+# the released EntropyEOS and with `variant = "eos14"`, the package with EntropyEOS pinned
+# to the commit that carries EOS-14, one after the other in one job. The downstream check
+# CODE.md's EOS-14 names: the `face_fluxes` and `fill_primitives` rows.
+name = "eos14-gpu"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "base"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+
+[[run]]
+label = "eos14"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+variant = "eos14"

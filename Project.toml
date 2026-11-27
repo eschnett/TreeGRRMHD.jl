@@ -18,17 +18,21 @@ TreeIOHDF5 = "49af10b2-b28a-4989-bafa-527ac30d3246"
 # SpacetimeMetrics and EntropyEOS are, and need no entry. `[sources]` is a
 # 1.11 feature, below the Julia floor (1.13; see "Julia version" in
 # `CODE.md`). IMEXRungeKutta 1.4 is the release the plan's steps 4a–4c ended
-# at. EntropyEOS is registered (EOS-0) and resolves from General by `[compat]`
-# alone since step 16; `"2.4.1"` for the composition on the device (EOS-12),
-# with O'Connor–Ott LS220's `μ̂` and `μ_ν` right (2.4.0 had them off by Q).
-# Until then it was pinned here by URL to a tag, last `v2.3.0` (step 13);
-# HISTORY.md, "Upstream prerequisites", has the tags.
+# at. EntropyEOS 2.3 is the first release with the cold β-equilibrium slice
+# (EOS-4), which step 13 needs; 2.4.2 the first whose warm `evaluate`
+# samples its bracket's ends only when needed (EOS-14), and 2.4.3 the first
+# with `s_width_bound`, which `GeometricEOS` forwards; the tabulated star's
+# cost assumes both. 2.5 exports `policy_decides` and `policy_atmosphere`
+# (EOS-15), with which the recovery skips level 1 in the atmosphere
+# ("Upstream prerequisites" in `CODE.md`). Since step 16 the neutrino rates read the
+# composition on the device (EOS-12, in 2.4.0), with O'Connor–Ott LS220's `μ̂` and `μ_ν`
+# right since 2.4.1.
 [sources]
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
 Adapt = "4"
-EntropyEOS = "2.4.1"
+EntropyEOS = "2.5"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
 SpacetimeMetrics = "1.7"

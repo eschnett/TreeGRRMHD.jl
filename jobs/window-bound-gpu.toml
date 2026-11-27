@@ -1,0 +1,23 @@
+# EntropyEOS PR 20 (2.4.3: con2prim's Newton samples the entropy window only for a step
+# longer than a quarter of the table's bound on its width, `s_width_bound`, and its
+# residual calls `evaluate`) on the DD2 star: the per-phase table on M2 (960 blocks,
+# 3.9·10⁶ cells) at `Float64` on one GPU, with EntropyEOS 2.4.2 and with `variant =
+# "pr20"`, the package with EntropyEOS pinned to the pull request's head and
+# `GeometricEOS` forwarding `s_width_bound`, one after the other in one job. What it should
+# move: `recover`, `stage_solve`, `reset`.
+name = "window-bound-gpu"
+env = "cuda"
+
+[site.trillium-gpu]
+resources = { gpus = 1 }
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[[run]]
+label = "base"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+
+[[run]]
+label = "pr20"
+cmd = "bin/benchmark.jl case=dd2 backend=cuda L=24 roots=4 levels=2 reps=3"
+variant = "pr20"

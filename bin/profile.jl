@@ -8,7 +8,11 @@
 # `two_phase`, `steps` (the profiled steps, 4), and `phase` (`step`, the default, or one of
 # the table's phases, `recover`, `rhs`, `stage_solve`, `reset`: that phase alone, called
 # `steps` times), `mincount` (the flat listing's cut, 1% of the samples by default), and
-# `C` (`false`; `true` lists C frames too: the scheduler's, the GC's). Prints, to stdout:
+# `C` (`false`; `true` lists C frames too: the scheduler's, the GC's), and `external`
+# (`false`; with `backend=cuda`, `true` runs the calls under `CUDA.@profile external=true`
+# instead of the integrated profiler, for Nsight Compute started with
+# `--profile-from-start off`, which then profiles those calls' kernels only). Prints, to
+# stdout:
 #
 # - per step (or call): the seconds, the bytes allocated, the GC's seconds, from `@timed`
 #   after one warm-up;
@@ -30,8 +34,9 @@ const WAIT_FRAMES = ("poptask", "task_get_next", "wait", "jl_task_wait", "sleep_
                      "jl_safepoint_wait", "lock", "trylock", "ijl_task_get_next",
                      "jl_gc_wait_for_the_world", "uv_run", "jl_process_events")
 
-function profiled_problem(::Type{T}; case, N, roots, levels, L, backend, two_phase) where {T}
-    c = benchmark_case(T, case, L)
+function profiled_problem(::Type{T}; case, N, roots, levels, L, backend, two_phase,
+                          NK=129) where {T}
+    c = benchmark_case(T, case, L, NK)
     forest = Forest{T}(ntuple(_ -> roots, 3); N, periodic=c.periodic, extents=c.extents)
     levels > 0 && tov_boxes!(forest, c; levels)
     p = MHD.MHDProblem(mhd_fields(T, forest; backend), c; limiter=:mc, two_phase)
@@ -93,9 +98,10 @@ function profile_main(args)
     kw = Dict{Symbol,Any}(:case => :dd2, :N => 16, :roots => 3, :levels => 1, :L => 24,
                           :two_phase => nothing)
     backendname, T, steps, phase, mincount, C = "cpu", Float64, 4, "step", nothing, false
+    external = false
     for a in args
         k, val = split(a, '='; limit=2)
-        if k in ("N", "roots", "levels")
+        if k in ("N", "roots", "levels", "NK")
             kw[Symbol(k)] = parse(Int, val)
         elseif k == "L"
             kw[:L] = parse(Float64, val)
@@ -115,6 +121,8 @@ function profile_main(args)
             mincount = parse(Int, val)
         elseif k == "C"
             C = parse(Bool, val)
+        elseif k == "external"
+            external = parse(Bool, val)
         else
             error("profile.jl: unknown key `$k`")
         end
@@ -132,6 +140,11 @@ function profile_main(args)
         println("# per $(phase == "step" ? "step" : "call"): ", st.time / per, " s, ",
                 1e9 * st.time / per / cells, " ns a cell, ", st.bytes / per, " bytes, GC ",
                 st.gctime / per, " s")
+        if backendname == "cuda" && external
+            Base.invokelatest(Core.eval(Main, :(g -> CUDA.@profile external = true g())),
+                              run!)
+            return nothing
+        end
         if backendname == "cuda"
             # CUDA.jl's integrated profiler: the host's API calls and the device's
             # kernels, each with its count and total time.
