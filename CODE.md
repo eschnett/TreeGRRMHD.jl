@@ -5168,6 +5168,12 @@ ns per cell, the best of three; "PR 16" is the code before this section's change
   their samples (`bin/profile.jl`). A split by measured cost would help where a thread
   has several blocks (AMR-14); at 64 threads on 120 blocks one star block is the limit,
   and the larger mesh's step is 25% cheaper a cell (1246 against 1653).
+- **With neutrinos** (step 20; `bin/benchmark.jl neutrinos=true`,
+  `jobs/benchmark-neutrinos.toml`, Symmetry job 614164 on cn103, EPYC 7543, 64 threads,
+  M1, in one job with the run without): a step 2040 ns a cell against 1731, 1.18 times;
+  the neutrinos' own phases `nu_rhs` 34, `nu_absorb` 29, `nu_opacities` 12 and `nu_sweep`
+  38 ns a cell, and the right-hand side 361 → 425 and the stage solve 78 → 109 with their
+  hooks (before EntropyEOS 2.5.0; `HISTORY.md`, step 20, for the sweep that cost 7.7 µs).
 - **GC and allocation**: a step at 64 threads allocated 215 MB and spent 0.06 s of its
   0.87 in GC (7%; an earlier measurement of the same step, before the EOS forwards,
   66 MB and none); at one thread 46 MB and 0.02 s of 29 s. Whether a collection lands
@@ -7840,6 +7846,48 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      emission is the discretization's, and its bound over 1000 M is measured
      with its fall in `h`.
 
+     **Measured** (`bin/neutrino_star.jl`, `jobs/neutrino-star*.toml`;
+     Symmetry jobs 614157–614166 on AMD EPYC 7543, 64 threads; `[−24, 24]³`,
+     four roots, one box level, MC, the shell `|r − 16| < 4`; at 100 M, `L_𝓔`
+     of ν_e, ν̄_e, ν_x in units of `M☉c²/M` and the mean energy at infinity
+     `L_𝓔/L_N`):
+
+     | star, `h` | `L_𝓔` ν_e | ν̄_e | ν_x | `⟨E⟩∞` MeV | `T` centre, start → 100 M |
+     | --- | ---: | ---: | ---: | --- | --- |
+     | hot, 0.75 | 6.5e−9 | 5.5e−8 | 4.8e−8 | 10.5, 24.2, 23.1 | 26.4 → 26.9 |
+     | hot, 0.5 | 7.4e−9 | 3.7e−8 | 3.7e−8 | 10.9, 21.7, 20.2 | 26.3 → 26.8 |
+     | hot, 0.375 | 6.1e−9 | 3.1e−8 | 3.2e−8 | 10.6, 20.3, 18.4 | 26.3 → 26.5 |
+     | cold, 0.75 | 6.7e−9 | 4.7e−8 | 4.9e−8 | 10.4, 24.5, 23.6 | 3.3 → 7.2 |
+     | cold, 0.5 | 7.5e−9 | 3.3e−8 | 3.8e−8 | 11.3, 20.0, 19.6 | 2.2 → 5.2 |
+     | cold, 0.375 | 7.6e−9 | 2.5e−8 | 3.2e−8 | 11.3, 18.1, 16.8 | 1.7 → 3.3 |
+
+     - **The cold star heats on the mesh**, and is about as bright as the
+       hot one. Its initial central temperature is first order in `h`
+       (3.3, 2.2, 1.7 MeV at `h` 0.75, 0.5, 0.375: the cell averages'
+       error), and it rises with time: at `h = 0.5` to 5.2 MeV at 100 M,
+       6.7 at 500 M and 10.5 at 1000 M, its luminosities rising by about
+       half (`L_𝓔` 1.2e−8, 4.6e−8, 5.7e−8 at 1000 M). In `M☉c²/M`, 4e−8 is
+       about 1.4·10⁵² erg/s. Whether the heating is the matter scheme's
+       alone is **(open)** ("Open questions"); until it is answered the
+       cold star's bound is not stated.
+     - **The hot star's** ν̄_e and ν_x luminosities fall with `h` at about
+       order 2.3 (differences 1.8e−8 and 5.6e−9 for ν̄_e), ν_e's does not
+       move; with the cold star as bright, they hold the same heating, and
+       are not yet the hot star's own.
+     - **Lepton number** net of the reset changes at 100 M by 1.1–2.5·10⁻⁴
+       of 0.10, which is what the neutrinos carried out of the box: the
+       shell's `−∫ (L_{N,ν_e} − L_{N,ν̄_e}) dt`, lagged by the 8 M from the
+       shell to the boundary, agrees to 1–4% in every run. In the cold
+       run at `h = 0.375` the reset's injected `D Yₑ` was NaN: a cell's
+       state was not finite and repaired, where is not yet known.
+     - **Coupled to TreeGH** (`coupled/tov_coupled_study.jl s=1
+       neutrinos=true`, `h = 0.5`, PPM, `ρ_min = 1e−12`, to 100 M, 29 min):
+       the rest mass net of the reset to 3.8e−13, `ρ_c` −0.31%, lepton
+       number out of the box 1.4·10⁻⁴, as on the Cowling metric.
+     - **On an H200** (`jobs/device-tests.toml`, job 614167): the hot star
+       with neutrinos as on the host to `sqrt(eps)` at `Float32` and
+       `Float64`, both recoveries; 470 of 470.
+
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
 
@@ -7909,9 +7957,15 @@ far say about it.
 
 ## Open questions
 
-One is open, in the [Neutrinos](#neutrinos) section (the Fermi integrals'
-fits and `Y_np`'s fractions were decided in step 16, `N_min` in step 18):
+Two are open, in the [Neutrinos](#neutrinos) section and rung 8g (the Fermi
+integrals' fits and `Y_np`'s fractions were decided in step 16, `N_min` in
+step 18):
 - **A moving centre** for M0's closure, for when a binary is built.
+- **What heats the cold DD2 star** (rung 8g): its central temperature goes
+  from 2.2 to 10.5 MeV in 1000 M at `h = 0.5`, so that its neutrinos are
+  as bright as the hot star's. To be measured first without neutrinos, at
+  two `h`; if the matter scheme heats it alone, rung 8g's cold-star claim
+  needs rewording.
 
 The questions decided, and when, are in [HISTORY.md, "Open
 questions"](HISTORY.md#open-questions); those the Cowling star settled are

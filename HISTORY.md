@@ -1263,6 +1263,19 @@ perturbed cold star; the suite's runs short at `h = 1`, the long ones `bin/` stu
   third of a step with neutrinos. With the update a function of its own (`relax_through`)
   it is 145 ns, the arithmetic unchanged. With it a step with neutrinos costs 1.26 times
   one without (laptop, DD2 at `h = 1`).
+- **The Symmetry runs** (2026-11-27, at 8697f7b; study `full-suite-8697f7b07b08`, jobs
+  614157–614167; the numbers in `CODE.md`, rung 8g, and "The tabulated star's cost"). The
+  studies took less than estimated: `h = 0.375` to 100 M 40 min (1.37 s a step at 64
+  threads), the cold star to 1000 M at `h = 0.5` 2.5 h (0.69 s a step), the coupled run
+  29 min against 4 h. What they found: the cold star heats on the mesh, its central
+  temperature first order in `h` at the start (3.3, 2.2, 1.7 MeV) and rising with time
+  (2.2 → 10.5 MeV in 1000 M at `h = 0.5`), its neutrinos as bright as the hot star's, so
+  rung 8g's cold-star bound was not stated and the question opened; lepton number's
+  change net of the reset is the neutrinos' outflow, to 1–4% against the shell's lagged
+  flux; the reset's injected `D Yₑ` was NaN in the cold run at `h = 0.375`; the H200 runs
+  the hot star with neutrinos as the host does (470 of 470); a step with neutrinos costs
+  1.18 times one without at 64 threads on M1. Erik had the results recorded before the
+  heating is investigated.
 
 ## Goals
 

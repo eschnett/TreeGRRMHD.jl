@@ -246,7 +246,10 @@ step, before the long studies; MPI a step of its own (21).
 scripts and specs (`bin/neutrino_star.jl`, `bin/benchmark.jl neutrinos=true`,
 `coupled/tov_coupled_study.jl s= neutrinos=`, `test/device_tests.jl`'s hot star with
 neutrinos, `jobs/neutrino-star*.toml`, `jobs/benchmark-neutrinos.toml`); the Symmetry runs
-and their numbers to come. Found on the way: the optical depth's sweep had allocated at
+are in `CODE.md`, rung 8g. Not accepted yet: the cold star heats on the mesh (2.2 → 10.5
+MeV at the centre in 1000 M at `h = 0.5`), so its bound is not stated and the hot star's
+convergence holds the same heating; next, the cold star without neutrinos at two `h`
+(`CODE.md`, "Open questions"), and the NaN the reset met in the cold run at `h = 0.375`. Found on the way: the optical depth's sweep had allocated at
 every neighbour since step 17 (53 times faster now), and with neutrinos `P` carries state
 between steps (`CODE.md`, "Sharp edges").
 
