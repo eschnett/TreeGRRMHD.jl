@@ -150,12 +150,14 @@ pipeline; "The two-phase recovery" in `CODE.md`), as four arrays indexed by the
 local owned cell and the block, `(n..., b)`:
 
 - `todo`: whether the cell needs `con2prim_safe_finish` — its recovery was not
-  reused from the step cache, and `con2prim_safe_start` was not done;
+  reused from the step cache, the policy does not decide it alone
+  (`EntropyEOS.policy_decides`), and `con2prim_safe_start` was not done;
 - `cin`, `stage`: EntropyEOS's input and the first stage's hand-off, written
   only where `todo`;
 - `out`: level 1's output, written by the first pass where it was done and
   by the second where not; not written where the step cache's entry was
-  reused (the third pass takes the entry).
+  reused (the third pass takes the entry) or the policy decides alone (the
+  third pass takes `policy_atmosphere`).
 
 Built with the problem ([`MHDProblem`](@ref)'s `two_phase`), so a `rebuild`
 after a regrid sizes it to the new mesh; never transferred, and every pass
@@ -181,18 +183,25 @@ end
 
 # EntropyEOS's two levels for `cin` — `con2prim_safe` from `guesses` onto the
 # projection `proj`, then `apply_policy` — as an entry, and whether it was
-# `entry` reused: the one place the package calls them. With a hand-off `sc`
-# (above; stage 4 of the recovery pipeline) level 1 is not called here: its
-# output is the one the first two passes left in `sc` at the cell `idx`, and
-# this is the third pass's level 2. With `sc = nothing` it is the fused call.
+# `entry` reused: the one place the package calls them. Where the policy alone
+# decides (`EntropyEOS.policy_decides`, EOS-15) neither level runs: its
+# atmosphere comes from `policy_atmosphere`, the same state bit for bit without
+# the solve ("The two levels" in `CODE.md`). With a hand-off `sc` (above; stage
+# 4 of the recovery pipeline) level 1 is not called here: its output is the one
+# the first two passes left in `sc` at the cell `idx`, and this is the third
+# pass's level 2. With `sc = nothing` it is the fused call.
 @inline function two_levels(eos::EntropyEOS.AbstractEOS, opts::EntropyEOS.Con2PrimOptions{T},
                             proj::EntropyEOS.ProjectionOptions{T},
                             pol::EntropyEOS.PolicyOptions{T}, cin::EntropyEOS.Con2PrimIn{T},
                             guesses::NTuple{3,T}, entry::NTuple{NC,T}, sc=nothing,
                             idx::Tuple=()) where {T}
     entry_hit(entry, cin) && return entry, true
-    out = level1(eos, opts, proj, pol, cin, guesses, sc, idx)
-    out = EntropyEOS.apply_policy(eos, cin, out, proj, pol)
+    out = if EntropyEOS.policy_decides(eos, cin, proj, pol)
+        EntropyEOS.policy_atmosphere(eos, cin, proj, pol)
+    else
+        EntropyEOS.apply_policy(eos, cin, level1(eos, opts, proj, cin, guesses, sc, idx),
+                                proj, pol)
+    end
     return make_entry(cin, out), false
 end
 
@@ -238,51 +247,20 @@ Pro): DD2's star 4.0 and 5.5 µs (the advected `s` with the rapidity: 6.9 and
     return (s, w, u)
 end
 
-"""
-    policy_decides(eos, proj, pol, cin) -> Bool
-
-Whether `apply_policy` sends `cin` to the atmosphere whatever level 1 returns,
-and level 1 would have run a solve: a finite input with `ρ_min ≤ D <
-atm_trigger·ρ_min`. `apply_policy` builds that atmosphere from `cin` alone — its
-`Yₑ` from `D_Y/D`, its EOS point without a warm start — so the state is the
-same bit for bit without the solve; only level 1's bits, `result` and
-`solved`, which the atmosphere's flags would have carried, are not there. On a
-table almost every atmosphere cell is such an input: the gravitational
-source leaves it colder than the table's coldest row, and level 1 reports it
-`S_FLOORED` only after its whole Newton budget and the bracket scan, 32–41 µs
-a cell on DD2 against about 1 µs for the atmosphere's EOS point. Below
-`ρ_min·(1 − face_slack)` level 1 decides by `D` alone and is cheap, so those
-inputs keep its `ρ_FLOORED` bit; between that and `ρ_min` it still solves (the
-bound EOS-15 moves). *(Proposed:* the bits it gives up are Erik's to weigh;
-"Primitive recovery", "The two levels" in `CODE.md`.*)*
-
-EOS-15: reads EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and
-`nan_safe_out`, until EntropyEOS answers this itself.
-"""
-@inline function policy_decides(eos::EntropyEOS.AbstractEOS, proj::EntropyEOS.ProjectionOptions{T},
-                                pol::EntropyEOS.PolicyOptions{T},
-                                cin::EntropyEOS.Con2PrimIn{T}) where {T}
-    ρ_min = EntropyEOS.proj_ρ_min(eos, proj)                     # EOS-15
-    finite = isfinite(cin.τ) & isfinite(cin.D_Y) & isfinite(cin.S_par) &
-             isfinite(cin.S_perp) & isfinite(cin.B²)
-    return finite && cin.B² >= zero(T) &&
-           ρ_min <= cin.D < EntropyEOS.pol_atm_trigger(pol) * ρ_min     # EOS-15
-end
-
-# Level 1: the fused `con2prim_safe`, or the hand-off's output; where the
-# policy decides alone, the unsolved placeholder `apply_policy` replaces.
-@inline function level1(eos, opts, proj, pol, cin::EntropyEOS.Con2PrimIn{T},
+# Level 1, where the policy does not decide alone: the fused `con2prim_safe`, or
+# the hand-off's output.
+@inline function level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn{T},
                         guesses::NTuple{3,T}, ::Nothing, idx::Tuple) where {T}
-    policy_decides(eos, proj, pol, cin) && return EntropyEOS.nan_safe_out(T)   # EOS-15
     s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)
     return EntropyEOS.con2prim_safe(eos, cin, opts, proj, s, w, u)
 end
-@inline level1(eos, opts, proj, pol, cin::EntropyEOS.Con2PrimIn, guesses::NTuple{3},
+@inline level1(eos, opts, proj, cin::EntropyEOS.Con2PrimIn, guesses::NTuple{3},
                sc::Handoff, idx::Tuple) = @inbounds sc.out[idx...]
 
 # The first pass at the cell `idx`: nothing where the step cache's entry is a
-# recovery of `cin` (the third pass reuses it); the unsolved placeholder where
-# the policy decides alone (`policy_decides`); otherwise
+# recovery of `cin` (the third pass reuses it) or where the policy decides alone
+# (`EntropyEOS.policy_decides`: the third pass asks it again and takes
+# `policy_atmosphere`); otherwise
 # `con2prim_safe_start` from `guesses`, its output kept where it is done and
 # its stage where it is not.
 @inline function level1_start!(sc::Handoff, idx::Tuple, eos::EntropyEOS.AbstractEOS,
@@ -295,9 +273,8 @@ end
         @inbounds sc.todo[idx...] = false
         return nothing
     end
-    if policy_decides(eos, proj, pol, cin)
+    if EntropyEOS.policy_decides(eos, cin, proj, pol)
         @inbounds sc.todo[idx...] = false
-        @inbounds sc.out[idx...] = EntropyEOS.nan_safe_out(T)                 # EOS-15
         return nothing
     end
     s, w, u = recovery_seed(eos, cin, guesses, opts.w_max)

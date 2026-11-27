@@ -1,0 +1,28 @@
+# The current step on one 192-core node (2× AMD EPYC 9655, 8 NUMA domains), for the
+# comparison with GRaM-X ("Where a device's step goes" in `CODE.md`): `bin/benchmark.jl` on
+# M2 (960 blocks, 3.9·10⁶ cells), 8 ranks of 24 threads as `perf-mpi-node192.toml`'s
+# production layout, for the DD2 star and the Γ = 2 polytrope, one after the other;
+# `explicit=true` adds the ideal-MHD-like step.
+name = "perf-current-cpu"
+placement = "numa"
+mode = "sequential"
+
+[site.trillium]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/EOS" }
+
+[site.fir]
+time = "1:00:00"
+vars = { ENTROPYEOS_TABLE_DIR = "/scratch/eschnett/claude/eos-tables" }
+
+[[run]]
+label = "dd2"
+cmd = "bin/benchmark.jl case=dd2 L=24 roots=4 levels=2 reps=3 explicit=true mpi=true"
+ranks = 8
+threads = 24
+
+[[run]]
+label = "tov"
+cmd = "bin/benchmark.jl case=tov L=24 roots=4 levels=2 reps=3 explicit=true mpi=true"
+ranks = 8
+threads = 24

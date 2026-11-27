@@ -205,11 +205,11 @@ item needs it.
   AMR-3 and AMR-5 have landed in TreeAMR 0.2.1**, AMR-4 and AMR-6 in a
   different form (below), and **AMR-7 to AMR-10 in TreeAMR 0.2.2** (commit
   624c99a). Step 5, which needed AMR-1, is done on it.
-- EntropyEOS, registered (EOS-0 landed), with `[compat]` `"2.4.3"`: **EOS-1
+- EntropyEOS, registered (EOS-0 landed): **EOS-1
   and EOS-2 have landed in EntropyEOS 1.0.0**, EOS-8 to EOS-11 since,
   **EOS-4 in 2.3.0** and **EOS-14 in 2.4.2** (below), and 2.4.3 bounds the
-  entropy window's width (`s_width_bound`, EntropyEOS's own proposal); EOS-3,
-  EOS-15 and EOS-16 have not.
+  entropy window's width (`s_width_bound`, EntropyEOS's own proposal), and
+  **EOS-15 in 2.5.0**, with `[compat]` `"2.5"`; EOS-3 and EOS-16 have not.
 - IMEXRungeKutta, not registered, through `[sources]` at its `main`, with
   `[compat]` `"1.4"` (1.4.0 is the tag its design was finished at).
 - SpacetimeMetrics **1.7.0**, registered (`SpacetimeMetrics = "1.7"`; it
@@ -499,10 +499,11 @@ TreeGRRMHD"; the request and its record:
   it too: its residual calls `evaluate`, and it samples the entropy window
   only for a step longer than a quarter of the table's `s_width_bound`, which
   `GeometricEOS` forwards.
-- **EOS-15 (wanted; workaround)** The atmosphere decided without level 1:
-  `apply_policy`'s decision for an input below the trigger, public, and its
-  output without a level-1 output, for the skip of level 1 there
-  ("Primitive recovery", "The two levels").
+- **EOS-15 (landed, EntropyEOS 2.5.0)** The atmosphere decided without
+  level 1: `policy_decides(eos, in, proj, pol)` and
+  `policy_atmosphere(eos, in, proj, pol)`, exported, for the skip of level 1
+  ("Primitive recovery", "The two levels"); the workaround that read three
+  internals is gone.
 - **EOS-16 (wanted)** A state below a table's cold edge recognised without
   the Newton budget and the bracket scan, which cost 32–41 µs on DD2,
   where its atmosphere and the cells truncation cools take that path.
@@ -531,7 +532,17 @@ their record: [HISTORY.md, "EntropyEOS"](HISTORY.md#entropyeos)):
   name list.
 - **EOS-14.** Nothing by name: the same `evaluate`, faster from a warm start; its output is
   2.4.1's bit for bit but for `iters` where the entropy lies outside the extended window.
-  `[compat]` `"2.4.2"` guarantees it, so it has no probe.
+  `[compat]` guarantees it, so it has no probe.
+- **EOS-15.** `policy_decides(eos, in, proj, pol) -> Bool`, true for a finite input with
+  `D > 0`, `B² ≥ 0` and `ρ_min·(1 − face_slack) ≤ D < atm_trigger·ρ_min`, `D` no greater than
+  level 1's ceiling `ρ_max·cosh(w_cap)·(1 + face_slack)`: exactly where level 1 would solve
+  and the policy writes the atmosphere whatever it returns. `policy_atmosphere(eos, in, proj,
+  pol) -> Con2PrimSafeOut` there is `apply_policy(con2prim_safe(…))` bit for bit in the state,
+  `cons` and the `EOSPoint`, its flags `ATMOSPHERE` and level 1's `YE` bit, `base.result =
+  converged_newton`, no iterations, `solved = false`; outside, unspecified but non-throwing.
+  Both `@inline`, allocation-free, generic over `T` and tested in a Metal kernel at `Float32`,
+  on required interface methods only (no forward for `GeometricEOS`). Both are in
+  `test/prerequisite_tests.jl`'s name list.
 
 ### SpacetimeMetrics
 
@@ -683,54 +694,6 @@ entropy_from_energy(eos, ρ★, yₑ, U; u_guess=NaN, max_iter=60) -> (s, pt::EO
 - Pinning and non-convergence are reported, never silent.
 
 **What waits for it**: the entropy fallback ("Primitive recovery").
-
-#### EOS-15 — The atmosphere decided without level 1 (wanted; workaround)
-
-**Why.** `apply_policy` sends every finite input with `D < atm_trigger·ρ_min`
-to the atmosphere whatever level 1 returned, and on a table such inputs are
-most of a run's atmosphere and its dearest recoveries (EOS-16). A caller
-that skips level 1 there needs the decision and the output EntropyEOS's own
-call would give, without its unexported internals.
-
-**API** (exported; as EntropyEOS proposed it and Erik accepted, 2026-11-26).
-```julia
-policy_decides(eos, in::Con2PrimIn, proj::ProjectionOptions, pol::PolicyOptions) -> Bool
-policy_atmosphere(eos, in, proj, pol) -> Con2PrimSafeOut   # meaningful where policy_decides
-```
-
-**Semantics.**
-- `policy_decides` is true exactly where `apply_policy` writes the atmosphere
-  for every level-1 output, and level 1 would run a solve: a finite input,
-  `B² ≥ 0`, `proj_ρ_min·(1 − face_slack) ≤ D < pol_atm_trigger·proj_ρ_min`
-  (below that level 1 decides by `D` alone, without a solve).
-- `policy_atmosphere` there returns the state `apply_policy` writes after
-  `con2prim_safe`, bit for bit — the state, `cons` and the `EOSPoint` — with
-  `policy_flags = ATMOSPHERE` plus the `YE_FLOORED` or `YE_CEILED` that
-  `clamp_yₑ(D_Y/D)` sets (no solve needed), and, as level 1's own `ρ_FLOOR`
-  and `ρ_CEIL` branches, `base.result = converged_newton`, no iterations,
-  `solved = false`. Outside `policy_decides` it is unspecified but does not
-  throw.
-- Both are `@inline`, allocation-free and non-throwing, generic over `T`, and
-  run in a GPU kernel on an `EOSTableView`; they call only interface methods
-  an EOS wrapper already forwards (or the request names any new one).
-
-**Upstream acceptance.** On random inputs either side of both bounds, where
-`policy_decides`, the state, `cons` and the `EOSPoint` equal
-`apply_policy(con2prim_safe(…))`'s bit for bit and the flags are as above;
-elsewhere it is false. Both evaluated in a kernel (or isbits-only) at
-`Float32` and `Float64`.
-
-**Downstream check.** `policy_decides` and `policy_atmosphere` exported.
-
-**Workaround** (marked `EOS-15` in `src/con2prim.jl`, `policy_decides`
-and its two callers): the bounds from the unexported `proj_ρ_min` and
-`pol_atm_trigger`, and `apply_policy` on the unexported `nan_safe_out(T)`,
-whose `policy_flags` are 0. Only for the skip of level 1 in "The two levels"
-("Primitive recovery"); without it, nothing. Its lower bound is `ρ_min`, not
-`ρ_min·(1 − face_slack)`, so in that band (10⁻⁷ of `ρ_min` wide at `Float64`) level 1
-still solves before the policy discards it; the state is the same either way. On
-landing, the workaround goes; the hand-off's third pass then checks `policy_decides`
-again and takes `policy_atmosphere`'s output without `apply_policy`.
 
 #### EOS-16 — A state below the cold edge found without the Newton budget (wanted)
 
@@ -1417,12 +1380,15 @@ recovery" below):
   on the ρ_min face is the atmosphere at rest"). The atmosphere's flags are
   level 1's bits plus `ATMOSPHERE`: the bits say why.
 - **Level 1 skipped where level 2 decides alone.** Where
-  `ρ_min ≤ D < atm_trigger·ρ_min` and the input is finite, `apply_policy`
-  writes the atmosphere whatever level 1 returned, and builds it from the
-  input alone (its `Yₑ` from `D_Y/D`, its EOS point without a warm start), so
-  the recovery hands it EntropyEOS's unsolved placeholder instead of
-  solving (`policy_decides` in `src/con2prim.jl`, both recoveries, fused and
-  two-phase): the same state bit for bit. On a table almost every atmosphere
+  `ρ_min·(1 − face_slack) ≤ D < atm_trigger·ρ_min` (and `D` below level 1's
+  density ceiling) and the input is finite, `apply_policy` writes the
+  atmosphere whatever level 1 returned, and builds it from the input alone
+  (its `Yₑ` from `D_Y/D`, its EOS point without a warm start). There the
+  recovery solves nothing: `two_levels` (`src/con2prim.jl`, both recoveries,
+  fused and two-phase) asks EntropyEOS's `policy_decides` and takes
+  `policy_atmosphere`, the same state, `cons` and `EOSPoint` bit for bit; the
+  two-phase recovery's first pass leaves such a cell out of the second, and
+  the third asks again (EOS-15, EntropyEOS 2.5.0). On a table almost every atmosphere
   cell is such an input: the atmosphere lies on the table's coldest row, the
   gravitational source gives it an infall speed at fixed `τ`, which leaves it
   colder than the table, and level 1 then spends its whole Newton budget (30
@@ -1431,15 +1397,14 @@ recovery" below):
   evaluation (M3 Pro). On M1 at four threads (M3 Pro, `bin/benchmark.jl`, the
   check switched off against on, two rounds each, interleaved) the skip takes a
   step from 13.4 to 10.0 µs a cell (25%): `recover` from 0.89 to 0.45 µs,
-  `stage_solve` from 0.76 to 0.32. What the skip gives up is level 1's bits on
-  those cells — `S_FLOORED`, sometimes `ρ_FLOORED` — so their flags are
-  `ATMOSPHERE` alone, which then says "below the trigger", an exception to the
-  rule that the bits say why (with EOS-15 they will keep the `YE` bits, which
-  need no solve). Below `ρ_min·(1 − face_slack)` level 1 decides by `D`
-  without a solve and keeps its `ρ_FLOORED`; between that and `ρ_min` it
-  still solves, since the check's bound is `ρ_min` (EOS-15). Until EntropyEOS answers this itself
-  (EOS-15) the check reads its unexported `proj_ρ_min`, `pol_atm_trigger` and
-  `nan_safe_out`. The alternative that keeps the bits is EOS-16, a cold edge
+  `stage_solve` from 0.76 to 0.32. What the skip gives up is level 1's bits
+  that need a solve — `S_FLOORED`, sometimes `ρ_FLOORED` — so their flags are
+  `ATMOSPHERE` and any `YE_FLOORED` or `YE_CEILED`, which then say "below the
+  trigger", an exception to the rule that the bits say why; `base.result` is
+  `converged_newton`, with no iterations and `solved = false`, as for level
+  1's other outputs without a solve. Below `ρ_min·(1 − face_slack)` level 1
+  decides by `D` without a solve and keeps its `ρ_FLOORED`. The alternative
+  that keeps the bits is EOS-16, a cold edge
   found without the Newton budget, which also serves the star's own floored
   cells; when it lands, the skip is weighed against it again.
 - **The options.** `MHDProblem`, `MHDCase` and every recovery carry `proj`
@@ -4761,14 +4726,30 @@ with the metric's tables taken by value, which cost an H100 1.4 times a step of 
 
 ### Where a device's step goes
 
-Against GRaM-X, a step here is slow: one H100 takes 192 ns a cell for the polytrope and
-280 for the DD2 star (Cowling, `Float64`, M2; "Devices"), 5.2 and 3.6·10⁶ cell updates a
-second, where GRaM-X reports 4.7·10⁷ a second for an ideal gas under RK2 and 2.6·10⁷ for a
-table under RK4 on one V100 (Shankar et al. 2022, arXiv:2210.17509, Sec. V A), on a device
-with about a quarter of an H100's memory bandwidth. A right-hand side is not the gap: the
-polytrope's takes 17.7 ns a cell, GRaM-X's about 11 on the V100. What a step adds is, by
-Nsight Compute on one right-hand side and CUDA.jl's profile of a step (Trillium, H100,
-jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `ncu`):
+Against GRaM-X, a step here is slower. Measured on one H100 (Trillium job 1425194,
+`jobs/perf-current-gpu.toml`; M2 of "The tabulated star's cost", 3.9·10⁶ cells; Cowling;
+EntropyEOS 2.5.0; ns a cell, cell updates a second):
+
+| case | type | rhs | step | updates/s | explicit step |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Γ = 2 polytrope (`tov`) | `Float64` | 16.9 | 84.9 | 1.2·10⁷ | 63.9 |
+| Γ = 2 polytrope | `Float32` | 11.6 | 60.7 | 1.6·10⁷ | 44.8 |
+| DD2 star (`dd2`) | `Float64` | 42.7 | 188.4 | 5.3·10⁶ | 170.7 |
+| DD2 star, fused recovery | `Float64` | 42.4 | 181.2 | 5.5·10⁶ | |
+| DD2 star | `Float32` | 26.4 | 115.9 | 8.6·10⁶ | 102.0 |
+| magnetized star (`star`, 8.8·10⁵ cells) | `Float64` | 21.3 | 128.4 | 7.8·10⁶ | |
+
+GRaM-X reports 4.7·10⁷ cell updates a second for an ideal gas under RK2 and 2.6·10⁷ for a
+table under RK4 on one V100 (Shankar et al. 2022, arXiv:2210.17509, Sec. V A), a device with
+about a quarter of an H100's memory bandwidth: per device the polytrope is 4.0 times slower
+than GRaM-X's ideal gas and the DD2 star 4.7–4.9 times slower than its table, per unit of
+bandwidth about 15 and 18 times. A right-hand side is not most of the gap: the polytrope's
+takes 16.9 ns a cell, GRaM-X's about 11 on the V100; a step is five of them where an
+explicit RK3 would be three. On a 192-core node (2× EPYC 9655, 8 ranks of 24 threads; job
+2951444) a step is 192.9 ns for the polytrope and 399.5 for the DD2 star, so one H100 is
+2.1–2.3 such nodes. What a step adds is, by Nsight Compute on one right-hand side and
+CUDA.jl's profile of a step (Trillium, H100, jobs 1418580, 1418618, 1418650, 1418794;
+`bin/profile.jl external=true` under `ncu`; measured before EOS-15 and EntropyEOS 2.4.2):
 
 - **Registers.** Every kernel of a right-hand side holds 96–255 registers a thread (the
   fluxes 166–170, the recovery's passes and the gauge kernel 251–255), so 2–4 warps of a
@@ -4777,15 +4758,18 @@ jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `n
   Smaller kernels or less state live at once are what is left to gain here (open).
 - **Recoveries.** A step recovers every cell about eleven times — three right-hand sides,
   four stage solves (`IdealConductor`'s ideal recovery), four resets — where an explicit
-  RK4 recovers four times; on the polytrope the recovery's two passes were 43% of the
-  device's time in a step, measured with the metric's tables by value (they are more of
-  it now). The second pass (`finish_kernel!`) runs over every owned cell and is done by the
-  few that need it, 5 threads of a warp active: it was 21% of the step (uncompacted, "The
-  two-phase recovery").
-- **The step beyond its phases.** The polytrope's step is 192 ns where its three
-  right-hand sides, four stage solves and four resets, each timed alone, add to 101: the
-  recoveries inside a step, seeded from the step cache, are more of them second passes
-  than the phases' cold ones.
+  RK4 recovers four times. The second pass (`finish_kernel!`) runs over every owned cell
+  and is done by the few that need it, 5 threads of a warp active (uncompacted, "The
+  two-phase recovery"). Until EOS-15 it did the atmosphere's cells with `D` in
+  `[ρ_min·(1 − face_slack), ρ_min)`, which the workaround's bound still sent to a solve:
+  after one step 14% of the polytrope's cells lie there (68160 of 491520 on M2's mesh with
+  `N = 8`), and the recovery's two passes were 43% of the device's time in a step, the
+  second 21%. With EntropyEOS's `policy_decides` they skip both: the polytrope's step
+  went from 191.6 to 84.9 ns, the DD2 star's from 257.9 to 188.4 (jobs 1419867,
+  1425194).
+- **The step and its phases.** The polytrope's step, 84.9 ns, is now its three
+  right-hand sides, four stage solves and four resets each timed alone (85.9); before
+  EOS-15 it was 192 against 101, the difference the band's second passes.
 - **The table.** On the DD2 star the face states' EOS evaluations made `face_fluxes`
   11 times the polytrope's (23.5 against 2.1 ns), a step 1.46 times; on one CPU thread the
   evaluations were 64% of a step, half of it the bracket's ends (EntropyEOS 2.4.1).
@@ -4801,11 +4785,12 @@ jobs 1418580, 1418618, 1418650, 1418794; `bin/profile.jl external=true` under `n
   noise (jobs 1419867, 2943920; measured on the release's commit, eb50ad1, against 2.4.2).
   The phase rows, cold recoveries outside a step, do not move, as EntropyEOS measured.
 
-Ideal MHD would gain little: the same DD2 step under the purely explicit SSPRK(3,3), with
-no stage solve and three resets — what an ideal scheme on this right-hand side would run —
-is 1.13–1.17 times faster on the H100 and on a 192-core node (`bin/benchmark.jl
-explicit=true`; `jobs/ideal-step-*.toml`; measured before the upload, 395 against 339 ns on
-the H100). The resistive formulation is not why a step is slow.
+Ideal MHD would gain little: the same step under the purely explicit SSPRK(3,3), with no
+stage solve and three resets — what an ideal scheme on this right-hand side would run — is
+1.10 times faster for the DD2 star on the H100 (188.4 against 170.7 ns), 1.12 on the
+192-core node (399.5 against 356.7), and 1.28–1.35 for the polytrope (`bin/benchmark.jl
+explicit=true`; first measured before the upload, `jobs/ideal-step-*.toml`, 1.13–1.17). The
+resistive formulation is not why a step is slow.
 
 ## Running distributed
 

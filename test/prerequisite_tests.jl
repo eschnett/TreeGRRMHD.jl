@@ -121,6 +121,9 @@ end
     # bits the tests keep apart from the policy's. Since step 13 the table
     # reader and the cold β-equilibrium slice the tabulated star's initial
     # data reads (EOS-4, in 2.3.0; `[compat]` "2.3", so its probe is retired).
+    # Since 2026-11-27 the atmosphere decided without level 1, `policy_decides`
+    # and `policy_atmosphere` (EOS-15, in 2.5.0; `[compat]` "2.5", so its probe
+    # is retired; 1.x's `policy_atmosphere` was another function).
     for name in (:AbstractEOS, :logρ_bounds, :yₑ_bounds,
                  :IdealGasEOS, :HybridEOS, :polytropic_entropy,
                  :EOSTableView, :EOSPoint, :SRange, :evaluate, :srange, :srange_extended,
@@ -134,7 +137,7 @@ end
                  :FLAG_POL_W_CEILED, :FLAG_POL_ANY, :FLAG_CS2_OUT_OF_RANGE,
                  :make_synthetic_table, :build_eos,
                  :RawTable, :read_stellarcollapse, :cold_beta_slice, :ColdBetaSlice,
-                 :beta_equilibrium, :BetaEquilibrium)
+                 :beta_equilibrium, :BetaEquilibrium, :policy_decides, :policy_atmosphere)
         @test name in names(EOS)
     end
     @test isdefined(EOS, :κ) && :κ ∉ names(EOS)
@@ -341,15 +344,6 @@ end
     prereq_report("AMR-14", landed,
                   landed ? "`set_leaf_weights!`" :
                   "the curve is split by leaf counts only; wanted for the tabulated star")
-end
-
-@testset "EOS-15: the atmosphere's decision without level 1 is public (when landed)" begin
-    # Guards the workaround in `policy_decides` (`src/con2prim.jl`), which reads
-    # EntropyEOS's unexported `proj_ρ_min`, `pol_atm_trigger` and `nan_safe_out`.
-    landed = isdefined(EOS, :policy_decides) && Base.isexported(EOS, :policy_decides)
-    prereq_report("EOS-15", landed,
-                  landed ? "`policy_decides`" :
-                  "no public `policy_decides`; the workaround reads three internals")
 end
 
 @testset "EOS-$n: performance only, no probe" for n in (16,)

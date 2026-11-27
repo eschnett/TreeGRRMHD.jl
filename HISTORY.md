@@ -1177,7 +1177,7 @@ to `CODE.md`, "Requests still waiting"; the table as it stood:
 | EOS-10 | EntropyEOS | wanted | — | `con2prim_finish`'s nested fallback allocation-free under `--check-bounds=yes` | landed in EntropyEOS 2.2.1 |
 | EOS-11 | EntropyEOS | req | — | `con2prim_safe`'s validity test of the `s` and `Yₑ` faces, with its slack, public, for the reconstruction | landed in EntropyEOS 2.1.0, as `inside_window`; `[compat]` `"2.2"` |
 | EOS-14 | EntropyEOS | wanted | — | a warm evaluation without sampling its temperature bracket's ends | landed in EntropyEOS 2.4.2; `[compat]` `"2.4.2"` |
-| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `policy_atmosphere` | accepted upstream with four changes (2026-11-26); waiting |
+| EOS-15 | EntropyEOS | wanted, workaround | — | the atmosphere decided without level 1: `policy_decides`, `policy_atmosphere` | landed in EntropyEOS 2.5.0; `[compat]` `"2.5"`, workaround dropped |
 | EOS-16 | EntropyEOS | wanted | — | a state below a table's cold edge found without the Newton budget and the bracket scan | waiting |
 | GH-0 | TreeGH | req | 11 | land step 8 on `main` | landed (by inspection) |
 | GH-1 | TreeGH | req | 11 | `(α, β^i, γ_ij, K_ij)` at TreeGH's owned vertices, a pointwise adapter | landed as `ADMMetric` on TreeGH's `main` (PR 25, 61bcb75; still 0.1.1, unregistered) |
@@ -2498,6 +2498,73 @@ move on the H100. At Erik's request `[compat]` went to `"2.4.3"`, in the package
 `coupled/`, `GeometricEOS` forwards `s_width_bound`, and `test/units_tests.jl` checks the
 forward on the synthetic table (8.42 there; 0.545 on DD2), the only test that would notice
 it missing.
+
+**2026-11-27, later.** EOS-15 landed in EntropyEOS 2.5.0 (EntropyEOS PR 21) as accepted,
+with one addition: `policy_decides` is also false above level 1's density ceiling,
+`ρ_max·cosh(w_cap)·(1 + face_slack)`, where level 1 decides by `D` alone, which matters only
+for an `atm_trigger` above `ρ_max·cosh(w_cap)/ρ_min`. At Erik's request the workaround went
+(this package's `policy_decides`, which read the unexported `proj_ρ_min` and
+`pol_atm_trigger`, and the `nan_safe_out` placeholder): `two_levels` asks
+`EntropyEOS.policy_decides` and takes `policy_atmosphere`, the two-phase recovery's first
+pass leaves those cells out of the second and the third asks again, and `[compat]` went to
+`"2.5"`, in the package and in `coupled/`. What changes downstream: the cells between
+`ρ_min·(1 − face_slack)` and `ρ_min` skip the solve too, and the skipped cells' flags carry
+the `YE` bit and their `base.result` reads `converged_newton`; the states are the same. The
+EOS-15 probe was retired and the two names joined `test/prerequisite_tests.jl`'s list.
+Measured after the switch (study `perf-current-1`, `jobs/perf-current-*.toml`; M2, H100,
+job 1425194): the polytrope's step from 191.6 to 84.9 ns a cell, the DD2 star's from 257.9
+(EntropyEOS 2.4.3's head) to 188.4. The cause is the lower bound: after one step 14% of the
+polytrope's cells (68160 of 491520 on M2's mesh at `N = 8`, all atmosphere) have `D` just below
+`ρ_min`, inside `[ρ_min·(1 − face_slack), ρ_min)`, which the workaround's bound `ρ_min` still
+sent to a solve and to the uncompacted second pass. A 192-core Trillium node (job 2951444):
+the DD2 star 399.5 ns, the polytrope 192.9. The request as it was last written
+(2026-11-26):
+
+> **Why.** `apply_policy` sends every finite input with `D < atm_trigger·ρ_min`
+> to the atmosphere whatever level 1 returned, and on a table such inputs are
+> most of a run's atmosphere and its dearest recoveries (EOS-16). A caller
+> that skips level 1 there needs the decision and the output EntropyEOS's own
+> call would give, without its unexported internals.
+>
+> **API** (exported; as EntropyEOS proposed it and Erik accepted, 2026-11-26).
+> ```julia
+> policy_decides(eos, in::Con2PrimIn, proj::ProjectionOptions, pol::PolicyOptions) -> Bool
+> policy_atmosphere(eos, in, proj, pol) -> Con2PrimSafeOut   # meaningful where policy_decides
+> ```
+>
+> **Semantics.**
+> - `policy_decides` is true exactly where `apply_policy` writes the atmosphere
+>   for every level-1 output, and level 1 would run a solve: a finite input,
+>   `B² ≥ 0`, `proj_ρ_min·(1 − face_slack) ≤ D < pol_atm_trigger·proj_ρ_min`
+>   (below that level 1 decides by `D` alone, without a solve).
+> - `policy_atmosphere` there returns the state `apply_policy` writes after
+>   `con2prim_safe`, bit for bit — the state, `cons` and the `EOSPoint` — with
+>   `policy_flags = ATMOSPHERE` plus the `YE_FLOORED` or `YE_CEILED` that
+>   `clamp_yₑ(D_Y/D)` sets (no solve needed), and, as level 1's own `ρ_FLOOR`
+>   and `ρ_CEIL` branches, `base.result = converged_newton`, no iterations,
+>   `solved = false`. Outside `policy_decides` it is unspecified but does not
+>   throw.
+> - Both are `@inline`, allocation-free and non-throwing, generic over `T`, and
+>   run in a GPU kernel on an `EOSTableView`; they call only interface methods
+>   an EOS wrapper already forwards (or the request names any new one).
+>
+> **Upstream acceptance.** On random inputs either side of both bounds, where
+> `policy_decides`, the state, `cons` and the `EOSPoint` equal
+> `apply_policy(con2prim_safe(…))`'s bit for bit and the flags are as above;
+> elsewhere it is false. Both evaluated in a kernel (or isbits-only) at
+> `Float32` and `Float64`.
+>
+> **Downstream check.** `policy_decides` and `policy_atmosphere` exported.
+>
+> **Workaround** (marked `EOS-15` in `src/con2prim.jl`, `policy_decides`
+> and its two callers): the bounds from the unexported `proj_ρ_min` and
+> `pol_atm_trigger`, and `apply_policy` on the unexported `nan_safe_out(T)`,
+> whose `policy_flags` are 0. Only for the skip of level 1 in "The two levels"
+> ("Primitive recovery"); without it, nothing. Its lower bound is `ρ_min`, not
+> `ρ_min·(1 − face_slack)`, so in that band (10⁻⁷ of `ρ_min` wide at `Float64`) level 1
+> still solves before the policy discards it; the state is the same either way. On
+> landing, the workaround goes; the hand-off's third pass then checks `policy_decides`
+> again and takes `policy_atmosphere`'s output without `apply_policy`.
 
 ### SpacetimeMetrics
 
