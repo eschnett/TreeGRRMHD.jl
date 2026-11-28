@@ -1,0 +1,40 @@
+# Step 20 (rung 8g): DD2's 1.4 M☉ star with neutrinos on its Cowling metric
+# (`bin/neutrino_star.jl`; "Validation ladder" 8g in `CODE.md`): the cold star and the hot
+# one (`s = 1`, 26 MeV at the centre) on `[−24, 24]³`, four roots, one box level, MC, at
+# `h = 0.75, 0.5, 0.375` (`N = 8, 12, 16`) to 100 M, sampled every M; the luminosities
+# through the shell `|r − 16| < 4` (the star's `R̄` is 7.5 cold, 7.9 hot; the box level ends
+# near 10). The hot star's luminosities and mean energies converging with `h`, and the cold
+# star's, which is the mesh's heating, falling with it. Submit each run as a job of its
+# own (`simlaunch submit … --run <label>`): the finest takes about 20 minutes, estimated
+# from `bin/benchmark.jl`'s step with neutrinos (1.26 times without) and step 13's cost.
+name = "neutrino-star"
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "hot-h0.75"
+cmd = "bin/neutrino_star.jl s=1 N=8 t_end=100 r_L=16 width=4 out=series.txt"
+
+[[run]]
+label = "hot-h0.5"
+cmd = "bin/neutrino_star.jl s=1 N=12 t_end=100 r_L=16 width=4 out=series.txt"
+
+[[run]]
+label = "hot-h0.375"
+cmd = "bin/neutrino_star.jl s=1 N=16 t_end=100 r_L=16 width=4 out=series.txt"
+
+[[run]]
+label = "cold-h0.75"
+cmd = "bin/neutrino_star.jl N=8 t_end=100 r_L=16 width=4 out=series.txt"
+
+[[run]]
+label = "cold-h0.5"
+cmd = "bin/neutrino_star.jl N=12 t_end=100 r_L=16 width=4 out=series.txt"
+
+[[run]]
+label = "cold-h0.375"
+cmd = "bin/neutrino_star.jl N=16 t_end=100 r_L=16 width=4 out=series.txt"

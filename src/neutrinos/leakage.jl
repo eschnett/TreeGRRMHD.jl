@@ -42,10 +42,14 @@ its number- and energy-weighted optical depths ("Neutrinos", "Leakage" in
 M0's absorption opacity `κ^eff = e^{−τ⁰} (E/E^β)² κ⁰_a` (Radice et al. 2018,
 Eq. 8), with `E` the free-streaming neutrinos' mean energy and
 `E^β`, both in units of `m★c²` ("Neutrinos", "M0" in `CODE.md`). Zero
-where the species does not absorb.
+where the species does not absorb, and where `e^{−τ⁰}` underflows (deep in
+the core), by branches, so that a mean energy that overflowed (`E = Inf`,
+"In the time integrator") does not make `0·Inf`.
 """
 @inline function absorption_opacity(r::SpeciesRates{T}, τ0::T, E::T) where {T}
     iszero(r.κa0) && return zero(T)
+    w = exp(-τ0)
+    iszero(w) && return zero(T)
     ratio = E / r.Eβ
-    return exp(-τ0) * ratio * ratio * r.κa0
+    return w * ratio * ratio * r.κa0
 end

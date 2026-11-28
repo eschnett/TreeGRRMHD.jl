@@ -23,8 +23,8 @@ update, and each is a brief that one agent with a fresh context can carry.
 - [Step 18 — M0 transport, without feedback (rungs 8c, 8d)](#step-18--m0-transport-without-feedback-rungs-8c-8d)
 - [Step 19 — Coupling to the matter (rungs 8e, 8f)](#step-19--coupling-to-the-matter-rungs-8e-8f)
 - [Step 20 — The star with neutrinos (rung 8g)](#step-20--the-star-with-neutrinos-rung-8g)
-- [Neutrinos with checkpoints and MPI ranks (not yet a step)](#neutrinos-with-checkpoints-and-mpi-ranks-not-yet-a-step)
-- [Step 21 — Review pass](#step-21--review-pass)
+- [Step 21 — Neutrinos on MPI ranks](#step-21--neutrinos-on-mpi-ranks)
+- [Step 22 — Review pass](#step-22--review-pass)
 
 ## Ground rules, every step
 
@@ -232,41 +232,88 @@ Accept:
 
 ## Step 20 — The star with neutrinos (rung 8g)
 
-`CODE.md`: "Neutrinos", "Thermodynamics", "Validation ladder" 7, "The
-per-phase table", "Devices". Waits: nothing upstream.
+`CODE.md`: "Neutrinos" (all of it, "Field sets and interface" for the
+composition and the checkpoint), "Thermodynamics", "Validation ladder" 7
+and 8g, "The per-phase table", "Devices". Waits: nothing upstream.
 
-Changes:
-- `RJS96Rates` on DD2 through `composition`.
-- The cold star and a heated star (its entropy raised), on the Cowling
-  metric in the suite at `h = 1`, and as `bin/` studies coupled to TreeGH.
-- The luminosity and number flux through the outer faces, summed per step
-  with the integrator's weights (moved from step 18).
-- A neutrino row in the per-phase table; a CUDA run of the heated star
-  against the CPU.
+Decided with Erik (2026-11-26): the composition travels with `M0Leakage`;
+`T` from the warm start; the hot star a hot barotrope in hydrostatic
+equilibrium; the luminosity through a spherical shell inside the domain, the
+outer faces' outflow only the computational check; checkpoints within this
+step, before the long studies; MPI a step of its own (21).
 
-Accept:
-- The cold star in β-equilibrium: luminosity below a stated bound over
-  1000 M.
-- The heated star: cooling and deleptonization, its luminosities and mean
-  energies converging with `h` at a stated rate.
-- The CUDA run within a stated number of ulp of the CPU.
+*Built* (2026-11-26, on `claude/step-20-neutrino-star`): 20a, 20b and 20c, and 20d's
+scripts and specs (`bin/neutrino_star.jl`, `bin/benchmark.jl neutrinos=true`,
+`coupled/tov_coupled_study.jl s= neutrinos=`, `test/device_tests.jl`'s hot star with
+neutrinos, `jobs/neutrino-star*.toml`, `jobs/benchmark-neutrinos.toml`); the Symmetry runs
+are in `CODE.md`, rung 8g. Not accepted yet: the cold star heats on the mesh, and the
+matter scheme heats it alone, mostly in its outer layers (2026-11-27, without neutrinos at
+three `h` and three reconstructions), so its neutrinos and the hot star's luminosities
+are that heating's; what rung 8g claims of them is Erik's call (`CODE.md`, "Open
+questions"), as is bounding M0's mean energy. The NaN the reset met in the cold run at
+`h = 0.375` was M0's absorption at the ν_e front, `Inf·0`, fixed. Found on the way: the optical depth's sweep had allocated at
+every neighbour since step 17 (53 times faster now), and with neutrinos `P` carries state
+between steps (`CODE.md`, "Sharp edges").
 
-## Neutrinos with checkpoints and MPI ranks (not yet a step)
+**20a, the composition in the kernels.**
+- `M0Leakage(rates; composition, …)`, refused as `CODE.md` says;
+  `TabulatedRates` into the kernels; `RJS96Rates` gains the units' density.
+- `cell_rates` and the optical depth's opacities from `P`'s `ρ★`,
+  `exp10(u_solved)` and `Yₑ`, zero by a branch where `ρ★ ≤ 0` or the warm
+  start is not finite.
+- Accept: on the synthetic table, a cell's rates in the kernel equal
+  `neutrino_rates` at its state bit for bit; the refusals; the kernels
+  allocation-free and inferred at `Float32` and `Float64`.
 
-Since "Running distributed" (PR 16) `evolve!` writes checkpoints, restarts
-from them and runs on MPI ranks; with neutrinos it refuses all three. A
-checkpoint needs the optical depth `Nτ` (outside the state vector) and the
-recipe the `M0Leakage`, so that a restart is the uninterrupted run bit for
-bit; on ranks, the neutrinos' fills, reductions and regrid need the MPI
-comparison `test/mpi_tests.jl` makes for the matter. To be placed after
-step 20 or folded into it.
+**20b, checkpoints with neutrinos.**
+- `save_run` writes `Nν`'s segment and `Nτ`; `restore_run!` reads them;
+  the recipe holds the `M0Leakage`. `evolve!` refuses neutrinos only with
+  `comm`.
+- Accept: a run with neutrinos (`GrayRates`, a static mesh, and one regrid
+  of an adaptive one) restarted from its checkpoint is the run that never
+  stopped, bit for bit; a restart with another `M0Leakage` is refused.
 
-## Step 21 — Review pass
+**20c, the stars.**
+- `hot_barotrope(slice, eos; s, ρ_surface)` beside `cold_barotrope`;
+  `tabulated_tov_case(…; s)` for the hot star (cold without `s`).
+- `neutrino_luminosity(p, u, t; r_L, width)`.
+- In the suite, DD2-gated, on the `h = 1` star to `t` of a few M: lepton
+  number (matter plus neutrinos) conserved net of the outflow to round-off;
+  the cold star's neutrino totals below a measured bound; the hot star's
+  emission, its central temperature and the sign of its `dYₑ/dt` as
+  measured numbers. The shell's luminosity of a uniform emitting medium
+  against its closed form (`GrayRates`, no table).
+- Accept: the testsets as stated, each in its tier.
+
+**20d, the studies.**
+- `bin/neutrino_star.jl` (`key=value`: `star=cold|hot`, `s`, `h`,
+  `t_end`, `r_L`, `width`, `checkpoint`), its `jobs/` specs: the cold star
+  to 1000 M; the hot star at three `h` for the convergence of `L` and the
+  mean energies; the step's cost measured first, which decides which runs
+  checkpoint.
+- The same star coupled to TreeGH in `coupled/`.
+- A neutrino row in `bin/benchmark.jl`; the hot star on an H200 against the
+  CPU (`jobs/`).
+- Accept: the cold star's luminosity below the bound found; the hot star's
+  rates stated; the device within a stated number of ulp of the CPU.
+
+## Step 21 — Neutrinos on MPI ranks
+
+`CODE.md`: "Running distributed", "Neutrinos". Waits: step 20.
+
+The neutrinos' fills, reductions (the optical depth's convergence, the
+totals, the luminosity) and regrid across ranks, and `evolve!`'s refusal
+of `comm` with neutrinos removed. Accept: the MPI comparison
+(`test/mpi_tests.jl`) extended to a run with neutrinos, bit for bit against
+one rank; a checkpoint written at one rank count restarted at another.
+The neutrino scheme is not finished until this step is.
+
+## Step 22 — Review pass
 
 `CODE.md`: all of it. Waits: none.
 
 Changes: the neutrino sections reread against the code, each (proposed)
-of steps 16–20 decided with Erik, `CODE.md`'s status paragraph updated,
+of steps 16–21 decided with Erik, `CODE.md`'s status paragraph updated,
 this plan moved into `HISTORY.md` and deleted.
 
 Accept: rung 8 marked *(Done.)*; the full suite three ways and the

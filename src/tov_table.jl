@@ -86,6 +86,82 @@ function cold_barotrope(slice::EntropyEOS.ColdBetaSlice; ρ_surface, density=MSU
     issorted(ρ; lt=(<=)) && issorted(e; lt=(<=)) || throw(ArgumentError(
         "the slice's density or energy density does not rise with the pressure above " *
         "ρ_surface = $ρ_surface."))
+    return barotrope_knots(x, p, ρ, e, s, Y, Float64(ρ_surface), f)
+end
+
+"""
+    hot_barotrope(slice::EntropyEOS.ColdBetaSlice, eos::EntropyEOS.EOSTable; s, ρ_surface,
+                  density = MSUN_DENSITY_CGS, samples = 8001) -> ColdBarotrope
+
+The hot star's barotrope of rung 8g ("Validation ladder" 8g in `CODE.md`): the states
+at constant entropy `s` (per baryon, no default) with the cold slice's electron fraction
+at each density, `(ρ★, s, Yₑ_slice(ρ★))`, evaluated by the table's EOS, tabulated as
+[`cold_barotrope`](@ref) tabulates the slice, with the surface `η = 0` at `ρ_surface`.
+The TOV solve needs only `p(e)`, and `dp/dη = e + p` holds by the definition of `η` for
+any barotrope, so the star is in hydrostatic equilibrium; its matter is out of
+β-equilibrium at its temperature. Refused where `s` leaves the table's entropy window
+between the surface and the slice's top. The type is `ColdBarotrope`, named for the slice
+it was first built from.
+"""
+function hot_barotrope(slice::EntropyEOS.ColdBetaSlice, eos::EntropyEOS.EOSTable; s,
+                       ρ_surface, density=MSUN_DENSITY_CGS, samples::Integer=8001)
+    isempty(slice.jumps) || throw(ArgumentError(
+        "the slice has $(length(slice.jumps)) phase transition(s), where the density jumps " *
+        "at constant pressure; the tabulated star does not support them yet."))
+    samples ≥ 5 && isodd(samples) || throw(ArgumentError(
+        "Simpson's rule needs an odd number of samples, at least 5; got $samples."))
+    f = Float64(density)
+    s = Float64(s)
+    v = EntropyEOS.EOSTableView(eos)
+    ρ★_s, ρ★_top = Float64(ρ_surface) * f, slice.ρ★[end]
+    slice.ρ★[1] ≤ ρ★_s < ρ★_top || throw(ArgumentError(
+        "the surface density $ρ_surface lies outside the slice's densities " *
+        "[$(slice.ρ★[1] / f), $(ρ★_top / f)] (geometric)."))
+    yₑ(ρ★) = EntropyEOS.beta_equilibrium(slice; ρ★).yₑ
+    function point(ρ★)
+        y = yₑ(ρ★)
+        w = EntropyEOS.srange(v, ρ★, y)
+        w.s_min ≤ s ≤ w.s_max || throw(ArgumentError(
+            "the entropy s = $s lies outside the table's window [$(w.s_min), $(w.s_max)] " *
+            "at ρ★ = $ρ★ g/cm³, Yₑ = $y: the hot star needs s inside it from the surface " *
+            "to the slice's top."))
+        return EntropyEOS.evaluate(v, ρ★, s, y, NaN), y
+    end
+    p_s, p_top = point(ρ★_s)[1].p, point(ρ★_top)[1].p
+    # The density at pressure `q`: bisection in log ρ★, the pressure rising with ρ★.
+    function density_at(q)
+        lo, hi = log(ρ★_s), log(ρ★_top)
+        q ≤ p_s && return ρ★_s
+        q ≥ p_top && return ρ★_top
+        for _ in 1:200
+            mid = (lo + hi) / 2
+            (mid == lo || mid == hi) && break
+            point(exp(mid))[1].p < q ? (lo = mid) : (hi = mid)
+        end
+        return exp((lo + hi) / 2)
+    end
+    x = range(log(p_s), log(p_top); length=samples)
+    pts = map(x) do xᵢ
+        ρ★ = density_at(exp(xᵢ))
+        pt, y = point(ρ★)
+        (; ρ★, pt, y)
+    end
+    p = [q.pt.p / f for q in pts]
+    ρ = [q.ρ★ / f for q in pts]
+    e = [(q.ρ★ * q.pt.h - q.pt.p) / f for q in pts]
+    Y = [q.y for q in pts]
+    issorted(p; lt=(<=)) && issorted(ρ; lt=(<=)) && issorted(e; lt=(<=)) ||
+        throw(ArgumentError(
+            "the hot barotrope's pressure, density or energy density does not rise " *
+            "together at s = $s above ρ_surface = $ρ_surface."))
+    return barotrope_knots(x, p, ρ, e, fill(s, samples), Y, Float64(ρ_surface), f)
+end
+
+# `η = ∫ dp/(e + p)` by Simpson's rule over samples uniform in `log p` (`x`), every
+# second sample a knot, and the knots' derivatives in `η` from the samples beside them:
+# the tabulation both barotropes share.
+function barotrope_knots(x, p, ρ, e, s, Y, ρ_surface::Float64, f::Float64)
+    samples = length(x)
     g = p ./ (e .+ p)                                  # dη/d log p
     δ = step(x)
     K = (samples + 1) ÷ 2                              # knots at the odd samples
@@ -105,7 +181,7 @@ function cold_barotrope(slice::EntropyEOS.ColdBetaSlice; ρ_surface, density=MSU
     idx = kn.(1:K)
     dη(v) = [deriv(v, i) / g[i] for i in idx]
     return ColdBarotrope(η, log.(p[idx]), e[idx], ρ[idx], s[idx], Y[idx], dη(e), dη(ρ), dη(s),
-                         dη(Y), Float64(ρ_surface), f)
+                         dη(Y), ρ_surface, f)
 end
 
 # The knot interval holding `η` and the local coordinate in it.

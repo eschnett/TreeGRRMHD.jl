@@ -1226,6 +1226,91 @@ with a checkpoint, a restart or `comm`: the optical depth is outside the state v
 checkpoint would not hold it, and nothing of the neutrinos' had run across ranks
 (`PLAN.md`, "Neutrinos with checkpoints and MPI ranks").
 
+**2026-11-26, step 20 — The star with neutrinos (rung 8g).** On
+`claude/step-20-neutrino-star`, cut from PR 18's branch after it was merged with `main`.
+Erik decided the step's six choices, two of them changed from the draft: the luminosity is
+measured through a spherical shell inside the domain, since the outer boundary is not a
+physical one (the outer faces' outflow only the computational check), and checkpoints with
+neutrinos come within the step, before any run of more than a few hours, while MPI ranks
+are a step of their own (21) without which the scheme is not finished; the review pass
+became step 22. The other four as drafted: the composition travels with `M0Leakage`; `T`
+from the warm start; the hot star a hot barotrope in hydrostatic equilibrium rather than a
+perturbed cold star; the suite's runs short at `h = 1`, the long ones `bin/` studies.
+- **20a.** `M0Leakage(rates; composition)`, `TabulatedRates` into the kernels,
+  `RJS96Rates` with the units' density; on the synthetic table the opacity kernel's κ
+  equals the pointwise rates at all 254 filled cells bit for bit.
+- **20b, and `P` between steps.** The first neutrino restart differed from the run that
+  never stopped by 1e−12: a step's first implicit stage absorbs with the cell's latest
+  recovery in `P`, which the uninterrupted run carried over from its previous step and
+  the restart had not. The adaptive restart already agreed, since its regrid prepares `P`
+  from the state at every chunk boundary; so now does `evolve!` (`resume_neutrinos!`), and
+  both restarts are exact. The same makes a monitor that refreshes `P` change a run with
+  neutrinos, which `evolve!`'s docstring had said could not happen (now a sharp edge).
+- **20c.** The hot barotrope at `s = 1` on DD2: 26.3 MeV at the centre, 1.51 M☉ at the
+  cold star's central density (cold 1.404); `s = 0.5` 12.7 MeV, 1.431 M☉; `s = 2` leaves
+  the table's entropy window above the star's densities. The hot star's matter, with the
+  cold slice's `Yₑ`, emits more ν̄_e than ν_e, so its `Yₑ` rises: `PLAN.md`'s
+  "deleptonization" had the sign wrong for this star.
+- **The cold star is not cold on the mesh.** The slice is at 0.01 MeV, but the recovered
+  cell averages of the initial data are 4.4 MeV at the centre and 6.4 MeV where the density
+  falls, at `h = 1`: the Gauss quadrature's averages of the conserved variables are exact
+  to its order, and a small error in the energy of degenerate matter is a large
+  temperature. At `t = 2M` its neutrinos hold 40% of the hot star's energy; its emission is
+  the discretization's, and rung 8g's bound becomes its fall with `h`.
+- **The optical depth's sweep allocated at every neighbour since step 17.** The kernel
+  reassigned `best` in its neighbour loop and captured it in an `ntuple` closure, which
+  Julia boxed: 7.7 µs a cell at four threads on the laptop, twice a right-hand side and a
+  third of a step with neutrinos. With the update a function of its own (`relax_through`)
+  it is 145 ns, the arithmetic unchanged. With it a step with neutrinos costs 1.26 times
+  one without (laptop, DD2 at `h = 1`).
+- **The Symmetry runs** (2026-11-27, at 8697f7b; study `full-suite-8697f7b07b08`, jobs
+  614157–614167; the numbers in `CODE.md`, rung 8g, and "The tabulated star's cost"). The
+  studies took less than estimated: `h = 0.375` to 100 M 40 min (1.37 s a step at 64
+  threads), the cold star to 1000 M at `h = 0.5` 2.5 h (0.69 s a step), the coupled run
+  29 min against 4 h. What they found: the cold star heats on the mesh, its central
+  temperature first order in `h` at the start (3.3, 2.2, 1.7 MeV) and rising with time
+  (2.2 → 10.5 MeV in 1000 M at `h = 0.5`), its neutrinos as bright as the hot star's, so
+  rung 8g's cold-star bound was not stated and the question opened; lepton number's
+  change net of the reset is the neutrinos' outflow, to 1–4% against the shell's lagged
+  flux; the reset's injected `D Yₑ` was NaN in the cold run at `h = 0.375`; the H200 runs
+  the hot star with neutrinos as the host does (470 of 470); a step with neutrinos costs
+  1.18 times one without at 64 threads on M1. Erik had the results recorded before the
+  heating is investigated.
+- **What heats the cold star** (2026-11-27; `bin/neutrino_star.jl` gained `neutrinos=false`,
+  radial `profile`s and `nanprobe`; `jobs/neutrino-star-heating.toml`, studies
+  `cold-star-heating` and `cold-star-nan`, jobs 615769–615785 and 615802). The matter
+  scheme alone: without neutrinos the central temperature follows the same curve (3.31 →
+  7.06 → 7.22 MeV at 0, 50, 100 M at `h = 0.75`, against 7.17 with them; 6.90 against
+  6.91 at 200 M at `h = 0.5`). The profiles put most of the heat in the outer layers, with
+  MC, PPM and WENO-Z alike, and the centre's in MC's clipping, which WENO-Z does not do;
+  the numbers are in `CODE.md`, rung 8g. In the middle layers MC even lowered the entropy
+  (`s` 0.09 → 0.03 at `r = 3.75`, `h = 0.5`), numerical as the heating is. WENO-Z's
+  lepton number net of the reset, −1.2·10⁻⁶, looked like a conservation error and was its
+  surface wind leaving through the box's faces.
+- **The literature** (a survey, its citations not all checked against the papers):
+  surface heating of isolated stars is generic. Galeazzi, Kastaun, Rezzolla & Font 2013
+  (PRD 88, 064009, Sec. VI A) saw spurious standing shocks heat a cold LS220 star's
+  surface (PPM, HLLE, Cowling) and its leakage luminosity, and evolve cold stars without
+  leakage; Gittins et al. 2025 (PRD 111, 023049) report 1–4 MeV in isolated DD2 stars in
+  WhiskyTHC, more for a moving star, with no remedy yet; Radice et al. 2022 (MNRAS 512,
+  1499) surfaces above 10 MeV in the inspiral and an artificially large luminosity before
+  merger, less at higher resolution; Kiuchi et al. 2022 (PRD 106, 124041) blame HLLE's
+  smearing of the surface and use HLLC; entropy-limited fluxes (Guercilena, Radice &
+  Rezzolla 2017; Doulis et al. 2022) and well-balanced schemes (Gaburro, Castro & Dumbser
+  2021) are the remedies in print. WhiskyTHC's M0 is switched on only near merger, and
+  evolves the mean energy rather than `𝓔` (Radice et al. 2016, App. A; 2018, Eq. 9).
+- **The NaN in the reset's tally** was M0's. `nanprobe` found it at `t = 0.57`, in 24
+  cells at the surface on the axes, `√γ τ` and `√γ D Yₑ` not finite and `√γ D` finite,
+  and the laptop reproduced it step for step: at the ν_e front MC limits `N` and `𝓔`
+  apart, one cell received `𝓔 = 1.1e−15` and no `N` beyond its own emission
+  (`7.5e−182`), `κ^eff ∝ E²` overflowed, and `κ N` was `Inf·0`. The matter's share is
+  now the absorbed amounts `a N★`, `a 𝓔★`, the same numbers and finite for every `κ`
+  (`CODE.md`, "In the time integrator"), and the reproduction's tally stays finite, as
+  does the whole run repeated on Symmetry (study `cold-star-nan-fixed`, job 615848, 100 M,
+  no `nanprobe` report; its luminosities at 100 M within 0.3–1% of job 614162's). Erik
+  chose the fix and left bounding `E` open. The rates themselves were finite at every
+  state tried, 24 057 of them, off the table included.
+
 ## Goals
 
 **Undated.** Three goals were marked (decided), decisions taken in review:
@@ -7315,3 +7400,19 @@ density, the EOS-13 probe removed, its new testset): **38428 tests, every run pa
 whole** with the tables (Symmetry job 613620 on cn096, EPYC 7543, `amddebugq`; study
 `full-suite-6c4522075c1f`, not posted) — 38m04s at one thread, 26m39s at four, 46m47s with
 `--check-bounds=yes`, side by side.
+
+**2026-11-26, step 20.** At 8697f7b (the composition in the kernels, neutrino checkpoints,
+the hot star, the shell luminosity, the DD2 stars with neutrinos, the hot star in the device
+tests): **38754 tests, every run passing whole** with the tables (Symmetry job 614143 on
+cn103, EPYC 7543, `amddebugq`; study `full-suite-8697f7b07b08`, not posted) — 44m11s at one
+thread, 29m26s at four, 55m29s with `--check-bounds=yes`, side by side: the bounds-checked
+run is within five minutes of `amddebugq`'s hour on Zen 3. The step-20 testsets gave the
+laptop's numbers on x86 (the stars' totals and central temperatures to every printed digit).
+
+**2026-11-27, step 20, M0's absorbed amounts.** On 993e993 with the uncommitted fix of the
+reset's NaN (M0's absorbed share, the opacity's underflow branch, their testset) and the
+heating study's script keys: **38765 tests, every run passing whole** with the tables
+(Symmetry job 615902 on cn095, EPYC 7543, `amddebugq`; study `step20-absorb-suite`, from
+the working tree, not posted) — 38m16s at one thread, 26m31s at four, 48m31s with
+`--check-bounds=yes`, side by side; 11 tests more than at 8697f7b, 8 of them the new
+testset's.

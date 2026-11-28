@@ -2687,7 +2687,7 @@ contract is checked before the scheme builds on it.
 
 *Designed and not built: the design was decided by Erik on 2026-11-25
 ([HISTORY.md, "Neutrinos"](HISTORY.md#neutrinos)); what it leaves open is
-marked **(open)**. The work is broken down in `PLAN.md`, steps 16–21.*
+marked **(open)**. The work is broken down in `PLAN.md`, steps 16–22.*
 
 The scheme is **leakage plus M0**, Radice et al.'s (2016, arXiv:1601.02426,
 §2.2 and Appendices A–B; as revised in Radice et al. 2018, arXiv:1809.11161,
@@ -2819,9 +2819,11 @@ zero, so that they stay finite where both integrals underflow.
 
 **Where the rates are evaluated.** In the source kernel, once per cell per
 right-hand side, from `P` (`ρ★`, `Yₑ`, and `T` from the EOS's own warm start,
-`log₁₀ T`). Cells the atmosphere policy flags are skipped: the
-neutrino–matter sources there are zero by a branch ("Masks branch, never
-multiply"). M0's transport runs everywhere.
+`log₁₀ T` on a table, EntropyEOS's `u_solved`). Cells the atmosphere
+policy flags are skipped: the neutrino–matter sources there are zero by a
+branch ("Masks branch, never multiply"); so is a cell with `ρ★ ≤ 0` or a warm
+start that is not finite, as `P` is before the first fill. The optical
+depth's opacities come from the same rates. M0's transport runs everywhere.
 
 **The rates are a model**, as the conductivity is, answering
 `neutrino_rates(model, ρ★, T_MeV, yₑ, comp)` with one `SpeciesRates` per
@@ -2832,8 +2834,9 @@ and a scattering opacity and a number emissivity, each proportional to
 `ρ★`, one emitted energy, and Kirchhoff's `n^β = R/κ_a`; for the tests, on
 any EOS. `RJS96Rates(T, units; baryon_mass, q_np)` holds only constants and
 reads the composition at the state as an argument; the composition view
-itself goes with `M0Leakage`, which refuses it, with an `ArgumentError`
-saying why, unless `matches(cv, eos)` (steps 18 and 20) **(proposed)**;
+itself goes with `M0Leakage` ("Field sets and interface"), and the problem
+refuses it unless `matches(cv, eos)`; the composition is evaluated at the
+EOS's density, `ρ★` times the units' density, which `RJS96Rates` carries;
 on a table the rates are built as `RJS96Rates(T, units, table, cv)`, which
 takes the baryon mass from the table's provenance (`m_B_table_g`) and `Q`
 from `q_np(cv)`, and refuses a composition that does not `match` the table
@@ -2956,10 +2959,25 @@ rates from 32³ to 64³ were 1.70–1.96 against MC's 2.16–2.24:
 F = max(v_L, 0) N_L + min(v_R, 0) N_R          (and the same for 𝓔).
 ```
 The outer faces' ghosts hold `N = 𝓔 = 0` (`NuEscape`): the flux there is
-outflow only. The luminosity and number flux at the outer faces, summed per
-step with the integrator's weights, are step 20's, with the star whose
-luminosities they measure; until then `neutrino_totals(p, u)` sums `N` and
-`𝓔` over the owned cells (moved from step 18, decided by Erik 2026-11-25). A forest
+outflow only, and summed over the outer faces it is the computational
+check: the totals' change plus that outflow is zero to round-off (the
+tests). The physical diagnostic is measured further in, since the outer
+boundary is not a physical one (decided by Erik in step 20):
+`neutrino_luminosity(p, u, t; r_L, width)` is, per species, the number and
+energy luminosity through a spherical shell about `center`,
+```
+L_N = ∫ N vⁱ r̂_i W(r) d³x,   L_𝓔 = ∫ 𝓔 vⁱ r̂_i W(r) d³x,
+W(r) = (1 + cos(π (r − r_L)/width)) / (2 width)  for |r − r_L| < width,
+```
+`r̂` the coordinate radial unit vector and `d³x` the coordinate volume, since
+`N` and `𝓔` are densitized: where nothing is absorbed, `∂_r L = 0`, and the
+window's average over the shell is the luminosity through any sphere in it,
+second order in the cells (`∫ W dr = 1`) and with no point interpolation.
+`vⁱ` is the closure's at the cell, from its own `uⁱ`. `𝓔` is the energy at
+infinity, so `L_𝓔` is the luminosity at infinity and `L_𝓔/L_N` the mean
+energy at infinity. `r_L` and `width` have no default; the shell must lie
+outside the matter and inside the domain. `neutrino_totals(p, u)` sums `N`
+and `𝓔` over the owned cells. A forest
 periodic in any direction is refused: the radial direction flips across a
 periodic face, so the blocks on either side would carry that face at
 different velocities, and step 18 measured the totals drifting there.
@@ -3057,10 +3075,25 @@ the closed form leaves out.
   coefficient, so the stage's solution is closed-form:
   `N = N★/(1 + γΔt κ^eff/k^t)`, `𝓔` likewise; and `E`, which enters
   `κ^eff`, is the same in `u★` and the solution. The matter's increments
-  follow from the solved `N` and `𝓔`, the same numbers subtracted from one
-  side and added to the other: `√γ D Yₑ` gains
-  `γΔt (κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/k^t`, `√γ τ` gains
-  `γΔt α Σ κ 𝓔/χ` and `√γ S_j` `γΔt Σ κ 𝓔 k_j/(χ k^t)`, written into `U`.
+  are what the neutrinos lose, the same numbers subtracted from one side
+  and added to the other: the absorbed amounts `a N★` and `a 𝓔★`, with
+  `a = x/(1 + x)`, `x = γΔt κ^eff/k^t` (`m0_absorbed_fraction`, computed as
+  `1/(1 + 1/x)`). `√γ D Yₑ` gains `a N★` of ν_e less that of ν̄_e, `√γ τ`
+  gains `α k^t Σ a 𝓔★/χ` and `√γ S_j` `Σ a 𝓔★ k_j/χ`, written into `U`.
+  These equal `γΔt (κ/k^t) N` and the like at the solved `N`, `𝓔`, but stay
+  finite for every `κ`: where a species' field begins, `N` and `𝓔` both
+  vanish, M0's MC limits them apart, and their ratio `E` is noise. On DD2's
+  cold star at `h = 0.375` one cell held `N = 7.5e−182` and `𝓔 = 1.1e−15`
+  (`E = 1.8e166 m★c²`); `κ^eff ∝ E²` overflowed, the solved `N` was 0, and
+  `κ N` was `Inf·0`, a NaN in `√γ D Yₑ` and `√γ τ` that the reset then
+  replaced, visible only in its tally. With the absorbed amounts such a cell
+  absorbs the little it holds. `E` itself is not bounded **(open)**: the
+  original M0 evolves the mean energy instead (Radice et al. 2016, App. A;
+  2018, Eq. 9), and M1 codes floor `N` and `𝓔` or use the equilibrium energy
+  where equilibration is fast (step 20's survey of the literature,
+  [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan)).
+  `absorption_opacity` is zero where `e^{−τ⁰}` underflows, by a branch, so
+  that an overflowed `E` there does not make `0·Inf` either.
   This runs first in each implicit stage, and Ohm's stage solve then
   recovers from `u★` shifted by them: a copy (`M0State`'s `shifted`, the
   matter segment's size), since the integrator forbids changing `u★` and
@@ -3104,11 +3137,21 @@ step limiter one optical-depth sweep (from `P` as the step's last stage left
 it), `regrid_pairs` its sets and `evolve!` the converged optical depth of
 the initial data (`initial_depth!`). `M0Leakage(…; optical_depth = false)`
 takes `τ ≡ 0`, the optically thin limit, for the transport's tests.
-`evolve!` refuses neutrinos with a checkpoint, a restart or MPI ranks
-(`comm`): the optical depth is carried from step to step outside the state
-vector, so a checkpoint would not hold it and a restart would not be the
-uninterrupted run, and nothing of the neutrinos' has run across ranks yet
-(`PLAN.md`).
+A checkpoint holds the neutrinos beside the five evolved sets: `Nν`'s
+segment of the state vector, and `Nτ` (`τ` and `κ`), which is carried from
+step to step outside the state vector and is current in its working array
+at a chunk boundary; the recipe holds the `M0Leakage` (its rates, centre,
+`r_core`, switches and the composition's fingerprint). A restart reads both
+back and does not reconverge `τ`. The first implicit stage of a step reads
+the cell's latest recovery in `P`, which a restart does not have, so
+`evolve!` prepares `P` from the state at every chunk boundary
+(`resume_neutrinos!`), the restart's first included: the restart is then the
+uninterrupted run bit for bit (step 20; without it the static restart
+differed by 1e−12), and a script that owns the loop and checkpoints does
+the same. For the same reason a monitor between steps (`evolve!`'s
+`after_step`) must not refresh `P` in a run with neutrinos: it reads `P` as
+the last stage left it, as `neutrino_luminosity` does. `evolve!` still refuses neutrinos on MPI ranks (`comm`):
+nothing of theirs has run across ranks yet (`PLAN.md`, step 21).
 
 `Nτ` has one ghost layer, not the matter's three: the sweep reads one, and
 three would triple the fill of twelve variables (step 17, **(proposed)**).
@@ -3124,7 +3167,14 @@ neutrinos is today's, bit for bit, and the matter's kernels do not change.
 `neutrinos = M0Leakage(rates; center, r_core, feedback = true)` (`center`
 and `r_core` with no default) the sets are added; `feedback = false` keeps
 the matter's sources off, for the transport's tests (rungs 8c, 8d) and for
-a run that switches the heating on later, as Radice et al.'s binaries do. The code is `src/neutrinos/`: `fermi.jl`,
+a run that switches the heating on later, as Radice et al.'s binaries do.
+With `RJS96Rates` the composition comes with it,
+`M0Leakage(rates; composition = cv, …)` (step 20): `RJS96Rates` holds only
+constants, `cv` is EntropyEOS's `CompositionView`, moved to the run's device
+with the rest, and `MHDProblem` refuses it unless `matches(cv, eos)` for the
+problem's EOS; `RJS96Rates` without a composition and `GrayRates` with one
+are refused. The kernels receive the two together (`TabulatedRates`), and
+evaluate the composition at each cell's `ρ★`, `T` and `Yₑ`. The code is `src/neutrinos/`: `fermi.jl`,
 `rates.jl`, `leakage.jl`, `optical_depth.jl`, `m0.jl`; the rates touch
 nothing of the mesh, so that they can move to a package of their own when
 M1 needs them too.
@@ -5133,6 +5183,12 @@ ns per cell, the best of three; "PR 16" is the code before this section's change
   their samples (`bin/profile.jl`). A split by measured cost would help where a thread
   has several blocks (AMR-14); at 64 threads on 120 blocks one star block is the limit,
   and the larger mesh's step is 25% cheaper a cell (1246 against 1653).
+- **With neutrinos** (step 20; `bin/benchmark.jl neutrinos=true`,
+  `jobs/benchmark-neutrinos.toml`, Symmetry job 614164 on cn103, EPYC 7543, 64 threads,
+  M1, in one job with the run without): a step 2040 ns a cell against 1731, 1.18 times;
+  the neutrinos' own phases `nu_rhs` 34, `nu_absorb` 29, `nu_opacities` 12 and `nu_sweep`
+  38 ns a cell, and the right-hand side 361 → 425 and the stage solve 78 → 109 with their
+  hooks (before EntropyEOS 2.5.0; `HISTORY.md`, step 20, for the sweep that cost 7.7 µs).
 - **GC and allocation**: a step at 64 threads allocated 215 MB and spent 0.06 s of its
   0.87 in GC (7%; an earlier measurement of the same step, before the EOS forwards,
   66 MB and none); at one thread 46 MB and 0.02 s of 29 s. Whether a collection lands
@@ -5599,6 +5655,11 @@ it names has the reasons.
   surface `η = 0` at the atmosphere's density, so `R̄` and `M` depend on
   `ρ_min`, slightly (DD2's 1.4 M☉ star: 13.194 km at 10⁻¹⁰ against 13.225
   km at 10⁻¹⁴); the literature's radius is the lower surface's.
+- **With neutrinos `P` carries state between steps.** A step's first
+  implicit stage absorbs with the cell's latest recovery in `P`, so `P` is
+  prepared from the state at every chunk boundary (`resume_neutrinos!`,
+  which makes a restart exact), and a monitor between steps reads `P` and
+  never refreshes it ("Neutrinos", "Field sets and interface").
 
 ## Tests
 
@@ -5681,6 +5742,13 @@ the magnetized star's convergence studies); `threaded` also the
   in a right-hand side, an implicit stage and a regrid, in 2D and 3D across
   coarse-fine faces, with no cell repaired; the coupled exchange against its
   closed form, and its rates to 32³ (`@full_tier`) (step 19).
+- `test/neutrino_star_tests.jl`: the tabulated rates in a kernel against the
+  pointwise rates, on the synthetic table, and `M0Leakage`'s refusals; a run
+  with neutrinos restarted from its checkpoint, bit for bit, on a static and
+  an adaptive mesh; the refusal of MPI ranks; the shell luminosity of the
+  uniform medium against the radial solution; M0's absorbed share finite where
+  the mean energy overflows, at the numbers of the cell that made the NaN; DD2's
+  cold and hot stars with neutrinos at `h = 1` to 2M (DD2-gated) (step 20).
 - `test/threading_tests.jl`: the digests of three runs (`test/thread_workload.jl`: the
   magnetized atmosphere tube, the adaptive rotor, the magnetized star) against a
   subprocess at another thread count, line for line ("Precision and devices").
@@ -5758,11 +5826,14 @@ bit-identically to the host; "Precision and devices"):
   from another table), `neutrino_rates`, and `CompositionPoint`, from EOS-12's
   `Composition`; `src/neutrinos/leakage.jl`: `effective_rates`,
   `absorption_opacity` ("Neutrinos", "Leakage"); `src/neutrinos/optical_depth.jl`:
-  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`
+  `OpticalDepth`, the `Nτ` set and its sweep, `opacities!`, `sweep!`, `converge!`,
+  and `TabulatedRates` with the rates at a cell from `P`, `cell_rates`
   ("Neutrinos", "The optical depth"); `src/neutrinos/m0.jl`: the closure
   `m0_closure`, the upwind flux, the absorption, `M0Leakage`, `NuEscape`, the
-  kernels and the scheme's hooks, `initial_depth!`, `neutrino_totals`,
-  `neutrino_tally` ("Neutrinos", "M0", "Coupling to the matter").
+  kernels and the scheme's hooks, `initial_depth!`, `resume_neutrinos!`,
+  `neutrino_totals`, `neutrino_luminosity`, `neutrino_tally` ("Neutrinos",
+  "M0", "Coupling to the matter"); the neutrinos' checkpoint is
+  `src/checkpoint.jl`'s.
 
 **The scheme on the mesh** (the kernels are written for D = 1, 2, 3):
 - `src/fieldsets.jl`: `mhd_fields`, every set of the table in "Field sets"
@@ -5796,7 +5867,8 @@ bit-identically to the host; "Precision and devices"):
   over the barotrope (`barotrope_state`), `TOVMetric` ("Gauge for the TOV
   milestones").
 - `src/tov_table.jl`: `cold_barotrope`, a table's cold
-  β-equilibrium slice as the solve's barotrope, `tov_solve(T, b; ρ_c)`,
+  β-equilibrium slice as the solve's barotrope, `hot_barotrope`, the hot
+  star's at constant entropy (rung 8g), `tov_solve(T, b; ρ_c)`,
   and `TOVComposition`, the star's matter at knots in `r̄²`
   ("Thermodynamics", "The cold barotrope").
 - `src/tov_pulsation.jl`: the star's radial modes from linear perturbation
@@ -7768,10 +7840,103 @@ in [HISTORY.md, "The steps of the plan"](HISTORY.md#the-steps-of-the-plan).
      has a closed form: `N` and the changes of `√γ D Yₑ` and `√γ τ` at
      every cell, through the approach to `R^eff = κ^eff n`; the emission's
      rate recorded (`neutrino_tally`).
-   - **8g, the star**: DD2's cold star in β-equilibrium stays as it is
-     (luminosity below a stated bound over 1000 M); the same star heated
-     (its entropy raised) cools and deleptonizes, the luminosities and
-     mean energies converging with `h`.
+   - **8g, the star**: DD2's 1.4 M☉ star on its Cowling metric, with
+     `RJS96Rates` on the table's composition. The cold star in
+     β-equilibrium stays as it is: its luminosity through a shell outside
+     it below a measured bound over 1000 M. A hot star at constant entropy
+     `s` with the cold star's `Yₑ(ρ)`, in hydrostatic equilibrium (a hot
+     barotrope, below), cools, and its `Yₑ` moves toward the hot
+     β-equilibrium (the sign measured); its luminosities and mean energies
+     at the shell converge with `h` at a measured rate. Lepton number,
+     matter plus neutrinos, is conserved to round-off net of the outflow.
+     The hot barotrope is `cold_barotrope`'s construction on states at
+     `(ρ★, s, Yₑ(ρ★))`, `Yₑ` the slice's, evaluated by EntropyEOS: the
+     solve needs only `p(e)`, and `dp/dη = e + p` holds by the definition of
+     `η` for any barotrope; nothing is asked upstream. `s` is the case's,
+     with no default; at `s = 1` DD2's star at the cold star's central
+     density is 26.3 MeV at the centre and 1.51 M☉ (cold: 1.404). On the
+     mesh the cold star is not cold: the slice is at 0.01 MeV, but the
+     recovered cell averages of the initial data are 4.4 MeV at the centre
+     and 6.4 MeV where the density falls at `h = 1` (step 20), since a small
+     error in the energy of degenerate matter is a large temperature; its
+     emission is the discretization's, and its bound over 1000 M is measured
+     with its fall in `h`.
+
+     **Measured** (`bin/neutrino_star.jl`, `jobs/neutrino-star*.toml`;
+     Symmetry jobs 614157–614166 on AMD EPYC 7543, 64 threads; `[−24, 24]³`,
+     four roots, one box level, MC, the shell `|r − 16| < 4`; at 100 M, `L_𝓔`
+     of ν_e, ν̄_e, ν_x in units of `M☉c²/M` and the mean energy at infinity
+     `L_𝓔/L_N`):
+
+     | star, `h` | `L_𝓔` ν_e | ν̄_e | ν_x | `⟨E⟩∞` MeV | `T` centre, start → 100 M |
+     | --- | ---: | ---: | ---: | --- | --- |
+     | hot, 0.75 | 6.5e−9 | 5.5e−8 | 4.8e−8 | 10.5, 24.2, 23.1 | 26.4 → 26.9 |
+     | hot, 0.5 | 7.4e−9 | 3.7e−8 | 3.7e−8 | 10.9, 21.7, 20.2 | 26.3 → 26.8 |
+     | hot, 0.375 | 6.1e−9 | 3.1e−8 | 3.2e−8 | 10.6, 20.3, 18.4 | 26.3 → 26.5 |
+     | cold, 0.75 | 6.7e−9 | 4.7e−8 | 4.9e−8 | 10.4, 24.5, 23.6 | 3.3 → 7.2 |
+     | cold, 0.5 | 7.5e−9 | 3.3e−8 | 3.8e−8 | 11.3, 20.0, 19.6 | 2.2 → 5.2 |
+     | cold, 0.375 | 7.6e−9 | 2.5e−8 | 3.2e−8 | 11.3, 18.1, 16.8 | 1.7 → 3.3 |
+
+     - **The cold star heats on the mesh**, and is about as bright as the
+       hot one. Its initial central temperature is first order in `h`
+       (3.3, 2.2, 1.7 MeV at `h` 0.75, 0.5, 0.375: the cell averages'
+       error), and it rises with time: at `h = 0.5` to 5.2 MeV at 100 M,
+       6.7 at 500 M and 10.5 at 1000 M, its luminosities rising by about
+       half (`L_𝓔` 1.2e−8, 4.6e−8, 5.7e−8 at 1000 M). In `M☉c²/M`, 4e−8 is
+       about 1.4·10⁵² erg/s.
+     - **The heating is the matter scheme's**, the neutrinos play no part
+       (`jobs/neutrino-star-heating.toml`, `bin/neutrino_star.jl
+       neutrinos=false profile=…`; jobs 615769–615785, Zen 3): at `h = 0.5`
+       the central temperature is 6.90 MeV at 200 M without neutrinos, 6.91
+       with them, and the mean entropy below (`s̄`) 0.877 and 0.886. It has two
+       sources (the cold star, at 100 M; `s̄` the `ρ★`-weighted entropy per
+       baryon inside `r = 10`):
+
+       | `h`, reconstruction | `T` centre, MeV | `s̄`, start → 100 M | the outer layers at 100 M |
+       | --- | --- | --- | --- |
+       | 0.75, MC | 3.3 → 7.2 | 0.23 → 1.14 | `T` 14–23 MeV, `s` 0.8–3.1 at `r` 4.75–7.75 |
+       | 0.5, MC | 2.2 → 5.2 | 0.15 → 0.68 | `T` 10–16 MeV, `s` 1.1–3.3 at `r` 5.75–7.75 |
+       | 0.375, MC | 1.7 → 3.3 | 0.12 → 0.47 | `T` 7–13 MeV, `s` 0.7–3.3 at `r` 5.75–7.75 |
+       | 0.5, PPM | 2.2 → 4.0 | 0.15 → 0.25 | `T` 3–6 MeV, `s` 0.2–4.8 at `r` 5.75–7.75 |
+       | 0.5, WENO-Z | 2.2 → 2.2 | 0.15 → 0.58 | `T` 7.5–16 MeV, `s` 0.5–4.5 at `r` 5.75–7.75 |
+
+       Most of it is the **outer layers**, `ρ★` from 5e−4 to 5e−5 (3·10¹⁴
+       to 3·10¹³ g/cm³) under the surface, with every reconstruction: the
+       surface spreads (`ρ★` at `r = 8.25` from 3e−9 to 2e−5 at `h = 0.75`),
+       `Yₑ` mixes there, and with WENO-Z a wind reaches the box's faces
+       (`ρ★` 5e−10 at `r = 23.75`, its lepton number leaving by them,
+       1.2·10⁻⁵ of the star's). The **centre** is MC's, and less PPM's,
+       clipping of the smooth maximum: WENO-Z does not heat it. `s̄`'s gain
+       falls at about order 1.4 in `h` (0.91, 0.53, 0.35), the outer layers'
+       at 0.8–1.2. A small energy error in degenerate matter is a large
+       temperature, and emission goes as about `T⁶`, so these layers are the
+       luminosity: the cold star's neutrinos are the mesh's surface heating,
+       as Galeazzi et al. 2013 report for a cold LS220 star with PPM and HLLE
+       (PRD 88, 064009, Sec. VI A: the luminosity it gives is the least their
+       scheme can model). What rung 8g then
+       claims of the cold star is **(open)** ("Open questions").
+     - **The hot star's** ν̄_e and ν_x luminosities fall with `h` at about
+       order 2.3 (differences 1.8e−8 and 5.6e−9 for ν̄_e), ν_e's does not
+       move; its outer layers heat as the cold star's do (without
+       neutrinos, `h = 0.5`: `s` 1.07 → 2.07 at `r = 6.75`, 2.7 → 3.0 at
+       7.75; `s̄` 1.02 → 1.28), so these luminosities hold the same heating
+       and are not the hot star's own.
+     - **Lepton number** net of the reset changes at 100 M by 1.1–2.5·10⁻⁴
+       of 0.10, which is what the neutrinos carried out of the box: the
+       shell's `−∫ (L_{N,ν_e} − L_{N,ν̄_e}) dt`, lagged by the 8 M from the
+       shell to the boundary, agrees to 1–4% in every run. In the cold
+       run at `h = 0.375` the reset's injected `D Yₑ` was NaN: M0's
+       absorption made `Inf·0` at the ν_e front ("In the time integrator").
+       With the absorbed amounts the run repeated (job 615848) has no
+       non-finite tally to 100 M, and its lepton number net of the reset,
+       9.05·10⁻⁵, is the shell's lagged outflow, 9.12·10⁻⁵, to 0.7%.
+     - **Coupled to TreeGH** (`coupled/tov_coupled_study.jl s=1
+       neutrinos=true`, `h = 0.5`, PPM, `ρ_min = 1e−12`, to 100 M, 29 min):
+       the rest mass net of the reset to 3.8e−13, `ρ_c` −0.31%, lepton
+       number out of the box 1.4·10⁻⁴, as on the Cowling metric.
+     - **On an H200** (`jobs/device-tests.toml`, job 614167): the hot star
+       with neutrinos as on the host to `sqrt(eps)` at `Float32` and
+       `Float64`, both recoveries; 470 of 470.
 
 Later, not specified yet: rotating stars, collapse to a black hole,
 binaries, supernovae with neutrinos.
@@ -7842,9 +8007,22 @@ far say about it.
 
 ## Open questions
 
-One is open, in the [Neutrinos](#neutrinos) section (the Fermi integrals'
-fits and `Y_np`'s fractions were decided in step 16, `N_min` in step 18):
+Three are open, in the [Neutrinos](#neutrinos) section and rung 8g (the Fermi
+integrals' fits and `Y_np`'s fractions were decided in step 16, `N_min` in
+step 18):
 - **A moving centre** for M0's closure, for when a binary is built.
+- **What rung 8g claims of the cold DD2 star**: the matter scheme heats it
+  alone, mostly in its outer layers, falling at about order 1–1.4 in `h`,
+  PPM a fifth as much as MC; its neutrinos are that heating's (rung 8g,
+  "Measured"). The claim "stays as it is, below a measured bound" holds
+  only as the mesh's floor: the luminosity's fall with `h`, or a run at a
+  stated reconstruction, or the remedies others use (an entropy-limited
+  flux, HLLC, well-balanced reconstruction, or leakage off while a star is
+  cold; HISTORY.md, step 20). Erik's call.
+- **Bounding M0's mean energy** ("In the time integrator"): where `N` and
+  `𝓔` both vanish, `E = 𝓔/(χN)` is noise. The absorbed amounts keep it from
+  making a NaN; whether to bound `E` too (evolve it, as the original M0
+  does, floor `N` and `𝓔`, or use `E^β` below a floor) is not decided.
 
 The questions decided, and when, are in [HISTORY.md, "Open
 questions"](HISTORY.md#open-questions); those the Cowling star settled are

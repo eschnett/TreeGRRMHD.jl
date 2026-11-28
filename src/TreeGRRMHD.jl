@@ -120,13 +120,14 @@ export MHDProblem, mhd_rhs!, ohm_solve!, reset_atmosphere!, reset_step!, update_
 export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scales, max_div_B,
        with_step_cache
 # The neutrinos (step 16): the Fermi integrals, the rates, the leakage
-export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint,
+export fermi, NeutrinoRates, SpeciesRates, GrayRates, RJS96Rates, CompositionPoint, TabulatedRates,
        neutrino_rates, effective_rates, absorption_opacity
 # The optical depth (step 17)
 export OpticalDepth, OpacityEscape, opacities!, sweep!, converge!, depth_regrid_pairs,
        reset_depth!
 # M0 (step 18)
-export M0Leakage, NuEscape, initial_depth!, neutrino_totals, neutrino_tally
+export M0Leakage, NuEscape, initial_depth!, resume_neutrinos!, neutrino_totals, neutrino_tally,
+       neutrino_luminosity
 # The driver and the cases
 export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
        DirichletBoundary, case_boundary, profile_1d, walls_to_state!
@@ -139,7 +140,7 @@ export MichelFlow, michel_density, michel_state, wald_case, bondi_case, spinning
 # The TOV star (step 10)
 export Polytrope, TOVSolution, tov_solve, TOVMetric, tov_density, TOVStar, tov_gas, tov_case,
        tov_boxes!, TOVModes, tov_radial_modes, tov_mode_velocity
-export ColdBarotrope, cold_barotrope, barotrope_state, TOVComposition, composition_state,
+export ColdBarotrope, cold_barotrope, hot_barotrope, barotrope_state, TOVComposition, composition_state,
        TabulatedTOVStar, tabulated_tov_case
 # The magnetized TOV star (step 12)
 export StellarDipole, stellar_dipole, exterior_dipole, dipole_potential, dipole_curl,

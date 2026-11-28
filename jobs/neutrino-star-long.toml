@@ -1,0 +1,21 @@
+# Step 20 (rung 8g): the cold DD2 star with neutrinos to 1000 M at `h = 0.5` (`N = 12`;
+# `jobs/neutrino-star.toml`'s mesh and shell): its luminosity over 1000 M, the bound rung 8g
+# states. About an hour, estimated; checkpointed every 10 M and continued with
+# `simlaunch resubmit` should it not finish (a spec of its own, since SimLaunch keeps one
+# job at a time for a spec with checkpoints).
+name = "neutrino-star-long"
+checkpoints = true
+mutable_restarts = true
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[restart]
+to = "checkpoint"
+
+[site.symmetry]
+time = "4:00:00"
+
+[[run]]
+label = "cold-h0.5"
+cmd = "bin/neutrino_star.jl N=12 t_end=1000 chunk=10 r_L=16 width=4 out=series.txt"

@@ -117,6 +117,9 @@ else
     # Step 19: the neutrinos' feedback on the matter (rungs 8e, 8f). Uses
     # `m0_tests.jl`'s helpers.
     include("neutrino_coupling_tests.jl")
+    # Step 20: the star with neutrinos (rung 8g). Uses `optical_depth_tests.jl`'s and
+    # `m0_tests.jl`'s helpers, and `tables.jl`'s DD2 gate.
+    include("neutrino_star_tests.jl")
     # Step 14: the run bit for bit at another thread count (a subprocess), and on a device,
     # or on the CPU standing in for one (`TREEGRRMHD_TEST_BACKEND`; the file also runs by
     # itself, which is how a device job runs it).

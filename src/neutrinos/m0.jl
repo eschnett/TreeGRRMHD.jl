@@ -90,6 +90,22 @@ recovery; the mean energy `𝓔/(χN)` is the same before and after.
 end
 
 """
+    m0_absorbed_fraction(κ, kt, γΔt) -> a
+
+The share of `N★` and of `𝓔★` the implicit stage absorbs, `a = x/(1 + x)`
+with `x = γΔt κ/kᵗ`, so that the matter gains `a N★` and `a 𝓔★`: the
+same numbers as `γΔt (κ/kᵗ) N` at the solved `N` of [`m0_absorption`](@ref),
+written so that it stays in `[0, 1]` for every `κ`, `κ = Inf` included
+("In the time integrator" in `CODE.md`: where `N` and `𝓔` both vanish their
+ratio `E` is noise, `κ^eff ∝ E²` can overflow, and `κ N` was `Inf·0`). Zero
+where `κ` is, a branch.
+"""
+@inline function m0_absorbed_fraction(κ::T, kt::T, γΔt::T) where {T}
+    iszero(κ) && return zero(T)
+    return inv(1 + kt / (γΔt * κ))
+end
+
+"""
     m0_absorption_opacity(r::SpeciesRates, τ0, N, 𝓔, χ) -> κ^eff
 
 `κ^eff = e^{−τ⁰} (E/E^β)² κ⁰_a` at the free-streaming mean energy `E` of
@@ -127,7 +143,8 @@ positivity under the light-speed CFL ("Neutrinos", "M0" in `CODE.md`).
 # --- on the forest ---------------------------------------------------------------
 
 """
-    M0Leakage(rates; center, r_core, feedback = true, optical_depth = true)
+    M0Leakage(rates; center, r_core, composition = nothing, feedback = true,
+              optical_depth = true)
 
 The neutrino scheme of `CODE.md`'s "Neutrinos", for `MHDProblem`'s
 `neutrinos` keyword: leakage with the rate model `rates` ([`GrayRates`](@ref),
@@ -137,26 +154,74 @@ The neutrino scheme of `CODE.md`'s "Neutrinos", for `MHDProblem`'s
 transport's tests and for a run that switches the heating on later.
 `optical_depth = false` takes `τ ≡ 0`, the optically thin limit, in which
 the effective rates are the free ones: for the transport's tests, whose
-analytic solutions it makes exact. `isbits` where `rates` is.
+analytic solutions it makes exact. `composition` is the table's
+(EntropyEOS's `CompositionView`), required with `RJS96Rates` and refused with
+`GrayRates`; `MHDProblem` refuses one that does not `match` its EOS and moves
+it to the run's device ("Field sets and interface" in `CODE.md`).
 """
-struct M0Leakage{R,T}
+struct M0Leakage{R,T,C}
     rates::R
     center::SVector{3,T}
     r_core::T
     feedback::Bool
     optical_depth::Bool
+    composition::C
 end
-function M0Leakage(rates::NeutrinoRates; center, r_core, feedback::Bool=true,
-                   optical_depth::Bool=true)
+function M0Leakage(rates::NeutrinoRates; center, r_core, composition=nothing,
+                   feedback::Bool=true, optical_depth::Bool=true)
     T = typeof(float(r_core))
+    if rates isa RJS96Rates
+        composition isa EntropyEOS.CompositionView || throw(ArgumentError(
+            "M0Leakage with RJS96Rates needs the table's composition, an EntropyEOS " *
+            "CompositionView (`composition = cv`), got $(typeof(composition)): the rates " *
+            "read the chemical potentials and mass fractions at each cell."))
+    else
+        composition === nothing || throw(ArgumentError(
+            "M0Leakage with $(nameof(typeof(rates))) takes no composition: those rates " *
+            "read none, and a composition here would suggest they do."))
+    end
     (isfinite(r_core) && r_core > 0) || throw(ArgumentError(
         "M0Leakage needs a positive r_core, got $r_core: inside it the radial direction " *
         "is scaled down to the fluid's, since at the centre it is undefined."))
     length(center) == 3 || throw(ArgumentError(
         "M0Leakage's center is a point in three dimensions, got $center; a missing " *
         "dimension's coordinate is zero."))
-    return M0Leakage{typeof(rates),T}(rates, SVector{3,T}(center), T(r_core), feedback,
-                                      optical_depth)
+    return M0Leakage{typeof(rates),T,typeof(composition)}(rates, SVector{3,T}(center),
+                                                          T(r_core), feedback, optical_depth,
+                                                          composition)
+end
+
+# The `M0Leakage` as a checkpoint's recipe holds it: everything that decides the
+# numbers, the composition by its table's fingerprint.
+neutrino_recipe(c::M0Leakage) =
+    (; rates=repr(c.rates), center=Tuple(c.center), r_core=c.r_core, feedback=c.feedback,
+     optical_depth=c.optical_depth,
+     composition=c.composition === nothing ? "none" : string(c.composition.fingerprint))
+
+# What the kernels receive: the rates alone, or with the composition.
+rate_model(c::M0Leakage{R,T,Nothing}) where {R,T} = c.rates
+rate_model(c::M0Leakage) = TabulatedRates(c.rates, c.composition)
+
+# The problem's EOS as EntropyEOS's `matches` reads it: the table's view
+# under the geometric units.
+eos_view(e::GeometricEOS) = e.eos
+eos_view(e) = e
+
+# The `M0Leakage` at the problem's type `T` (its centre and `r_core`, which the
+# kernels combine with the cell's coordinates), and its composition checked against the
+# problem's EOS and moved to its device.
+function placed(c::M0Leakage, ::Type{T}, eos, backend) where {T}
+    cv = c.composition
+    if cv !== nothing
+        EntropyEOS.matches(cv, eos_view(eos)) || throw(ArgumentError(
+            "M0Leakage's composition was not built from the problem's EOS table " *
+            "(EntropyEOS.matches is false): its densities and fractions belong to another " *
+            "table."))
+        cv = Adapt.adapt(backend, cv)
+    end
+    return M0Leakage{typeof(c.rates),T,typeof(cv)}(c.rates, SVector{3,T}(c.center),
+                                                   T(c.r_core), c.feedback, c.optical_depth,
+                                                   cv)
 end
 
 """
@@ -183,9 +248,10 @@ end
 
 const SEG_NU = 6
 
-m0_state(::Nothing, f, ops, backend) = nothing
-function m0_state(c::M0Leakage, f::MHDFields{D}, ops, backend) where {D}
+m0_state(::Nothing, f, ops, backend, eos) = nothing
+function m0_state(c0::M0Leakage, f::MHDFields{D}, ops, backend, eos) where {D}
     T = eltype(f.U.work)
+    c = placed(c0, T, eos, backend)
     forest = f.U.forest
     any(forest.periodic) && throw(ArgumentError(
         "M0Leakage needs a forest periodic in no direction: the closure's radial " *
@@ -201,7 +267,7 @@ function m0_state(c::M0Leakage, f::MHDFields{D}, ops, backend) where {D}
 end
 # After a regrid the sets are the same, resized; the schedules and the
 # buffer are new.
-m0_state(s::M0State, f::MHDFields{D}, ops, backend) where {D} =
+m0_state(s::M0State, f::MHDFields{D}, ops, backend, eos) where {D} =
     M0State(s.config, s.Nν, s.Fν, ntuple(d -> InterfaceSchedule(s.Fν[d]), D),
             s.od === nothing ? nothing : rebuild(s.od), s.hook,
             shifted_buffer(s.config, f, backend))
@@ -216,11 +282,6 @@ function shifted_buffer(c::M0Leakage, f::MHDFields{D}, backend) where {D}
     dims = ntuple(e -> size(w, e) - 2 * f.U.G[e], Val(D))
     return allocate(backend, eltype(w), (dims..., NU, size(w, ndims(w))))
 end
-
-# The rates at one cell from its row of `P`. `GrayRates` read only `ρ★`; the
-# tabulated rates read the composition too, which step 20 adds.
-@inline cell_rates(model::GrayRates{T}, Pc::NTuple) where {T} =
-    neutrino_rates(model, Pc[P_RHO], T(NaN), T(NaN), nothing)
 
 # τ⁰, τ¹ of species i at a cell, or zero without an optical depth.
 @inline cell_depth(::Nothing, t, b, i, ::Type{T}) where {T} = (zero(T), zero(T))
@@ -332,11 +393,13 @@ end
 # The implicit stage's absorption at an owned cell: closed-form, with κ^eff,
 # kᵗ and χ from the cell's latest recovery (`P`) and the frozen τ, the mean
 # energy from u★ ("Neutrinos", "In the time integrator" in `CODE.md`). With
-# feedback, the matter's share from the solved N and 𝓔, the same numbers the
-# neutrinos lose: `√γ D Yₑ` gains `(κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/kᵗ`, and
-# `G^μ = Σ κ n E k^μ` with `√−g n E = 𝓔/(χ kᵗ)` enters `√γ τ` as
-# `α Σ κ 𝓔/χ` and `√γ S_j` as `Σ κ 𝓔 k_j/(χ kᵗ)`, times `γΔt`, into `U` and
-# into the shifted u★ Ohm's solve then reads (`Sh`, a copy of u★'s matter).
+# feedback, the matter's share is what the neutrinos lose, the absorbed
+# amounts `a N★` and `a 𝓔★` (`m0_absorbed_fraction`; `γΔt κ N/kᵗ` and
+# `γΔt κ 𝓔/kᵗ` at the solved N, 𝓔, but finite for κ = Inf): `√γ D Yₑ` gains
+# `a N★` of ν_e less that of ν̄_e, and `G^μ = Σ κ n E k^μ` with
+# `√−g n E = 𝓔/(χ kᵗ)` enters `√γ τ` as `α kᵗ Σ a 𝓔★/χ` and `√γ S_j` as
+# `Σ a 𝓔★ k_j/χ`, into `U` and into the shifted u★ Ohm's solve then reads
+# (`Sh`, a copy of u★'s matter).
 @kernel function m0_absorb_kernel!(Uw, @Const(Sw), UU, Sh, @Const(Pw), Tw, @Const(origins),
                                    @Const(spacings), model, center, r_core, γΔt, ::Val{D},
                                    ::Val{GP}, ::Val{GT}) where {D,GP,GT}
@@ -352,8 +415,8 @@ end
     r = cell_rates(model, Pc)
     on = sources_on(Pc)
     tc = ntuple(e -> n[e] + GT, Val(D))
-    dYe = zero(T)
-    κ𝓔 = zero(T)
+    ΔYe = zero(T)                    # absorbed N of ν_e less ν̄_e
+    Δ𝓔 = zero(T)                     # absorbed 𝓔, the three
     for i in 1:3
         τ0, _ = cell_depth(Tw, tc, b, i, T)
         N★ = @inbounds Sw[n..., nu_N(i), b]
@@ -362,20 +425,20 @@ end
         N, 𝓔 = m0_absorption(N★, 𝓔★, κ, cl.kt, oftype(h, γΔt))
         @inbounds Uw[n..., nu_N(i), b] = N
         @inbounds Uw[n..., nu_E(i), b] = 𝓔
-        i == 1 && (dYe += κ * N / cl.kt)
-        i == 2 && (dYe -= κ * N / cl.kt)
-        κ𝓔 += κ * 𝓔
+        a = m0_absorbed_fraction(κ, cl.kt, oftype(h, γΔt))
+        i == 1 && (ΔYe += a * N★)
+        i == 2 && (ΔYe -= a * N★)
+        Δ𝓔 += a * 𝓔★
     end
     # A branch, not a product with zero: SSP3(4,3,3)'s first stage is implicit,
     # so a run's first stage solve can come before any right-hand side has
     # filled `P`, whose zeros make the closure not finite; κ is zero there, and
     # the product was NaN (step 19, found by the reset's NONFINITE flags).
-    if UU !== nothing && !(iszero(dYe) && iszero(κ𝓔))
-        g = oftype(h, γΔt)
+    if UU !== nothing && !(iszero(ΔYe) && iszero(Δ𝓔))
         k = cl.kt * cl.v
         kl = lower(m, k) + cl.kt * lower(m, m.β)
-        Δ = (g * dYe, g * m.α * κ𝓔 / cl.χ, g * κ𝓔 * kl[1] / (cl.χ * cl.kt),
-             g * κ𝓔 * kl[2] / (cl.χ * cl.kt), g * κ𝓔 * kl[3] / (cl.χ * cl.kt))
+        Δ = (ΔYe, m.α * cl.kt * Δ𝓔 / cl.χ, Δ𝓔 * kl[1] / cl.χ, Δ𝓔 * kl[2] / cl.χ,
+             Δ𝓔 * kl[3] / cl.χ)
         slots = (U_DYE, U_TAU, U_S, U_S + 1, U_S + 2)
         for j in 1:5
             @inbounds UU[n..., slots[j], b] += Δ[j]
@@ -410,7 +473,7 @@ function m0_rhs!(s::M0State, du, p, t; metric=p.provider)
     end
     duU = c.feedback ? statearray(du, p.sets, SEG_U) : nothing
     map_blocks!(m0_rhs_kernel!, s.Nν, statearray(du, p.sets, SEG_NU), duU, f.X.work, f.P.work,
-                depth_work(s), map(F -> F.work, s.Fν), p.origins, p.spacings, c.rates,
+                depth_work(s), map(F -> F.work, s.Fν), p.origins, p.spacings, rate_model(c),
                 c.center, c.r_core, Val(D), Val(f.P.G), depth_G(s), Val(first(s.Fν).G);
                 workgroupsize=p.workgroupsize)
     return nothing
@@ -432,7 +495,7 @@ function m0_stage!(s::M0State, U, ustar, γΔt, p, t)
     end
     map_blocks!(m0_absorb_kernel!, s.Nν, statearray(U, p.sets, SEG_NU),
                 statearray(ustar, p.sets, SEG_NU), UU, Sh, f.P.work, depth_work(s),
-                p.origins, p.spacings, c.rates, c.center, c.r_core, γΔt, Val(D), Val(f.P.G),
+                p.origins, p.spacings, rate_model(c), c.center, c.r_core, γΔt, Val(D), Val(f.P.G),
                 depth_G(s); workgroupsize=p.workgroupsize)
     return c.feedback ? s.shifted : us
 end
@@ -455,7 +518,7 @@ end
 m0_step!(::Nothing, p, t) = nothing
 function m0_step!(s::M0State, p, t)
     s.od === nothing && return nothing
-    opacities!(s.od, s.config.rates, p.f.P)
+    opacities!(s.od, rate_model(s.config), p.f.P)
     sweep!(s.od, p.f.P)
     return nothing
 end
@@ -466,7 +529,7 @@ m0_regrid_pairs(s::M0State) =
     (map(F -> F => nothing, s.Fν)..., (s.od === nothing ? () : depth_regrid_pairs(s.od))...)
 
 """
-    initial_depth!(p::MHDProblem, u, t) -> sweeps
+    initial_depth!(p::MHDProblem, u, t; metric = p.provider) -> sweeps
 
 The neutrinos' start on the state `u` at `t`: `P` prepared, so that the
 first implicit stage, which SSP3(4,3,3) makes before any right-hand side,
@@ -476,15 +539,27 @@ that owns the loop does likewise. After a regrid the depth is transferred
 and the sweeps go on one per step ("Neutrinos", "The optical depth" in
 `CODE.md`). Zero sweeps without neutrinos or without an optical depth.
 """
-initial_depth!(p, u, t) = m0_initial_depth!(p.neutrinos, p, u, t)
-m0_initial_depth!(::Nothing, p, u, t) = 0
-function m0_initial_depth!(s::M0State, p, u, t)
-    prepare!(p, u, t)
+initial_depth!(p, u, t; metric=p.provider) = m0_initial_depth!(p.neutrinos, p, u, t; metric)
+m0_initial_depth!(::Nothing, p, u, t; metric) = 0
+function m0_initial_depth!(s::M0State, p, u, t; metric)
+    prepare!(p, u, t; metric)
     s.od === nothing && return 0
     reset_depth!(s.od)
-    opacities!(s.od, s.config.rates, p.f.P)
+    opacities!(s.od, rate_model(s.config), p.f.P)
     return converge!(s.od, p.f.P)
 end
+
+"""
+    resume_neutrinos!(p::MHDProblem, u, t; metric = p.provider)
+
+`P` prepared from the state `u`, as [`initial_depth!`](@ref) prepares it, so that the next
+implicit stage, which reads the cell's latest recovery, reads the state's: what `evolve!`
+does at every chunk boundary, so that a restart, which has no `P` of its own and whose
+optical depth the checkpoint restored (`restore_run!`), is the run that never stopped. A
+script that owns the loop and checkpoints does likewise. Nothing without neutrinos.
+"""
+resume_neutrinos!(p, u, t; metric=p.provider) =
+    (p.neutrinos === nothing || prepare!(p, u, t; metric); nothing)
 
 """
     neutrino_totals(p::MHDProblem, u) -> NTuple{6}
@@ -500,5 +575,71 @@ function neutrino_totals(p, u)
     D = length(s.Fν)
     uN = stateview(u, p.sets, SEG_NU)
     return ntuple(v -> mesh_mapreduce(identity, +, zero(T), s.Nν, uN; vars=v,
+                                      weight=key -> spacing(T, forest, key)^D), Val(NNU))
+end
+
+# The window of the shell luminosity, `∫ W dr = 1` over `|r − r_L| < width`.
+@inline function shell_window(r::T, r_L::T, width::T) where {T}
+    d = r - r_L
+    abs(d) < width || return zero(T)
+    return (1 + cospi(d / width)) / (2 * width)
+end
+
+# `W(r) Fⁱ r̂_i` of N and 𝓔 of each species at an owned cell, the flux `q vⁱ`
+# at the closure's velocity from the cell's own `uⁱ`, `r̂` the coordinate radial
+# unit vector about the centre.
+@kernel function luminosity_kernel!(Lw, @Const(Nw), @Const(Pw), @Const(origins),
+                                    @Const(spacings), center, r_core, r_L, width, ::Val{D},
+                                    ::Val{GP}) where {D,GP}
+    I = @index(Global, NTuple)
+    b = I[D + 1]
+    n = ntuple(e -> I[e], Val(D))
+    h = @inbounds spacings[b]
+    T = typeof(h)
+    x = point_x(@inbounds(origins[b]), h, n, Val(cell_staggers(Val(D))))
+    d = x - center
+    r = sqrt(sum(d .* d))
+    w = shell_window(r, r_L, width)
+    if iszero(w)
+        for v in 1:NNU
+            @inbounds Lw[n..., v, b] = zero(T)
+        end
+    else
+        Pc = read_vars(Pw, stored(n, GP), b, Val(NP))
+        m = aux_metric(Pc)
+        vr = sum(m0_closure(m, cell_u(Pc, m), x, center, r_core).v .* d) / r
+        for v in 1:NNU
+            @inbounds Lw[n..., v, b] = w * vr * Nw[n..., v, b]
+        end
+    end
+end
+
+"""
+    neutrino_luminosity(p::MHDProblem, u; r_L, width) -> NTuple{6}
+
+The number and energy luminosities `(L_N, L_𝓔)` of ν_e, ν̄_e and ν_x (the `N, 𝓔` order of
+`Nν`) through the spherical shell of radius `r_L` about the neutrinos' centre: the
+coordinate-volume integral of `W(r) Fⁱ r̂_i` with the window `W` of half-width `width`
+(both with no default), `Fⁱ = N vⁱ` and `𝓔 vⁱ` at the closure's velocity ("Neutrinos",
+"M0" in `CODE.md`). `𝓔` is the energy at infinity, so `L_𝓔` is the luminosity at infinity
+and `L_𝓔/L_N` the mean energy at infinity, in units of `m★c²`. Reads `P` as the run left
+it, so it changes nothing; the shell must lie outside the matter and inside the domain.
+"""
+function neutrino_luminosity(p, u; r_L, width)
+    s = p.neutrinos
+    s === nothing && throw(ArgumentError("neutrino_luminosity: the problem has no neutrinos."))
+    T = eltype(s.Nν.work)
+    (width > 0 && r_L > width) || throw(ArgumentError(
+        "neutrino_luminosity needs 0 < width < r_L, got r_L = $r_L, width = $width: the " *
+        "shell is the window |r − r_L| < width."))
+    forest = s.Nν.forest
+    D = length(s.Fν)
+    L = FieldSet{T}(forest, NNU; G=0, centering=cellcentered(D),
+                    backend=get_backend(s.Nν.work))
+    c = s.config
+    map_blocks!(luminosity_kernel!, L, L.work, statearray(u, p.sets, SEG_NU), p.f.P.work,
+                p.origins, p.spacings, c.center, c.r_core, T(r_L), T(width), Val(D),
+                Val(p.f.P.G); workgroupsize=p.workgroupsize)
+    return ntuple(v -> mesh_mapreduce(identity, +, zero(T), L; vars=v,
                                       weight=key -> spacing(T, forest, key)^D), Val(NNU))
 end
