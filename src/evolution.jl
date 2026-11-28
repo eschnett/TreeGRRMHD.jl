@@ -15,7 +15,7 @@
 #   5. (`T_ab` for the spacetime is not part of it: `src/adm_matter.jl`.)
 #   6. Reconstruction and the Riemann fluxes into `F_d` over the closed face
 #      ranges; the EMF into `EMF_j` over the closed edge ranges;
-#      `restrict_interfaces!` on both.
+#      `unify!` on both.
 #   7. `du`: the flux divergence plus the explicit sources for the matter;
 #      `−EMF_j − ∂_j(αΦ − βᵏA_k)` for `A_j`; the gauge equation for `Φ̃`.
 #
@@ -57,13 +57,36 @@
 
 # The position of the local point `n` of a set whose staggers are `C`
 # (`1` vertex-like, `0` cell-like), in a block with origin `o` and spacing
-# `h`, as a 3-vector with zero along the missing directions. The same
-# arithmetic as TreeAMR's `coordinates`, so the two agree bit for bit.
+# `h`, as a 3-vector with zero along the missing directions.
 @inline function point_x(o::NTuple{D,T}, h::T, n::NTuple{D,Int}, ::Val{C}) where {D,T,C}
     return SVector(ntuple(Val(3)) do e
         e ≤ D ? o[e] + (n[e] - (C[e] == 1 ? one(T) : one(T) / 2)) * h : zero(T)
     end)
 end
+
+# The same from a block's corner `(lo, B)` (`block_corners`): its patch's
+# low corner and its integer corner, through TreeAMR's `nodeposition`, the
+# arithmetic of its `coordinates`. A point on a block face is an own point
+# of every block holding it (TreeAMR 0.3, closed blocks), and this form
+# puts its copies at one position bit for bit, which `o + (n − 1) h` does
+# not. Every kernel of the scheme takes this form.
+@inline function point_x(o::Tuple{NTuple{D,T},NTuple{D,Int}}, h::T, n::NTuple{D,Int},
+                         ::Val{C}) where {D,T,C}
+    lo, B = o
+    return SVector(ntuple(Val(3)) do e
+        e ≤ D ? TreeAMR.nodeposition(lo[e], h, B[e], n[e], C[e], nothing) : zero(T)
+    end)
+end
+
+"""
+    block_corners(forest, T) -> Vector{Tuple{NTuple{D,T},NTuple{D,Int}}}
+
+Per block this rank stores, its patch's low corner (TreeAMR's `block_lows`)
+and its integer corner (`block_bases`): what [`point_x`](@ref) forms a
+position from, as TreeAMR's `nodeposition` does.
+"""
+block_corners(forest::Forest, ::Type{T}) where {T} =
+    collect(zip(block_lows(forest, T), block_bases(forest)))
 
 @inline cell_staggers(::Val{D}) where {D} = ntuple(_ -> 0, Val(D))
 @inline vertex_staggers(::Val{D}) where {D} = ntuple(_ -> 1, Val(D))
@@ -174,7 +197,7 @@ own): a hook TreeAMR's `fill_ghosts!` takes, or a time-dependent one that
 case's Dirichlet data, [`DirichletBoundary`](@ref) (step 6). `boundary_W` is
 the hook of `W`, by default derived from the matter's
 ([`primitive_boundary`](@ref)). `fixup = false`
-skips `restrict_interfaces!`, the negative control of step 8.
+skips the fluxes' `unify!`, the negative control of step 8.
 
 The problem also owns the **step cache** *(added 2026-10-24; "The step
 cache" in `CODE.md`)*: a cell set over the owned cells, `G = 0`, of
@@ -212,7 +235,7 @@ launched with on a device (TreeAMR's `map_blocks!`), an `Int` or a tuple; `nothi
 default, leaves the choice to the backend. The CPU ignores it, since there the workgroup is
 the block ("Precision and devices" in `CODE.md`).
 """
-struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,POL,MOD,MET,BC,
+struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,EOS,OPT,PRJ,POL,MOD,MET,BC,
                   LIM,RS,FC,HO,IN,WG}
     f::FS
     sets::ST                     # evolved_sets(f): the state vector's segments
@@ -223,12 +246,10 @@ struct MHDProblem{T,D,FS,ST,SC,OU,OA,OΦ,SW,OW,BW,ISF,ISE,OR,SP,OF,EOS,OPT,PRJ,P
     schedule_W::SW               # the ghost schedule of the primitive set `W` (step 8)
     ops_W::OW                    # its operators, Conservative width 3 bounded
     boundary_W::BW               # its boundary hook, `nothing` on a periodic domain
-    ischeds_F::ISF               # NTuple{D,InterfaceSchedule}
-    ischeds_EMF::ISE             # NTuple{3}: an InterfaceSchedule, or nothing
-    origins::OR                  # per block, on the sets' backend
+    ischeds_F::ISF               # NTuple{D,UnifySchedule}
+    ischeds_EMF::ISE             # NTuple{3}: a UnifySchedule, or nothing
+    origins::OR                  # per block its corner (`block_corners`), on the sets' backend
     spacings::SP
-    lowwall::OF                  # per block, its low domain faces (`low_walls`, AMR-8)
-    haswalls::Bool               # whether any block of the forest has one
     eos::EOS
     opts::OPT
     proj::PRJ
@@ -302,26 +323,18 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     schedule_W = GhostSchedule(f.W, ops_W)
     bW = boundary === nothing ? nothing :
          boundary_W === nothing ? primitive_boundary(boundary[SEG_U]) : boundary_W
-    ischeds_F = ntuple(d -> InterfaceSchedule(f.F[d]), D)
+    ischeds_F = ntuple(d -> UnifySchedule(f.F[d]), D)
     # An EMF set with no vertex-like dimension (in 1D, the one along x) has no
-    # coarse-fine face to restrict, and TreeAMR refuses to build a schedule
-    # for it.
-    ischeds_EMF = ntuple(j -> any(==(1), staggers(f.EMF[j])) ? InterfaceSchedule(f.EMF[j]) :
+    # shared point to unify, and TreeAMR refuses to build a schedule for it.
+    ischeds_EMF = ntuple(j -> any(==(1), staggers(f.EMF[j])) ? UnifySchedule(f.EMF[j]) :
                               nothing, 3)
     backend = get_backend(f.U.work)
     eos = eos_on(backend, eos)                       # a table's arrays where the kernels run
     provider = provider_on(backend, provider)        # and the metric's
     two_phase = something(two_phase, !(backend isa CPU))
     forest = f.U.forest
-    origins = to_backend(backend, block_origins(forest, T))
+    origins = to_backend(backend, block_corners(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
-    lw_host = low_walls(forest, T)
-    # From the replicated forest, not this rank's blocks: it gates the reset's fill of `Φ̃`,
-    # a collective call every rank must make or skip alike ("Running distributed" in
-    # `CODE.md`). A dimension that is not periodic has a block on its low face, so this is
-    # `any(any, low_walls)` over the whole forest.
-    haswalls = !all(forest.periodic)
-    lowwall = to_backend(backend, lw_host)
     B̄ = 𝔅̄ === nothing ? zero(SVector{3,T}) : SVector{3,T}(𝔅̄)
     st = stage === nothing ? OhmStageOptions{T}() : stage
     cache = FieldSet{T}(forest, NC; G=0, centering=cellcentered(D), backend=backend)
@@ -332,13 +345,12 @@ function MHDProblem(f::MHDFields{D}; eos::EntropyEOS.AbstractEOS, opts, proj, po
     return MHDProblem{T,D,typeof(f),typeof(sets),typeof(schedules),typeof(ops_U),
                       typeof(ops_A),typeof(ops_Φ),typeof(schedule_W),typeof(ops_W),typeof(bW),
                       typeof(ischeds_F),
-                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),typeof(lowwall),
+                      typeof(ischeds_EMF),typeof(origins),typeof(spacings),
                       typeof(eos),typeof(opts),typeof(proj),typeof(pol),typeof(model),
                       typeof(provider),
                       typeof(boundary),limiter,riemann,typeof(cache),typeof(handoff),
                       typeof(interior),typeof(workgroupsize)}(
-        f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings, lowwall,
-        haswalls,
+        f, sets, schedules, ops_U, ops_A, ops_Φ, schedule_W, ops_W, bW, ischeds_F, ischeds_EMF, origins, spacings,
         eos, opts, proj, pol, model, provider, B̄, T(ξ), st, boundary, fixup, Val(limiter),
         Val(riemann), cache, Ref(false), handoff, interior, workgroupsize)
 end
@@ -535,7 +547,7 @@ end
 # Step 6, the fluxes: reconstruction and the Riemann solve at every face
 # normal to `d` of the closed range — a block computes the flux on both of its
 # own faces, and making the two sides of a coarse-fine face agree is
-# `restrict_interfaces!`'s job.
+# `unify!`'s job.
 @kernel function flux_kernel!(Fw, @Const(Pw), @Const(Bd), @Const(origins), @Const(spacings),
                               provider, t, eos, ::Val{D}, ::Val{d}, ::Val{GF}, ::Val{GP},
                               ::Val{GB}, lim::Val, solver::Val) where {D,d,GF,GP,GB}
@@ -734,21 +746,20 @@ end
 
 # Step 7, the potential: `∂ₜA_j = −EMF_j − ∂_j(αΦ − βᵏA_k)` at the owned
 # edges along `j`. The edge `n` lies between the vertices `n` and `n + e_j`;
-# along a missing direction there is no gradient. Zero on an owned low wall
-# (`lowwall`, AMR-8): the wall is prescribed by the fill, not evolved
-# (decided in step 8; a branch, never a multiplication by a mask).
+# along a missing direction there is no gradient. Over every own edge, both
+# face planes of a block (TreeAMR 0.3), a wall's included: at an outer face
+# the boundary hook prescribes the wall (`wall = :prescribed`), and every
+# fill overwrites what this writes there.
 @kernel function potential_rhs_kernel!(du, @Const(EMFj), @Const(A1), @Const(A2), @Const(A3),
                                        @Const(Φw), @Const(origins), @Const(spacings),
-                                       @Const(lowwall), provider, t, ::Val{D}, ::Val{j},
+                                       provider, t, ::Val{D}, ::Val{j},
                                        ::Val{GE}, ::Val{GA}, ::Val{GΦ}) where {D,j,GE,GA,GΦ}
-    I = @index(Global, NTuple)                       # local, owned
+    I = @index(Global, NTuple)                       # local, own
     b = I[D + 1]
     n = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
     e = @inbounds EMFj[stored(n, GE)..., 1, b]
-    if on_low_wall(n, @inbounds(lowwall[b]), Val(edge_staggers(Val(D), Val(j))))
-        @inbounds du[n..., 1, b] = zero(h)
-    elseif j ≤ D
+    if j ≤ D
         o = @inbounds origins[b]
         tt = oftype(h, t)
         A = (A1, A2, A3)
@@ -807,28 +818,24 @@ end
 end
 
 # Step 7, the gauge: `∂ₜΦ̃ = −∂_j(α√γ Aʲ − βʲΦ̃) − ξαΦ̃` at the owned
-# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side; zero
-# on an owned low wall, as for `A_j`.
+# vertices, the flux on the `j`-edges `v − e_j` and `v` on either side; over
+# every own vertex, as for `A_j`.
 @kernel function gauge_rhs_kernel!(du, @Const(A1), @Const(A2), @Const(A3), @Const(Φw),
-                                   @Const(origins), @Const(spacings), @Const(lowwall),
+                                   @Const(origins), @Const(spacings),
                                    provider, t, ξ, ::Val{D}, ::Val{GA},
                                    ::Val{GΦ}) where {D,GA,GΦ}
-    I = @index(Global, NTuple)                       # local, owned
+    I = @index(Global, NTuple)                       # local, own
     b = I[D + 1]
     v = ntuple(e -> I[e], Val(D))
     h = @inbounds spacings[b]
-    if on_low_wall(v, @inbounds(lowwall[b]), Val(vertex_staggers(Val(D))))
-        @inbounds du[v..., 1, b] = zero(h)
-    else
-        o = @inbounds origins[b]
-        tt = oftype(h, t)
-        A = (A1, A2, A3)
-        div = gauge_divergence(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt)
-        x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
-        m = point_metric(provider, tt, x, Val(vertex_staggers(Val(D))), v, b)
-        Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
-        @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
-    end
+    o = @inbounds origins[b]
+    tt = oftype(h, t)
+    A = (A1, A2, A3)
+    div = gauge_divergence(A, Φw, v, b, GA, Val(GΦ), o, h, provider, tt)
+    x = point_x(o, h, v, Val(vertex_staggers(Val(D))))
+    m = point_metric(provider, tt, x, Val(vertex_staggers(Val(D))), v, b)
+    Φ̃ = @inbounds Φw[stored(v, GΦ)..., 1, b]
+    @inbounds du[v..., 1, b] = -div / h + gauge_damping(oftype(h, ξ), m, Φ̃)
 end
 
 # The implicit stage of Ohm's law at the owned cells (step 3's
@@ -1165,8 +1172,8 @@ function face_fluxes!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
         Fd = f.F[d]
         map_blocks!(flux_kernel!, Fd, Fd.work, f.P.work, f.B[d].work, p.origins, p.spacings,
                     metric, t, p.eos, Val(D), Val(d), Val(Fd.G), Val(f.P.G), Val(GB[d]),
-                    p.limiter, p.solver; closed=true, workgroupsize=p.workgroupsize)
-        p.fixup && restrict_interfaces!(Fd, p.ischeds_F[d])
+                    p.limiter, p.solver; workgroupsize=p.workgroupsize)
+        p.fixup && unify!(Fd, p.ischeds_F[d])
         nothing
     end
     return p
@@ -1181,10 +1188,8 @@ function edge_emfs!(p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
         Ej = f.EMF[j]
         map_blocks!(emf_kernel!, Ej, Ej.work, f.P.work, f.B[a].work, f.B[b].work, p.origins,
                     p.spacings, metric, t, Val(D), Val(j), Val(Ej.G), Val(f.P.G),
-                    Val(GB[a]), Val(GB[b]), p.limiter; closed=true,
-                    workgroupsize=p.workgroupsize)
-        (p.fixup && p.ischeds_EMF[j] !== nothing) &&
-            restrict_interfaces!(Ej, p.ischeds_EMF[j])
+                    Val(GB[a]), Val(GB[b]), p.limiter; workgroupsize=p.workgroupsize)
+        (p.fixup && p.ischeds_EMF[j] !== nothing) && unify!(Ej, p.ischeds_EMF[j])
         nothing
     end
     return p
@@ -1201,14 +1206,13 @@ function tendencies!(du, p::MHDProblem{T,D}, t; metric=p.provider) where {T,D}
         i = SEG_A + j - 1
         map_blocks!(potential_rhs_kernel!, p.sets[i], statearray(du, p.sets, i),
                     f.EMF[j].work, f.A[1].work, f.A[2].work, f.A[3].work, f.Φ.work,
-                    p.origins, p.spacings, p.lowwall, metric, t, Val(D), Val(j),
+                    p.origins, p.spacings, metric, t, Val(D), Val(j),
                     Val(f.EMF[j].G),
                     Val(GA), Val(f.Φ.G); workgroupsize=p.workgroupsize)
         nothing
     end
     map_blocks!(gauge_rhs_kernel!, f.Φ, statearray(du, p.sets, SEG_Φ), f.A[1].work,
-                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, p.lowwall,
-                metric, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G); workgroupsize=p.workgroupsize)
+                f.A[2].work, f.A[3].work, f.Φ.work, p.origins, p.spacings, metric, t, p.ξ, Val(D), Val(GA), Val(f.Φ.G); workgroupsize=p.workgroupsize)
     return nothing
 end
 
@@ -1260,12 +1264,10 @@ cells it writes are counted into the diagnostics set.
 atmosphere alone: every repaired state is exactly invertible, and is what
 the next right-hand side would recover anyway.
 
-*(Added in step 8; amended in step 8 when AMR-8 landed:)* after its fill of
-the potentials, which writes their owned low walls by the outer boundary
-condition (TreeAMR's symmetric walls), it copies those walls — and nothing
-else — into `u` ([`walls_to_state!`](@ref)), so that the state holds the
-boundary condition's walls after every step, where the right-hand side,
-writing zero there, would leave them stale ("Boundaries" in `CODE.md`).
+Until TreeAMR 0.3 it also copied the potentials' prescribed low walls into
+`u` after its own fill of `Φ̃` (`walls_to_state!`, step 8); closed blocks
+evolve the wall like any own point, and every fill overwrites it from the
+hook, so nothing is copied ("Boundaries" in `CODE.md`).
 
 This method counts its writes as the stage limiter's; [`reset_step!`](@ref)
 is the same reset in the step limiter's role.
@@ -1302,11 +1304,6 @@ function reset!(u, p::MHDProblem{T,D}, t, step::Val; metric=p.provider) where {T
     # see the pasted state.
     paste_in_role!(u, p, p.interior, t, step)
     update_fields!(p, u, t)
-    if p.haswalls
-        scatter!(p.sets[SEG_Φ], stateview(u, p.sets, SEG_Φ))
-        fill_set!(p, SEG_Φ, t)
-        walls_to_state!(p, u)
-    end
     uU = statearray(u, p.sets, SEG_U)
     recovery_start!(p, uU, Val(ntuple(_ -> 0, D)), nothing, t; metric)
     map_blocks!(reset_kernel!, f.U, uU, f.B[1].work, f.B[2].work,
@@ -1515,7 +1512,8 @@ function max_div_B(p::MHDProblem{T,D}, u, t) where {T,D}
     map_blocks!(divB_kernel!, f.X, f.X.work, f.B[1].work, f.B[2].work, f.B[3].work, Val(D),
                 Val(GB_of(f)), Val(f.X.G); workgroupsize=p.workgroupsize)
     div = mesh_mapreduce(abs, max, zero(T), f.X; vars=X_DIVB)
-    scale = maximum(d -> mesh_mapreduce(abs, max, zero(T), f.B[d]; vars=1), 1:3)
+    scale = maximum(d -> mesh_mapreduce(abs, max, zero(T), f.B[d]; vars=1, primaries=false),
+                    1:3)
     return scale > 0 ? div / scale : div
 end
 

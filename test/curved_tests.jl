@@ -120,7 +120,9 @@ end
 end
 
 # The state `u` with a pure-gauge offset `A_j += [χ(x + hₑ/2) − χ(x − hₑ/2)]/h` added at every
-# owned edge: a discrete gradient, whose discrete curl is zero to rounding.
+# own edge, every copy of a shared one (TreeAMR 0.3's closed blocks: an edge on a block face
+# is held by every block holding it, and the fill keeps its primary, which may be any of
+# them): a discrete gradient, whose discrete curl is zero to rounding.
 function cv_gauge_offset(p, u, χ)
     u = copy(u)
     o, hs = Array(p.origins), Array(p.spacings)
@@ -129,7 +131,7 @@ function cv_gauge_offset(p, u, χ)
         s = p.sets[i]
         a = CV.statearray(u, p.sets, i)
         C = staggers(s)
-        for b in axes(a, 5), I in CartesianIndices(ntuple(_ -> s.forest.N, 3))
+        for b in axes(a, 5), I in CartesianIndices(size(a)[1:3])
             x = CV.point_x(o[b], hs[b], Tuple(I), Val(C))
             e = SVector(ntuple(k -> k == j ? hs[b] / 2 : 0.0, 3))
             a[Tuple(I)..., 1, b] += (χ(x + e) - χ(x - e)) / hs[b]
@@ -260,22 +262,11 @@ end
     inside = .!isnan.(nan)
     @test count(inside) > 0
     @test nan[inside] == uref[inside]
-    # The potentials' owned low walls are the boundary condition's, `f(x_w) + (u − f)(x_r)`
-    # (AMR-8, "Boundaries"), which the reset writes after the paste; where `x_r` is outside
-    # the ball, a wall point inside holds the evolved offset. Every other point inside is
-    # the solution (`==`: the wall rule also turns the solution's `−0.0` into `+0.0`).
-    walls = falses(length(r.u))
-    lw = Array(p.lowwall)
-    for i in CV.SEG_A:CV.SEG_Φ
-        s = p.sets[i]
-        w = CV.statearray(walls, p.sets, i)
-        for b in axes(w, 5), I in CartesianIndices(ntuple(_ -> s.forest.N, 3))
-            CV.on_low_wall(Tuple(I), lw[b], Val(staggers(s))) && (w[Tuple(I)..., 1, b] = true)
-        end
-    end
-    keep = inside .& .!walls
-    @test count(inside .& walls) < count(inside) ÷ 4
-    @test r.u[keep] == uref[keep]
+    # Every point inside is the solution. Until TreeAMR 0.3 the reset then wrote the
+    # potentials' low walls by the boundary condition, which a wall point inside the
+    # ball did not survive; the wall is evolved like any own point now, and only a fill
+    # rewrites it ("Boundaries").
+    @test r.u[inside] == uref[inside]
     # Outside the ball the state is the evolution's: a paste that wrote there would leave
     # those points at the solution. `!=` on the two vectors, the check until the review of
     # 2026-11-24, passed if a single entry differed. Measured: 2103 of the 56808 points

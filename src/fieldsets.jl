@@ -172,15 +172,14 @@ function mhd_fields(::Type{T}, forest::Forest{D}; G::Integer=3,
         "the ghosted sets need G ≥ 2: the piecewise-linear reconstruction reads " *
         "two cells beyond a face, and the curl reads one edge beyond a stored face; " *
         "got G = $G. CODE.md's table reserves G = 3 for PPM, WENO-Z and MP5 (step 7)."))
-    fs(nvars, g, c; walls=:half_open) =
-        FieldSet{T}(forest, nvars; G=g, centering=c, backend=backend, walls=walls)
+    fs(nvars, g, c) = FieldSet{T}(forest, nvars; G=g, centering=c, backend=backend)
     vD = Val(D)
     U = fs(NU, G, cellcentered(D))
-    # The potentials with symmetric walls (AMR-8, TreeAMR 0.2.2): the fill
-    # writes the owned low wall of a vertex-like dimension at a low domain
-    # face by the high wall's rule, so a closed box is mirror-symmetric.
-    A = ntuple(j -> fs(1, G, edge_centering(vD, j); walls=:symmetric), 3)
-    Φ = fs(1, G, vertexcentered(D); walls=:symmetric)
+    # The potentials. A block owns both face planes of a vertex-like
+    # dimension (TreeAMR 0.3, closed blocks), so a closed box is
+    # mirror-symmetric without AMR-8's symmetric walls.
+    A = ntuple(j -> fs(1, G, edge_centering(vD, j)), 3)
+    Φ = fs(1, G, vertexcentered(D))
     P = fs(NP, G, cellcentered(D))
     W = fs(NW, G, cellcentered(D))
     B = ntuple(d -> fs(1, G, face_centering(vD, d)), 3)

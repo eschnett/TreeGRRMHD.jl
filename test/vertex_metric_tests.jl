@@ -83,12 +83,14 @@ vm_fmt(d; f=v -> round(v; digits=2)) =
                                     (:K, :all)))
     @test rates[(:vertex, :all)] > 5.5
     @test fb1 == fb2 == (; cells=0, faces=0, edges=0, vertices=0)
-    # The owned vertices, bit for bit.
+    # The own vertices, bit for bit: the closed box, positions as the kernels form
+    # them (`block_corners`, TreeAMR's `nodeposition`).
     Φ = f.Φ
     G = Φ.G
     N = Φ.forest.N
-    o, h = block_origins(Φ.forest, Float64), block_spacings(Φ.forest, Float64)
-    same = all(Iterators.product(1:N, 1:N, 1:N, axes(Φ.work, 5))) do (i, j, k, b)
+    o, h = VM.block_corners(Φ.forest, Float64), block_spacings(Φ.forest, Float64)
+    M = N + 1
+    same = all(Iterators.product(1:M, 1:M, 1:M, axes(Φ.work, 5))) do (i, j, k, b)
         x = VM.point_x(o[b], h[b], (i, j, k), Val((1, 1, 1)))
         m1 = point_metric(prov, 0.0, x, Val((1, 1, 1)), (i, j, k), b)
         m0 = point_metric(provider, 0.0, x)

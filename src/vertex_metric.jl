@@ -94,7 +94,7 @@ function VertexMetricSet(::Type{T}, forest::Forest{D}; boundary, G::Integer=4,
     M = FieldSet{T}(forest, NM; G=G, centering=vertexcentered(3), backend=backend)
     M.work .= T(NaN)
     schedule = GhostSchedule(M, ops)
-    origins = to_backend(backend, block_origins(forest, T))
+    origins = to_backend(backend, block_corners(forest, T))
     spacings = to_backend(backend, block_spacings(forest, T))
     return VertexMetricSet(M, schedule, ops, origins, spacings, boundary)
 end
@@ -113,7 +113,7 @@ function rebuild(vm::VertexMetricSet)
     backend = get_backend(vm.M.work)
     forest = vm.M.forest
     return VertexMetricSet(vm.M, GhostSchedule(vm.M, vm.ops), vm.ops,
-                           to_backend(backend, block_origins(forest, T)),
+                           to_backend(backend, block_corners(forest, T)),
                            to_backend(backend, block_spacings(forest, T)), vm.boundary)
 end
 

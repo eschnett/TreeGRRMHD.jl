@@ -121,7 +121,7 @@ export clear_tally!, ohm_tally, max_light_rate, conserved_totals, conserved_scal
        with_step_cache
 # The driver and the cases
 export MHDCase, recovery_options, exact_state, l1_errors, mhd_integrator, evolve!,
-       DirichletBoundary, case_boundary, profile_1d, walls_to_state!
+       DirichletBoundary, case_boundary, profile_1d
 # Refinement
 export mhd_flags, indicator_scales, regrid_state!
 # Curved backgrounds (step 9)
