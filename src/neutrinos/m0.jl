@@ -90,6 +90,22 @@ recovery; the mean energy `𝓔/(χN)` is the same before and after.
 end
 
 """
+    m0_absorbed_fraction(κ, kt, γΔt) -> a
+
+The share of `N★` and of `𝓔★` the implicit stage absorbs, `a = x/(1 + x)`
+with `x = γΔt κ/kᵗ`, so that the matter gains `a N★` and `a 𝓔★`: the
+same numbers as `γΔt (κ/kᵗ) N` at the solved `N` of [`m0_absorption`](@ref),
+written so that it stays in `[0, 1]` for every `κ`, `κ = Inf` included
+("In the time integrator" in `CODE.md`: where `N` and `𝓔` both vanish their
+ratio `E` is noise, `κ^eff ∝ E²` can overflow, and `κ N` was `Inf·0`). Zero
+where `κ` is, a branch.
+"""
+@inline function m0_absorbed_fraction(κ::T, kt::T, γΔt::T) where {T}
+    iszero(κ) && return zero(T)
+    return inv(1 + kt / (γΔt * κ))
+end
+
+"""
     m0_absorption_opacity(r::SpeciesRates, τ0, N, 𝓔, χ) -> κ^eff
 
 `κ^eff = e^{−τ⁰} (E/E^β)² κ⁰_a` at the free-streaming mean energy `E` of
@@ -377,11 +393,13 @@ end
 # The implicit stage's absorption at an owned cell: closed-form, with κ^eff,
 # kᵗ and χ from the cell's latest recovery (`P`) and the frozen τ, the mean
 # energy from u★ ("Neutrinos", "In the time integrator" in `CODE.md`). With
-# feedback, the matter's share from the solved N and 𝓔, the same numbers the
-# neutrinos lose: `√γ D Yₑ` gains `(κ_{ν_e} N_{ν_e} − κ_{ν̄_e} N_{ν̄_e})/kᵗ`, and
-# `G^μ = Σ κ n E k^μ` with `√−g n E = 𝓔/(χ kᵗ)` enters `√γ τ` as
-# `α Σ κ 𝓔/χ` and `√γ S_j` as `Σ κ 𝓔 k_j/(χ kᵗ)`, times `γΔt`, into `U` and
-# into the shifted u★ Ohm's solve then reads (`Sh`, a copy of u★'s matter).
+# feedback, the matter's share is what the neutrinos lose, the absorbed
+# amounts `a N★` and `a 𝓔★` (`m0_absorbed_fraction`; `γΔt κ N/kᵗ` and
+# `γΔt κ 𝓔/kᵗ` at the solved N, 𝓔, but finite for κ = Inf): `√γ D Yₑ` gains
+# `a N★` of ν_e less that of ν̄_e, and `G^μ = Σ κ n E k^μ` with
+# `√−g n E = 𝓔/(χ kᵗ)` enters `√γ τ` as `α kᵗ Σ a 𝓔★/χ` and `√γ S_j` as
+# `Σ a 𝓔★ k_j/χ`, into `U` and into the shifted u★ Ohm's solve then reads
+# (`Sh`, a copy of u★'s matter).
 @kernel function m0_absorb_kernel!(Uw, @Const(Sw), UU, Sh, @Const(Pw), Tw, @Const(origins),
                                    @Const(spacings), model, center, r_core, γΔt, ::Val{D},
                                    ::Val{GP}, ::Val{GT}) where {D,GP,GT}
@@ -397,8 +415,8 @@ end
     r = cell_rates(model, Pc)
     on = sources_on(Pc)
     tc = ntuple(e -> n[e] + GT, Val(D))
-    dYe = zero(T)
-    κ𝓔 = zero(T)
+    ΔYe = zero(T)                    # absorbed N of ν_e less ν̄_e
+    Δ𝓔 = zero(T)                     # absorbed 𝓔, the three
     for i in 1:3
         τ0, _ = cell_depth(Tw, tc, b, i, T)
         N★ = @inbounds Sw[n..., nu_N(i), b]
@@ -407,20 +425,20 @@ end
         N, 𝓔 = m0_absorption(N★, 𝓔★, κ, cl.kt, oftype(h, γΔt))
         @inbounds Uw[n..., nu_N(i), b] = N
         @inbounds Uw[n..., nu_E(i), b] = 𝓔
-        i == 1 && (dYe += κ * N / cl.kt)
-        i == 2 && (dYe -= κ * N / cl.kt)
-        κ𝓔 += κ * 𝓔
+        a = m0_absorbed_fraction(κ, cl.kt, oftype(h, γΔt))
+        i == 1 && (ΔYe += a * N★)
+        i == 2 && (ΔYe -= a * N★)
+        Δ𝓔 += a * 𝓔★
     end
     # A branch, not a product with zero: SSP3(4,3,3)'s first stage is implicit,
     # so a run's first stage solve can come before any right-hand side has
     # filled `P`, whose zeros make the closure not finite; κ is zero there, and
     # the product was NaN (step 19, found by the reset's NONFINITE flags).
-    if UU !== nothing && !(iszero(dYe) && iszero(κ𝓔))
-        g = oftype(h, γΔt)
+    if UU !== nothing && !(iszero(ΔYe) && iszero(Δ𝓔))
         k = cl.kt * cl.v
         kl = lower(m, k) + cl.kt * lower(m, m.β)
-        Δ = (g * dYe, g * m.α * κ𝓔 / cl.χ, g * κ𝓔 * kl[1] / (cl.χ * cl.kt),
-             g * κ𝓔 * kl[2] / (cl.χ * cl.kt), g * κ𝓔 * kl[3] / (cl.χ * cl.kt))
+        Δ = (ΔYe, m.α * cl.kt * Δ𝓔 / cl.χ, Δ𝓔 * kl[1] / cl.χ, Δ𝓔 * kl[2] / cl.χ,
+             Δ𝓔 * kl[3] / cl.χ)
         slots = (U_DYE, U_TAU, U_S, U_S + 1, U_S + 2)
         for j in 1:5
             @inbounds UU[n..., slots[j], b] += Δ[j]

@@ -1,0 +1,50 @@
+# What heats the cold DD2 star ("Open questions" in `CODE.md`; rung 8g): the cold star of
+# `jobs/neutrino-star.toml` (`[−24, 24]³`, four roots, one box level) with the matter alone
+# (`neutrinos=false`) at `h = 0.75, 0.5, 0.375`, MC; at `h = 0.5` also with PPM and WENO-Z,
+# and with neutrinos for the same profiles; and the hot star (`s = 1`) with the matter
+# alone. Each samples the central temperature every M and writes radial profiles of
+# `ρ★`, `T`, `Yₑ`, `s` every 10 M (`profile.txt`). The two `h = 0.5` MC runs go to 200 M.
+# Without neutrinos a step costs about 1/1.26 of one with them, so the longest run (the
+# cold star with neutrinos at `h = 0.5` to 200 M) takes about 31 minutes, from the 915 s
+# per 100 M of job 614161. `cold-nu-h0.375-probe` repeats job 614162, whose reset tally of
+# `√γ D Yₑ` came out NaN, with `nanprobe` (about 45 minutes). Submit each run as a job of
+# its own (`--run <label>`).
+name = "neutrino-star-heating"
+threads = 64
+pin = false
+vars = { ENTROPYEOS_TABLE_DIR = "/mnt/beegfs/eschnetter/EOS" }
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "cold-nonu-h0.75"
+cmd = "bin/neutrino_star.jl neutrinos=false N=8 t_end=100 out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nonu-h0.5"
+cmd = "bin/neutrino_star.jl neutrinos=false N=12 t_end=200 out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nonu-h0.375"
+cmd = "bin/neutrino_star.jl neutrinos=false N=16 t_end=100 out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nu-h0.5"
+cmd = "bin/neutrino_star.jl N=12 t_end=200 r_L=16 width=4 out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nonu-h0.5-ppm"
+cmd = "bin/neutrino_star.jl neutrinos=false N=12 t_end=100 limiter=ppm out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nonu-h0.5-wenoz"
+cmd = "bin/neutrino_star.jl neutrinos=false N=12 t_end=100 limiter=wenoz out=series.txt profile=profile.txt"
+
+[[run]]
+label = "hot-nonu-h0.5"
+cmd = "bin/neutrino_star.jl neutrinos=false s=1 N=12 t_end=100 out=series.txt profile=profile.txt"
+
+[[run]]
+label = "cold-nu-h0.375-probe"
+cmd = "bin/neutrino_star.jl N=16 t_end=100 r_L=16 width=4 nanprobe=true out=series.txt"

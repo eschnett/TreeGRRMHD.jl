@@ -1276,6 +1276,40 @@ perturbed cold star; the suite's runs short at `h = 1`, the long ones `bin/` stu
   the hot star with neutrinos as the host does (470 of 470); a step with neutrinos costs
   1.18 times one without at 64 threads on M1. Erik had the results recorded before the
   heating is investigated.
+- **What heats the cold star** (2026-11-27; `bin/neutrino_star.jl` gained `neutrinos=false`,
+  radial `profile`s and `nanprobe`; `jobs/neutrino-star-heating.toml`, studies
+  `cold-star-heating` and `cold-star-nan`, jobs 615769–615785 and 615802). The matter
+  scheme alone: without neutrinos the central temperature follows the same curve (3.31 →
+  7.06 → 7.22 MeV at 0, 50, 100 M at `h = 0.75`, against 7.17 with them; 6.90 against
+  6.91 at 200 M at `h = 0.5`). The profiles put most of the heat in the outer layers, with
+  MC, PPM and WENO-Z alike, and the centre's in MC's clipping, which WENO-Z does not do;
+  the numbers are in `CODE.md`, rung 8g. In the middle layers MC even lowered the entropy
+  (`s` 0.09 → 0.03 at `r = 3.75`, `h = 0.5`), numerical as the heating is. WENO-Z's
+  lepton number net of the reset, −1.2·10⁻⁶, looked like a conservation error and was its
+  surface wind leaving through the box's faces.
+- **The literature** (a survey, its citations not all checked against the papers):
+  surface heating of isolated stars is generic. Galeazzi, Kastaun, Rezzolla & Font 2013
+  (PRD 88, 064009, Sec. VI A) saw spurious standing shocks heat a cold LS220 star's
+  surface (PPM, HLLE, Cowling) and its leakage luminosity, and evolve cold stars without
+  leakage; Gittins et al. 2025 (PRD 111, 023049) report 1–4 MeV in isolated DD2 stars in
+  WhiskyTHC, more for a moving star, with no remedy yet; Radice et al. 2022 (MNRAS 512,
+  1499) surfaces above 10 MeV in the inspiral and an artificially large luminosity before
+  merger, less at higher resolution; Kiuchi et al. 2022 (PRD 106, 124041) blame HLLE's
+  smearing of the surface and use HLLC; entropy-limited fluxes (Guercilena, Radice &
+  Rezzolla 2017; Doulis et al. 2022) and well-balanced schemes (Gaburro, Castro & Dumbser
+  2021) are the remedies in print. WhiskyTHC's M0 is switched on only near merger, and
+  evolves the mean energy rather than `𝓔` (Radice et al. 2016, App. A; 2018, Eq. 9).
+- **The NaN in the reset's tally** was M0's. `nanprobe` found it at `t = 0.57`, in 24
+  cells at the surface on the axes, `√γ τ` and `√γ D Yₑ` not finite and `√γ D` finite,
+  and the laptop reproduced it step for step: at the ν_e front MC limits `N` and `𝓔`
+  apart, one cell received `𝓔 = 1.1e−15` and no `N` beyond its own emission
+  (`7.5e−182`), `κ^eff ∝ E²` overflowed, and `κ N` was `Inf·0`. The matter's share is
+  now the absorbed amounts `a N★`, `a 𝓔★`, the same numbers and finite for every `κ`
+  (`CODE.md`, "In the time integrator"), and the reproduction's tally stays finite, as
+  does the whole run repeated on Symmetry (study `cold-star-nan-fixed`, job 615848, 100 M,
+  no `nanprobe` report; its luminosities at 100 M within 0.3–1% of job 614162's). Erik
+  chose the fix and left bounding `E` open. The rates themselves were finite at every
+  state tried, 24 057 of them, off the table included.
 
 ## Goals
 
@@ -7374,3 +7408,11 @@ cn103, EPYC 7543, `amddebugq`; study `full-suite-8697f7b07b08`, not posted) — 
 thread, 29m26s at four, 55m29s with `--check-bounds=yes`, side by side: the bounds-checked
 run is within five minutes of `amddebugq`'s hour on Zen 3. The step-20 testsets gave the
 laptop's numbers on x86 (the stars' totals and central temperatures to every printed digit).
+
+**2026-11-27, step 20, M0's absorbed amounts.** On 993e993 with the uncommitted fix of the
+reset's NaN (M0's absorbed share, the opacity's underflow branch, their testset) and the
+heating study's script keys: **38765 tests, every run passing whole** with the tables
+(Symmetry job 615902 on cn095, EPYC 7543, `amddebugq`; study `step20-absorb-suite`, from
+the working tree, not posted) — 38m16s at one thread, 26m31s at four, 48m31s with
+`--check-bounds=yes`, side by side; 11 tests more than at 8697f7b, 8 of them the new
+testset's.

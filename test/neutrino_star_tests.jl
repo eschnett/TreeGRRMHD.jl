@@ -224,6 +224,39 @@ function ns_star_numbers(r)
             E=nt[2] + nt[4] + nt[6], floors=sum(c -> c.tally.s_floors, r.chunks))
 end
 
+# Where a species' free-streaming field begins, `N` and `𝓔` both vanish and M0's MC
+# limits them apart, so their ratio is noise: on DD2's cold star at `h = 0.375` (step 20)
+# one cell held `N = 7.5e−182` and `𝓔 = 1.1e−15`, a mean energy of 1.8e166 `m★c²`;
+# `κ^eff ∝ E²` overflowed, the solved `N` was 0, and the matter's share `γΔt κ N/kᵗ` was
+# `Inf·0`, a NaN in `√γ D Yₑ` and `√γ τ` that the reset then replaced ("In the time
+# integrator" in `CODE.md`). Guards the absorbed share's form, `a N★`: finite for every
+# `κ`, and the old form's value wherever that was finite; and the opacity's branch where
+# `e^{−τ⁰}` underflows under an overflowed `E`.
+@testset "M0's absorbed share is finite where the mean energy overflows, and unchanged elsewhere" begin
+    r = NS.SpeciesRates{Float64}(4.8e-34, 6.2e-38, 1.58e-19, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                 1.771e-4)
+    N★, 𝓔★, χ, kt, γΔt = 7.458e-182, 1.134e-15, 0.833, 1.198, 0.01381
+    κ = NS.m0_absorption_opacity(r, 1.2e-8, N★, 𝓔★, χ)
+    @test κ == Inf
+    N, 𝓔 = NS.m0_absorption(N★, 𝓔★, κ, kt, γΔt)
+    @test (N, 𝓔) == (0.0, 0.0)
+    @test isnan(γΔt * κ * N / kt)                    # the old form
+    a = NS.m0_absorbed_fraction(κ, kt, γΔt)
+    @test a == 1                                     # all of it, a N★ = N★, a 𝓔★ = 𝓔★
+    @test NS.m0_absorbed_fraction(0.0, kt, γΔt) == 0
+    worst = 0.0
+    for κ in (1e-9, 1e-3, 0.3, 1.0, 50.0, 1e9), kt in (1.0, 1.7), γΔt in (1e-3, 0.2)
+        N★, 𝓔★ = 2.0, 0.03
+        N, 𝓔 = NS.m0_absorption(N★, 𝓔★, κ, kt, γΔt)
+        a = NS.m0_absorbed_fraction(κ, kt, γΔt)
+        worst = max(worst, abs(a * N★ - γΔt * κ * N / kt) / N★,
+                    abs(a * 𝓔★ - γΔt * κ * 𝓔 / kt) / 𝓔★, abs(N + a * N★ - N★) / N★)
+    end
+    @test worst < 4e-16
+    @test NS.absorption_opacity(r, 1000.0, Inf) == 0
+    @test NS.absorption_opacity(r, 1000.0, 1e-3) == 0
+end
+
 @dd2_gated @testset "DD2's cold star with neutrinos conserves lepton number, and emits only what the mesh heats" begin
     # Guards the tabulated rates in the scheme on the star: lepton number, matter plus
     # neutrinos, conserved to round-off net of the reset (nothing reaches the outer
